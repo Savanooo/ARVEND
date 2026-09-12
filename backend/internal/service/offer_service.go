@@ -36,13 +36,6 @@ func NewOfferService(pool *pgxpool.Pool, q *sqlc.Queries, settingsSvc *SettingsS
 	return &OfferService{pool: pool, q: q, settingsSvc: settingsSvc, frontendURL: frontendURL, SendMailFunc: mailer.Send}
 }
 
-// logEvent, offer_events'e değişmez bir denetim kaydı yazar. Durum
-// değiştiren akışlarda (Create/Update/Revise/UpdateStatus/...) çağıran,
-// AYNI transaction'ın q'sunu (txq) geçirmelidir -- böylece olay kaydı,
-// tetikleyen durum değişikliğiyle atomik olur: ya ikisi de commit olur ya
-// hiçbiri (audit log'un "state değişti ama kaydı yok" durumuna düşmemesi
-// için). Salt-okunur genel uçlardaki (customer_viewed gibi) tek istisna
-// için çağıran hatayı bilerek yutabilir.
 // truncateRunes, bir metni en fazla max KARAKTERE kısaltır (Postgres
 // varchar(n) sınırı da karakter cinsindendir; bayt cinsinden kesmek çok
 // baytlı bir karakteri ortadan bölerdi).
@@ -54,7 +47,16 @@ func truncateRunes(s string, max int) string {
 	return string(r[:max])
 }
 
-func (s *OfferService) logEvent(ctx context.Context, q *sqlc.Queries, orgID, offerID, revisionID pgtype.UUID, eventType string, userID pgtype.UUID, metadata map[string]any, ip, userAgent string) error {
+// logOfferEvent, offer_events'e değişmez bir denetim kaydı yazar. Durum
+// değiştiren akışlarda (Create/Update/Revise/UpdateStatus/...) çağıran,
+// AYNI transaction'ın q'sunu (txq) geçirmelidir -- böylece olay kaydı,
+// tetikleyen durum değişikliğiyle atomik olur: ya ikisi de commit olur ya
+// hiçbiri (audit log'un "state değişti ama kaydı yok" durumuna düşmemesi
+// için). Salt-okunur genel uçlardaki (customer_viewed gibi) tek istisna
+// için çağıran hatayı bilerek yutabilir. Paket düzeyinde bir fonksiyondur
+// (OfferService metodu değil), çünkü ProjectService de teklifin zaman
+// çizelgesine project_created olayını yazar.
+func logOfferEvent(ctx context.Context, q *sqlc.Queries, orgID, offerID, revisionID pgtype.UUID, eventType string, userID pgtype.UUID, metadata map[string]any, ip, userAgent string) error {
 	// ip/user_agent tamamen istemcinin (ya da aradaki proxy'lerin) kontrol
 	// ettiği başlıklardan gelir ve kolonlardan uzun olabilir. Kolon sınırını
 	// aşan bir değer INSERT'i patlatır; RespondByShareLinkToken'da olay
@@ -316,7 +318,7 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 		return nil, err
 	}
 
-	if err := s.logEvent(ctx, txq, orgID, offerRow.ID, revRow.ID, domain.EventOfferCreated, createdBy, nil, "", ""); err != nil {
+	if err := logOfferEvent(ctx, txq, orgID, offerRow.ID, revRow.ID, domain.EventOfferCreated, createdBy, nil, "", ""); err != nil {
 		return nil, err
 	}
 
@@ -522,7 +524,7 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 			actorID = u
 		}
 	}
-	if err := s.logEvent(ctx, txq, orgID, offerRow.ID, offerRow.CurrentRevisionID, domain.EventOfferUpdated, actorID, nil, "", ""); err != nil {
+	if err := logOfferEvent(ctx, txq, orgID, offerRow.ID, offerRow.CurrentRevisionID, domain.EventOfferUpdated, actorID, nil, "", ""); err != nil {
 		return nil, err
 	}
 
@@ -548,6 +550,13 @@ var ErrOfferLocked = errors.New("kabul edilmiş teklif/revizyon durumu değişti
 // hâlâ aktif olan paylaşım bağlantıları otomatik iptal edilir (bkz. dosya
 // başı Faz 4 notu): "yeni revizyon müşteriye gönderildiğinde önceki
 // revizyona ait aktif linkler iptal edilir".
+//
+// Revise/RespondByShareLinkToken ile AYNI advisory lock'u alır ve teklifi
+// kilit altında TAZE okur. Kilitsiz okumak, bu metodu senkronize edilmemiş
+// tek yazar yapardı ve iki ciddi soruna yol açardı: (1) müşterinin tam o
+// sırada commit ettiği kabulü sessizce ezip ErrOfferLocked güvencesini
+// delmek, (2) eşzamanlı bir Revise'dan sonra current_revision_id'yi GERİYE
+// alıp eski bir paylaşım linkini yeniden karar verilebilir hale getirmek.
 func (s *OfferService) UpdateStatus(ctx context.Context, id, organizationID, status, userID string) (*domain.Offer, error) {
 	if !domain.ValidOfferStatus(status) {
 		return nil, errors.New("geçersiz durum")
@@ -560,20 +569,6 @@ func (s *OfferService) UpdateStatus(ctx context.Context, id, organizationID, sta
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	offerRow, err := s.q.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
-		return nil, err
-	}
-	// Kabul edilmiş bir teklifin durumu (dolayısıyla revizyonu) bir daha
-	// değiştirilemez -- "kabul edilen revizyon sonradan overwrite
-	// edilmez" kuralının durum boyutu.
-	if offerRow.Status == domain.OfferStatusKabulEdildi {
-		return nil, ErrOfferLocked
-	}
-	previousStatus := offerRow.Status
 
 	var actorID pgtype.UUID
 	if userID != "" {
@@ -588,6 +583,25 @@ func (s *OfferService) UpdateStatus(ctx context.Context, id, organizationID, sta
 	}
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
+
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", uid.String()); err != nil {
+		return nil, err
+	}
+
+	offerRow, err := txq.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	// Kabul edilmiş bir teklifin durumu (dolayısıyla revizyonu) bir daha
+	// değiştirilemez -- "kabul edilen revizyon sonradan overwrite
+	// edilmez" kuralının durum boyutu.
+	if offerRow.Status == domain.OfferStatusKabulEdildi {
+		return nil, ErrOfferLocked
+	}
+	previousStatus := offerRow.Status
 
 	updatedRev, err := txq.UpdateOfferRevisionStatus(ctx, sqlc.UpdateOfferRevisionStatusParams{
 		ID: offerRow.CurrentRevisionID, OrganizationID: orgID, Status: status,
@@ -615,13 +629,13 @@ func (s *OfferService) UpdateStatus(ctx context.Context, id, organizationID, sta
 			return nil, err
 		}
 		for _, link := range revokedLinks {
-			if err := s.logEvent(ctx, txq, orgID, offerRow.ID, link.RevisionID, domain.EventShareLinkRevoked, actorID,
+			if err := logOfferEvent(ctx, txq, orgID, offerRow.ID, link.RevisionID, domain.EventShareLinkRevoked, actorID,
 				map[string]any{"reason": "revision_sent", "link_id": link.ID.String()}, "", ""); err != nil {
 				return nil, err
 			}
 		}
 	}
-	if err := s.logEvent(ctx, txq, orgID, offerRow.ID, offerRow.CurrentRevisionID, eventType, actorID, nil, "", ""); err != nil {
+	if err := logOfferEvent(ctx, txq, orgID, offerRow.ID, offerRow.CurrentRevisionID, eventType, actorID, nil, "", ""); err != nil {
 		return nil, err
 	}
 
@@ -683,7 +697,7 @@ func (s *OfferService) TogglePassive(ctx context.Context, id, organizationID, us
 				actorID = u
 			}
 		}
-		if err := s.logEvent(ctx, txq, orgID, uid, row.CurrentRevisionID, domain.EventOfferCancelled, actorID, nil, "", ""); err != nil {
+		if err := logOfferEvent(ctx, txq, orgID, uid, row.CurrentRevisionID, domain.EventOfferCancelled, actorID, nil, "", ""); err != nil {
 			return err
 		}
 	}
@@ -799,7 +813,7 @@ func (s *OfferService) Revise(ctx context.Context, id, organizationID, userID st
 		return nil, err
 	}
 
-	if err := s.logEvent(ctx, txq, orgID, offerRow.ID, newRev.ID, domain.EventRevisionCreated, createdBy, nil, "", ""); err != nil {
+	if err := logOfferEvent(ctx, txq, orgID, offerRow.ID, newRev.ID, domain.EventRevisionCreated, createdBy, nil, "", ""); err != nil {
 		return nil, err
 	}
 
@@ -931,7 +945,7 @@ func (s *OfferService) CreateShareLink(ctx context.Context, offerID, organizatio
 		return nil, err
 	}
 
-	if err := s.logEvent(ctx, txq, orgID, offerRow.ID, link.RevisionID, domain.EventShareLinkCreated, createdBy, nil, "", ""); err != nil {
+	if err := logOfferEvent(ctx, txq, orgID, offerRow.ID, link.RevisionID, domain.EventShareLinkCreated, createdBy, nil, "", ""); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1000,7 +1014,7 @@ func (s *OfferService) RevokeShareLink(ctx context.Context, linkID, organization
 			actorID = u
 		}
 	}
-	if err := s.logEvent(ctx, txq, orgID, link.OfferID, link.RevisionID, domain.EventShareLinkRevoked, actorID,
+	if err := logOfferEvent(ctx, txq, orgID, link.OfferID, link.RevisionID, domain.EventShareLinkRevoked, actorID,
 		map[string]any{"reason": "manual"}, "", ""); err != nil {
 		return err
 	}
@@ -1041,28 +1055,37 @@ func (s *OfferService) resolveActiveShareLink(ctx context.Context, q *sqlc.Queri
 // RespondByShareLinkToken). Her başarılı çağrı bir customer_viewed olayı
 // üretir; bu kayıt best-effort'tur (bir insert hatası müşterinin teklifi
 // görmesini engellemez).
-func (s *OfferService) GetByShareLinkToken(ctx context.Context, token, ip, userAgent string) (*domain.Offer, error) {
+// Dönen ikinci değer (canRespond), müşterinin bu bağlantı üzerinden
+// kabul/red YAPABİLİR olup olmadığıdır: bağlı revizyon hâlâ teklifin
+// güncel revizyonu olmalı VE "gönderildi" durumunda bulunmalıdır --
+// RespondByShareLinkToken'ın uyguladığı kuralların aynısı. Frontend
+// kabul/red butonlarını buna göre gösterir; aksi halde müşteriye asla
+// başarılı olamayacak bir buton gösterilmiş olurdu (karar zaten
+// verilmişse ya da yeni bir revizyon gönderilmişse).
+func (s *OfferService) GetByShareLinkToken(ctx context.Context, token, ip, userAgent string) (*domain.Offer, bool, error) {
 	link, err := s.resolveActiveShareLink(ctx, s.q, token)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	offerRow, err := s.q.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: link.OfferID, OrganizationID: link.OrganizationID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
+			return nil, false, domain.ErrNotFound
 		}
-		return nil, err
+		return nil, false, err
 	}
 	revRow, err := s.q.GetOfferRevisionByID(ctx, sqlc.GetOfferRevisionByIDParams{ID: link.RevisionID, OrganizationID: link.OrganizationID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
+			return nil, false, domain.ErrNotFound
 		}
-		return nil, err
+		return nil, false, err
 	}
+	canRespond := offerRow.CurrentRevisionID.String() == link.RevisionID.String() &&
+		revRow.Status == domain.OfferStatusGonderildi
 	itemRows, err := s.q.ListOfferRevisionItems(ctx, revRow.ID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	items := make([]domain.OfferItem, len(itemRows))
 	for i, r := range itemRows {
@@ -1076,11 +1099,11 @@ func (s *OfferService) GetByShareLinkToken(ctx context.Context, token, ip, userA
 	rev := repository.ToDomainOfferRevision(revRow)
 	offer := repository.MergeOfferRevision(base, rev, items)
 
-	if err := s.logEvent(ctx, s.q, link.OrganizationID, link.OfferID, link.RevisionID, domain.EventCustomerViewed,
+	if err := logOfferEvent(ctx, s.q, link.OrganizationID, link.OfferID, link.RevisionID, domain.EventCustomerViewed,
 		pgtype.UUID{}, nil, ip, userAgent); err != nil {
 		log.Printf("customer_viewed olayı yazılamadı: %v", err)
 	}
-	return &offer, nil
+	return &offer, canRespond, nil
 }
 
 // RespondByShareLinkToken, müşterinin paylaşım linkinden teklifi kabul/red
@@ -1175,7 +1198,7 @@ func (s *OfferService) RespondByShareLinkToken(ctx context.Context, token, decis
 	if decision == domain.OfferStatusReddedildi {
 		eventType = domain.EventCustomerRejected
 	}
-	if err := s.logEvent(ctx, txq, link.OrganizationID, link.OfferID, link.RevisionID, eventType, pgtype.UUID{}, nil, ip, userAgent); err != nil {
+	if err := logOfferEvent(ctx, txq, link.OrganizationID, link.OfferID, link.RevisionID, eventType, pgtype.UUID{}, nil, ip, userAgent); err != nil {
 		return nil, err
 	}
 
@@ -1288,6 +1311,13 @@ func (s *OfferService) SendOfferEmail(ctx context.Context, offerID, organization
 	if to == "" {
 		return nil, errors.New("alıcı e-posta adresi belirtilmedi")
 	}
+	// offer_email_logs.recipient varchar(255): mail GÖNDERİLDİKTEN sonra
+	// log yazımının patlamaması için sınırı baştan uygulayalım. Adresi
+	// sessizce kısaltmak yanlış alıcıya göndermek demek olurdu, bu yüzden
+	// kısaltmak yerine reddediyoruz.
+	if len([]rune(to)) > 255 {
+		return nil, errors.New("alıcı e-posta adresi çok uzun")
+	}
 
 	link, err := s.getOrCreateActiveShareLink(ctx, offer.ID, organizationID, offer.CurrentRevisionID, userID)
 	if err != nil {
@@ -1298,6 +1328,7 @@ func (s *OfferService) SendOfferEmail(ctx context.Context, offerID, organization
 	if subject == "" {
 		subject = "Teklifiniz: " + offer.OfferNo
 	}
+	subject = truncateRunes(subject, 300) // offer_email_logs.subject varchar(300)
 	shareURL := s.frontendURL + "/paylas/" + link.Token
 	body := in.Message
 	if body == "" {
@@ -1315,7 +1346,11 @@ func (s *OfferService) SendOfferEmail(ctx context.Context, offerID, organization
 
 	orgID, _ := repository.StringToUUID(organizationID)
 	offerUUID, _ := repository.StringToUUID(offer.ID)
-	revUUID, _ := repository.StringToUUID(offer.CurrentRevisionID)
+	// Log/olay, GERÇEKTE gönderilen linkin bağlı olduğu revizyona yazılır.
+	// offer.CurrentRevisionID ile aynı olması beklenir, ama araya eşzamanlı
+	// bir "Revize Et" girdiyse ikisi ayrışabilir; müşteriye hangi revizyonun
+	// linki gittiyse kayıt onu göstermeli.
+	revUUID, _ := repository.StringToUUID(link.RevisionID)
 	linkUUID, _ := repository.StringToUUID(link.ID)
 	var sentBy pgtype.UUID
 	if userID != "" {
@@ -1342,7 +1377,7 @@ func (s *OfferService) SendOfferEmail(ctx context.Context, offerID, organization
 	}); err != nil {
 		return nil, err
 	}
-	if err := s.logEvent(ctx, txq, orgID, offerUUID, revUUID, eventType, sentBy, nil, "", ""); err != nil {
+	if err := logOfferEvent(ctx, txq, orgID, offerUUID, revUUID, eventType, sentBy, nil, "", ""); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {

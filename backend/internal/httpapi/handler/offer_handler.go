@@ -533,6 +533,8 @@ func (h *OfferHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrOfferLocked),
 		errors.Is(err, service.ErrOfferNotRevisable):
 		httpjson.Error(w, http.StatusConflict, err.Error())
+	case isInternalError(err):
+		writeInternalError(w, err)
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}

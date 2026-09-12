@@ -44,13 +44,24 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
+// publicOfferResponse, teklifin genel görünümüne "bu bağlantı üzerinden
+// şu an karar verilebilir mi?" bilgisini ekler -- müşteriye asla başarılı
+// olamayacak bir Kabul Et/Reddet butonu gösterilmemesi için.
+type publicOfferResponse struct {
+	offerResponse
+	CanRespond bool `json:"can_respond"`
+}
+
 func (h *PublicOfferHandler) Get(w http.ResponseWriter, r *http.Request) {
-	o, err := h.svc.GetByShareLinkToken(r.Context(), chi.URLParam(r, "token"), clientIP(r), r.UserAgent())
+	o, canRespond, err := h.svc.GetByShareLinkToken(r.Context(), chi.URLParam(r, "token"), clientIP(r), r.UserAgent())
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toOfferResponse(*o))
+	httpjson.Write(w, http.StatusOK, publicOfferResponse{
+		offerResponse: toOfferResponse(*o),
+		CanRespond:    canRespond,
+	})
 }
 
 type respondOfferRequest struct {
@@ -84,6 +95,8 @@ func (h *PublicOfferHandler) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, service.ErrOfferSuperseded),
 		errors.Is(err, service.ErrOfferNotRespondable):
 		httpjson.Error(w, http.StatusConflict, err.Error())
+	case isInternalError(err):
+		writeInternalError(w, err)
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}

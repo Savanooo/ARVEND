@@ -104,6 +104,11 @@ export function ShareOfferCard({
       router.refresh();
     } catch (err) {
       setMessage(err instanceof ApiError ? err.message : "Bağlantı hatası");
+      // Gönderim başarısız olsa bile sunucu tarafında kalıcı kayıtlar
+      // oluşmuş olabilir (paylaşım linki ve "başarısız" mail logu), bu
+      // yüzden hata durumunda da tazeliyoruz -- aksi halde ekran
+      // gerçekte var olan bir linki yokmuş gibi gösterirdi.
+      router.refresh();
     } finally {
       setSending(false);
     }

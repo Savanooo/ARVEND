@@ -15,11 +15,18 @@ const STATUS_TONE: Record<OfferStatus, "success" | "gold" | "danger" | "muted"> 
   reddedildi: "danger",
 };
 
-type FetchResult = { offer: Offer; error: null } | { offer: null; error: ApiError };
+// can_respond, backend'in "bu bağlantı üzerinden ŞU AN karar verilebilir
+// mi?" cevabıdır (bağlı revizyon hâlâ güncel VE gönderildi durumunda mı).
+// Kabul/Reddet butonları buna göre gösterilir -- teklifin durumuna bakmak
+// yetmez, çünkü gösterilen durum linkin bağlı olduğu (donmuş) revizyonun
+// durumudur.
+type PublicOffer = Offer & { can_respond: boolean };
+
+type FetchResult = { offer: PublicOffer; error: null } | { offer: null; error: ApiError };
 
 async function fetchOffer(token: string): Promise<FetchResult> {
   try {
-    return { offer: await apiServer<Offer>(`/api/v1/public/offers/${token}/`, ""), error: null };
+    return { offer: await apiServer<PublicOffer>(`/api/v1/public/offers/${token}/`, ""), error: null };
   } catch (err) {
     if (err instanceof ApiError) return { offer: null, error: err };
     throw err;
@@ -124,12 +131,18 @@ export default async function PaylasPage({
             </Card>
           )}
 
-          {offer.status === "gönderildi" && <RespondButtons token={token} />}
+          {offer.can_respond && <RespondButtons token={token} />}
           {offer.status === "kabul edildi" && (
             <p className="text-center text-sm text-success">Bu teklifi kabul ettiniz.</p>
           )}
           {offer.status === "reddedildi" && (
             <p className="text-center text-sm text-danger">Bu teklifi reddettiniz.</p>
+          )}
+          {!offer.can_respond && offer.status === "gönderildi" && (
+            <p className="text-center text-sm text-text-muted">
+              Bu teklif için daha güncel bir revizyon hazırlanmıştır; bu bağlantı üzerinden karar
+              verilemez. Lütfen size en son gönderilen bağlantıyı kullanın.
+            </p>
           )}
         </>
       )}

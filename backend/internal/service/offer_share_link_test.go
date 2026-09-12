@@ -72,7 +72,7 @@ func TestOfferShareLinksEventsAndEmail(t *testing.T) {
 		if err != nil {
 			t.Fatalf("link oluşturulamadı: %v", err)
 		}
-		before, err := offerSvc.GetByShareLinkToken(ctx, link0.Token, "", "")
+		before, _, err := offerSvc.GetByShareLinkToken(ctx, link0.Token, "", "")
 		if err != nil {
 			t.Fatalf("link görüntülenemedi: %v", err)
 		}
@@ -95,7 +95,7 @@ func TestOfferShareLinksEventsAndEmail(t *testing.T) {
 		// Yeni revizyon henüz GÖNDERİLMEDİ (Revise sonrası taslak) --
 		// dolayısıyla link0 henüz otomatik iptal edilmemiş olmalı, hâlâ
 		// eski (revizyon 0) içeriği görüntülenebilmeli, değişmemiş halde.
-		after, err := offerSvc.GetByShareLinkToken(ctx, link0.Token, "", "")
+		after, _, err := offerSvc.GetByShareLinkToken(ctx, link0.Token, "", "")
 		if err != nil {
 			t.Fatalf("link0 hâlâ görüntülenebilir olmalıydı: %v", err)
 		}
@@ -116,7 +116,7 @@ func TestOfferShareLinksEventsAndEmail(t *testing.T) {
 		if err := offerSvc.RevokeShareLink(ctx, link.ID, orgA.ID, ""); err != nil {
 			t.Fatalf("link iptal edilemedi: %v", err)
 		}
-		if _, err := offerSvc.GetByShareLinkToken(ctx, link.Token, "", ""); !errors.Is(err, service.ErrShareLinkRevoked) {
+		if _, _, err := offerSvc.GetByShareLinkToken(ctx, link.Token, "", ""); !errors.Is(err, service.ErrShareLinkRevoked) {
 			t.Errorf("iptal edilmiş link hâlâ görüntülenebildi: err=%v", err)
 		}
 		if _, err := offerSvc.RespondByShareLinkToken(ctx, link.Token, domain.OfferStatusKabulEdildi, "", ""); !errors.Is(err, service.ErrShareLinkRevoked) {
@@ -131,7 +131,7 @@ func TestOfferShareLinksEventsAndEmail(t *testing.T) {
 		if err != nil {
 			t.Fatalf("link oluşturulamadı: %v", err)
 		}
-		if _, err := offerSvc.GetByShareLinkToken(ctx, link.Token, "", ""); !errors.Is(err, service.ErrShareLinkExpired) {
+		if _, _, err := offerSvc.GetByShareLinkToken(ctx, link.Token, "", ""); !errors.Is(err, service.ErrShareLinkExpired) {
 			t.Errorf("süresi dolmuş link hâlâ görüntülenebildi: err=%v", err)
 		}
 		if _, err := offerSvc.RespondByShareLinkToken(ctx, link.Token, domain.OfferStatusKabulEdildi, "", ""); !errors.Is(err, service.ErrShareLinkExpired) {
@@ -191,7 +191,7 @@ func TestOfferShareLinksEventsAndEmail(t *testing.T) {
 		if err != nil {
 			t.Fatalf("liste alınamadı: %v", err)
 		}
-		if _, err := offerSvc.GetByShareLinkToken(ctx, link.Token, "203.0.113.5", "TestAgent/1.0"); err != nil {
+		if _, _, err := offerSvc.GetByShareLinkToken(ctx, link.Token, "203.0.113.5", "TestAgent/1.0"); err != nil {
 			t.Fatalf("link görüntülenemedi: %v", err)
 		}
 		after, err := offerSvc.ListEvents(ctx, o.ID, orgA.ID)
@@ -455,7 +455,7 @@ func TestOfferShareLinksEventsAndEmail(t *testing.T) {
 		longIP := "2a02:c7f:8e0a:ef00:1c4c:1a0e:bb18:ee2b, 172.70.130.5"
 		longUA := strings.Repeat("Mozilla/5.0 ", 80)
 
-		if _, err := offerSvc.GetByShareLinkToken(ctx, link.Token, longIP, longUA); err != nil {
+		if _, _, err := offerSvc.GetByShareLinkToken(ctx, link.Token, longIP, longUA); err != nil {
 			t.Fatalf("uzun ip/user-agent ile görüntüleme başarısız: %v", err)
 		}
 		accepted, err := offerSvc.RespondByShareLinkToken(ctx, link.Token, domain.OfferStatusKabulEdildi, longIP, longUA)
@@ -481,6 +481,67 @@ func TestOfferShareLinksEventsAndEmail(t *testing.T) {
 		if len([]rune(viewed.IPAddress)) > 45 || len([]rune(viewed.UserAgent)) > 500 {
 			t.Errorf("ip/user-agent kısaltılmadı: ip=%d ua=%d karakter",
 				len([]rune(viewed.IPAddress)), len([]rune(viewed.UserAgent)))
+		}
+	})
+
+	// UpdateStatus (personelin durum seçicisi) da Revise/Respond ile aynı
+	// kilidi almalı ve teklifi kilit ALTINDA taze okumalıdır. Aksi halde
+	// senkronize edilmemiş tek yazar olur: aşağıdaki kurguda müşterinin
+	// kabulü kilit altında commit edilirken, kilitsiz bir UpdateStatus
+	// güncelliğini yitirmiş "gönderildi" anlık görüntüsüne bakarak
+	// ErrOfferLocked kontrolünü geçer ve commit edilmiş kabulü ezerdi.
+	t.Run("14_status_update_cannot_overwrite_committed_acceptance", func(t *testing.T) {
+		o := newOffer(t, orgA.ID)
+		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi, ""); err != nil {
+			t.Fatalf("durum güncellenemedi: %v", err)
+		}
+
+		conn, err := pool.Acquire(ctx)
+		if err != nil {
+			t.Fatalf("bağlantı alınamadı: %v", err)
+		}
+		defer conn.Release()
+		blocker, err := conn.Begin(ctx)
+		if err != nil {
+			t.Fatalf("transaction açılamadı: %v", err)
+		}
+		defer blocker.Rollback(ctx)
+		// Müşterinin kabulünü taklit et: kilidi al, kabulü yaz, ama HENÜZ
+		// commit etme.
+		if _, err := blocker.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", o.ID); err != nil {
+			t.Fatalf("kilit alınamadı: %v", err)
+		}
+
+		statusDone := make(chan error, 1)
+		go func() {
+			_, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusReddedildi, "")
+			statusDone <- err
+		}()
+
+		// UpdateStatus'un kilitte bloke olmasına fırsat ver (kilitsiz bir
+		// uygulamada burada teklifi çoktan okumuş olurdu).
+		time.Sleep(300 * time.Millisecond)
+		if _, err := blocker.Exec(ctx,
+			"UPDATE offer_revisions SET status = $2 WHERE id = $1", o.CurrentRevisionID, domain.OfferStatusKabulEdildi); err != nil {
+			t.Fatalf("revizyon güncellenemedi: %v", err)
+		}
+		if _, err := blocker.Exec(ctx,
+			"UPDATE offers SET status = $2 WHERE id = $1", o.ID, domain.OfferStatusKabulEdildi); err != nil {
+			t.Fatalf("teklif güncellenemedi: %v", err)
+		}
+		if err := blocker.Commit(ctx); err != nil { // kilit burada serbest kalır
+			t.Fatalf("commit başarısız: %v", err)
+		}
+
+		if err := <-statusDone; !errors.Is(err, service.ErrOfferLocked) {
+			t.Errorf("kabul edilmiş teklifin durumu yine de değiştirilebildi: err=%v", err)
+		}
+		final, err := offerSvc.Get(ctx, o.ID, orgA.ID)
+		if err != nil {
+			t.Fatalf("teklif okunamadı: %v", err)
+		}
+		if final.Status != domain.OfferStatusKabulEdildi {
+			t.Errorf("commit edilmiş müşteri kabulü ezildi: durum=%s", final.Status)
 		}
 	})
 
