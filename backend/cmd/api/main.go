@@ -41,16 +41,20 @@ func main() {
 	seedAdmin(ctx, userSvc, q, cfg)
 	productSvc := service.NewProductService(q)
 	offerSvc := service.NewOfferService(pool, q)
+	employeeSvc := service.NewEmployeeService(q)
+	attendanceSvc := service.NewAttendanceService(q)
 
 	jwtIssuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL)
 	authSvc := service.NewAuthService(q, jwtIssuer, cfg.RefreshTTL)
 
 	router := httpapi.NewRouter(httpapi.Deps{
-		JWT:      jwtIssuer,
-		Auth:     handler.NewAuthHandler(authSvc, cfg.AccessTTL, cfg.RefreshTTL, cfg.CookieDomain, cfg.CookieSecure),
-		Users:    handler.NewUserHandler(userSvc),
-		Products: handler.NewProductHandler(productSvc),
-		Offers:   handler.NewOfferHandler(offerSvc),
+		JWT:        jwtIssuer,
+		Auth:       handler.NewAuthHandler(authSvc, cfg.AccessTTL, cfg.RefreshTTL, cfg.CookieDomain, cfg.CookieSecure),
+		Users:      handler.NewUserHandler(userSvc),
+		Products:   handler.NewProductHandler(productSvc),
+		Offers:     handler.NewOfferHandler(offerSvc),
+		Employees:  handler.NewEmployeeHandler(employeeSvc),
+		Attendance: handler.NewAttendanceHandler(attendanceSvc),
 		CORSOrigins: []string{
 			"http://localhost:3000",
 		},

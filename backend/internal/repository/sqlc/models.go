@@ -8,6 +8,33 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AttendanceLog struct {
+	ID         pgtype.UUID        `json:"id"`
+	EmployeeID pgtype.UUID        `json:"employee_id"`
+	Date       pgtype.Date        `json:"date"`
+	CheckIn    string             `json:"check_in"`
+	CheckOut   string             `json:"check_out"`
+	WorkHours  pgtype.Numeric     `json:"work_hours"`
+	Status     string             `json:"status"`
+	Note       string             `json:"note"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
+type Employee struct {
+	ID          pgtype.UUID        `json:"id"`
+	FullName    string             `json:"full_name"`
+	Phone       string             `json:"phone"`
+	Position    string             `json:"position"`
+	Salary      pgtype.Numeric     `json:"salary"`
+	DailyWage   pgtype.Numeric     `json:"daily_wage"`
+	StartDate   pgtype.Date        `json:"start_date"`
+	IsActive    bool               `json:"is_active"`
+	Description string             `json:"description"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	ArchivedAt  pgtype.Timestamptz `json:"archived_at"`
+}
+
 type Offer struct {
 	ID              pgtype.UUID        `json:"id"`
 	OfferNo         string             `json:"offer_no"`

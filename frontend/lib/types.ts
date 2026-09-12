@@ -56,3 +56,29 @@ export interface Offer {
   is_passive: boolean;
   items?: OfferItem[];
 }
+
+export interface Employee {
+  id: string;
+  full_name: string;
+  phone: string;
+  position: string;
+  salary: number | null;
+  daily_wage: number | null;
+  start_date: string | null;
+  is_active: boolean;
+  description: string;
+}
+
+export type AttendanceStatus = "geldi" | "yarım gün" | "gelmedi" | "izinli";
+
+export interface AttendanceLog {
+  id: string;
+  employee_id: string;
+  employee_name?: string;
+  date: string;
+  check_in: string;
+  check_out: string;
+  work_hours: number;
+  status: AttendanceStatus;
+  note: string;
+}

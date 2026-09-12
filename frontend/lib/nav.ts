@@ -8,13 +8,16 @@ export function getNavItems(role: Role): NavItem[] {
     return [
       { href: "/admin", label: "Özet" },
       { href: "/teklifler", label: "Teklifler" },
+      { href: "/mesai", label: "Mesai" },
       { href: "/admin/urunler", label: "Ürünler" },
+      { href: "/admin/personel", label: "Personel" },
       { href: "/admin/kullanicilar", label: "Kullanıcılar" },
     ];
   }
   return [
     { href: "/panel", label: "Ana Sayfa" },
     { href: "/teklifler", label: "Teklifler" },
+    { href: "/mesai", label: "Mesai" },
     { href: "/panel/profil", label: "Profilim" },
   ];
 }

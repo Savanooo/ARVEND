@@ -20,6 +20,8 @@ type Deps struct {
 	Users       *handler.UserHandler
 	Products    *handler.ProductHandler
 	Offers      *handler.OfferHandler
+	Employees   *handler.EmployeeHandler
+	Attendance  *handler.AttendanceHandler
 	CORSOrigins []string
 }
 
@@ -88,6 +90,30 @@ func NewRouter(d Deps) http.Handler {
 			r.Put("/{id}/status", d.Offers.UpdateStatus)
 			r.Post("/{id}/toggle-passive", d.Offers.TogglePassive)
 			r.Delete("/{id}", d.Offers.Delete)
+		})
+
+		r.Route("/employees", func(r chi.Router) {
+			r.Use(requireAuth)
+			// Personel listesi mesai girişinde herkese lazım; hassas
+			// yönetim (ekleme/düzenleme/pasifleştirme) admin'e özel.
+			r.Get("/", d.Employees.List)
+			r.Get("/{id}", d.Employees.Get)
+
+			r.Group(func(r chi.Router) {
+				r.Use(requireAdmin)
+				r.Post("/", d.Employees.Create)
+				r.Put("/{id}", d.Employees.Update)
+				r.Delete("/{id}", d.Employees.Archive)
+			})
+		})
+
+		r.Route("/attendance", func(r chi.Router) {
+			r.Use(requireAuth)
+			// Mesai girişi BYZ'de sıradan iş -- admin şartı YOK.
+			r.Get("/", d.Attendance.ListByMonth)
+			r.Post("/", d.Attendance.Create)
+			r.Put("/{id}", d.Attendance.Update)
+			r.Delete("/{id}", d.Attendance.Delete)
 		})
 	})
 

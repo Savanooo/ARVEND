@@ -129,3 +129,72 @@ func ToDomainOfferItem(i sqlc.OfferItem) domain.OfferItem {
 func TimeToDate(t time.Time) pgtype.Date {
 	return pgtype.Date{Time: t, Valid: true}
 }
+
+func ToDomainEmployee(e sqlc.Employee) domain.Employee {
+	de := domain.Employee{
+		ID:          e.ID.String(),
+		FullName:    e.FullName,
+		Phone:       e.Phone,
+		Position:    e.Position,
+		IsActive:    e.IsActive,
+		Description: e.Description,
+		CreatedAt:   e.CreatedAt.Time,
+		UpdatedAt:   e.UpdatedAt.Time,
+	}
+	if e.Salary.Valid {
+		v := NumericToFloat64(e.Salary)
+		de.Salary = &v
+	}
+	if e.DailyWage.Valid {
+		v := NumericToFloat64(e.DailyWage)
+		de.DailyWage = &v
+	}
+	if e.StartDate.Valid {
+		t := e.StartDate.Time
+		de.StartDate = &t
+	}
+	return de
+}
+
+func FloatPtrToNumeric(f *float64) pgtype.Numeric {
+	if f == nil {
+		return pgtype.Numeric{}
+	}
+	return Float64ToNumeric(*f)
+}
+
+func TimePtrToDate(t *time.Time) pgtype.Date {
+	if t == nil {
+		return pgtype.Date{}
+	}
+	return pgtype.Date{Time: *t, Valid: true}
+}
+
+func ToDomainAttendance(a sqlc.AttendanceLog) domain.AttendanceLog {
+	return domain.AttendanceLog{
+		ID:         a.ID.String(),
+		EmployeeID: a.EmployeeID.String(),
+		Date:       a.Date.Time,
+		CheckIn:    a.CheckIn,
+		CheckOut:   a.CheckOut,
+		WorkHours:  NumericToFloat64(a.WorkHours),
+		Status:     a.Status,
+		Note:       a.Note,
+		CreatedAt:  a.CreatedAt.Time,
+	}
+}
+
+func ToDomainAttendanceRow(r sqlc.ListAttendanceByMonthRow) domain.AttendanceLog {
+	return domain.AttendanceLog{
+		ID:           r.ID.String(),
+		EmployeeID:   r.EmployeeID.String(),
+		EmployeeName: r.EmployeeName,
+		Date:         r.Date.Time,
+		CheckIn:      r.CheckIn,
+		CheckOut:     r.CheckOut,
+		WorkHours:    NumericToFloat64(r.WorkHours),
+		Status:       r.Status,
+		Note:         r.Note,
+		CreatedAt:    r.CreatedAt.Time,
+	}
+}
