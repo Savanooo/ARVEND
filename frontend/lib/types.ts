@@ -11,3 +11,18 @@ export interface User {
 export interface ApiErrorBody {
   error: string;
 }
+
+export interface Product {
+  id: string;
+  name: string;
+  unit: string;
+  unit_price: number;
+  description: string;
+  category: string;
+}
+
+export interface PriceHistoryEntry {
+  old_price: number;
+  new_price: number;
+  changed_at: string;
+}

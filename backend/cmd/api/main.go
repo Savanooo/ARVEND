@@ -39,14 +39,16 @@ func main() {
 	q := sqlc.New(pool)
 	userSvc := service.NewUserService(q)
 	seedAdmin(ctx, userSvc, q, cfg)
+	productSvc := service.NewProductService(q)
 
 	jwtIssuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL)
 	authSvc := service.NewAuthService(q, jwtIssuer, cfg.RefreshTTL)
 
 	router := httpapi.NewRouter(httpapi.Deps{
-		JWT:   jwtIssuer,
-		Auth:  handler.NewAuthHandler(authSvc, cfg.AccessTTL, cfg.RefreshTTL, cfg.CookieDomain, cfg.CookieSecure),
-		Users: handler.NewUserHandler(userSvc),
+		JWT:      jwtIssuer,
+		Auth:     handler.NewAuthHandler(authSvc, cfg.AccessTTL, cfg.RefreshTTL, cfg.CookieDomain, cfg.CookieSecure),
+		Users:    handler.NewUserHandler(userSvc),
+		Products: handler.NewProductHandler(productSvc),
 		CORSOrigins: []string{
 			"http://localhost:3000",
 		},

@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 
 const NAV_ITEMS = [
   { href: "/admin", label: "Özet" },
+  { href: "/admin/urunler", label: "Ürünler" },
   { href: "/admin/kullanicilar", label: "Kullanıcılar" },
 ];
 

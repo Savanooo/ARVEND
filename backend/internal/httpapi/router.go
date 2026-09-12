@@ -15,10 +15,11 @@ import (
 )
 
 type Deps struct {
-	JWT          *auth.JWTIssuer
-	Auth         *handler.AuthHandler
-	Users        *handler.UserHandler
-	CORSOrigins  []string
+	JWT         *auth.JWTIssuer
+	Auth        *handler.AuthHandler
+	Users       *handler.UserHandler
+	Products    *handler.ProductHandler
+	CORSOrigins []string
 }
 
 func NewRouter(d Deps) http.Handler {
@@ -57,6 +58,22 @@ func NewRouter(d Deps) http.Handler {
 				r.Put("/{id}", d.Users.Update)
 				r.Patch("/{id}/password", d.Users.AdminResetPassword)
 				r.Delete("/{id}", d.Users.Deactivate)
+			})
+		})
+
+		r.Route("/products", func(r chi.Router) {
+			r.Use(requireAuth)
+			// Katalog herkes icin okunabilir (teklif olustururken herkes
+			// urun secebilmeli); yazma admin'e ozel.
+			r.Get("/", d.Products.List)
+			r.Get("/{id}", d.Products.Get)
+			r.Get("/{id}/price-history", d.Products.PriceHistory)
+
+			r.Group(func(r chi.Router) {
+				r.Use(requireAdmin)
+				r.Post("/", d.Products.Create)
+				r.Put("/{id}", d.Products.Update)
+				r.Delete("/{id}", d.Products.Delete)
 			})
 		})
 	})

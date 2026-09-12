@@ -8,6 +8,29 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Product struct {
+	ID             pgtype.UUID        `json:"id"`
+	Name           string             `json:"name"`
+	NormalizedName string             `json:"normalized_name"`
+	Unit           string             `json:"unit"`
+	UnitPrice      pgtype.Numeric     `json:"unit_price"`
+	Description    string             `json:"description"`
+	Category       string             `json:"category"`
+	Source         *string            `json:"source"`
+	SourcePrice    pgtype.Numeric     `json:"source_price"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProductPriceHistory struct {
+	ID        pgtype.UUID        `json:"id"`
+	ProductID pgtype.UUID        `json:"product_id"`
+	OldPrice  pgtype.Numeric     `json:"old_price"`
+	NewPrice  pgtype.Numeric     `json:"new_price"`
+	Note      string             `json:"note"`
+	ChangedAt pgtype.Timestamptz `json:"changed_at"`
+}
+
 type RefreshToken struct {
 	ID        pgtype.UUID        `json:"id"`
 	UserID    pgtype.UUID        `json:"user_id"`
