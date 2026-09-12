@@ -1,25 +1,36 @@
 @import "tailwindcss";
 
 /*
- * Arvend Yapı marka paleti — logodan türetildi (sıcak siyah zemin +
- * fırçalanmış altın/bronz). Bilinçli olarak jenerik "AI app" mor/mavi
+ * Arvend Yapı marka paleti — açık/beyaz zemin, altın vurgu rengi
+ * logodan geliyor. Bilinçli olarak jenerik "AI app" mor/mavi
  * gradyanlarından, glassmorphism'den ve pill-button'lardan kaçınılıyor.
  */
 :root {
-  --color-bg: #0c0b0a;
-  --color-surface: #171512;
-  --color-surface-hover: #201d19;
-  --color-border: #2c2822;
-  --color-gold: #c9a227;
-  --color-gold-hover: #b08d22;
-  --color-gold-soft: rgba(201, 162, 39, 0.12);
-  --color-graphite: #4b4b4e;
-  --color-text: #efeae0;
-  --color-text-muted: #9c968a;
-  --color-danger: #b54a3f;
-  --color-danger-soft: rgba(181, 74, 63, 0.14);
-  --color-success: #7c9a5b;
-  --color-success-soft: rgba(124, 154, 91, 0.14);
+  --color-bg: #faf9f6;
+  --color-surface: #ffffff;
+  --color-surface-hover: #f2f0ea;
+  --color-border: #e6e2d7;
+  --color-gold: #b8892a;
+  --color-gold-hover: #9c7423;
+  --color-gold-soft: rgba(184, 137, 42, 0.12);
+  --color-graphite: #6b6b6e;
+  --color-text: #18160f;
+  --color-text-muted: #6f6a5c;
+  --color-danger: #a23f35;
+  --color-danger-soft: rgba(162, 63, 53, 0.1);
+  --color-success: #4f7038;
+  --color-success-soft: rgba(79, 112, 56, 0.1);
+
+  /* Sidebar bilinçli olarak ayrı, koyu bir palet kullanır -- marka
+     kimliği (logo, altın) orada yaşar; asıl çalışma alanı (tablo/form
+     dolu sayfalar) göz yormasın diye açık kalır. */
+  --sidebar-bg: #14120e;
+  --sidebar-border: #2a271f;
+  --sidebar-hover: #211e18;
+  --sidebar-text: #f3efe6;
+  --sidebar-text-muted: #a39c8c;
+  --sidebar-gold: #c9a227;
+  --sidebar-gold-soft: rgba(201, 162, 39, 0.16);
 }
 
 @theme inline {
@@ -37,10 +48,30 @@
   --color-danger-soft: var(--color-danger-soft);
   --color-success: var(--color-success);
   --color-success-soft: var(--color-success-soft);
+  --sidebar-bg: var(--sidebar-bg);
+  --sidebar-border: var(--sidebar-border);
+  --sidebar-hover: var(--sidebar-hover);
+  --sidebar-text: var(--sidebar-text);
+  --sidebar-text-muted: var(--sidebar-text-muted);
+  --sidebar-gold: var(--sidebar-gold);
+  --sidebar-gold-soft: var(--sidebar-gold-soft);
   --font-sans: var(--font-body);
 }
 
 body {
   background: var(--color-bg);
   color: var(--color-text);
+}
+
+.sidebar-nav-link {
+  color: var(--sidebar-text-muted);
+}
+.sidebar-nav-link:hover {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-text);
+}
+.sidebar-nav-link-active,
+.sidebar-nav-link-active:hover {
+  background: var(--sidebar-gold-soft);
+  color: var(--sidebar-gold);
 }

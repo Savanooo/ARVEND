@@ -23,7 +23,7 @@ export function LogoutButton() {
     <button
       onClick={handleLogout}
       disabled={loading}
-      className="text-xs font-semibold uppercase tracking-widest text-text-muted hover:text-gold disabled:opacity-50"
+      className="sidebar-nav-link text-xs font-semibold uppercase tracking-widest disabled:opacity-50"
     >
       {loading ? "Çıkış yapılıyor…" : "Çıkış Yap"}
     </button>
