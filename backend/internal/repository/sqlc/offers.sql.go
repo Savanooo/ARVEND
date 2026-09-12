@@ -30,7 +30,7 @@ INSERT INTO offers (
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
 )
-RETURNING id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at
+RETURNING id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at, share_token
 `
 
 type CreateOfferParams struct {
@@ -87,6 +87,7 @@ func (q *Queries) CreateOffer(ctx context.Context, arg CreateOfferParams) (Offer
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ShareToken,
 	)
 	return i, err
 }
@@ -141,7 +142,7 @@ func (q *Queries) DeleteOffer(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getOfferByID = `-- name: GetOfferByID :one
-SELECT id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at FROM offers WHERE id = $1
+SELECT id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at, share_token FROM offers WHERE id = $1
 `
 
 func (q *Queries) GetOfferByID(ctx context.Context, id pgtype.UUID) (Offer, error) {
@@ -166,6 +167,38 @@ func (q *Queries) GetOfferByID(ctx context.Context, id pgtype.UUID) (Offer, erro
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ShareToken,
+	)
+	return i, err
+}
+
+const getOfferByShareToken = `-- name: GetOfferByShareToken :one
+SELECT id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at, share_token FROM offers WHERE share_token = $1
+`
+
+func (q *Queries) GetOfferByShareToken(ctx context.Context, shareToken pgtype.UUID) (Offer, error) {
+	row := q.db.QueryRow(ctx, getOfferByShareToken, shareToken)
+	var i Offer
+	err := row.Scan(
+		&i.ID,
+		&i.OfferNo,
+		&i.CustomerName,
+		&i.CustomerPhone,
+		&i.CustomerEmail,
+		&i.CustomerAddress,
+		&i.OfferDate,
+		&i.ValidUntil,
+		&i.Subtotal,
+		&i.VatRate,
+		&i.VatAmount,
+		&i.GrandTotal,
+		&i.Notes,
+		&i.Status,
+		&i.IsPassive,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ShareToken,
 	)
 	return i, err
 }
@@ -204,7 +237,7 @@ func (q *Queries) ListOfferItems(ctx context.Context, offerID pgtype.UUID) ([]Of
 }
 
 const listOffers = `-- name: ListOffers :many
-SELECT id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at FROM offers
+SELECT id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at, share_token FROM offers
 WHERE is_passive = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -244,6 +277,7 @@ func (q *Queries) ListOffers(ctx context.Context, arg ListOffersParams) ([]Offer
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ShareToken,
 		); err != nil {
 			return nil, err
 		}
@@ -284,7 +318,7 @@ func (q *Queries) SetOfferPassive(ctx context.Context, arg SetOfferPassiveParams
 
 const updateOfferStatus = `-- name: UpdateOfferStatus :one
 UPDATE offers SET status = $2 WHERE id = $1
-RETURNING id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at
+RETURNING id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at, share_token
 `
 
 type UpdateOfferStatusParams struct {
@@ -314,6 +348,7 @@ func (q *Queries) UpdateOfferStatus(ctx context.Context, arg UpdateOfferStatusPa
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ShareToken,
 	)
 	return i, err
 }

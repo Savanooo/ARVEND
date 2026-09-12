@@ -95,6 +95,7 @@ func ToDomainOffer(o sqlc.Offer) domain.Offer {
 		GrandTotal:      NumericToFloat64(o.GrandTotal),
 		Notes:           o.Notes,
 		Status:          o.Status,
+		ShareToken:      o.ShareToken.String(),
 		IsPassive:       o.IsPassive,
 		CreatedAt:       o.CreatedAt.Time,
 		UpdatedAt:       o.UpdatedAt.Time,

@@ -20,6 +20,12 @@ type Config struct {
 	SeedAdminUser string
 	SeedAdminPass string
 	SeedAdminName string
+	// SettingsEncryptionKey, ayarlar tablosunda (ör. SMTP şifresi) saklanan
+	// hassas alanları AES-GCM ile şifrelemek için kullanılan ana anahtar
+	// (base64, 32 byte). Bu anahtar .env'de kalır; asıl şifreler DB'de
+	// şifreli olarak durur -- düz metin .env'de tutulmaz.
+	SettingsEncryptionKey string
+	FrontendURL           string
 }
 
 func Load() Config {
@@ -28,16 +34,18 @@ func Load() Config {
 	_ = godotenv.Load()
 
 	return Config{
-		Port:          getEnv("PORT", "8080"),
-		DatabaseURL:   getEnv("DB_URL", ""),
-		JWTSecret:     getEnv("JWT_SECRET", ""),
-		AccessTTL:     15 * time.Minute,
-		RefreshTTL:    30 * 24 * time.Hour,
-		CookieDomain:  getEnv("COOKIE_DOMAIN", ""),
-		CookieSecure:  getEnv("COOKIE_SECURE", "false") == "true",
-		SeedAdminUser: getEnv("SEED_ADMIN_USERNAME", ""),
-		SeedAdminPass: getEnv("SEED_ADMIN_PASSWORD", ""),
-		SeedAdminName: getEnv("SEED_ADMIN_FULLNAME", "Yönetici"),
+		Port:                  getEnv("PORT", "8080"),
+		DatabaseURL:           getEnv("DB_URL", ""),
+		JWTSecret:             getEnv("JWT_SECRET", ""),
+		AccessTTL:             15 * time.Minute,
+		RefreshTTL:            30 * 24 * time.Hour,
+		CookieDomain:          getEnv("COOKIE_DOMAIN", ""),
+		CookieSecure:          getEnv("COOKIE_SECURE", "false") == "true",
+		SeedAdminUser:         getEnv("SEED_ADMIN_USERNAME", ""),
+		SeedAdminPass:         getEnv("SEED_ADMIN_PASSWORD", ""),
+		SeedAdminName:         getEnv("SEED_ADMIN_FULLNAME", "Yönetici"),
+		SettingsEncryptionKey: getEnv("SETTINGS_ENCRYPTION_KEY", ""),
+		FrontendURL:           getEnv("FRONTEND_URL", "http://localhost:3000"),
 	}
 }
 

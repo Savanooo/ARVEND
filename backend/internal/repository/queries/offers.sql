@@ -21,6 +21,9 @@ RETURNING *;
 -- name: GetOfferByID :one
 SELECT * FROM offers WHERE id = $1;
 
+-- name: GetOfferByShareToken :one
+SELECT * FROM offers WHERE share_token = $1;
+
 -- name: ListOfferItems :many
 SELECT * FROM offer_items WHERE offer_id = $1 ORDER BY sort_order ASC;
 

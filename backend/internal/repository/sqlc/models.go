@@ -54,6 +54,7 @@ type Offer struct {
 	CreatedBy       pgtype.UUID        `json:"created_by"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	ShareToken      pgtype.UUID        `json:"share_token"`
 }
 
 type OfferCounter struct {
@@ -102,6 +103,18 @@ type RefreshToken struct {
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type SmtpSetting struct {
+	ID          int16              `json:"id"`
+	Host        string             `json:"host"`
+	Port        int32              `json:"port"`
+	Username    string             `json:"username"`
+	PasswordEnc string             `json:"password_enc"`
+	FromEmail   string             `json:"from_email"`
+	FromName    string             `json:"from_name"`
+	UseTls      bool               `json:"use_tls"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
 type User struct {

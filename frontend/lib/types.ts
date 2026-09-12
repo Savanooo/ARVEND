@@ -53,6 +53,7 @@ export interface Offer {
   grand_total: number;
   notes: string;
   status: OfferStatus;
+  share_token: string;
   is_passive: boolean;
   items?: OfferItem[];
 }
@@ -67,6 +68,17 @@ export interface Employee {
   start_date: string | null;
   is_active: boolean;
   description: string;
+}
+
+export interface SmtpSettings {
+  host: string;
+  port: number;
+  username: string;
+  password_set: boolean;
+  from_email: string;
+  from_name: string;
+  use_tls: boolean;
+  configured: boolean;
 }
 
 export type AttendanceStatus = "geldi" | "yarım gün" | "gelmedi" | "izinli";

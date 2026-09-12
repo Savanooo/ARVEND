@@ -8,6 +8,7 @@ import { formatTL } from "@/lib/format";
 import type { Offer } from "@/lib/types";
 
 import { OfferActions } from "./OfferActions";
+import { ShareOfferCard } from "./ShareOfferCard";
 
 export default async function TeklifDetayPage({
   params,
@@ -69,25 +70,29 @@ export default async function TeklifDetayPage({
           )}
         </div>
 
-        <Card className="h-fit w-full lg:w-80">
-          <CardHeader>Müşteri</CardHeader>
-          <CardBody className="flex flex-col gap-1 text-sm">
-            <div className="font-medium">{offer.customer_name}</div>
-            {offer.customer_phone && (
-              <div className="text-text-muted">{offer.customer_phone}</div>
-            )}
-            {offer.customer_email && (
-              <div className="text-text-muted">{offer.customer_email}</div>
-            )}
-            {offer.customer_address && (
-              <div className="text-text-muted">{offer.customer_address}</div>
-            )}
-            <div className="mt-3 border-t border-border pt-3 text-xs uppercase tracking-widest text-text-muted">
-              Teklif Tarihi
-            </div>
-            <div>{new Date(offer.offer_date).toLocaleDateString("tr-TR")}</div>
-          </CardBody>
-        </Card>
+        <div className="flex w-full flex-col gap-6 lg:w-80">
+          <Card className="h-fit">
+            <CardHeader>Müşteri</CardHeader>
+            <CardBody className="flex flex-col gap-1 text-sm">
+              <div className="font-medium">{offer.customer_name}</div>
+              {offer.customer_phone && (
+                <div className="text-text-muted">{offer.customer_phone}</div>
+              )}
+              {offer.customer_email && (
+                <div className="text-text-muted">{offer.customer_email}</div>
+              )}
+              {offer.customer_address && (
+                <div className="text-text-muted">{offer.customer_address}</div>
+              )}
+              <div className="mt-3 border-t border-border pt-3 text-xs uppercase tracking-widest text-text-muted">
+                Teklif Tarihi
+              </div>
+              <div>{new Date(offer.offer_date).toLocaleDateString("tr-TR")}</div>
+            </CardBody>
+          </Card>
+
+          <ShareOfferCard offer={offer} />
+        </div>
       </div>
     </>
   );

@@ -12,6 +12,7 @@ import (
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/httpapi"
 	"github.com/Savanooo/ARVEND/backend/internal/httpapi/handler"
+	"github.com/Savanooo/ARVEND/backend/internal/platform/crypto"
 	"github.com/Savanooo/ARVEND/backend/internal/repository"
 	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
 	"github.com/Savanooo/ARVEND/backend/internal/service"
@@ -24,6 +25,13 @@ func main() {
 	}
 	if cfg.JWTSecret == "" {
 		log.Fatal("JWT_SECRET ayarlanmamış (.env dosyasına bakın)")
+	}
+	if cfg.SettingsEncryptionKey == "" {
+		log.Fatal("SETTINGS_ENCRYPTION_KEY ayarlanmamış (.env dosyasına bakın)")
+	}
+	secretBox, err := crypto.NewSecretBox(cfg.SettingsEncryptionKey)
+	if err != nil {
+		log.Fatalf("SETTINGS_ENCRYPTION_KEY geçersiz: %v", err)
 	}
 
 	ctx := context.Background()
@@ -43,18 +51,21 @@ func main() {
 	offerSvc := service.NewOfferService(pool, q)
 	employeeSvc := service.NewEmployeeService(q)
 	attendanceSvc := service.NewAttendanceService(q)
+	settingsSvc := service.NewSettingsService(q, secretBox)
 
 	jwtIssuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL)
 	authSvc := service.NewAuthService(q, jwtIssuer, cfg.RefreshTTL)
 
 	router := httpapi.NewRouter(httpapi.Deps{
-		JWT:        jwtIssuer,
-		Auth:       handler.NewAuthHandler(authSvc, cfg.AccessTTL, cfg.RefreshTTL, cfg.CookieDomain, cfg.CookieSecure),
-		Users:      handler.NewUserHandler(userSvc),
-		Products:   handler.NewProductHandler(productSvc),
-		Offers:     handler.NewOfferHandler(offerSvc),
-		Employees:  handler.NewEmployeeHandler(employeeSvc),
-		Attendance: handler.NewAttendanceHandler(attendanceSvc),
+		JWT:         jwtIssuer,
+		Auth:        handler.NewAuthHandler(authSvc, cfg.AccessTTL, cfg.RefreshTTL, cfg.CookieDomain, cfg.CookieSecure),
+		Users:       handler.NewUserHandler(userSvc),
+		Products:    handler.NewProductHandler(productSvc),
+		Offers:      handler.NewOfferHandler(offerSvc, settingsSvc, cfg.FrontendURL),
+		Employees:   handler.NewEmployeeHandler(employeeSvc),
+		Attendance:  handler.NewAttendanceHandler(attendanceSvc),
+		Settings:    handler.NewSettingsHandler(settingsSvc),
+		PublicOffer: handler.NewPublicOfferHandler(offerSvc),
 		CORSOrigins: []string{
 			"http://localhost:3000",
 		},

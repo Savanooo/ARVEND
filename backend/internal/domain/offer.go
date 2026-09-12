@@ -45,6 +45,7 @@ type Offer struct {
 	GrandTotal      float64
 	Notes           string
 	Status          string
+	ShareToken      string
 	IsPassive       bool
 	CreatedBy       *string
 	CreatedAt       time.Time

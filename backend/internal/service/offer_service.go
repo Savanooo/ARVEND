@@ -112,7 +112,7 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 		CustomerEmail:   strings.TrimSpace(in.CustomerEmail),
 		CustomerAddress: strings.TrimSpace(in.CustomerAddress),
 		OfferDate:       repository.TimeToDate(time.Now()),
-		ValidUntil:      timePtrToDate(in.ValidUntil),
+		ValidUntil:      repository.TimePtrToDate(in.ValidUntil),
 		Subtotal:        repository.Float64ToNumeric(subtotal),
 		VatRate:         repository.Float64ToNumeric(vatRate),
 		VatAmount:       repository.Float64ToNumeric(vatAmount),
@@ -255,6 +255,64 @@ func (s *OfferService) TogglePassive(ctx context.Context, id string) error {
 	return s.q.SetOfferPassive(ctx, sqlc.SetOfferPassiveParams{ID: uid, IsPassive: !row.IsPassive})
 }
 
+// GetByShareToken, müşterinin auth gerektirmeyen paylaşım linkinden teklifi
+// görüntülemesi için kullanılır.
+func (s *OfferService) GetByShareToken(ctx context.Context, token string) (*domain.Offer, error) {
+	tid, err := repository.StringToUUID(token)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	row, err := s.q.GetOfferByShareToken(ctx, tid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	itemRows, err := s.q.ListOfferItems(ctx, row.ID)
+	if err != nil {
+		return nil, err
+	}
+	offer := repository.ToDomainOffer(row)
+	offer.Items = make([]domain.OfferItem, len(itemRows))
+	for i, r := range itemRows {
+		offer.Items[i] = repository.ToDomainOfferItem(r)
+	}
+	return &offer, nil
+}
+
+var ErrOfferNotRespondable = errors.New("bu teklif için onay/red işlemi yapılamaz")
+
+// RespondByShareToken, müşterinin paylaşım linkinden teklifi kabul/red
+// etmesini sağlar. Yalnızca "gönderildi" durumundaki teklifler için
+// geçerlidir -- taslak bir teklif henüz müşteriye ulaşmamıştır, kabul/red
+// edilmiş bir teklif ise zaten karara bağlanmıştır.
+func (s *OfferService) RespondByShareToken(ctx context.Context, token, decision string) (*domain.Offer, error) {
+	if decision != domain.OfferStatusKabulEdildi && decision != domain.OfferStatusReddedildi {
+		return nil, errors.New("geçersiz karar")
+	}
+	tid, err := repository.StringToUUID(token)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	row, err := s.q.GetOfferByShareToken(ctx, tid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	if row.Status != domain.OfferStatusGonderildi {
+		return nil, ErrOfferNotRespondable
+	}
+	updated, err := s.q.UpdateOfferStatus(ctx, sqlc.UpdateOfferStatusParams{ID: row.ID, Status: decision})
+	if err != nil {
+		return nil, err
+	}
+	o := repository.ToDomainOffer(updated)
+	return &o, nil
+}
+
 var ErrOfferAccepted = errors.New("kabul edilmiş teklif silinemez")
 
 // Delete, BYZ'deki kuralı korur: kabul edilmiş bir teklifin tek dayanağı
@@ -280,11 +338,4 @@ func (s *OfferService) Delete(ctx context.Context, id string) error {
 
 func round2(f float64) float64 {
 	return float64(int64(f*100+0.5)) / 100
-}
-
-func timePtrToDate(t *time.Time) pgtype.Date {
-	if t == nil {
-		return pgtype.Date{}
-	}
-	return pgtype.Date{Time: *t, Valid: true}
 }

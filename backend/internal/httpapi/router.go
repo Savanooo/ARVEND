@@ -22,6 +22,8 @@ type Deps struct {
 	Offers      *handler.OfferHandler
 	Employees   *handler.EmployeeHandler
 	Attendance  *handler.AttendanceHandler
+	Settings    *handler.SettingsHandler
+	PublicOffer *handler.PublicOfferHandler
 	CORSOrigins []string
 }
 
@@ -89,6 +91,7 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/{id}", d.Offers.Get)
 			r.Put("/{id}/status", d.Offers.UpdateStatus)
 			r.Post("/{id}/toggle-passive", d.Offers.TogglePassive)
+			r.Post("/{id}/send-email", d.Offers.SendEmail)
 			r.Delete("/{id}", d.Offers.Delete)
 		})
 
@@ -114,6 +117,20 @@ func NewRouter(d Deps) http.Handler {
 			r.Post("/", d.Attendance.Create)
 			r.Put("/{id}", d.Attendance.Update)
 			r.Delete("/{id}", d.Attendance.Delete)
+		})
+
+		r.Route("/settings", func(r chi.Router) {
+			r.Use(requireAuth, requireAdmin)
+			r.Get("/smtp", d.Settings.GetSmtp)
+			r.Put("/smtp", d.Settings.UpdateSmtp)
+			r.Post("/smtp/test", d.Settings.TestSmtp)
+		})
+
+		// Müşterinin auth gerektirmeden erişebildiği paylaşım linki --
+		// güvenlik sınırı tahmin edilemez uuid token'ın kendisidir.
+		r.Route("/public/offers/{token}", func(r chi.Router) {
+			r.Get("/", d.PublicOffer.Get)
+			r.Post("/respond", d.PublicOffer.Respond)
 		})
 	})
 
