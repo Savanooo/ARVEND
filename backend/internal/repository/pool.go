@@ -7,6 +7,7 @@ package repository
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -77,4 +78,54 @@ func Float64ToNumeric(f float64) pgtype.Numeric {
 	var n pgtype.Numeric
 	_ = n.Scan(strconv.FormatFloat(f, 'f', 2, 64))
 	return n
+}
+
+func ToDomainOffer(o sqlc.Offer) domain.Offer {
+	do := domain.Offer{
+		ID:              o.ID.String(),
+		OfferNo:         o.OfferNo,
+		CustomerName:    o.CustomerName,
+		CustomerPhone:   o.CustomerPhone,
+		CustomerEmail:   o.CustomerEmail,
+		CustomerAddress: o.CustomerAddress,
+		OfferDate:       o.OfferDate.Time,
+		Subtotal:        NumericToFloat64(o.Subtotal),
+		VatRate:         NumericToFloat64(o.VatRate),
+		VatAmount:       NumericToFloat64(o.VatAmount),
+		GrandTotal:      NumericToFloat64(o.GrandTotal),
+		Notes:           o.Notes,
+		Status:          o.Status,
+		IsPassive:       o.IsPassive,
+		CreatedAt:       o.CreatedAt.Time,
+		UpdatedAt:       o.UpdatedAt.Time,
+	}
+	if o.ValidUntil.Valid {
+		t := o.ValidUntil.Time
+		do.ValidUntil = &t
+	}
+	if o.CreatedBy.Valid {
+		s := o.CreatedBy.String()
+		do.CreatedBy = &s
+	}
+	return do
+}
+
+func ToDomainOfferItem(i sqlc.OfferItem) domain.OfferItem {
+	di := domain.OfferItem{
+		ID:          i.ID.String(),
+		ProductName: i.ProductName,
+		Quantity:    NumericToFloat64(i.Quantity),
+		UnitPrice:   NumericToFloat64(i.UnitPrice),
+		LineTotal:   NumericToFloat64(i.LineTotal),
+		SortOrder:   int(i.SortOrder),
+	}
+	if i.ProductID.Valid {
+		s := i.ProductID.String()
+		di.ProductID = &s
+	}
+	return di
+}
+
+func TimeToDate(t time.Time) pgtype.Date {
+	return pgtype.Date{Time: t, Valid: true}
 }

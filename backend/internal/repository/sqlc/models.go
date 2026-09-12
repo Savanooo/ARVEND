@@ -8,6 +8,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Offer struct {
+	ID              pgtype.UUID        `json:"id"`
+	OfferNo         string             `json:"offer_no"`
+	CustomerName    string             `json:"customer_name"`
+	CustomerPhone   string             `json:"customer_phone"`
+	CustomerEmail   string             `json:"customer_email"`
+	CustomerAddress string             `json:"customer_address"`
+	OfferDate       pgtype.Date        `json:"offer_date"`
+	ValidUntil      pgtype.Date        `json:"valid_until"`
+	Subtotal        pgtype.Numeric     `json:"subtotal"`
+	VatRate         pgtype.Numeric     `json:"vat_rate"`
+	VatAmount       pgtype.Numeric     `json:"vat_amount"`
+	GrandTotal      pgtype.Numeric     `json:"grand_total"`
+	Notes           string             `json:"notes"`
+	Status          string             `json:"status"`
+	IsPassive       bool               `json:"is_passive"`
+	CreatedBy       pgtype.UUID        `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type OfferCounter struct {
+	Year int32 `json:"year"`
+	Seq  int32 `json:"seq"`
+}
+
+type OfferItem struct {
+	ID          pgtype.UUID    `json:"id"`
+	OfferID     pgtype.UUID    `json:"offer_id"`
+	ProductID   pgtype.UUID    `json:"product_id"`
+	ProductName string         `json:"product_name"`
+	Quantity    pgtype.Numeric `json:"quantity"`
+	UnitPrice   pgtype.Numeric `json:"unit_price"`
+	LineTotal   pgtype.Numeric `json:"line_total"`
+	SortOrder   int32          `json:"sort_order"`
+}
+
 type Product struct {
 	ID             pgtype.UUID        `json:"id"`
 	Name           string             `json:"name"`

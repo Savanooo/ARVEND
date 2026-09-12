@@ -19,6 +19,7 @@ type Deps struct {
 	Auth        *handler.AuthHandler
 	Users       *handler.UserHandler
 	Products    *handler.ProductHandler
+	Offers      *handler.OfferHandler
 	CORSOrigins []string
 }
 
@@ -75,6 +76,18 @@ func NewRouter(d Deps) http.Handler {
 				r.Put("/{id}", d.Products.Update)
 				r.Delete("/{id}", d.Products.Delete)
 			})
+		})
+
+		r.Route("/offers", func(r chi.Router) {
+			r.Use(requireAuth)
+			// Teklif oluşturma/görme gerçek işte sıradan personel işidir --
+			// Users/Products'ın aksine admin şartı YOK.
+			r.Get("/", d.Offers.List)
+			r.Post("/", d.Offers.Create)
+			r.Get("/{id}", d.Offers.Get)
+			r.Put("/{id}/status", d.Offers.UpdateStatus)
+			r.Post("/{id}/toggle-passive", d.Offers.TogglePassive)
+			r.Delete("/{id}", d.Offers.Delete)
 		})
 	})
 

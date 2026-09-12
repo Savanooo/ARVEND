@@ -2,11 +2,7 @@ import { redirect } from "next/navigation";
 
 import { Sidebar } from "@/components/layout/Sidebar";
 import { getCurrentUser } from "@/lib/auth";
-
-const NAV_ITEMS = [
-  { href: "/panel", label: "Ana Sayfa" },
-  { href: "/panel/profil", label: "Profilim" },
-];
+import { getNavItems } from "@/lib/nav";
 
 export default async function PanelLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
@@ -14,7 +10,7 @@ export default async function PanelLayout({ children }: { children: React.ReactN
 
   return (
     <div className="flex">
-      <Sidebar user={user} items={NAV_ITEMS} />
+      <Sidebar user={user} items={getNavItems(user.role)} />
       <main className="flex-1">{children}</main>
     </div>
   );

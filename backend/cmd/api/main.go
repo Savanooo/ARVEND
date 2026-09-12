@@ -40,6 +40,7 @@ func main() {
 	userSvc := service.NewUserService(q)
 	seedAdmin(ctx, userSvc, q, cfg)
 	productSvc := service.NewProductService(q)
+	offerSvc := service.NewOfferService(pool, q)
 
 	jwtIssuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL)
 	authSvc := service.NewAuthService(q, jwtIssuer, cfg.RefreshTTL)
@@ -49,6 +50,7 @@ func main() {
 		Auth:     handler.NewAuthHandler(authSvc, cfg.AccessTTL, cfg.RefreshTTL, cfg.CookieDomain, cfg.CookieSecure),
 		Users:    handler.NewUserHandler(userSvc),
 		Products: handler.NewProductHandler(productSvc),
+		Offers:   handler.NewOfferHandler(offerSvc),
 		CORSOrigins: []string{
 			"http://localhost:3000",
 		},
