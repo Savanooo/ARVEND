@@ -49,6 +49,7 @@ func main() {
 	seedAdmin(ctx, userSvc, q, cfg)
 	productSvc := service.NewProductService(q)
 	offerSvc := service.NewOfferService(pool, q)
+	customerSvc := service.NewCustomerService(q)
 	employeeSvc := service.NewEmployeeService(q)
 	attendanceSvc := service.NewAttendanceService(q)
 	settingsSvc := service.NewSettingsService(q, secretBox)
@@ -62,6 +63,7 @@ func main() {
 		Users:       handler.NewUserHandler(userSvc),
 		Products:    handler.NewProductHandler(productSvc),
 		Offers:      handler.NewOfferHandler(offerSvc, settingsSvc, cfg.FrontendURL),
+		Customers:   handler.NewCustomerHandler(customerSvc),
 		Employees:   handler.NewEmployeeHandler(employeeSvc),
 		Attendance:  handler.NewAttendanceHandler(attendanceSvc),
 		Settings:    handler.NewSettingsHandler(settingsSvc),

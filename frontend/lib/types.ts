@@ -38,9 +38,22 @@ export interface OfferItem {
   line_total: number;
 }
 
+export interface Customer {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+  tax_office: string;
+  tax_number: string;
+  notes: string;
+  is_active: boolean;
+}
+
 export interface Offer {
   id: string;
   offer_no: string;
+  customer_id: string | null;
   customer_name: string;
   customer_phone: string;
   customer_email: string;

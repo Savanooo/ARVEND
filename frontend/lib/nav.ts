@@ -9,6 +9,7 @@ export function getNavItems(role: Role): NavItem[] {
       { href: "/admin", label: "Özet" },
       { href: "/teklifler", label: "Teklifler" },
       { href: "/mesai", label: "Mesai" },
+      { href: "/musteriler", label: "Müşteriler" },
       { href: "/admin/urunler", label: "Ürünler" },
       { href: "/admin/personel", label: "Personel" },
       { href: "/admin/kullanicilar", label: "Kullanıcılar" },
@@ -19,6 +20,7 @@ export function getNavItems(role: Role): NavItem[] {
     { href: "/panel", label: "Ana Sayfa" },
     { href: "/teklifler", label: "Teklifler" },
     { href: "/mesai", label: "Mesai" },
+    { href: "/musteriler", label: "Müşteriler" },
     { href: "/panel/profil", label: "Profilim" },
   ];
 }

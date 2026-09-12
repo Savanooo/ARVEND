@@ -20,6 +20,23 @@ func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	return pgxpool.New(ctx, databaseURL)
 }
 
+func ToDomainCustomer(c sqlc.Customer) domain.Customer {
+	return domain.Customer{
+		ID:             c.ID.String(),
+		OrganizationID: c.OrganizationID.String(),
+		Name:           c.Name,
+		Phone:          c.Phone,
+		Email:          c.Email,
+		Address:        c.Address,
+		TaxOffice:      c.TaxOffice,
+		TaxNumber:      c.TaxNumber,
+		Notes:          c.Notes,
+		IsActive:       c.IsActive,
+		CreatedAt:      c.CreatedAt.Time,
+		UpdatedAt:      c.UpdatedAt.Time,
+	}
+}
+
 func ToDomainOrganization(o sqlc.Organization) domain.Organization {
 	return domain.Organization{
 		ID:        o.ID.String(),
@@ -121,6 +138,10 @@ func ToDomainOffer(o sqlc.Offer) domain.Offer {
 	if o.CreatedBy.Valid {
 		s := o.CreatedBy.String()
 		do.CreatedBy = &s
+	}
+	if o.CustomerID.Valid {
+		s := o.CustomerID.String()
+		do.CustomerID = &s
 	}
 	return do
 }

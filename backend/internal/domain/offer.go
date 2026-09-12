@@ -34,6 +34,7 @@ type Offer struct {
 	ID              string
 	OrganizationID  string
 	OfferNo         string
+	CustomerID      *string
 	CustomerName    string
 	CustomerPhone   string
 	CustomerEmail   string

@@ -37,6 +37,7 @@ type offerItemResponse struct {
 type offerResponse struct {
 	ID              string              `json:"id"`
 	OfferNo         string              `json:"offer_no"`
+	CustomerID      *string             `json:"customer_id"`
 	CustomerName    string              `json:"customer_name"`
 	CustomerPhone   string              `json:"customer_phone"`
 	CustomerEmail   string              `json:"customer_email"`
@@ -60,6 +61,7 @@ func toOfferResponse(o domain.Offer) offerResponse {
 	resp := offerResponse{
 		ID:              o.ID,
 		OfferNo:         o.OfferNo,
+		CustomerID:      o.CustomerID,
 		CustomerName:    o.CustomerName,
 		CustomerPhone:   o.CustomerPhone,
 		CustomerEmail:   o.CustomerEmail,
@@ -129,6 +131,7 @@ type createOfferItemRequest struct {
 }
 
 type createOfferRequest struct {
+	CustomerID      *string                  `json:"customer_id"`
 	CustomerName    string                   `json:"customer_name"`
 	CustomerPhone   string                   `json:"customer_phone"`
 	CustomerEmail   string                   `json:"customer_email"`
@@ -139,6 +142,30 @@ type createOfferRequest struct {
 	Items           []createOfferItemRequest `json:"items"`
 }
 
+func parseValidUntil(raw *string) *time.Time {
+	if raw == nil || *raw == "" {
+		return nil
+	}
+	t, err := time.Parse(dateLayout, *raw)
+	if err != nil {
+		return nil
+	}
+	return &t
+}
+
+func toOfferItemInputs(items []createOfferItemRequest) []service.OfferItemInput {
+	out := make([]service.OfferItemInput, len(items))
+	for i, it := range items {
+		out[i] = service.OfferItemInput{
+			ProductID:   it.ProductID,
+			ProductName: it.ProductName,
+			Quantity:    it.Quantity,
+			UnitPrice:   it.UnitPrice,
+		}
+	}
+	return out
+}
+
 func (h *OfferHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req createOfferRequest
 	if err := httpjson.Decode(r, &req); err != nil {
@@ -146,35 +173,19 @@ func (h *OfferHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := make([]service.OfferItemInput, len(req.Items))
-	for i, it := range req.Items {
-		items[i] = service.OfferItemInput{
-			ProductID:   it.ProductID,
-			ProductName: it.ProductName,
-			Quantity:    it.Quantity,
-			UnitPrice:   it.UnitPrice,
-		}
-	}
-
-	var validUntil *time.Time
-	if req.ValidUntil != nil && *req.ValidUntil != "" {
-		if t, err := time.Parse(dateLayout, *req.ValidUntil); err == nil {
-			validUntil = &t
-		}
-	}
-
 	userID, _ := middleware.UserIDFromContext(r.Context())
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 
 	o, err := h.svc.Create(r.Context(), service.CreateOfferInput{
+		CustomerID:      req.CustomerID,
 		CustomerName:    req.CustomerName,
 		CustomerPhone:   req.CustomerPhone,
 		CustomerEmail:   req.CustomerEmail,
 		CustomerAddress: req.CustomerAddress,
-		ValidUntil:      validUntil,
+		ValidUntil:      parseValidUntil(req.ValidUntil),
 		Notes:           req.Notes,
 		VatRate:         req.VatRate,
-		Items:           items,
+		Items:           toOfferItemInputs(req.Items),
 		UserID:          userID,
 		OrganizationID:  orgID,
 	})
@@ -183,6 +194,31 @@ func (h *OfferHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpjson.Write(w, http.StatusCreated, toOfferResponse(*o))
+}
+
+func (h *OfferHandler) Update(w http.ResponseWriter, r *http.Request) {
+	var req createOfferRequest
+	if err := httpjson.Decode(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	o, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), orgID, service.UpdateOfferInput{
+		CustomerID:      req.CustomerID,
+		CustomerName:    req.CustomerName,
+		CustomerPhone:   req.CustomerPhone,
+		CustomerEmail:   req.CustomerEmail,
+		CustomerAddress: req.CustomerAddress,
+		ValidUntil:      parseValidUntil(req.ValidUntil),
+		Notes:           req.Notes,
+		VatRate:         req.VatRate,
+		Items:           toOfferItemInputs(req.Items),
+	})
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, toOfferResponse(*o))
 }
 
 type updateStatusRequest struct {
@@ -283,7 +319,7 @@ func (h *OfferHandler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "teklif bulunamadı")
-	case errors.Is(err, service.ErrOfferAccepted):
+	case errors.Is(err, service.ErrOfferAccepted), errors.Is(err, service.ErrOfferNotEditable):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())

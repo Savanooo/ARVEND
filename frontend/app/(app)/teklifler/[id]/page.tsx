@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { cookies } from "next/headers";
 
+import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { Topbar } from "@/components/layout/Topbar";
@@ -21,7 +23,19 @@ export default async function TeklifDetayPage({
 
   return (
     <>
-      <Topbar title={offer.offer_no} action={<OfferActions offer={offer} />} />
+      <Topbar
+        title={offer.offer_no}
+        action={
+          <div className="flex items-center gap-3">
+            {offer.status === "taslak" && (
+              <Link href={`/teklifler/${offer.id}/duzenle`}>
+                <Button variant="secondary">Düzenle</Button>
+              </Link>
+            )}
+            <OfferActions offer={offer} />
+          </div>
+        }
+      />
       <div className="flex flex-col gap-6 p-8 lg:flex-row">
         <div className="flex flex-1 flex-col gap-6">
           <Card>

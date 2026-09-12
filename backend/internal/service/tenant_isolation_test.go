@@ -64,6 +64,7 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM attendance_logs WHERE organization_id = $1",
 		"DELETE FROM offers WHERE organization_id = $1",
 		"DELETE FROM offer_counters WHERE organization_id = $1",
+		"DELETE FROM customers WHERE organization_id = $1",
 		"DELETE FROM employees WHERE organization_id = $1",
 		"DELETE FROM products WHERE organization_id = $1",
 		"DELETE FROM smtp_settings WHERE organization_id = $1",
@@ -121,6 +122,7 @@ func TestTenantIsolation(t *testing.T) {
 	offerSvc := service.NewOfferService(pool, q)
 	userSvc := service.NewUserService(q)
 	settingsSvc := service.NewSettingsService(q, box)
+	customerSvc := service.NewCustomerService(q)
 
 	orgA := mustCreateOrg(t, ctx, orgSvc, pool, "İzolasyon Test Firma A", "izolasyon-test-firma-a")
 	orgB := mustCreateOrg(t, ctx, orgSvc, pool, "İzolasyon Test Firma B", "izolasyon-test-firma-b")
@@ -134,6 +136,11 @@ func TestTenantIsolation(t *testing.T) {
 	employee, err := employeeSvc.Create(ctx, orgA.ID, service.EmployeeInput{FullName: "İzolasyon Test Çalışan"})
 	if err != nil {
 		t.Fatalf("personel oluşturulamadı: %v", err)
+	}
+
+	customer, err := customerSvc.Create(ctx, orgA.ID, service.CustomerInput{Name: "İzolasyon Test Müşteri Kartı", Phone: "555"})
+	if err != nil {
+		t.Fatalf("müşteri oluşturulamadı: %v", err)
 	}
 
 	attendance, err := attendanceSvc.Create(ctx, orgA.ID, service.AttendanceInput{
@@ -306,6 +313,71 @@ func TestTenantIsolation(t *testing.T) {
 		}
 		if s.Configured {
 			t.Errorf("Firma B, Firma A'nın SMTP ayarını görüyor")
+		}
+	})
+
+	t.Run("customer Get/Update/Archive/List", func(t *testing.T) {
+		if _, err := customerSvc.Get(ctx, customer.ID, orgB.ID); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("Firma B, Firma A'nın müşterisini görebildi: err=%v", err)
+		}
+		if _, err := customerSvc.Update(ctx, customer.ID, orgB.ID, service.CustomerInput{Name: "HACKED"}); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("Firma B, Firma A'nın müşterisini güncelleyebildi: err=%v", err)
+		}
+		if err := customerSvc.Archive(ctx, customer.ID, orgB.ID); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("Firma B, Firma A'nın müşterisini arşivleyebildi: err=%v", err)
+		}
+		list, err := customerSvc.List(ctx, orgB.ID, "", nil)
+		if err != nil {
+			t.Fatalf("liste alınamadı: %v", err)
+		}
+		for _, c := range list {
+			if c.ID == customer.ID {
+				t.Errorf("Firma B'nin müşteri listesinde Firma A'nın müşterisi göründü")
+			}
+		}
+	})
+
+	t.Run("offer cannot reference other org's customer_id", func(t *testing.T) {
+		customerIDStr := customer.ID
+		if _, err := offerSvc.Create(ctx, service.CreateOfferInput{
+			OrganizationID: orgB.ID,
+			CustomerID:     &customerIDStr,
+			Items:          []service.OfferItemInput{{ProductName: "Kalem", Quantity: 1, UnitPrice: 1}},
+		}); err == nil {
+			t.Errorf("Firma B, Firma A'nın müşteri kartına referans veren bir teklif oluşturabildi")
+		}
+	})
+
+	t.Run("offer Update isolated and respects draft-only rule", func(t *testing.T) {
+		if _, err := offerSvc.Update(ctx, offer.ID, orgB.ID, service.UpdateOfferInput{
+			CustomerName: "HACKED",
+			Items:        []service.OfferItemInput{{ProductName: "X", Quantity: 1, UnitPrice: 1}},
+		}); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("Firma B, Firma A'nın teklifini düzenleyebildi: err=%v", err)
+		}
+
+		// Aynı org'da düzenleme: taslak durumundaki teklif düzenlenebilmeli,
+		// toplamlar sunucu tarafında yeniden hesaplanmalı.
+		updated, err := offerSvc.Update(ctx, offer.ID, orgA.ID, service.UpdateOfferInput{
+			CustomerName: "Güncellenmiş Müşteri",
+			Items:        []service.OfferItemInput{{ProductName: "Yeni Kalem", Quantity: 2, UnitPrice: 25}},
+		})
+		if err != nil {
+			t.Fatalf("aynı org içinde taslak teklif düzenlenemedi: %v", err)
+		}
+		if updated.Subtotal != 50 || updated.GrandTotal != 60 {
+			t.Errorf("toplamlar yeniden hesaplanmadı: subtotal=%v grand_total=%v", updated.Subtotal, updated.GrandTotal)
+		}
+
+		// Taslak olmayan bir teklif düzenlenemez.
+		if _, err := offerSvc.UpdateStatus(ctx, offer.ID, orgA.ID, domain.OfferStatusGonderildi); err != nil {
+			t.Fatalf("durum güncellenemedi: %v", err)
+		}
+		if _, err := offerSvc.Update(ctx, offer.ID, orgA.ID, service.UpdateOfferInput{
+			CustomerName: "Tekrar Değiştir",
+			Items:        []service.OfferItemInput{{ProductName: "X", Quantity: 1, UnitPrice: 1}},
+		}); !errors.Is(err, service.ErrOfferNotEditable) {
+			t.Errorf("gönderilmiş teklif yine de düzenlenebildi: err=%v", err)
 		}
 	})
 }

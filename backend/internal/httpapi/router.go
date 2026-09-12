@@ -20,6 +20,7 @@ type Deps struct {
 	Users       *handler.UserHandler
 	Products    *handler.ProductHandler
 	Offers      *handler.OfferHandler
+	Customers   *handler.CustomerHandler
 	Employees   *handler.EmployeeHandler
 	Attendance  *handler.AttendanceHandler
 	Settings    *handler.SettingsHandler
@@ -89,10 +90,23 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/", d.Offers.List)
 			r.Post("/", d.Offers.Create)
 			r.Get("/{id}", d.Offers.Get)
+			r.Put("/{id}", d.Offers.Update)
 			r.Put("/{id}/status", d.Offers.UpdateStatus)
 			r.Post("/{id}/toggle-passive", d.Offers.TogglePassive)
 			r.Post("/{id}/send-email", d.Offers.SendEmail)
 			r.Delete("/{id}", d.Offers.Delete)
+		})
+
+		r.Route("/customers", func(r chi.Router) {
+			r.Use(requireAuth)
+			// Teklif oluşturan herkes müşteri seçebilmeli/ekleyebilmeli --
+			// Ürünler'in aksine (kontrollü katalog), müşteri kartı canlı bir
+			// CRM listesi gibi, admin şartı YOK.
+			r.Get("/", d.Customers.List)
+			r.Post("/", d.Customers.Create)
+			r.Get("/{id}", d.Customers.Get)
+			r.Put("/{id}", d.Customers.Update)
+			r.Delete("/{id}", d.Customers.Archive)
 		})
 
 		r.Route("/employees", func(r chi.Router) {

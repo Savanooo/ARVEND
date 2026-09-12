@@ -21,6 +21,21 @@ type AttendanceLog struct {
 	OrganizationID pgtype.UUID        `json:"organization_id"`
 }
 
+type Customer struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	Name           string             `json:"name"`
+	Phone          string             `json:"phone"`
+	Email          string             `json:"email"`
+	Address        string             `json:"address"`
+	TaxOffice      string             `json:"tax_office"`
+	TaxNumber      string             `json:"tax_number"`
+	Notes          string             `json:"notes"`
+	IsActive       bool               `json:"is_active"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Employee struct {
 	ID             pgtype.UUID        `json:"id"`
 	FullName       string             `json:"full_name"`
@@ -58,6 +73,7 @@ type Offer struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 	ShareToken      pgtype.UUID        `json:"share_token"`
 	OrganizationID  pgtype.UUID        `json:"organization_id"`
+	CustomerID      pgtype.UUID        `json:"customer_id"`
 }
 
 type OfferCounter struct {

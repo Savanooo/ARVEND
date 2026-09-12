@@ -33,6 +33,12 @@ type OfferItemInput struct {
 }
 
 type CreateOfferInput struct {
+	// CustomerID doluysa, customer_name/phone/email/address burada ne
+	// gönderilirse gönderilsin YOK SAYILIR -- o anki müşteri kartından
+	// alınıp teklife anlık görüntü (snapshot) olarak yazılır. Böylece
+	// müşteri kartı sonradan değişse/silinse bile bu teklif sabit kalır.
+	// Boşsa mevcut serbest-metin davranışı aynen korunur.
+	CustomerID      *string
 	CustomerName    string
 	CustomerPhone   string
 	CustomerEmail   string
@@ -49,45 +55,71 @@ type CreateOfferInput struct {
 	OrganizationID string
 }
 
-func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain.Offer, error) {
-	orgID, err := repository.StringToUUID(in.OrganizationID)
-	if err != nil {
-		return nil, domain.ErrNotFound
-	}
-	in.CustomerName = strings.TrimSpace(in.CustomerName)
-	if in.CustomerName == "" {
-		return nil, errors.New("müşteri adı zorunludur")
-	}
-	if len(in.Items) == 0 {
-		return nil, errors.New("en az bir kalem girilmelidir")
-	}
+type computedOfferItem struct {
+	OfferItemInput
+	LineTotal float64
+}
 
+// computeOfferTotals, Create ve Update arasında paylaşılan hesaplama
+// mantığı -- frontend'den gelen subtotal/vat_amount/grand_total değerlerine
+// ASLA güvenilmez, her zaman burada sunucu tarafında yeniden hesaplanır.
+func computeOfferTotals(items []OfferItemInput, vatRateInput *float64) ([]computedOfferItem, float64, float64, float64, float64, error) {
 	vatRate := 20.0
-	if in.VatRate != nil {
-		vatRate = *in.VatRate
+	if vatRateInput != nil {
+		vatRate = *vatRateInput
 	}
-
-	type computedItem struct {
-		OfferItemInput
-		LineTotal float64
-	}
-	items := make([]computedItem, 0, len(in.Items))
+	computed := make([]computedOfferItem, 0, len(items))
 	subtotal := 0.0
-	for _, it := range in.Items {
+	for _, it := range items {
 		name := strings.TrimSpace(it.ProductName)
 		if name == "" || it.Quantity <= 0 || it.UnitPrice < 0 {
 			continue
 		}
 		lineTotal := round2(it.Quantity * it.UnitPrice)
 		subtotal += lineTotal
-		items = append(items, computedItem{OfferItemInput: it, LineTotal: lineTotal})
+		computed = append(computed, computedOfferItem{OfferItemInput: it, LineTotal: lineTotal})
 	}
-	if len(items) == 0 {
-		return nil, errors.New("geçerli en az bir kalem girilmelidir")
+	if len(computed) == 0 {
+		return nil, 0, 0, 0, 0, errors.New("geçerli en az bir kalem girilmelidir")
 	}
 	subtotal = round2(subtotal)
 	vatAmount := round2(subtotal * vatRate / 100)
 	grandTotal := round2(subtotal + vatAmount)
+	return computed, subtotal, vatRate, vatAmount, grandTotal, nil
+}
+
+// resolveCustomerSnapshot, customerID doluysa o müşterinin o anki
+// bilgilerini döner (snapshot için); boşsa sıfır değerler döner ve
+// çağıran serbest-metin girdiyi kullanmaya devam eder.
+func resolveCustomerSnapshot(ctx context.Context, txq *sqlc.Queries, orgID pgtype.UUID, customerID *string) (pgtype.UUID, sqlc.Customer, error) {
+	var custID pgtype.UUID
+	if customerID == nil || *customerID == "" {
+		return custID, sqlc.Customer{}, nil
+	}
+	cid, err := repository.StringToUUID(*customerID)
+	if err != nil {
+		return custID, sqlc.Customer{}, errors.New("geçersiz müşteri")
+	}
+	customer, err := txq.GetCustomerByID(ctx, sqlc.GetCustomerByIDParams{ID: cid, OrganizationID: orgID})
+	if err != nil {
+		return custID, sqlc.Customer{}, errors.New("geçersiz müşteri")
+	}
+	return cid, customer, nil
+}
+
+func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain.Offer, error) {
+	orgID, err := repository.StringToUUID(in.OrganizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	if len(in.Items) == 0 {
+		return nil, errors.New("en az bir kalem girilmelidir")
+	}
+
+	items, subtotal, vatRate, vatAmount, grandTotal, err := computeOfferTotals(in.Items, in.VatRate)
+	if err != nil {
+		return nil, err
+	}
 
 	offerNo, err := s.generateOfferNo(ctx, orgID)
 	if err != nil {
@@ -110,13 +142,27 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 		}
 	}
 
+	custID, customer, err := resolveCustomerSnapshot(ctx, txq, orgID, in.CustomerID)
+	if err != nil {
+		return nil, err
+	}
+	customerName, customerPhone, customerEmail, customerAddress := in.CustomerName, in.CustomerPhone, in.CustomerEmail, in.CustomerAddress
+	if custID.Valid {
+		customerName, customerPhone, customerEmail, customerAddress = customer.Name, customer.Phone, customer.Email, customer.Address
+	}
+	customerName = strings.TrimSpace(customerName)
+	if customerName == "" {
+		return nil, errors.New("müşteri adı zorunludur")
+	}
+
 	offerRow, err := txq.CreateOffer(ctx, sqlc.CreateOfferParams{
 		OrganizationID:  orgID,
 		OfferNo:         offerNo,
-		CustomerName:    in.CustomerName,
-		CustomerPhone:   strings.TrimSpace(in.CustomerPhone),
-		CustomerEmail:   strings.TrimSpace(in.CustomerEmail),
-		CustomerAddress: strings.TrimSpace(in.CustomerAddress),
+		CustomerID:      custID,
+		CustomerName:    customerName,
+		CustomerPhone:   strings.TrimSpace(customerPhone),
+		CustomerEmail:   strings.TrimSpace(customerEmail),
+		CustomerAddress: strings.TrimSpace(customerAddress),
 		OfferDate:       repository.TimeToDate(time.Now()),
 		ValidUntil:      repository.TimePtrToDate(in.ValidUntil),
 		Subtotal:        repository.Float64ToNumeric(subtotal),
@@ -131,34 +177,9 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 		return nil, err
 	}
 
-	domainItems := make([]domain.OfferItem, 0, len(items))
-	for i, it := range items {
-		var productID pgtype.UUID
-		if it.ProductID != nil {
-			if pid, err := repository.StringToUUID(*it.ProductID); err == nil {
-				// Ürünün gerçekten bu organizasyona ait olduğu doğrulanmadan
-				// kabul edilirse, başka bir firmanın product_id'sine
-				// referans veren bir kalem oluşturulabilir (tenant izolasyonu
-				// ihlali). Ait değilse, geçersiz UUID'de olduğu gibi sessizce
-				// serbest metin satıra düşürülür.
-				if _, err := txq.GetProductByID(ctx, sqlc.GetProductByIDParams{ID: pid, OrganizationID: orgID}); err == nil {
-					productID = pid
-				}
-			}
-		}
-		itemRow, err := txq.CreateOfferItem(ctx, sqlc.CreateOfferItemParams{
-			OfferID:     offerRow.ID,
-			ProductID:   productID,
-			ProductName: strings.TrimSpace(it.ProductName),
-			Quantity:    repository.Float64ToNumeric(it.Quantity),
-			UnitPrice:   repository.Float64ToNumeric(it.UnitPrice),
-			LineTotal:   repository.Float64ToNumeric(it.LineTotal),
-			SortOrder:   int32(i),
-		})
-		if err != nil {
-			return nil, err
-		}
-		domainItems = append(domainItems, repository.ToDomainOfferItem(itemRow))
+	domainItems, err := insertOfferItems(ctx, txq, offerRow.ID, orgID, items)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -240,6 +261,144 @@ func (s *OfferService) Get(ctx context.Context, id, organizationID string) (*dom
 	for i, r := range itemRows {
 		offer.Items[i] = repository.ToDomainOfferItem(r)
 	}
+	return &offer, nil
+}
+
+// insertOfferItems, Create ve Update arasında paylaşılan kalem yazma
+// mantığı -- her kalemin product_id'si (varsa) aynı organizasyona ait
+// olmadan kabul edilmez (tenant izolasyonu), aksi halde geçersiz UUID'de
+// olduğu gibi sessizce serbest metin satıra düşürülür.
+func insertOfferItems(ctx context.Context, txq *sqlc.Queries, offerID, orgID pgtype.UUID, items []computedOfferItem) ([]domain.OfferItem, error) {
+	domainItems := make([]domain.OfferItem, 0, len(items))
+	for i, it := range items {
+		var productID pgtype.UUID
+		if it.ProductID != nil {
+			if pid, err := repository.StringToUUID(*it.ProductID); err == nil {
+				if _, err := txq.GetProductByID(ctx, sqlc.GetProductByIDParams{ID: pid, OrganizationID: orgID}); err == nil {
+					productID = pid
+				}
+			}
+		}
+		itemRow, err := txq.CreateOfferItem(ctx, sqlc.CreateOfferItemParams{
+			OfferID:     offerID,
+			ProductID:   productID,
+			ProductName: strings.TrimSpace(it.ProductName),
+			Quantity:    repository.Float64ToNumeric(it.Quantity),
+			UnitPrice:   repository.Float64ToNumeric(it.UnitPrice),
+			LineTotal:   repository.Float64ToNumeric(it.LineTotal),
+			SortOrder:   int32(i),
+		})
+		if err != nil {
+			return nil, err
+		}
+		domainItems = append(domainItems, repository.ToDomainOfferItem(itemRow))
+	}
+	return domainItems, nil
+}
+
+var ErrOfferNotEditable = errors.New("yalnızca taslak durumundaki teklifler düzenlenebilir")
+
+type UpdateOfferInput struct {
+	CustomerID      *string
+	CustomerName    string
+	CustomerPhone   string
+	CustomerEmail   string
+	CustomerAddress string
+	ValidUntil      *time.Time
+	Notes           string
+	VatRate         *float64
+	Items           []OfferItemInput
+}
+
+// Update, yalnızca "taslak" durumundaki teklifleri düzenler -- gönderilmiş
+// veya kabul edilmiş bir teklif doğrudan overwrite edilemez (Faz 3'te bu
+// durumlar için revizyon sistemi eklenecek). Kalemler tamamen silinip
+// yeniden yazılır, toplamlar sunucu tarafında yeniden hesaplanır.
+func (s *OfferService) Update(ctx context.Context, id, organizationID string, in UpdateOfferInput) (*domain.Offer, error) {
+	uid, err := repository.StringToUUID(id)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+
+	existing, err := s.q.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	if existing.Status != domain.OfferStatusTaslak {
+		return nil, ErrOfferNotEditable
+	}
+
+	if len(in.Items) == 0 {
+		return nil, errors.New("en az bir kalem girilmelidir")
+	}
+	items, subtotal, vatRate, vatAmount, grandTotal, err := computeOfferTotals(in.Items, in.VatRate)
+	if err != nil {
+		return nil, err
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	custID, customer, err := resolveCustomerSnapshot(ctx, txq, orgID, in.CustomerID)
+	if err != nil {
+		return nil, err
+	}
+	customerName, customerPhone, customerEmail, customerAddress := in.CustomerName, in.CustomerPhone, in.CustomerEmail, in.CustomerAddress
+	if custID.Valid {
+		customerName, customerPhone, customerEmail, customerAddress = customer.Name, customer.Phone, customer.Email, customer.Address
+	}
+	customerName = strings.TrimSpace(customerName)
+	if customerName == "" {
+		return nil, errors.New("müşteri adı zorunludur")
+	}
+
+	updatedRow, err := txq.UpdateOffer(ctx, sqlc.UpdateOfferParams{
+		ID:              uid,
+		OrganizationID:  orgID,
+		CustomerID:      custID,
+		CustomerName:    customerName,
+		CustomerPhone:   strings.TrimSpace(customerPhone),
+		CustomerEmail:   strings.TrimSpace(customerEmail),
+		CustomerAddress: strings.TrimSpace(customerAddress),
+		ValidUntil:      repository.TimePtrToDate(in.ValidUntil),
+		Subtotal:        repository.Float64ToNumeric(subtotal),
+		VatRate:         repository.Float64ToNumeric(vatRate),
+		VatAmount:       repository.Float64ToNumeric(vatAmount),
+		GrandTotal:      repository.Float64ToNumeric(grandTotal),
+		Notes:           strings.TrimSpace(in.Notes),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+
+	if err := txq.DeleteOfferItems(ctx, uid); err != nil {
+		return nil, err
+	}
+	domainItems, err := insertOfferItems(ctx, txq, uid, orgID, items)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	offer := repository.ToDomainOffer(updatedRow)
+	offer.Items = domainItems
 	return &offer, nil
 }
 
