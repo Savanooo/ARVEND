@@ -12,32 +12,39 @@ import (
 )
 
 const archiveEmployee = `-- name: ArchiveEmployee :exec
-UPDATE employees SET is_active = false, archived_at = now() WHERE id = $1
+UPDATE employees SET is_active = false, archived_at = now() WHERE id = $1 AND organization_id = $2
 `
 
-func (q *Queries) ArchiveEmployee(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, archiveEmployee, id)
+type ArchiveEmployeeParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) ArchiveEmployee(ctx context.Context, arg ArchiveEmployeeParams) error {
+	_, err := q.db.Exec(ctx, archiveEmployee, arg.ID, arg.OrganizationID)
 	return err
 }
 
 const createEmployee = `-- name: CreateEmployee :one
-INSERT INTO employees (full_name, phone, position, salary, daily_wage, start_date, description)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at
+INSERT INTO employees (organization_id, full_name, phone, position, salary, daily_wage, start_date, description)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id
 `
 
 type CreateEmployeeParams struct {
-	FullName    string         `json:"full_name"`
-	Phone       string         `json:"phone"`
-	Position    string         `json:"position"`
-	Salary      pgtype.Numeric `json:"salary"`
-	DailyWage   pgtype.Numeric `json:"daily_wage"`
-	StartDate   pgtype.Date    `json:"start_date"`
-	Description string         `json:"description"`
+	OrganizationID pgtype.UUID    `json:"organization_id"`
+	FullName       string         `json:"full_name"`
+	Phone          string         `json:"phone"`
+	Position       string         `json:"position"`
+	Salary         pgtype.Numeric `json:"salary"`
+	DailyWage      pgtype.Numeric `json:"daily_wage"`
+	StartDate      pgtype.Date    `json:"start_date"`
+	Description    string         `json:"description"`
 }
 
 func (q *Queries) CreateEmployee(ctx context.Context, arg CreateEmployeeParams) (Employee, error) {
 	row := q.db.QueryRow(ctx, createEmployee,
+		arg.OrganizationID,
 		arg.FullName,
 		arg.Phone,
 		arg.Position,
@@ -60,16 +67,22 @@ func (q *Queries) CreateEmployee(ctx context.Context, arg CreateEmployeeParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }
 
 const getEmployeeByID = `-- name: GetEmployeeByID :one
-SELECT id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at FROM employees WHERE id = $1
+SELECT id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id FROM employees WHERE id = $1 AND organization_id = $2
 `
 
-func (q *Queries) GetEmployeeByID(ctx context.Context, id pgtype.UUID) (Employee, error) {
-	row := q.db.QueryRow(ctx, getEmployeeByID, id)
+type GetEmployeeByIDParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) GetEmployeeByID(ctx context.Context, arg GetEmployeeByIDParams) (Employee, error) {
+	row := q.db.QueryRow(ctx, getEmployeeByID, arg.ID, arg.OrganizationID)
 	var i Employee
 	err := row.Scan(
 		&i.ID,
@@ -84,18 +97,25 @@ func (q *Queries) GetEmployeeByID(ctx context.Context, id pgtype.UUID) (Employee
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }
 
 const listEmployees = `-- name: ListEmployees :many
-SELECT id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at FROM employees
-WHERE ($1::boolean IS NULL OR is_active = $1::boolean)
+SELECT id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id FROM employees
+WHERE organization_id = $1
+  AND ($2::boolean IS NULL OR is_active = $2::boolean)
 ORDER BY full_name ASC
 `
 
-func (q *Queries) ListEmployees(ctx context.Context, isActive *bool) ([]Employee, error) {
-	rows, err := q.db.Query(ctx, listEmployees, isActive)
+type ListEmployeesParams struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	IsActive       *bool       `json:"is_active"`
+}
+
+func (q *Queries) ListEmployees(ctx context.Context, arg ListEmployeesParams) ([]Employee, error) {
+	rows, err := q.db.Query(ctx, listEmployees, arg.OrganizationID, arg.IsActive)
 	if err != nil {
 		return nil, err
 	}
@@ -116,6 +136,7 @@ func (q *Queries) ListEmployees(ctx context.Context, isActive *bool) ([]Employee
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ArchivedAt,
+			&i.OrganizationID,
 		); err != nil {
 			return nil, err
 		}
@@ -129,27 +150,29 @@ func (q *Queries) ListEmployees(ctx context.Context, isActive *bool) ([]Employee
 
 const updateEmployee = `-- name: UpdateEmployee :one
 UPDATE employees
-SET full_name = $2, phone = $3, position = $4, salary = $5, daily_wage = $6,
-    start_date = $7, description = $8, is_active = $9
-WHERE id = $1
-RETURNING id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at
+SET full_name = $3, phone = $4, position = $5, salary = $6, daily_wage = $7,
+    start_date = $8, description = $9, is_active = $10
+WHERE id = $1 AND organization_id = $2
+RETURNING id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id
 `
 
 type UpdateEmployeeParams struct {
-	ID          pgtype.UUID    `json:"id"`
-	FullName    string         `json:"full_name"`
-	Phone       string         `json:"phone"`
-	Position    string         `json:"position"`
-	Salary      pgtype.Numeric `json:"salary"`
-	DailyWage   pgtype.Numeric `json:"daily_wage"`
-	StartDate   pgtype.Date    `json:"start_date"`
-	Description string         `json:"description"`
-	IsActive    bool           `json:"is_active"`
+	ID             pgtype.UUID    `json:"id"`
+	OrganizationID pgtype.UUID    `json:"organization_id"`
+	FullName       string         `json:"full_name"`
+	Phone          string         `json:"phone"`
+	Position       string         `json:"position"`
+	Salary         pgtype.Numeric `json:"salary"`
+	DailyWage      pgtype.Numeric `json:"daily_wage"`
+	StartDate      pgtype.Date    `json:"start_date"`
+	Description    string         `json:"description"`
+	IsActive       bool           `json:"is_active"`
 }
 
 func (q *Queries) UpdateEmployee(ctx context.Context, arg UpdateEmployeeParams) (Employee, error) {
 	row := q.db.QueryRow(ctx, updateEmployee,
 		arg.ID,
+		arg.OrganizationID,
 		arg.FullName,
 		arg.Phone,
 		arg.Position,
@@ -173,6 +196,7 @@ func (q *Queries) UpdateEmployee(ctx context.Context, arg UpdateEmployeeParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ArchivedAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }

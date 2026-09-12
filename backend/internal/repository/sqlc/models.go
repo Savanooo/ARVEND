@@ -9,30 +9,32 @@ import (
 )
 
 type AttendanceLog struct {
-	ID         pgtype.UUID        `json:"id"`
-	EmployeeID pgtype.UUID        `json:"employee_id"`
-	Date       pgtype.Date        `json:"date"`
-	CheckIn    string             `json:"check_in"`
-	CheckOut   string             `json:"check_out"`
-	WorkHours  pgtype.Numeric     `json:"work_hours"`
-	Status     string             `json:"status"`
-	Note       string             `json:"note"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	ID             pgtype.UUID        `json:"id"`
+	EmployeeID     pgtype.UUID        `json:"employee_id"`
+	Date           pgtype.Date        `json:"date"`
+	CheckIn        string             `json:"check_in"`
+	CheckOut       string             `json:"check_out"`
+	WorkHours      pgtype.Numeric     `json:"work_hours"`
+	Status         string             `json:"status"`
+	Note           string             `json:"note"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
 }
 
 type Employee struct {
-	ID          pgtype.UUID        `json:"id"`
-	FullName    string             `json:"full_name"`
-	Phone       string             `json:"phone"`
-	Position    string             `json:"position"`
-	Salary      pgtype.Numeric     `json:"salary"`
-	DailyWage   pgtype.Numeric     `json:"daily_wage"`
-	StartDate   pgtype.Date        `json:"start_date"`
-	IsActive    bool               `json:"is_active"`
-	Description string             `json:"description"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	ArchivedAt  pgtype.Timestamptz `json:"archived_at"`
+	ID             pgtype.UUID        `json:"id"`
+	FullName       string             `json:"full_name"`
+	Phone          string             `json:"phone"`
+	Position       string             `json:"position"`
+	Salary         pgtype.Numeric     `json:"salary"`
+	DailyWage      pgtype.Numeric     `json:"daily_wage"`
+	StartDate      pgtype.Date        `json:"start_date"`
+	IsActive       bool               `json:"is_active"`
+	Description    string             `json:"description"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	ArchivedAt     pgtype.Timestamptz `json:"archived_at"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
 }
 
 type Offer struct {
@@ -55,11 +57,13 @@ type Offer struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 	ShareToken      pgtype.UUID        `json:"share_token"`
+	OrganizationID  pgtype.UUID        `json:"organization_id"`
 }
 
 type OfferCounter struct {
-	Year int32 `json:"year"`
-	Seq  int32 `json:"seq"`
+	Year           int32       `json:"year"`
+	Seq            int32       `json:"seq"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
 }
 
 type OfferItem struct {
@@ -71,6 +75,15 @@ type OfferItem struct {
 	UnitPrice   pgtype.Numeric `json:"unit_price"`
 	LineTotal   pgtype.Numeric `json:"line_total"`
 	SortOrder   int32          `json:"sort_order"`
+}
+
+type Organization struct {
+	ID        pgtype.UUID        `json:"id"`
+	Name      string             `json:"name"`
+	Slug      string             `json:"slug"`
+	IsActive  bool               `json:"is_active"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Product struct {
@@ -85,6 +98,7 @@ type Product struct {
 	SourcePrice    pgtype.Numeric     `json:"source_price"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
 }
 
 type ProductPriceHistory struct {
@@ -106,25 +120,26 @@ type RefreshToken struct {
 }
 
 type SmtpSetting struct {
-	ID          int16              `json:"id"`
-	Host        string             `json:"host"`
-	Port        int32              `json:"port"`
-	Username    string             `json:"username"`
-	PasswordEnc string             `json:"password_enc"`
-	FromEmail   string             `json:"from_email"`
-	FromName    string             `json:"from_name"`
-	UseTls      bool               `json:"use_tls"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	Host           string             `json:"host"`
+	Port           int32              `json:"port"`
+	Username       string             `json:"username"`
+	PasswordEnc    string             `json:"password_enc"`
+	FromEmail      string             `json:"from_email"`
+	FromName       string             `json:"from_name"`
+	UseTls         bool               `json:"use_tls"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
 }
 
 type User struct {
-	ID           pgtype.UUID        `json:"id"`
-	Username     string             `json:"username"`
-	PasswordHash string             `json:"password_hash"`
-	FullName     string             `json:"full_name"`
-	Role         string             `json:"role"`
-	IsActive     bool               `json:"is_active"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-	LastLoginAt  pgtype.Timestamptz `json:"last_login_at"`
+	ID             pgtype.UUID        `json:"id"`
+	Username       string             `json:"username"`
+	PasswordHash   string             `json:"password_hash"`
+	FullName       string             `json:"full_name"`
+	Role           string             `json:"role"`
+	IsActive       bool               `json:"is_active"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	LastLoginAt    pgtype.Timestamptz `json:"last_login_at"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
 }

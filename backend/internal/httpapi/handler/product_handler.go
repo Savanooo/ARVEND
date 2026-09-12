@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
+	"github.com/Savanooo/ARVEND/backend/internal/httpapi/middleware"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/httpjson"
 	"github.com/Savanooo/ARVEND/backend/internal/service"
 )
@@ -43,7 +44,8 @@ func toProductResponse(p domain.Product) productResponse {
 func (h *ProductHandler) List(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	result, err := h.svc.List(r.Context(), r.URL.Query().Get("q"), page, limit)
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	result, err := h.svc.List(r.Context(), orgID, r.URL.Query().Get("q"), page, limit)
 	if err != nil {
 		httpjson.Error(w, http.StatusInternalServerError, "ürünler alınamadı")
 		return
@@ -56,7 +58,8 @@ func (h *ProductHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProductHandler) Get(w http.ResponseWriter, r *http.Request) {
-	p, err := h.svc.Get(r.Context(), chi.URLParam(r, "id"))
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	p, err := h.svc.Get(r.Context(), chi.URLParam(r, "id"), orgID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -78,7 +81,8 @@ func (h *ProductHandler) Create(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
-	p, err := h.svc.Create(r.Context(), req.Name, req.Unit, req.UnitPrice, req.Description, req.Category)
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	p, err := h.svc.Create(r.Context(), orgID, req.Name, req.Unit, req.UnitPrice, req.Description, req.Category)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -92,7 +96,8 @@ func (h *ProductHandler) Update(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
-	p, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), req.Name, req.Unit, req.UnitPrice, req.Description, req.Category)
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	p, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), orgID, req.Name, req.Unit, req.UnitPrice, req.Description, req.Category)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -101,7 +106,8 @@ func (h *ProductHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProductHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	if err := h.svc.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	if err := h.svc.Delete(r.Context(), chi.URLParam(r, "id"), orgID); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -115,7 +121,8 @@ type priceHistoryResponse struct {
 }
 
 func (h *ProductHandler) PriceHistory(w http.ResponseWriter, r *http.Request) {
-	entries, err := h.svc.PriceHistory(r.Context(), chi.URLParam(r, "id"))
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	entries, err := h.svc.PriceHistory(r.Context(), chi.URLParam(r, "id"), orgID)
 	if err != nil {
 		h.writeError(w, err)
 		return

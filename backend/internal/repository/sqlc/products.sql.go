@@ -13,11 +13,17 @@ import (
 
 const countProducts = `-- name: CountProducts :one
 SELECT count(*) FROM products
-WHERE ($1::text = '' OR normalized_name ILIKE '%' || $1::text || '%')
+WHERE organization_id = $1
+  AND ($2::text = '' OR normalized_name ILIKE '%' || $2::text || '%')
 `
 
-func (q *Queries) CountProducts(ctx context.Context, dollar_1 string) (int64, error) {
-	row := q.db.QueryRow(ctx, countProducts, dollar_1)
+type CountProductsParams struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Column2        string      `json:"column_2"`
+}
+
+func (q *Queries) CountProducts(ctx context.Context, arg CountProductsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countProducts, arg.OrganizationID, arg.Column2)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -46,12 +52,13 @@ func (q *Queries) CreatePriceHistory(ctx context.Context, arg CreatePriceHistory
 }
 
 const createProduct = `-- name: CreateProduct :one
-INSERT INTO products (name, normalized_name, unit, unit_price, description, category, source, source_price)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at
+INSERT INTO products (organization_id, name, normalized_name, unit, unit_price, description, category, source, source_price)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at, organization_id
 `
 
 type CreateProductParams struct {
+	OrganizationID pgtype.UUID    `json:"organization_id"`
 	Name           string         `json:"name"`
 	NormalizedName string         `json:"normalized_name"`
 	Unit           string         `json:"unit"`
@@ -64,6 +71,7 @@ type CreateProductParams struct {
 
 func (q *Queries) CreateProduct(ctx context.Context, arg CreateProductParams) (Product, error) {
 	row := q.db.QueryRow(ctx, createProduct,
+		arg.OrganizationID,
 		arg.Name,
 		arg.NormalizedName,
 		arg.Unit,
@@ -86,25 +94,36 @@ func (q *Queries) CreateProduct(ctx context.Context, arg CreateProductParams) (P
 		&i.SourcePrice,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }
 
 const deleteProduct = `-- name: DeleteProduct :exec
-DELETE FROM products WHERE id = $1
+DELETE FROM products WHERE id = $1 AND organization_id = $2
 `
 
-func (q *Queries) DeleteProduct(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteProduct, id)
+type DeleteProductParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) DeleteProduct(ctx context.Context, arg DeleteProductParams) error {
+	_, err := q.db.Exec(ctx, deleteProduct, arg.ID, arg.OrganizationID)
 	return err
 }
 
 const getProductByID = `-- name: GetProductByID :one
-SELECT id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at FROM products WHERE id = $1
+SELECT id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at, organization_id FROM products WHERE id = $1 AND organization_id = $2
 `
 
-func (q *Queries) GetProductByID(ctx context.Context, id pgtype.UUID) (Product, error) {
-	row := q.db.QueryRow(ctx, getProductByID, id)
+type GetProductByIDParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) GetProductByID(ctx context.Context, arg GetProductByIDParams) (Product, error) {
+	row := q.db.QueryRow(ctx, getProductByID, arg.ID, arg.OrganizationID)
 	var i Product
 	err := row.Scan(
 		&i.ID,
@@ -118,6 +137,7 @@ func (q *Queries) GetProductByID(ctx context.Context, id pgtype.UUID) (Product, 
 		&i.SourcePrice,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }
@@ -156,20 +176,27 @@ func (q *Queries) ListPriceHistory(ctx context.Context, productID pgtype.UUID) (
 }
 
 const listProducts = `-- name: ListProducts :many
-SELECT id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at FROM products
-WHERE ($3::text = '' OR normalized_name ILIKE '%' || $3::text || '%')
+SELECT id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at, organization_id FROM products
+WHERE organization_id = $1
+  AND ($4::text = '' OR normalized_name ILIKE '%' || $4::text || '%')
 ORDER BY name ASC
-LIMIT $1 OFFSET $2
+LIMIT $2 OFFSET $3
 `
 
 type ListProductsParams struct {
-	Limit   int32  `json:"limit"`
-	Offset  int32  `json:"offset"`
-	Column3 string `json:"column_3"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Limit          int32       `json:"limit"`
+	Offset         int32       `json:"offset"`
+	Column4        string      `json:"column_4"`
 }
 
 func (q *Queries) ListProducts(ctx context.Context, arg ListProductsParams) ([]Product, error) {
-	rows, err := q.db.Query(ctx, listProducts, arg.Limit, arg.Offset, arg.Column3)
+	rows, err := q.db.Query(ctx, listProducts,
+		arg.OrganizationID,
+		arg.Limit,
+		arg.Offset,
+		arg.Column4,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -189,6 +216,7 @@ func (q *Queries) ListProducts(ctx context.Context, arg ListProductsParams) ([]P
 			&i.SourcePrice,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.OrganizationID,
 		); err != nil {
 			return nil, err
 		}
@@ -202,14 +230,15 @@ func (q *Queries) ListProducts(ctx context.Context, arg ListProductsParams) ([]P
 
 const updateProduct = `-- name: UpdateProduct :one
 UPDATE products
-SET name = $2, normalized_name = $3, unit = $4, unit_price = $5,
-    description = $6, category = $7
-WHERE id = $1
-RETURNING id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at
+SET name = $3, normalized_name = $4, unit = $5, unit_price = $6,
+    description = $7, category = $8
+WHERE id = $1 AND organization_id = $2
+RETURNING id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at, organization_id
 `
 
 type UpdateProductParams struct {
 	ID             pgtype.UUID    `json:"id"`
+	OrganizationID pgtype.UUID    `json:"organization_id"`
 	Name           string         `json:"name"`
 	NormalizedName string         `json:"normalized_name"`
 	Unit           string         `json:"unit"`
@@ -221,6 +250,7 @@ type UpdateProductParams struct {
 func (q *Queries) UpdateProduct(ctx context.Context, arg UpdateProductParams) (Product, error) {
 	row := q.db.QueryRow(ctx, updateProduct,
 		arg.ID,
+		arg.OrganizationID,
 		arg.Name,
 		arg.NormalizedName,
 		arg.Unit,
@@ -241,6 +271,7 @@ func (q *Queries) UpdateProduct(ctx context.Context, arg UpdateProductParams) (P
 		&i.SourcePrice,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }

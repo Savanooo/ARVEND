@@ -98,7 +98,8 @@ func (h *OfferHandler) List(w http.ResponseWriter, r *http.Request) {
 	isPassive := r.URL.Query().Get("filter") == "pasif"
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	result, err := h.svc.List(r.Context(), isPassive, page, limit)
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	result, err := h.svc.List(r.Context(), orgID, isPassive, page, limit)
 	if err != nil {
 		httpjson.Error(w, http.StatusInternalServerError, "teklifler alınamadı")
 		return
@@ -111,7 +112,8 @@ func (h *OfferHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *OfferHandler) Get(w http.ResponseWriter, r *http.Request) {
-	o, err := h.svc.Get(r.Context(), chi.URLParam(r, "id"))
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	o, err := h.svc.Get(r.Context(), chi.URLParam(r, "id"), orgID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -162,6 +164,7 @@ func (h *OfferHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userID, _ := middleware.UserIDFromContext(r.Context())
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 
 	o, err := h.svc.Create(r.Context(), service.CreateOfferInput{
 		CustomerName:    req.CustomerName,
@@ -173,6 +176,7 @@ func (h *OfferHandler) Create(w http.ResponseWriter, r *http.Request) {
 		VatRate:         req.VatRate,
 		Items:           items,
 		UserID:          userID,
+		OrganizationID:  orgID,
 	})
 	if err != nil {
 		h.writeError(w, err)
@@ -191,7 +195,8 @@ func (h *OfferHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
-	o, err := h.svc.UpdateStatus(r.Context(), chi.URLParam(r, "id"), req.Status)
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	o, err := h.svc.UpdateStatus(r.Context(), chi.URLParam(r, "id"), orgID, req.Status)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -200,7 +205,8 @@ func (h *OfferHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *OfferHandler) TogglePassive(w http.ResponseWriter, r *http.Request) {
-	if err := h.svc.TogglePassive(r.Context(), chi.URLParam(r, "id")); err != nil {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	if err := h.svc.TogglePassive(r.Context(), chi.URLParam(r, "id"), orgID); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -208,7 +214,8 @@ func (h *OfferHandler) TogglePassive(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *OfferHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	if err := h.svc.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	if err := h.svc.Delete(r.Context(), chi.URLParam(r, "id"), orgID); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -227,7 +234,8 @@ func (h *OfferHandler) SendEmail(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
-	o, err := h.svc.Get(r.Context(), chi.URLParam(r, "id"))
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	o, err := h.svc.Get(r.Context(), chi.URLParam(r, "id"), orgID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -253,7 +261,7 @@ func (h *OfferHandler) SendEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	body += shareURL
 
-	settings, err := h.settingsSvc.GetSmtp(r.Context())
+	settings, err := h.settingsSvc.GetSmtp(r.Context(), orgID)
 	if err != nil {
 		httpjson.Error(w, http.StatusInternalServerError, "ayarlar alınamadı")
 		return
@@ -263,7 +271,7 @@ func (h *OfferHandler) SendEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if o.Status == domain.OfferStatusTaslak {
-		if _, err := h.svc.UpdateStatus(r.Context(), o.ID, domain.OfferStatusGonderildi); err != nil {
+		if _, err := h.svc.UpdateStatus(r.Context(), o.ID, orgID, domain.OfferStatusGonderildi); err != nil {
 			httpjson.Error(w, http.StatusInternalServerError, "mail gönderildi ama durum güncellenemedi")
 			return
 		}

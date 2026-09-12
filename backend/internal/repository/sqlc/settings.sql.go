@@ -7,17 +7,18 @@ package sqlc
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const getSmtpSettings = `-- name: GetSmtpSettings :one
-SELECT id, host, port, username, password_enc, from_email, from_name, use_tls, updated_at FROM smtp_settings WHERE id = 1
+SELECT host, port, username, password_enc, from_email, from_name, use_tls, updated_at, organization_id FROM smtp_settings WHERE organization_id = $1
 `
 
-func (q *Queries) GetSmtpSettings(ctx context.Context) (SmtpSetting, error) {
-	row := q.db.QueryRow(ctx, getSmtpSettings)
+func (q *Queries) GetSmtpSettings(ctx context.Context, organizationID pgtype.UUID) (SmtpSetting, error) {
+	row := q.db.QueryRow(ctx, getSmtpSettings, organizationID)
 	var i SmtpSetting
 	err := row.Scan(
-		&i.ID,
 		&i.Host,
 		&i.Port,
 		&i.Username,
@@ -26,31 +27,34 @@ func (q *Queries) GetSmtpSettings(ctx context.Context) (SmtpSetting, error) {
 		&i.FromName,
 		&i.UseTls,
 		&i.UpdatedAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }
 
 const upsertSmtpSettings = `-- name: UpsertSmtpSettings :one
-INSERT INTO smtp_settings (id, host, port, username, password_enc, from_email, from_name, use_tls)
-VALUES (1, $1, $2, $3, $4, $5, $6, $7)
-ON CONFLICT (id) DO UPDATE SET
-    host = $1, port = $2, username = $3, password_enc = $4,
-    from_email = $5, from_name = $6, use_tls = $7
-RETURNING id, host, port, username, password_enc, from_email, from_name, use_tls, updated_at
+INSERT INTO smtp_settings (organization_id, host, port, username, password_enc, from_email, from_name, use_tls)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (organization_id) DO UPDATE SET
+    host = $2, port = $3, username = $4, password_enc = $5,
+    from_email = $6, from_name = $7, use_tls = $8
+RETURNING host, port, username, password_enc, from_email, from_name, use_tls, updated_at, organization_id
 `
 
 type UpsertSmtpSettingsParams struct {
-	Host        string `json:"host"`
-	Port        int32  `json:"port"`
-	Username    string `json:"username"`
-	PasswordEnc string `json:"password_enc"`
-	FromEmail   string `json:"from_email"`
-	FromName    string `json:"from_name"`
-	UseTls      bool   `json:"use_tls"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Host           string      `json:"host"`
+	Port           int32       `json:"port"`
+	Username       string      `json:"username"`
+	PasswordEnc    string      `json:"password_enc"`
+	FromEmail      string      `json:"from_email"`
+	FromName       string      `json:"from_name"`
+	UseTls         bool        `json:"use_tls"`
 }
 
 func (q *Queries) UpsertSmtpSettings(ctx context.Context, arg UpsertSmtpSettingsParams) (SmtpSetting, error) {
 	row := q.db.QueryRow(ctx, upsertSmtpSettings,
+		arg.OrganizationID,
 		arg.Host,
 		arg.Port,
 		arg.Username,
@@ -61,7 +65,6 @@ func (q *Queries) UpsertSmtpSettings(ctx context.Context, arg UpsertSmtpSettings
 	)
 	var i SmtpSetting
 	err := row.Scan(
-		&i.ID,
 		&i.Host,
 		&i.Port,
 		&i.Username,
@@ -70,6 +73,7 @@ func (q *Queries) UpsertSmtpSettings(ctx context.Context, arg UpsertSmtpSettings
 		&i.FromName,
 		&i.UseTls,
 		&i.UpdatedAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }

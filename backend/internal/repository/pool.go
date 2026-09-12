@@ -20,16 +20,28 @@ func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	return pgxpool.New(ctx, databaseURL)
 }
 
+func ToDomainOrganization(o sqlc.Organization) domain.Organization {
+	return domain.Organization{
+		ID:        o.ID.String(),
+		Name:      o.Name,
+		Slug:      o.Slug,
+		IsActive:  o.IsActive,
+		CreatedAt: o.CreatedAt.Time,
+		UpdatedAt: o.UpdatedAt.Time,
+	}
+}
+
 func ToDomainUser(u sqlc.User) domain.User {
 	du := domain.User{
-		ID:           u.ID.String(),
-		Username:     u.Username,
-		PasswordHash: u.PasswordHash,
-		FullName:     u.FullName,
-		Role:         domain.Role(u.Role),
-		IsActive:     u.IsActive,
-		CreatedAt:    u.CreatedAt.Time,
-		UpdatedAt:    u.UpdatedAt.Time,
+		ID:             u.ID.String(),
+		OrganizationID: u.OrganizationID.String(),
+		Username:       u.Username,
+		PasswordHash:   u.PasswordHash,
+		FullName:       u.FullName,
+		Role:           domain.Role(u.Role),
+		IsActive:       u.IsActive,
+		CreatedAt:      u.CreatedAt.Time,
+		UpdatedAt:      u.UpdatedAt.Time,
 	}
 	if u.LastLoginAt.Valid {
 		t := u.LastLoginAt.Time
@@ -47,6 +59,7 @@ func StringToUUID(s string) (pgtype.UUID, error) {
 func ToDomainProduct(p sqlc.Product) domain.Product {
 	dp := domain.Product{
 		ID:             p.ID.String(),
+		OrganizationID: p.OrganizationID.String(),
 		Name:           p.Name,
 		NormalizedName: p.NormalizedName,
 		Unit:           p.Unit,
@@ -83,6 +96,7 @@ func Float64ToNumeric(f float64) pgtype.Numeric {
 func ToDomainOffer(o sqlc.Offer) domain.Offer {
 	do := domain.Offer{
 		ID:              o.ID.String(),
+		OrganizationID:  o.OrganizationID.String(),
 		OfferNo:         o.OfferNo,
 		CustomerName:    o.CustomerName,
 		CustomerPhone:   o.CustomerPhone,
@@ -133,14 +147,15 @@ func TimeToDate(t time.Time) pgtype.Date {
 
 func ToDomainEmployee(e sqlc.Employee) domain.Employee {
 	de := domain.Employee{
-		ID:          e.ID.String(),
-		FullName:    e.FullName,
-		Phone:       e.Phone,
-		Position:    e.Position,
-		IsActive:    e.IsActive,
-		Description: e.Description,
-		CreatedAt:   e.CreatedAt.Time,
-		UpdatedAt:   e.UpdatedAt.Time,
+		ID:             e.ID.String(),
+		OrganizationID: e.OrganizationID.String(),
+		FullName:       e.FullName,
+		Phone:          e.Phone,
+		Position:       e.Position,
+		IsActive:       e.IsActive,
+		Description:    e.Description,
+		CreatedAt:      e.CreatedAt.Time,
+		UpdatedAt:      e.UpdatedAt.Time,
 	}
 	if e.Salary.Valid {
 		v := NumericToFloat64(e.Salary)
@@ -173,29 +188,31 @@ func TimePtrToDate(t *time.Time) pgtype.Date {
 
 func ToDomainAttendance(a sqlc.AttendanceLog) domain.AttendanceLog {
 	return domain.AttendanceLog{
-		ID:         a.ID.String(),
-		EmployeeID: a.EmployeeID.String(),
-		Date:       a.Date.Time,
-		CheckIn:    a.CheckIn,
-		CheckOut:   a.CheckOut,
-		WorkHours:  NumericToFloat64(a.WorkHours),
-		Status:     a.Status,
-		Note:       a.Note,
-		CreatedAt:  a.CreatedAt.Time,
+		ID:             a.ID.String(),
+		OrganizationID: a.OrganizationID.String(),
+		EmployeeID:     a.EmployeeID.String(),
+		Date:           a.Date.Time,
+		CheckIn:        a.CheckIn,
+		CheckOut:       a.CheckOut,
+		WorkHours:      NumericToFloat64(a.WorkHours),
+		Status:         a.Status,
+		Note:           a.Note,
+		CreatedAt:      a.CreatedAt.Time,
 	}
 }
 
 func ToDomainAttendanceRow(r sqlc.ListAttendanceByMonthRow) domain.AttendanceLog {
 	return domain.AttendanceLog{
-		ID:           r.ID.String(),
-		EmployeeID:   r.EmployeeID.String(),
-		EmployeeName: r.EmployeeName,
-		Date:         r.Date.Time,
-		CheckIn:      r.CheckIn,
-		CheckOut:     r.CheckOut,
-		WorkHours:    NumericToFloat64(r.WorkHours),
-		Status:       r.Status,
-		Note:         r.Note,
-		CreatedAt:    r.CreatedAt.Time,
+		ID:             r.ID.String(),
+		OrganizationID: r.OrganizationID.String(),
+		EmployeeID:     r.EmployeeID.String(),
+		EmployeeName:   r.EmployeeName,
+		Date:           r.Date.Time,
+		CheckIn:        r.CheckIn,
+		CheckOut:       r.CheckOut,
+		WorkHours:      NumericToFloat64(r.WorkHours),
+		Status:         r.Status,
+		Note:           r.Note,
+		CreatedAt:      r.CreatedAt.Time,
 	}
 }

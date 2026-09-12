@@ -19,8 +19,9 @@ var ErrInvalidAccessToken = errors.New("geçersiz access token")
 // ama nihai yetki kararı her zaman middleware'de bu claim'e göre verilir,
 // kullanıcı deaktive edilirse zaten refresh sırasında elenir (aşağıya bkz.).
 type AccessClaims struct {
-	UserID string      `json:"uid"`
-	Role   domain.Role `json:"role"`
+	UserID         string      `json:"uid"`
+	Role           domain.Role `json:"role"`
+	OrganizationID string      `json:"org"`
 	jwt.RegisteredClaims
 }
 
@@ -33,10 +34,11 @@ func NewJWTIssuer(secret string, ttl time.Duration) *JWTIssuer {
 	return &JWTIssuer{secret: []byte(secret), ttl: ttl}
 }
 
-func (j *JWTIssuer) IssueAccessToken(userID string, role domain.Role) (string, error) {
+func (j *JWTIssuer) IssueAccessToken(userID string, role domain.Role, organizationID string) (string, error) {
 	claims := AccessClaims{
-		UserID: userID,
-		Role:   role,
+		UserID:         userID,
+		Role:           role,
+		OrganizationID: organizationID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(j.ttl)),

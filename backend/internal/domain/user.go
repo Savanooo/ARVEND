@@ -17,13 +17,14 @@ func (r Role) Valid() bool {
 }
 
 type User struct {
-	ID           string
-	Username     string
-	PasswordHash string
-	FullName     string
-	Role         Role
-	IsActive     bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	LastLoginAt  *time.Time
+	ID             string
+	OrganizationID string
+	Username       string
+	PasswordHash   string
+	FullName       string
+	Role           Role
+	IsActive       bool
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	LastLoginAt    *time.Time
 }

@@ -34,8 +34,15 @@ type AttendanceInput struct {
 	Note       string
 }
 
-func (s *AttendanceService) ListByMonth(ctx context.Context, month time.Time) ([]domain.AttendanceLog, error) {
-	rows, err := s.q.ListAttendanceByMonth(ctx, repository.TimeToDate(month))
+func (s *AttendanceService) ListByMonth(ctx context.Context, organizationID string, month time.Time) ([]domain.AttendanceLog, error) {
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	rows, err := s.q.ListAttendanceByMonth(ctx, sqlc.ListAttendanceByMonthParams{
+		OrganizationID: orgID,
+		Column2:        repository.TimeToDate(month),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -46,12 +53,16 @@ func (s *AttendanceService) ListByMonth(ctx context.Context, month time.Time) ([
 	return out, nil
 }
 
-func (s *AttendanceService) Get(ctx context.Context, id string) (*domain.AttendanceLog, error) {
+func (s *AttendanceService) Get(ctx context.Context, id, organizationID string) (*domain.AttendanceLog, error) {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	row, err := s.q.GetAttendanceByID(ctx, uid)
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	row, err := s.q.GetAttendanceByID(ctx, sqlc.GetAttendanceByIDParams{ID: uid, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -62,7 +73,11 @@ func (s *AttendanceService) Get(ctx context.Context, id string) (*domain.Attenda
 	return &a, nil
 }
 
-func (s *AttendanceService) Create(ctx context.Context, in AttendanceInput) (*domain.AttendanceLog, error) {
+func (s *AttendanceService) Create(ctx context.Context, organizationID string, in AttendanceInput) (*domain.AttendanceLog, error) {
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
 	if !domain.ValidAttendanceStatus(in.Status) {
 		return nil, errors.New("geçersiz mesai durumu")
 	}
@@ -71,13 +86,14 @@ func (s *AttendanceService) Create(ctx context.Context, in AttendanceInput) (*do
 		return nil, errors.New("geçersiz personel")
 	}
 	row, err := s.q.CreateAttendance(ctx, sqlc.CreateAttendanceParams{
-		EmployeeID: empID,
-		Date:       repository.TimeToDate(in.Date),
-		CheckIn:    strings.TrimSpace(in.CheckIn),
-		CheckOut:   strings.TrimSpace(in.CheckOut),
-		WorkHours:  repository.Float64ToNumeric(in.WorkHours),
-		Status:     in.Status,
-		Note:       strings.TrimSpace(in.Note),
+		OrganizationID: orgID,
+		EmployeeID:     empID,
+		Date:           repository.TimeToDate(in.Date),
+		CheckIn:        strings.TrimSpace(in.CheckIn),
+		CheckOut:       strings.TrimSpace(in.CheckOut),
+		WorkHours:      repository.Float64ToNumeric(in.WorkHours),
+		Status:         in.Status,
+		Note:           strings.TrimSpace(in.Note),
 	})
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -90,7 +106,7 @@ func (s *AttendanceService) Create(ctx context.Context, in AttendanceInput) (*do
 	return &a, nil
 }
 
-func (s *AttendanceService) Update(ctx context.Context, id string, in AttendanceInput) (*domain.AttendanceLog, error) {
+func (s *AttendanceService) Update(ctx context.Context, id, organizationID string, in AttendanceInput) (*domain.AttendanceLog, error) {
 	if !domain.ValidAttendanceStatus(in.Status) {
 		return nil, errors.New("geçersiz mesai durumu")
 	}
@@ -98,13 +114,18 @@ func (s *AttendanceService) Update(ctx context.Context, id string, in Attendance
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
 	row, err := s.q.UpdateAttendance(ctx, sqlc.UpdateAttendanceParams{
-		ID:        uid,
-		CheckIn:   strings.TrimSpace(in.CheckIn),
-		CheckOut:  strings.TrimSpace(in.CheckOut),
-		WorkHours: repository.Float64ToNumeric(in.WorkHours),
-		Status:    in.Status,
-		Note:      strings.TrimSpace(in.Note),
+		ID:             uid,
+		OrganizationID: orgID,
+		CheckIn:        strings.TrimSpace(in.CheckIn),
+		CheckOut:       strings.TrimSpace(in.CheckOut),
+		WorkHours:      repository.Float64ToNumeric(in.WorkHours),
+		Status:         in.Status,
+		Note:           strings.TrimSpace(in.Note),
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -116,10 +137,14 @@ func (s *AttendanceService) Update(ctx context.Context, id string, in Attendance
 	return &a, nil
 }
 
-func (s *AttendanceService) Delete(ctx context.Context, id string) error {
+func (s *AttendanceService) Delete(ctx context.Context, id, organizationID string) error {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
 		return domain.ErrNotFound
 	}
-	return s.q.DeleteAttendance(ctx, uid)
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	return s.q.DeleteAttendance(ctx, sqlc.DeleteAttendanceParams{ID: uid, OrganizationID: orgID})
 }

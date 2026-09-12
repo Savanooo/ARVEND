@@ -3,17 +3,18 @@ package domain
 import "time"
 
 type Employee struct {
-	ID          string
-	FullName    string
-	Phone       string
-	Position    string
-	Salary      *float64
-	DailyWage   *float64
-	StartDate   *time.Time
-	IsActive    bool
-	Description string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID             string
+	OrganizationID string
+	FullName       string
+	Phone          string
+	Position       string
+	Salary         *float64
+	DailyWage      *float64
+	StartDate      *time.Time
+	IsActive       bool
+	Description    string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 const (
@@ -35,14 +36,15 @@ func ValidAttendanceStatus(s string) bool {
 }
 
 type AttendanceLog struct {
-	ID           string
-	EmployeeID   string
-	EmployeeName string
-	Date         time.Time
-	CheckIn      string
-	CheckOut     string
-	WorkHours    float64
-	Status       string
-	Note         string
-	CreatedAt    time.Time
+	ID             string
+	OrganizationID string
+	EmployeeID     string
+	EmployeeName   string
+	Date           time.Time
+	CheckIn        string
+	CheckOut       string
+	WorkHours      float64
+	Status         string
+	Note           string
+	CreatedAt      time.Time
 }

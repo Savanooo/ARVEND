@@ -1,30 +1,32 @@
 -- name: CreateProduct :one
-INSERT INTO products (name, normalized_name, unit, unit_price, description, category, source, source_price)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO products (organization_id, name, normalized_name, unit, unit_price, description, category, source, source_price)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING *;
 
 -- name: GetProductByID :one
-SELECT * FROM products WHERE id = $1;
+SELECT * FROM products WHERE id = $1 AND organization_id = $2;
 
 -- name: ListProducts :many
 SELECT * FROM products
-WHERE ($3::text = '' OR normalized_name ILIKE '%' || $3::text || '%')
+WHERE organization_id = $1
+  AND ($4::text = '' OR normalized_name ILIKE '%' || $4::text || '%')
 ORDER BY name ASC
-LIMIT $1 OFFSET $2;
+LIMIT $2 OFFSET $3;
 
 -- name: CountProducts :one
 SELECT count(*) FROM products
-WHERE ($1::text = '' OR normalized_name ILIKE '%' || $1::text || '%');
+WHERE organization_id = $1
+  AND ($2::text = '' OR normalized_name ILIKE '%' || $2::text || '%');
 
 -- name: UpdateProduct :one
 UPDATE products
-SET name = $2, normalized_name = $3, unit = $4, unit_price = $5,
-    description = $6, category = $7
-WHERE id = $1
+SET name = $3, normalized_name = $4, unit = $5, unit_price = $6,
+    description = $7, category = $8
+WHERE id = $1 AND organization_id = $2
 RETURNING *;
 
 -- name: DeleteProduct :exec
-DELETE FROM products WHERE id = $1;
+DELETE FROM products WHERE id = $1 AND organization_id = $2;
 
 -- name: CreatePriceHistory :exec
 INSERT INTO product_price_history (product_id, old_price, new_price, note)

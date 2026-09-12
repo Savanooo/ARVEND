@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
+	"github.com/Savanooo/ARVEND/backend/internal/httpapi/middleware"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/httpjson"
 	"github.com/Savanooo/ARVEND/backend/internal/service"
 )
@@ -60,7 +61,8 @@ func (h *EmployeeHandler) List(w http.ResponseWriter, r *http.Request) {
 		v := false
 		activeOnly = &v
 	}
-	employees, err := h.svc.List(r.Context(), activeOnly)
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	employees, err := h.svc.List(r.Context(), orgID, activeOnly)
 	if err != nil {
 		httpjson.Error(w, http.StatusInternalServerError, "personel listesi alınamadı")
 		return
@@ -73,7 +75,8 @@ func (h *EmployeeHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *EmployeeHandler) Get(w http.ResponseWriter, r *http.Request) {
-	e, err := h.svc.Get(r.Context(), chi.URLParam(r, "id"))
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	e, err := h.svc.Get(r.Context(), chi.URLParam(r, "id"), orgID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -124,7 +127,8 @@ func (h *EmployeeHandler) Create(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	e, err := h.svc.Create(r.Context(), in)
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	e, err := h.svc.Create(r.Context(), orgID, in)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -143,7 +147,8 @@ func (h *EmployeeHandler) Update(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	e, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), in)
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	e, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), orgID, in)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -152,7 +157,8 @@ func (h *EmployeeHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *EmployeeHandler) Archive(w http.ResponseWriter, r *http.Request) {
-	if err := h.svc.Archive(r.Context(), chi.URLParam(r, "id")); err != nil {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	if err := h.svc.Archive(r.Context(), chi.URLParam(r, "id"), orgID); err != nil {
 		h.writeError(w, err)
 		return
 	}

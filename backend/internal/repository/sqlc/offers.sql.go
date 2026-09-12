@@ -12,11 +12,16 @@ import (
 )
 
 const countOffers = `-- name: CountOffers :one
-SELECT count(*) FROM offers WHERE is_passive = $1
+SELECT count(*) FROM offers WHERE organization_id = $1 AND is_passive = $2
 `
 
-func (q *Queries) CountOffers(ctx context.Context, isPassive bool) (int64, error) {
-	row := q.db.QueryRow(ctx, countOffers, isPassive)
+type CountOffersParams struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	IsPassive      bool        `json:"is_passive"`
+}
+
+func (q *Queries) CountOffers(ctx context.Context, arg CountOffersParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countOffers, arg.OrganizationID, arg.IsPassive)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -24,16 +29,17 @@ func (q *Queries) CountOffers(ctx context.Context, isPassive bool) (int64, error
 
 const createOffer = `-- name: CreateOffer :one
 INSERT INTO offers (
-    offer_no, customer_name, customer_phone, customer_email, customer_address,
+    organization_id, offer_no, customer_name, customer_phone, customer_email, customer_address,
     offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total,
     notes, status, created_by
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 )
-RETURNING id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at, share_token
+RETURNING id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at, share_token, organization_id
 `
 
 type CreateOfferParams struct {
+	OrganizationID  pgtype.UUID    `json:"organization_id"`
 	OfferNo         string         `json:"offer_no"`
 	CustomerName    string         `json:"customer_name"`
 	CustomerPhone   string         `json:"customer_phone"`
@@ -52,6 +58,7 @@ type CreateOfferParams struct {
 
 func (q *Queries) CreateOffer(ctx context.Context, arg CreateOfferParams) (Offer, error) {
 	row := q.db.QueryRow(ctx, createOffer,
+		arg.OrganizationID,
 		arg.OfferNo,
 		arg.CustomerName,
 		arg.CustomerPhone,
@@ -88,6 +95,7 @@ func (q *Queries) CreateOffer(ctx context.Context, arg CreateOfferParams) (Offer
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ShareToken,
+		&i.OrganizationID,
 	)
 	return i, err
 }
@@ -133,20 +141,30 @@ func (q *Queries) CreateOfferItem(ctx context.Context, arg CreateOfferItemParams
 }
 
 const deleteOffer = `-- name: DeleteOffer :exec
-DELETE FROM offers WHERE id = $1
+DELETE FROM offers WHERE id = $1 AND organization_id = $2
 `
 
-func (q *Queries) DeleteOffer(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteOffer, id)
+type DeleteOfferParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) DeleteOffer(ctx context.Context, arg DeleteOfferParams) error {
+	_, err := q.db.Exec(ctx, deleteOffer, arg.ID, arg.OrganizationID)
 	return err
 }
 
 const getOfferByID = `-- name: GetOfferByID :one
-SELECT id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at, share_token FROM offers WHERE id = $1
+SELECT id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at, share_token, organization_id FROM offers WHERE id = $1 AND organization_id = $2
 `
 
-func (q *Queries) GetOfferByID(ctx context.Context, id pgtype.UUID) (Offer, error) {
-	row := q.db.QueryRow(ctx, getOfferByID, id)
+type GetOfferByIDParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) GetOfferByID(ctx context.Context, arg GetOfferByIDParams) (Offer, error) {
+	row := q.db.QueryRow(ctx, getOfferByID, arg.ID, arg.OrganizationID)
 	var i Offer
 	err := row.Scan(
 		&i.ID,
@@ -168,12 +186,13 @@ func (q *Queries) GetOfferByID(ctx context.Context, id pgtype.UUID) (Offer, erro
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ShareToken,
+		&i.OrganizationID,
 	)
 	return i, err
 }
 
 const getOfferByShareToken = `-- name: GetOfferByShareToken :one
-SELECT id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at, share_token FROM offers WHERE share_token = $1
+SELECT id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at, share_token, organization_id FROM offers WHERE share_token = $1
 `
 
 func (q *Queries) GetOfferByShareToken(ctx context.Context, shareToken pgtype.UUID) (Offer, error) {
@@ -199,6 +218,7 @@ func (q *Queries) GetOfferByShareToken(ctx context.Context, shareToken pgtype.UU
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ShareToken,
+		&i.OrganizationID,
 	)
 	return i, err
 }
@@ -237,20 +257,26 @@ func (q *Queries) ListOfferItems(ctx context.Context, offerID pgtype.UUID) ([]Of
 }
 
 const listOffers = `-- name: ListOffers :many
-SELECT id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at, share_token FROM offers
-WHERE is_passive = $1
+SELECT id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at, share_token, organization_id FROM offers
+WHERE organization_id = $1 AND is_passive = $2
 ORDER BY created_at DESC
-LIMIT $2 OFFSET $3
+LIMIT $3 OFFSET $4
 `
 
 type ListOffersParams struct {
-	IsPassive bool  `json:"is_passive"`
-	Limit     int32 `json:"limit"`
-	Offset    int32 `json:"offset"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	IsPassive      bool        `json:"is_passive"`
+	Limit          int32       `json:"limit"`
+	Offset         int32       `json:"offset"`
 }
 
 func (q *Queries) ListOffers(ctx context.Context, arg ListOffersParams) ([]Offer, error) {
-	rows, err := q.db.Query(ctx, listOffers, arg.IsPassive, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listOffers,
+		arg.OrganizationID,
+		arg.IsPassive,
+		arg.Limit,
+		arg.Offset,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -278,6 +304,7 @@ func (q *Queries) ListOffers(ctx context.Context, arg ListOffersParams) ([]Offer
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ShareToken,
+			&i.OrganizationID,
 		); err != nil {
 			return nil, err
 		}
@@ -290,44 +317,51 @@ func (q *Queries) ListOffers(ctx context.Context, arg ListOffersParams) ([]Offer
 }
 
 const nextOfferSeq = `-- name: NextOfferSeq :one
-INSERT INTO offer_counters (year, seq) VALUES ($1, 1)
-ON CONFLICT (year) DO UPDATE SET seq = offer_counters.seq + 1
+INSERT INTO offer_counters (organization_id, year, seq) VALUES ($1, $2, 1)
+ON CONFLICT (organization_id, year) DO UPDATE SET seq = offer_counters.seq + 1
 RETURNING seq
 `
 
-func (q *Queries) NextOfferSeq(ctx context.Context, year int32) (int32, error) {
-	row := q.db.QueryRow(ctx, nextOfferSeq, year)
+type NextOfferSeqParams struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Year           int32       `json:"year"`
+}
+
+func (q *Queries) NextOfferSeq(ctx context.Context, arg NextOfferSeqParams) (int32, error) {
+	row := q.db.QueryRow(ctx, nextOfferSeq, arg.OrganizationID, arg.Year)
 	var seq int32
 	err := row.Scan(&seq)
 	return seq, err
 }
 
 const setOfferPassive = `-- name: SetOfferPassive :exec
-UPDATE offers SET is_passive = $2 WHERE id = $1
+UPDATE offers SET is_passive = $3 WHERE id = $1 AND organization_id = $2
 `
 
 type SetOfferPassiveParams struct {
-	ID        pgtype.UUID `json:"id"`
-	IsPassive bool        `json:"is_passive"`
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	IsPassive      bool        `json:"is_passive"`
 }
 
 func (q *Queries) SetOfferPassive(ctx context.Context, arg SetOfferPassiveParams) error {
-	_, err := q.db.Exec(ctx, setOfferPassive, arg.ID, arg.IsPassive)
+	_, err := q.db.Exec(ctx, setOfferPassive, arg.ID, arg.OrganizationID, arg.IsPassive)
 	return err
 }
 
 const updateOfferStatus = `-- name: UpdateOfferStatus :one
-UPDATE offers SET status = $2 WHERE id = $1
-RETURNING id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at, share_token
+UPDATE offers SET status = $3 WHERE id = $1 AND organization_id = $2
+RETURNING id, offer_no, customer_name, customer_phone, customer_email, customer_address, offer_date, valid_until, subtotal, vat_rate, vat_amount, grand_total, notes, status, is_passive, created_by, created_at, updated_at, share_token, organization_id
 `
 
 type UpdateOfferStatusParams struct {
-	ID     pgtype.UUID `json:"id"`
-	Status string      `json:"status"`
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Status         string      `json:"status"`
 }
 
 func (q *Queries) UpdateOfferStatus(ctx context.Context, arg UpdateOfferStatusParams) (Offer, error) {
-	row := q.db.QueryRow(ctx, updateOfferStatus, arg.ID, arg.Status)
+	row := q.db.QueryRow(ctx, updateOfferStatus, arg.ID, arg.OrganizationID, arg.Status)
 	var i Offer
 	err := row.Scan(
 		&i.ID,
@@ -349,6 +383,7 @@ func (q *Queries) UpdateOfferStatus(ctx context.Context, arg UpdateOfferStatusPa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ShareToken,
+		&i.OrganizationID,
 	)
 	return i, err
 }

@@ -15,6 +15,7 @@ type ctxKey int
 const (
 	ctxUserID ctxKey = iota
 	ctxRole
+	ctxOrganizationID
 )
 
 // RequireAuth, "access_token" cookie'sindeki JWT'yi doğrular; geçerliyse
@@ -37,6 +38,7 @@ func RequireAuth(issuer *auth.JWTIssuer) func(http.Handler) http.Handler {
 			}
 			ctx := context.WithValue(r.Context(), ctxUserID, claims.UserID)
 			ctx = context.WithValue(ctx, ctxRole, claims.Role)
+			ctx = context.WithValue(ctx, ctxOrganizationID, claims.OrganizationID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -49,5 +51,10 @@ func UserIDFromContext(ctx context.Context) (string, bool) {
 
 func RoleFromContext(ctx context.Context) (domain.Role, bool) {
 	v, ok := ctx.Value(ctxRole).(domain.Role)
+	return v, ok
+}
+
+func OrganizationIDFromContext(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(ctxOrganizationID).(string)
 	return v, ok
 }

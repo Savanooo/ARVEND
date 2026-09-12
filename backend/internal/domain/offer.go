@@ -32,6 +32,7 @@ type OfferItem struct {
 
 type Offer struct {
 	ID              string
+	OrganizationID  string
 	OfferNo         string
 	CustomerName    string
 	CustomerPhone   string

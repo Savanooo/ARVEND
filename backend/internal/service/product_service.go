@@ -25,7 +25,11 @@ type ProductListResult struct {
 	Total    int64
 }
 
-func (s *ProductService) List(ctx context.Context, search string, page, limit int) (*ProductListResult, error) {
+func (s *ProductService) List(ctx context.Context, organizationID, search string, page, limit int) (*ProductListResult, error) {
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -34,14 +38,15 @@ func (s *ProductService) List(ctx context.Context, search string, page, limit in
 	}
 	norm := domain.NormalizeName(search)
 	rows, err := s.q.ListProducts(ctx, sqlc.ListProductsParams{
-		Limit:   int32(limit),
-		Offset:  int32((page - 1) * limit),
-		Column3: norm,
+		OrganizationID: orgID,
+		Limit:          int32(limit),
+		Offset:         int32((page - 1) * limit),
+		Column4:        norm,
 	})
 	if err != nil {
 		return nil, err
 	}
-	total, err := s.q.CountProducts(ctx, norm)
+	total, err := s.q.CountProducts(ctx, sqlc.CountProductsParams{OrganizationID: orgID, Column2: norm})
 	if err != nil {
 		return nil, err
 	}
@@ -52,12 +57,16 @@ func (s *ProductService) List(ctx context.Context, search string, page, limit in
 	return &ProductListResult{Products: products, Total: total}, nil
 }
 
-func (s *ProductService) Get(ctx context.Context, id string) (*domain.Product, error) {
+func (s *ProductService) Get(ctx context.Context, id, organizationID string) (*domain.Product, error) {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	row, err := s.q.GetProductByID(ctx, uid)
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	row, err := s.q.GetProductByID(ctx, sqlc.GetProductByIDParams{ID: uid, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -68,7 +77,11 @@ func (s *ProductService) Get(ctx context.Context, id string) (*domain.Product, e
 	return &p, nil
 }
 
-func (s *ProductService) Create(ctx context.Context, name, unit string, unitPrice float64, description, category string) (*domain.Product, error) {
+func (s *ProductService) Create(ctx context.Context, organizationID, name, unit string, unitPrice float64, description, category string) (*domain.Product, error) {
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, errors.New("ürün adı zorunludur")
@@ -77,6 +90,7 @@ func (s *ProductService) Create(ctx context.Context, name, unit string, unitPric
 		unit = "adet"
 	}
 	row, err := s.q.CreateProduct(ctx, sqlc.CreateProductParams{
+		OrganizationID: orgID,
 		Name:           name,
 		NormalizedName: domain.NormalizeName(name),
 		Unit:           unit,
@@ -94,12 +108,16 @@ func (s *ProductService) Create(ctx context.Context, name, unit string, unitPric
 // Update, ürünü günceller. Fiyat değişirse product_price_history'e otomatik
 // bir kayıt düşer -- BYZ'deki embedded (son 50 ile sınırlı) listenin
 // yerine, sınırsız ve ayrı sorgulanabilir bir tabloda.
-func (s *ProductService) Update(ctx context.Context, id, name, unit string, unitPrice float64, description, category string) (*domain.Product, error) {
+func (s *ProductService) Update(ctx context.Context, id, organizationID, name, unit string, unitPrice float64, description, category string) (*domain.Product, error) {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	existing, err := s.q.GetProductByID(ctx, uid)
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	existing, err := s.q.GetProductByID(ctx, sqlc.GetProductByIDParams{ID: uid, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -114,6 +132,7 @@ func (s *ProductService) Update(ctx context.Context, id, name, unit string, unit
 
 	row, err := s.q.UpdateProduct(ctx, sqlc.UpdateProductParams{
 		ID:             uid,
+		OrganizationID: orgID,
 		Name:           name,
 		NormalizedName: domain.NormalizeName(name),
 		Unit:           unit,
@@ -141,18 +160,35 @@ func (s *ProductService) Update(ctx context.Context, id, name, unit string, unit
 	return &p, nil
 }
 
-func (s *ProductService) Delete(ctx context.Context, id string) error {
+func (s *ProductService) Delete(ctx context.Context, id, organizationID string) error {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
 		return domain.ErrNotFound
 	}
-	return s.q.DeleteProduct(ctx, uid)
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	return s.q.DeleteProduct(ctx, sqlc.DeleteProductParams{ID: uid, OrganizationID: orgID})
 }
 
-func (s *ProductService) PriceHistory(ctx context.Context, id string) ([]domain.PriceHistoryEntry, error) {
+func (s *ProductService) PriceHistory(ctx context.Context, id, organizationID string) ([]domain.PriceHistoryEntry, error) {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
 		return nil, domain.ErrNotFound
+	}
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	// Ürünün gerçekten bu organizasyona ait olduğu doğrulanmadan geçmişi
+	// listelemek, product_id bilinirse başka bir org'un fiyat geçmişini
+	// sızdırabilirdi -- bu yüzden önce Get ile org sahipliği kontrol edilir.
+	if _, err := s.q.GetProductByID(ctx, sqlc.GetProductByIDParams{ID: uid, OrganizationID: orgID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
 	}
 	rows, err := s.q.ListPriceHistory(ctx, uid)
 	if err != nil {

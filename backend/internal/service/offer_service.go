@@ -43,12 +43,17 @@ type CreateOfferInput struct {
 	// açıkça 0 gönderilirse 0 olarak KALIR. BYZ'de tam bu noktada
 	// "value or 20" deseni yüzünden KDV=0 sessizce 20'ye dönüyordu --
 	// burada baştan işaretçi kullanılarak o hata tekrarlanmıyor.
-	VatRate *float64
-	Items   []OfferItemInput
-	UserID  string
+	VatRate        *float64
+	Items          []OfferItemInput
+	UserID         string
+	OrganizationID string
 }
 
 func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain.Offer, error) {
+	orgID, err := repository.StringToUUID(in.OrganizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
 	in.CustomerName = strings.TrimSpace(in.CustomerName)
 	if in.CustomerName == "" {
 		return nil, errors.New("müşteri adı zorunludur")
@@ -84,7 +89,7 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 	vatAmount := round2(subtotal * vatRate / 100)
 	grandTotal := round2(subtotal + vatAmount)
 
-	offerNo, err := s.generateOfferNo(ctx)
+	offerNo, err := s.generateOfferNo(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -106,6 +111,7 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 	}
 
 	offerRow, err := txq.CreateOffer(ctx, sqlc.CreateOfferParams{
+		OrganizationID:  orgID,
 		OfferNo:         offerNo,
 		CustomerName:    in.CustomerName,
 		CustomerPhone:   strings.TrimSpace(in.CustomerPhone),
@@ -157,9 +163,9 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 	return &offer, nil
 }
 
-func (s *OfferService) generateOfferNo(ctx context.Context) (string, error) {
+func (s *OfferService) generateOfferNo(ctx context.Context, orgID pgtype.UUID) (string, error) {
 	year := time.Now().Year()
-	seq, err := s.q.NextOfferSeq(ctx, int32(year))
+	seq, err := s.q.NextOfferSeq(ctx, sqlc.NextOfferSeqParams{OrganizationID: orgID, Year: int32(year)})
 	if err != nil {
 		return "", err
 	}
@@ -171,7 +177,11 @@ type OfferListResult struct {
 	Total  int64
 }
 
-func (s *OfferService) List(ctx context.Context, isPassive bool, page, limit int) (*OfferListResult, error) {
+func (s *OfferService) List(ctx context.Context, organizationID string, isPassive bool, page, limit int) (*OfferListResult, error) {
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
@@ -179,14 +189,15 @@ func (s *OfferService) List(ctx context.Context, isPassive bool, page, limit int
 		page = 1
 	}
 	rows, err := s.q.ListOffers(ctx, sqlc.ListOffersParams{
-		IsPassive: isPassive,
-		Limit:     int32(limit),
-		Offset:    int32((page - 1) * limit),
+		OrganizationID: orgID,
+		IsPassive:      isPassive,
+		Limit:          int32(limit),
+		Offset:         int32((page - 1) * limit),
 	})
 	if err != nil {
 		return nil, err
 	}
-	total, err := s.q.CountOffers(ctx, isPassive)
+	total, err := s.q.CountOffers(ctx, sqlc.CountOffersParams{OrganizationID: orgID, IsPassive: isPassive})
 	if err != nil {
 		return nil, err
 	}
@@ -197,12 +208,16 @@ func (s *OfferService) List(ctx context.Context, isPassive bool, page, limit int
 	return &OfferListResult{Offers: offers, Total: total}, nil
 }
 
-func (s *OfferService) Get(ctx context.Context, id string) (*domain.Offer, error) {
+func (s *OfferService) Get(ctx context.Context, id, organizationID string) (*domain.Offer, error) {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	row, err := s.q.GetOfferByID(ctx, uid)
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	row, err := s.q.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -221,7 +236,7 @@ func (s *OfferService) Get(ctx context.Context, id string) (*domain.Offer, error
 	return &offer, nil
 }
 
-func (s *OfferService) UpdateStatus(ctx context.Context, id, status string) (*domain.Offer, error) {
+func (s *OfferService) UpdateStatus(ctx context.Context, id, organizationID, status string) (*domain.Offer, error) {
 	if !domain.ValidOfferStatus(status) {
 		return nil, errors.New("geçersiz durum")
 	}
@@ -229,7 +244,11 @@ func (s *OfferService) UpdateStatus(ctx context.Context, id, status string) (*do
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	row, err := s.q.UpdateOfferStatus(ctx, sqlc.UpdateOfferStatusParams{ID: uid, Status: status})
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	row, err := s.q.UpdateOfferStatus(ctx, sqlc.UpdateOfferStatusParams{ID: uid, OrganizationID: orgID, Status: status})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -240,23 +259,29 @@ func (s *OfferService) UpdateStatus(ctx context.Context, id, status string) (*do
 	return &o, nil
 }
 
-func (s *OfferService) TogglePassive(ctx context.Context, id string) error {
+func (s *OfferService) TogglePassive(ctx context.Context, id, organizationID string) error {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
 		return domain.ErrNotFound
 	}
-	row, err := s.q.GetOfferByID(ctx, uid)
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	row, err := s.q.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ErrNotFound
 		}
 		return err
 	}
-	return s.q.SetOfferPassive(ctx, sqlc.SetOfferPassiveParams{ID: uid, IsPassive: !row.IsPassive})
+	return s.q.SetOfferPassive(ctx, sqlc.SetOfferPassiveParams{ID: uid, OrganizationID: orgID, IsPassive: !row.IsPassive})
 }
 
 // GetByShareToken, müşterinin auth gerektirmeyen paylaşım linkinden teklifi
-// görüntülemesi için kullanılır.
+// görüntülemesi için kullanılır -- güvenlik sınırı organization_id değil,
+// tahmin edilemez token'ın kendisidir (bu yüzden organizationID parametresi
+// almaz).
 func (s *OfferService) GetByShareToken(ctx context.Context, token string) (*domain.Offer, error) {
 	tid, err := repository.StringToUUID(token)
 	if err != nil {
@@ -286,7 +311,9 @@ var ErrOfferNotRespondable = errors.New("bu teklif için onay/red işlemi yapıl
 // RespondByShareToken, müşterinin paylaşım linkinden teklifi kabul/red
 // etmesini sağlar. Yalnızca "gönderildi" durumundaki teklifler için
 // geçerlidir -- taslak bir teklif henüz müşteriye ulaşmamıştır, kabul/red
-// edilmiş bir teklif ise zaten karara bağlanmıştır.
+// edilmiş bir teklif ise zaten karara bağlanmıştır. organization_id burada
+// da token'dan bulunan satırın kendi org'undan alınır (public parametre
+// olarak DIŞARIDAN gelmez).
 func (s *OfferService) RespondByShareToken(ctx context.Context, token, decision string) (*domain.Offer, error) {
 	if decision != domain.OfferStatusKabulEdildi && decision != domain.OfferStatusReddedildi {
 		return nil, errors.New("geçersiz karar")
@@ -305,7 +332,7 @@ func (s *OfferService) RespondByShareToken(ctx context.Context, token, decision 
 	if row.Status != domain.OfferStatusGonderildi {
 		return nil, ErrOfferNotRespondable
 	}
-	updated, err := s.q.UpdateOfferStatus(ctx, sqlc.UpdateOfferStatusParams{ID: row.ID, Status: decision})
+	updated, err := s.q.UpdateOfferStatus(ctx, sqlc.UpdateOfferStatusParams{ID: row.ID, OrganizationID: row.OrganizationID, Status: decision})
 	if err != nil {
 		return nil, err
 	}
@@ -318,12 +345,16 @@ var ErrOfferAccepted = errors.New("kabul edilmiş teklif silinemez")
 // Delete, BYZ'deki kuralı korur: kabul edilmiş bir teklifin tek dayanağı
 // olduğu müşteri onayı/alacak kaydı olabileceğinden, "kabul edildi"
 // durumundaki teklifler silinemez.
-func (s *OfferService) Delete(ctx context.Context, id string) error {
+func (s *OfferService) Delete(ctx context.Context, id, organizationID string) error {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
 		return domain.ErrNotFound
 	}
-	row, err := s.q.GetOfferByID(ctx, uid)
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	row, err := s.q.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ErrNotFound
@@ -333,7 +364,7 @@ func (s *OfferService) Delete(ctx context.Context, id string) error {
 	if row.Status == domain.OfferStatusKabulEdildi {
 		return ErrOfferAccepted
 	}
-	return s.q.DeleteOffer(ctx, uid)
+	return s.q.DeleteOffer(ctx, sqlc.DeleteOfferParams{ID: uid, OrganizationID: orgID})
 }
 
 func round2(f float64) float64 {

@@ -24,7 +24,8 @@ func NewUserHandler(svc *service.UserService) *UserHandler {
 func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	result, err := h.svc.List(r.Context(), page, limit)
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	result, err := h.svc.List(r.Context(), orgID, page, limit)
 	if err != nil {
 		httpjson.Error(w, http.StatusInternalServerError, "kullanıcılar alınamadı")
 		return
@@ -37,7 +38,8 @@ func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) Get(w http.ResponseWriter, r *http.Request) {
-	user, err := h.svc.Get(r.Context(), chi.URLParam(r, "id"))
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	user, err := h.svc.Get(r.Context(), chi.URLParam(r, "id"), orgID)
 	if err != nil {
 		h.writeUserError(w, err)
 		return
@@ -58,7 +60,8 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
-	user, err := h.svc.Create(r.Context(), req.Username, req.Password, req.FullName, req.Role)
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	user, err := h.svc.Create(r.Context(), orgID, req.Username, req.Password, req.FullName, req.Role)
 	if err != nil {
 		h.writeUserError(w, err)
 		return
@@ -78,7 +81,8 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
-	user, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), req.FullName, req.Role, req.IsActive)
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	user, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), orgID, req.FullName, req.Role, req.IsActive)
 	if err != nil {
 		h.writeUserError(w, err)
 		return
@@ -87,7 +91,8 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
-	if err := h.svc.Deactivate(r.Context(), chi.URLParam(r, "id")); err != nil {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	if err := h.svc.Deactivate(r.Context(), chi.URLParam(r, "id"), orgID); err != nil {
 		h.writeUserError(w, err)
 		return
 	}
@@ -110,7 +115,8 @@ func (h *UserHandler) ChangeOwnPassword(w http.ResponseWriter, r *http.Request) 
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
-	if err := h.svc.ChangeOwnPassword(r.Context(), userID, req.CurrentPassword, req.NewPassword); err != nil {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	if err := h.svc.ChangeOwnPassword(r.Context(), userID, orgID, req.CurrentPassword, req.NewPassword); err != nil {
 		h.writeUserError(w, err)
 		return
 	}
@@ -127,7 +133,8 @@ func (h *UserHandler) AdminResetPassword(w http.ResponseWriter, r *http.Request)
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
-	if err := h.svc.AdminResetPassword(r.Context(), chi.URLParam(r, "id"), req.NewPassword); err != nil {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	if err := h.svc.AdminResetPassword(r.Context(), chi.URLParam(r, "id"), orgID, req.NewPassword); err != nil {
 		h.writeUserError(w, err)
 		return
 	}

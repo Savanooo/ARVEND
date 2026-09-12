@@ -87,7 +87,11 @@ func main() {
 // ensure_default_admin() deseninin Go karşılığı). Zaten kullanıcı varsa
 // sessizce hiçbir şey yapmaz -- yeniden başlatmalarda tekrar tetiklenmez.
 func seedAdmin(ctx context.Context, userSvc *service.UserService, q *sqlc.Queries, cfg config.Config) {
-	count, err := q.CountUsers(ctx)
+	orgID, err := repository.StringToUUID(domain.DefaultOrganizationID)
+	if err != nil {
+		log.Fatalf("varsayılan organizasyon UUID'si geçersiz: %v", err)
+	}
+	count, err := q.CountUsers(ctx, orgID)
 	if err != nil {
 		log.Fatalf("kullanıcı sayısı okunamadı: %v", err)
 	}
@@ -98,7 +102,7 @@ func seedAdmin(ctx context.Context, userSvc *service.UserService, q *sqlc.Querie
 		log.Println("UYARI: hiç kullanıcı yok ve SEED_ADMIN_USERNAME/PASSWORD ayarlanmamış -- giriş yapılamayacak")
 		return
 	}
-	_, err = userSvc.Create(ctx, cfg.SeedAdminUser, cfg.SeedAdminPass, cfg.SeedAdminName, domain.RoleAdmin)
+	_, err = userSvc.Create(ctx, domain.DefaultOrganizationID, cfg.SeedAdminUser, cfg.SeedAdminPass, cfg.SeedAdminName, domain.RoleAdmin)
 	if err != nil {
 		log.Fatalf("seed admin oluşturulamadı: %v", err)
 	}

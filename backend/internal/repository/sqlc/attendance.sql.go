@@ -12,23 +12,25 @@ import (
 )
 
 const createAttendance = `-- name: CreateAttendance :one
-INSERT INTO attendance_logs (employee_id, date, check_in, check_out, work_hours, status, note)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, employee_id, date, check_in, check_out, work_hours, status, note, created_at
+INSERT INTO attendance_logs (organization_id, employee_id, date, check_in, check_out, work_hours, status, note)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, employee_id, date, check_in, check_out, work_hours, status, note, created_at, organization_id
 `
 
 type CreateAttendanceParams struct {
-	EmployeeID pgtype.UUID    `json:"employee_id"`
-	Date       pgtype.Date    `json:"date"`
-	CheckIn    string         `json:"check_in"`
-	CheckOut   string         `json:"check_out"`
-	WorkHours  pgtype.Numeric `json:"work_hours"`
-	Status     string         `json:"status"`
-	Note       string         `json:"note"`
+	OrganizationID pgtype.UUID    `json:"organization_id"`
+	EmployeeID     pgtype.UUID    `json:"employee_id"`
+	Date           pgtype.Date    `json:"date"`
+	CheckIn        string         `json:"check_in"`
+	CheckOut       string         `json:"check_out"`
+	WorkHours      pgtype.Numeric `json:"work_hours"`
+	Status         string         `json:"status"`
+	Note           string         `json:"note"`
 }
 
 func (q *Queries) CreateAttendance(ctx context.Context, arg CreateAttendanceParams) (AttendanceLog, error) {
 	row := q.db.QueryRow(ctx, createAttendance,
+		arg.OrganizationID,
 		arg.EmployeeID,
 		arg.Date,
 		arg.CheckIn,
@@ -48,25 +50,36 @@ func (q *Queries) CreateAttendance(ctx context.Context, arg CreateAttendancePara
 		&i.Status,
 		&i.Note,
 		&i.CreatedAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }
 
 const deleteAttendance = `-- name: DeleteAttendance :exec
-DELETE FROM attendance_logs WHERE id = $1
+DELETE FROM attendance_logs WHERE id = $1 AND organization_id = $2
 `
 
-func (q *Queries) DeleteAttendance(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteAttendance, id)
+type DeleteAttendanceParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) DeleteAttendance(ctx context.Context, arg DeleteAttendanceParams) error {
+	_, err := q.db.Exec(ctx, deleteAttendance, arg.ID, arg.OrganizationID)
 	return err
 }
 
 const getAttendanceByID = `-- name: GetAttendanceByID :one
-SELECT id, employee_id, date, check_in, check_out, work_hours, status, note, created_at FROM attendance_logs WHERE id = $1
+SELECT id, employee_id, date, check_in, check_out, work_hours, status, note, created_at, organization_id FROM attendance_logs WHERE id = $1 AND organization_id = $2
 `
 
-func (q *Queries) GetAttendanceByID(ctx context.Context, id pgtype.UUID) (AttendanceLog, error) {
-	row := q.db.QueryRow(ctx, getAttendanceByID, id)
+type GetAttendanceByIDParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) GetAttendanceByID(ctx context.Context, arg GetAttendanceByIDParams) (AttendanceLog, error) {
+	row := q.db.QueryRow(ctx, getAttendanceByID, arg.ID, arg.OrganizationID)
 	var i AttendanceLog
 	err := row.Scan(
 		&i.ID,
@@ -78,33 +91,41 @@ func (q *Queries) GetAttendanceByID(ctx context.Context, id pgtype.UUID) (Attend
 		&i.Status,
 		&i.Note,
 		&i.CreatedAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }
 
 const listAttendanceByMonth = `-- name: ListAttendanceByMonth :many
-SELECT a.id, a.employee_id, a.date, a.check_in, a.check_out, a.work_hours, a.status, a.note, a.created_at, e.full_name AS employee_name
+SELECT a.id, a.employee_id, a.date, a.check_in, a.check_out, a.work_hours, a.status, a.note, a.created_at, a.organization_id, e.full_name AS employee_name
 FROM attendance_logs a
 JOIN employees e ON e.id = a.employee_id
-WHERE date_trunc('month', a.date) = date_trunc('month', $1::date)
+WHERE a.organization_id = $1
+  AND date_trunc('month', a.date) = date_trunc('month', $2::date)
 ORDER BY a.date DESC, e.full_name ASC
 `
 
-type ListAttendanceByMonthRow struct {
-	ID           pgtype.UUID        `json:"id"`
-	EmployeeID   pgtype.UUID        `json:"employee_id"`
-	Date         pgtype.Date        `json:"date"`
-	CheckIn      string             `json:"check_in"`
-	CheckOut     string             `json:"check_out"`
-	WorkHours    pgtype.Numeric     `json:"work_hours"`
-	Status       string             `json:"status"`
-	Note         string             `json:"note"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	EmployeeName string             `json:"employee_name"`
+type ListAttendanceByMonthParams struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Column2        pgtype.Date `json:"column_2"`
 }
 
-func (q *Queries) ListAttendanceByMonth(ctx context.Context, dollar_1 pgtype.Date) ([]ListAttendanceByMonthRow, error) {
-	rows, err := q.db.Query(ctx, listAttendanceByMonth, dollar_1)
+type ListAttendanceByMonthRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	EmployeeID     pgtype.UUID        `json:"employee_id"`
+	Date           pgtype.Date        `json:"date"`
+	CheckIn        string             `json:"check_in"`
+	CheckOut       string             `json:"check_out"`
+	WorkHours      pgtype.Numeric     `json:"work_hours"`
+	Status         string             `json:"status"`
+	Note           string             `json:"note"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	EmployeeName   string             `json:"employee_name"`
+}
+
+func (q *Queries) ListAttendanceByMonth(ctx context.Context, arg ListAttendanceByMonthParams) ([]ListAttendanceByMonthRow, error) {
+	rows, err := q.db.Query(ctx, listAttendanceByMonth, arg.OrganizationID, arg.Column2)
 	if err != nil {
 		return nil, err
 	}
@@ -122,6 +143,7 @@ func (q *Queries) ListAttendanceByMonth(ctx context.Context, dollar_1 pgtype.Dat
 			&i.Status,
 			&i.Note,
 			&i.CreatedAt,
+			&i.OrganizationID,
 			&i.EmployeeName,
 		); err != nil {
 			return nil, err
@@ -136,23 +158,25 @@ func (q *Queries) ListAttendanceByMonth(ctx context.Context, dollar_1 pgtype.Dat
 
 const updateAttendance = `-- name: UpdateAttendance :one
 UPDATE attendance_logs
-SET check_in = $2, check_out = $3, work_hours = $4, status = $5, note = $6
-WHERE id = $1
-RETURNING id, employee_id, date, check_in, check_out, work_hours, status, note, created_at
+SET check_in = $3, check_out = $4, work_hours = $5, status = $6, note = $7
+WHERE id = $1 AND organization_id = $2
+RETURNING id, employee_id, date, check_in, check_out, work_hours, status, note, created_at, organization_id
 `
 
 type UpdateAttendanceParams struct {
-	ID        pgtype.UUID    `json:"id"`
-	CheckIn   string         `json:"check_in"`
-	CheckOut  string         `json:"check_out"`
-	WorkHours pgtype.Numeric `json:"work_hours"`
-	Status    string         `json:"status"`
-	Note      string         `json:"note"`
+	ID             pgtype.UUID    `json:"id"`
+	OrganizationID pgtype.UUID    `json:"organization_id"`
+	CheckIn        string         `json:"check_in"`
+	CheckOut       string         `json:"check_out"`
+	WorkHours      pgtype.Numeric `json:"work_hours"`
+	Status         string         `json:"status"`
+	Note           string         `json:"note"`
 }
 
 func (q *Queries) UpdateAttendance(ctx context.Context, arg UpdateAttendanceParams) (AttendanceLog, error) {
 	row := q.db.QueryRow(ctx, updateAttendance,
 		arg.ID,
+		arg.OrganizationID,
 		arg.CheckIn,
 		arg.CheckOut,
 		arg.WorkHours,
@@ -170,6 +194,7 @@ func (q *Queries) UpdateAttendance(ctx context.Context, arg UpdateAttendancePara
 		&i.Status,
 		&i.Note,
 		&i.CreatedAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }

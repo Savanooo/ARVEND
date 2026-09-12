@@ -104,7 +104,7 @@ func (s *AuthService) Me(ctx context.Context, userID string) (*domain.User, erro
 }
 
 func (s *AuthService) issueSession(ctx context.Context, user domain.User) (*Session, error) {
-	access, err := s.jwt.IssueAccessToken(user.ID, user.Role)
+	access, err := s.jwt.IssueAccessToken(user.ID, user.Role, user.OrganizationID)
 	if err != nil {
 		return nil, err
 	}

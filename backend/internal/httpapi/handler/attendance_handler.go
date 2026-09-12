@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
+	"github.com/Savanooo/ARVEND/backend/internal/httpapi/middleware"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/httpjson"
 	"github.com/Savanooo/ARVEND/backend/internal/service"
 )
@@ -57,7 +58,8 @@ func (h *AttendanceHandler) ListByMonth(w http.ResponseWriter, r *http.Request) 
 		}
 		month = t
 	}
-	logs, err := h.svc.ListByMonth(r.Context(), month)
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	logs, err := h.svc.ListByMonth(r.Context(), orgID, month)
 	if err != nil {
 		httpjson.Error(w, http.StatusInternalServerError, "mesai kayıtları alınamadı")
 		return
@@ -90,7 +92,8 @@ func (h *AttendanceHandler) Create(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz tarih")
 		return
 	}
-	a, err := h.svc.Create(r.Context(), service.AttendanceInput{
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	a, err := h.svc.Create(r.Context(), orgID, service.AttendanceInput{
 		EmployeeID: req.EmployeeID,
 		Date:       date,
 		CheckIn:    req.CheckIn,
@@ -112,7 +115,8 @@ func (h *AttendanceHandler) Update(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
-	a, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), service.AttendanceInput{
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	a, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), orgID, service.AttendanceInput{
 		CheckIn:   req.CheckIn,
 		CheckOut:  req.CheckOut,
 		WorkHours: req.WorkHours,
@@ -127,7 +131,8 @@ func (h *AttendanceHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AttendanceHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	if err := h.svc.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	if err := h.svc.Delete(r.Context(), chi.URLParam(r, "id"), orgID); err != nil {
 		h.writeError(w, err)
 		return
 	}

@@ -12,42 +12,44 @@ import (
 )
 
 const countActiveUsers = `-- name: CountActiveUsers :one
-SELECT count(*) FROM users WHERE is_active = true
+SELECT count(*) FROM users WHERE organization_id = $1 AND is_active = true
 `
 
-func (q *Queries) CountActiveUsers(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, countActiveUsers)
+func (q *Queries) CountActiveUsers(ctx context.Context, organizationID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveUsers, organizationID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
 const countUsers = `-- name: CountUsers :one
-SELECT count(*) FROM users
+SELECT count(*) FROM users WHERE organization_id = $1
 `
 
-func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, countUsers)
+func (q *Queries) CountUsers(ctx context.Context, organizationID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countUsers, organizationID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
 const createUser = `-- name: CreateUser :one
-INSERT INTO users (username, password_hash, full_name, role)
-VALUES ($1, $2, $3, $4)
-RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at
+INSERT INTO users (organization_id, username, password_hash, full_name, role)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id
 `
 
 type CreateUserParams struct {
-	Username     string `json:"username"`
-	PasswordHash string `json:"password_hash"`
-	FullName     string `json:"full_name"`
-	Role         string `json:"role"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Username       string      `json:"username"`
+	PasswordHash   string      `json:"password_hash"`
+	FullName       string      `json:"full_name"`
+	Role           string      `json:"role"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
 	row := q.db.QueryRow(ctx, createUser,
+		arg.OrganizationID,
 		arg.Username,
 		arg.PasswordHash,
 		arg.FullName,
@@ -64,21 +66,27 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLoginAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }
 
 const deactivateUser = `-- name: DeactivateUser :exec
-UPDATE users SET is_active = false WHERE id = $1
+UPDATE users SET is_active = false WHERE id = $1 AND organization_id = $2
 `
 
-func (q *Queries) DeactivateUser(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deactivateUser, id)
+type DeactivateUserParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) DeactivateUser(ctx context.Context, arg DeactivateUserParams) error {
+	_, err := q.db.Exec(ctx, deactivateUser, arg.ID, arg.OrganizationID)
 	return err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at FROM users WHERE id = $1
+SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error) {
@@ -94,12 +102,40 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLoginAt,
+		&i.OrganizationID,
+	)
+	return i, err
+}
+
+const getUserByIDInOrg = `-- name: GetUserByIDInOrg :one
+SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id FROM users WHERE id = $1 AND organization_id = $2
+`
+
+type GetUserByIDInOrgParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) GetUserByIDInOrg(ctx context.Context, arg GetUserByIDInOrgParams) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByIDInOrg, arg.ID, arg.OrganizationID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.FullName,
+		&i.Role,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastLoginAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at FROM users WHERE username = $1
+SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id FROM users WHERE username = $1
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
@@ -115,23 +151,26 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLoginAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at FROM users
+SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id FROM users
+WHERE organization_id = $1
 ORDER BY created_at DESC
-LIMIT $1 OFFSET $2
+LIMIT $2 OFFSET $3
 `
 
 type ListUsersParams struct {
-	Limit  int32 `json:"limit"`
-	Offset int32 `json:"offset"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Limit          int32       `json:"limit"`
+	Offset         int32       `json:"offset"`
 }
 
 func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error) {
-	rows, err := q.db.Query(ctx, listUsers, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listUsers, arg.OrganizationID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -149,6 +188,7 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LastLoginAt,
+			&i.OrganizationID,
 		); err != nil {
 			return nil, err
 		}
@@ -171,21 +211,23 @@ func (q *Queries) TouchLastLogin(ctx context.Context, id pgtype.UUID) error {
 
 const updateUser = `-- name: UpdateUser :one
 UPDATE users
-SET full_name = $2, role = $3, is_active = $4
-WHERE id = $1
-RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at
+SET full_name = $3, role = $4, is_active = $5
+WHERE id = $1 AND organization_id = $2
+RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id
 `
 
 type UpdateUserParams struct {
-	ID       pgtype.UUID `json:"id"`
-	FullName string      `json:"full_name"`
-	Role     string      `json:"role"`
-	IsActive bool        `json:"is_active"`
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	FullName       string      `json:"full_name"`
+	Role           string      `json:"role"`
+	IsActive       bool        `json:"is_active"`
 }
 
 func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error) {
 	row := q.db.QueryRow(ctx, updateUser,
 		arg.ID,
+		arg.OrganizationID,
 		arg.FullName,
 		arg.Role,
 		arg.IsActive,
@@ -201,20 +243,22 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastLoginAt,
+		&i.OrganizationID,
 	)
 	return i, err
 }
 
 const updateUserPassword = `-- name: UpdateUserPassword :exec
-UPDATE users SET password_hash = $2 WHERE id = $1
+UPDATE users SET password_hash = $3 WHERE id = $1 AND organization_id = $2
 `
 
 type UpdateUserPasswordParams struct {
-	ID           pgtype.UUID `json:"id"`
-	PasswordHash string      `json:"password_hash"`
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	PasswordHash   string      `json:"password_hash"`
 }
 
 func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
-	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.PasswordHash)
+	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.OrganizationID, arg.PasswordHash)
 	return err
 }

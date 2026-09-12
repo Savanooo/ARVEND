@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 
+	"github.com/Savanooo/ARVEND/backend/internal/httpapi/middleware"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/httpjson"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/mailer"
 	"github.com/Savanooo/ARVEND/backend/internal/service"
@@ -28,7 +29,8 @@ type smtpSettingsResponse struct {
 }
 
 func (h *SettingsHandler) GetSmtp(w http.ResponseWriter, r *http.Request) {
-	s, err := h.svc.GetSmtp(r.Context())
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	s, err := h.svc.GetSmtp(r.Context(), orgID)
 	if err != nil {
 		httpjson.Error(w, http.StatusInternalServerError, "ayarlar alınamadı")
 		return
@@ -61,7 +63,8 @@ func (h *SettingsHandler) UpdateSmtp(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
-	s, err := h.svc.UpdateSmtp(r.Context(), service.UpdateSmtpInput{
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	s, err := h.svc.UpdateSmtp(r.Context(), orgID, service.UpdateSmtpInput{
 		Host:      req.Host,
 		Port:      req.Port,
 		Username:  req.Username,
@@ -96,7 +99,8 @@ func (h *SettingsHandler) TestSmtp(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
-	settings, err := h.svc.GetSmtp(r.Context())
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	settings, err := h.svc.GetSmtp(r.Context(), orgID)
 	if err != nil {
 		httpjson.Error(w, http.StatusInternalServerError, "ayarlar alınamadı")
 		return

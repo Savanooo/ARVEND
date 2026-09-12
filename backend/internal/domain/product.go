@@ -7,6 +7,7 @@ import (
 
 type Product struct {
 	ID             string
+	OrganizationID string
 	Name           string
 	NormalizedName string
 	Unit           string

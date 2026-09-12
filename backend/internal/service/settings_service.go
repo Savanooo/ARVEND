@@ -8,6 +8,7 @@ import (
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/crypto"
+	"github.com/Savanooo/ARVEND/backend/internal/repository"
 	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
 )
 
@@ -23,11 +24,15 @@ func NewSettingsService(q *sqlc.Queries, box *crypto.SecretBox) *SettingsService
 // GetSmtp, gönderim için gereken çözülmüş (plaintext) şifreyle birlikte
 // ayarları döner -- bu değer asla HTTP response'a yazılmamalı, sadece mail
 // gönderiminde kullanılmalı.
-func (s *SettingsService) GetSmtp(ctx context.Context) (*domain.SmtpSettings, error) {
-	row, err := s.q.GetSmtpSettings(ctx)
+func (s *SettingsService) GetSmtp(ctx context.Context, organizationID string) (*domain.SmtpSettings, error) {
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	row, err := s.q.GetSmtpSettings(ctx, orgID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return &domain.SmtpSettings{}, nil
+			return &domain.SmtpSettings{OrganizationID: organizationID}, nil
 		}
 		return nil, err
 	}
@@ -39,15 +44,16 @@ func (s *SettingsService) GetSmtp(ctx context.Context) (*domain.SmtpSettings, er
 		}
 	}
 	return &domain.SmtpSettings{
-		Host:        row.Host,
-		Port:        int(row.Port),
-		Username:    row.Username,
-		Password:    password,
-		PasswordSet: row.PasswordEnc != "",
-		FromEmail:   row.FromEmail,
-		FromName:    row.FromName,
-		UseTLS:      row.UseTls,
-		Configured:  row.Host != "" && row.FromEmail != "",
+		OrganizationID: organizationID,
+		Host:           row.Host,
+		Port:           int(row.Port),
+		Username:       row.Username,
+		Password:       password,
+		PasswordSet:    row.PasswordEnc != "",
+		FromEmail:      row.FromEmail,
+		FromName:       row.FromName,
+		UseTLS:         row.UseTls,
+		Configured:     row.Host != "" && row.FromEmail != "",
 	}, nil
 }
 
@@ -61,7 +67,11 @@ type UpdateSmtpInput struct {
 	UseTLS    bool
 }
 
-func (s *SettingsService) UpdateSmtp(ctx context.Context, in UpdateSmtpInput) (*domain.SmtpSettings, error) {
+func (s *SettingsService) UpdateSmtp(ctx context.Context, organizationID string, in UpdateSmtpInput) (*domain.SmtpSettings, error) {
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
 	passwordEnc := ""
 	if in.Password != nil && *in.Password != "" {
 		enc, err := s.box.Encrypt(*in.Password)
@@ -70,7 +80,7 @@ func (s *SettingsService) UpdateSmtp(ctx context.Context, in UpdateSmtpInput) (*
 		}
 		passwordEnc = enc
 	} else {
-		existing, err := s.q.GetSmtpSettings(ctx)
+		existing, err := s.q.GetSmtpSettings(ctx, orgID)
 		if err == nil {
 			passwordEnc = existing.PasswordEnc
 		} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -79,25 +89,27 @@ func (s *SettingsService) UpdateSmtp(ctx context.Context, in UpdateSmtpInput) (*
 	}
 
 	row, err := s.q.UpsertSmtpSettings(ctx, sqlc.UpsertSmtpSettingsParams{
-		Host:        in.Host,
-		Port:        int32(in.Port),
-		Username:    in.Username,
-		PasswordEnc: passwordEnc,
-		FromEmail:   in.FromEmail,
-		FromName:    in.FromName,
-		UseTls:      in.UseTLS,
+		OrganizationID: orgID,
+		Host:           in.Host,
+		Port:           int32(in.Port),
+		Username:       in.Username,
+		PasswordEnc:    passwordEnc,
+		FromEmail:      in.FromEmail,
+		FromName:       in.FromName,
+		UseTls:         in.UseTLS,
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &domain.SmtpSettings{
-		Host:        row.Host,
-		Port:        int(row.Port),
-		Username:    row.Username,
-		PasswordSet: row.PasswordEnc != "",
-		FromEmail:   row.FromEmail,
-		FromName:    row.FromName,
-		UseTLS:      row.UseTls,
-		Configured:  row.Host != "" && row.FromEmail != "",
+		OrganizationID: organizationID,
+		Host:           row.Host,
+		Port:           int(row.Port),
+		Username:       row.Username,
+		PasswordSet:    row.PasswordEnc != "",
+		FromEmail:      row.FromEmail,
+		FromName:       row.FromName,
+		UseTLS:         row.UseTls,
+		Configured:     row.Host != "" && row.FromEmail != "",
 	}, nil
 }
