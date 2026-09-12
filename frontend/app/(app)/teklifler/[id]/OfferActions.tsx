@@ -14,7 +14,10 @@ export function OfferActions({ offer }: { offer: Offer }) {
   const [status, setStatus] = useState<OfferStatus>(offer.status);
   const [savingStatus, setSavingStatus] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [revising, setRevising] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  const canRevise = offer.status === "gönderildi" || offer.status === "reddedildi";
 
   async function handleStatusChange(next: OfferStatus) {
     setStatus(next);
@@ -31,6 +34,20 @@ export function OfferActions({ offer }: { offer: Offer }) {
       setMessage(err instanceof ApiError ? err.message : "Bağlantı hatası");
     } finally {
       setSavingStatus(false);
+    }
+  }
+
+  async function handleRevise() {
+    if (!confirm("Bu teklif için yeni bir revizyon oluşturulsun mu? Yeni revizyon taslak olarak düzenlenebilir.")) return;
+    setRevising(true);
+    setMessage(null);
+    try {
+      await apiClient(`/api/v1/offers/${offer.id}/revise`, { method: "POST" });
+      router.push(`/teklifler/${offer.id}/duzenle`);
+      router.refresh();
+    } catch (err) {
+      setMessage(err instanceof ApiError ? err.message : "Bağlantı hatası");
+      setRevising(false);
     }
   }
 
@@ -63,6 +80,11 @@ export function OfferActions({ offer }: { offer: Offer }) {
           </option>
         ))}
       </select>
+      {canRevise && (
+        <Button variant="secondary" disabled={revising} onClick={handleRevise}>
+          {revising ? "Oluşturuluyor…" : "Revize Et"}
+        </Button>
+      )}
       <Button variant="danger" disabled={deleting} onClick={handleDelete}>
         {deleting ? "Siliniyor…" : "Sil"}
       </Button>

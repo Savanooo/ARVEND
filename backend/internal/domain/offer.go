@@ -20,37 +20,88 @@ func ValidOfferStatus(s string) bool {
 	return validOfferStatuses[s]
 }
 
+const (
+	DiscountNone    = "none"
+	DiscountPercent = "percent"
+	DiscountFixed   = "fixed"
+)
+
 type OfferItem struct {
-	ID          string
-	ProductID   *string
-	ProductName string
-	Quantity    float64
-	UnitPrice   float64
-	LineTotal   float64
-	SortOrder   int
+	ID            string
+	ProductID     *string
+	ProductName   string
+	Quantity      float64
+	UnitPrice     float64
+	DiscountType  string
+	DiscountValue float64
+	LineTotal     float64
+	SortOrder     int
 }
 
+// Offer, teklifin kimliğini ve lifecycle bilgisini taşır -- gerçek içerik
+// (müşteri, kalemler, toplamlar) artık CurrentRevisionID üzerinden
+// offer_revisions'ta yaşar. Geriye dönük API uyumluluğu için bu struct
+// hâlâ "düz" bir görünüm sunar: aşağıdaki içerik alanları servis
+// katmanında mevcut revizyondan doldurulur (bkz. repository.MergeOffer).
 type Offer struct {
-	ID              string
-	OrganizationID  string
-	OfferNo         string
+	ID                string
+	OrganizationID    string
+	OfferNo           string
+	OfferDate         time.Time
+	CurrentRevisionID string
+	Status            string
+	IsPassive         bool
+	ShareToken        string
+	CreatedBy         *string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+
+	// İçerik alanları -- mevcut revizyondan doldurulur.
+	RevisionNo      int
 	CustomerID      *string
 	CustomerName    string
 	CustomerPhone   string
 	CustomerEmail   string
 	CustomerAddress string
-	OfferDate       time.Time
 	ValidUntil      *time.Time
 	Subtotal        float64
+	DiscountType    string
+	DiscountValue   float64
+	DiscountAmount  float64
 	VatRate         float64
 	VatAmount       float64
 	GrandTotal      float64
+	Currency        string
+	Notes           string
+	Items           []OfferItem
+}
+
+// OfferRevision, bir teklifin belirli bir andaki değişmez anlık
+// görüntüsüdür. Revizyon 0 teklif oluşturulduğunda otomatik açılır;
+// sonraki her revizyon yalnızca "Revize Et" ile ve yalnızca teklif zaten
+// müşteriye gönderilmiş/reddedilmişse oluşur.
+type OfferRevision struct {
+	ID              string
+	OrganizationID  string
+	OfferID         string
+	RevisionNo      int
+	CustomerID      *string
+	CustomerName    string
+	CustomerPhone   string
+	CustomerEmail   string
+	CustomerAddress string
+	ValidUntil      *time.Time
+	Subtotal        float64
+	DiscountType    string
+	DiscountValue   float64
+	DiscountAmount  float64
+	VatRate         float64
+	VatAmount       float64
+	GrandTotal      float64
+	Currency        string
 	Notes           string
 	Status          string
-	ShareToken      string
-	IsPassive       bool
 	CreatedBy       *string
 	CreatedAt       time.Time
-	UpdatedAt       time.Time
 	Items           []OfferItem
 }

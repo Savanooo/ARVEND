@@ -37,6 +37,7 @@ type offerItemResponse struct {
 type offerResponse struct {
 	ID              string              `json:"id"`
 	OfferNo         string              `json:"offer_no"`
+	RevisionNo      int                 `json:"revision_no"`
 	CustomerID      *string             `json:"customer_id"`
 	CustomerName    string              `json:"customer_name"`
 	CustomerPhone   string              `json:"customer_phone"`
@@ -61,6 +62,7 @@ func toOfferResponse(o domain.Offer) offerResponse {
 	resp := offerResponse{
 		ID:              o.ID,
 		OfferNo:         o.OfferNo,
+		RevisionNo:      o.RevisionNo,
 		CustomerID:      o.CustomerID,
 		CustomerName:    o.CustomerName,
 		CustomerPhone:   o.CustomerPhone,
@@ -221,6 +223,103 @@ func (h *OfferHandler) Update(w http.ResponseWriter, r *http.Request) {
 	httpjson.Write(w, http.StatusOK, toOfferResponse(*o))
 }
 
+func (h *OfferHandler) Revise(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	o, err := h.svc.Revise(r.Context(), chi.URLParam(r, "id"), orgID, userID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusCreated, toOfferResponse(*o))
+}
+
+type offerRevisionResponse struct {
+	ID              string              `json:"id"`
+	OfferID         string              `json:"offer_id"`
+	RevisionNo      int                 `json:"revision_no"`
+	CustomerID      *string             `json:"customer_id"`
+	CustomerName    string              `json:"customer_name"`
+	CustomerPhone   string              `json:"customer_phone"`
+	CustomerEmail   string              `json:"customer_email"`
+	CustomerAddress string              `json:"customer_address"`
+	ValidUntil      *string             `json:"valid_until"`
+	Subtotal        float64             `json:"subtotal"`
+	VatRate         float64             `json:"vat_rate"`
+	VatAmount       float64             `json:"vat_amount"`
+	GrandTotal      float64             `json:"grand_total"`
+	Currency        string              `json:"currency"`
+	Notes           string              `json:"notes"`
+	Status          string              `json:"status"`
+	CreatedBy       *string             `json:"created_by"`
+	CreatedAt       string              `json:"created_at"`
+	Items           []offerItemResponse `json:"items,omitempty"`
+}
+
+func toOfferRevisionResponse(r domain.OfferRevision) offerRevisionResponse {
+	resp := offerRevisionResponse{
+		ID:              r.ID,
+		OfferID:         r.OfferID,
+		RevisionNo:      r.RevisionNo,
+		CustomerID:      r.CustomerID,
+		CustomerName:    r.CustomerName,
+		CustomerPhone:   r.CustomerPhone,
+		CustomerEmail:   r.CustomerEmail,
+		CustomerAddress: r.CustomerAddress,
+		Subtotal:        r.Subtotal,
+		VatRate:         r.VatRate,
+		VatAmount:       r.VatAmount,
+		GrandTotal:      r.GrandTotal,
+		Currency:        r.Currency,
+		Notes:           r.Notes,
+		Status:          r.Status,
+		CreatedBy:       r.CreatedBy,
+		CreatedAt:       r.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+	}
+	if r.ValidUntil != nil {
+		s := r.ValidUntil.Format(dateLayout)
+		resp.ValidUntil = &s
+	}
+	if r.Items != nil {
+		resp.Items = make([]offerItemResponse, len(r.Items))
+		for i, it := range r.Items {
+			resp.Items[i] = offerItemResponse{
+				ID:          it.ID,
+				ProductID:   it.ProductID,
+				ProductName: it.ProductName,
+				Quantity:    it.Quantity,
+				UnitPrice:   it.UnitPrice,
+				LineTotal:   it.LineTotal,
+			}
+		}
+	}
+	return resp
+}
+
+func (h *OfferHandler) ListRevisions(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	revisions, err := h.svc.ListRevisions(r.Context(), chi.URLParam(r, "id"), orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	out := make([]offerRevisionResponse, len(revisions))
+	for i, rev := range revisions {
+		out[i] = toOfferRevisionResponse(rev)
+	}
+	httpjson.Write(w, http.StatusOK, map[string]any{"revisions": out})
+}
+
+func (h *OfferHandler) GetRevision(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	rev, err := h.svc.GetRevision(r.Context(), chi.URLParam(r, "revisionId"), orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, toOfferRevisionResponse(*rev))
+}
+
 type updateStatusRequest struct {
 	Status string `json:"status"`
 }
@@ -319,7 +418,10 @@ func (h *OfferHandler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "teklif bulunamadı")
-	case errors.Is(err, service.ErrOfferAccepted), errors.Is(err, service.ErrOfferNotEditable):
+	case errors.Is(err, service.ErrOfferAccepted),
+		errors.Is(err, service.ErrOfferNotEditable),
+		errors.Is(err, service.ErrOfferLocked),
+		errors.Is(err, service.ErrOfferNotRevisable):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())

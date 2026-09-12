@@ -35,9 +35,7 @@ type OfferItemInput struct {
 type CreateOfferInput struct {
 	// CustomerID doluysa, customer_name/phone/email/address burada ne
 	// gönderilirse gönderilsin YOK SAYILIR -- o anki müşteri kartından
-	// alınıp teklife anlık görüntü (snapshot) olarak yazılır. Böylece
-	// müşteri kartı sonradan değişse/silinse bile bu teklif sabit kalır.
-	// Boşsa mevcut serbest-metin davranışı aynen korunur.
+	// alınıp revizyona anlık görüntü (snapshot) olarak yazılır.
 	CustomerID      *string
 	CustomerName    string
 	CustomerPhone   string
@@ -46,9 +44,8 @@ type CreateOfferInput struct {
 	ValidUntil      *time.Time
 	Notes           string
 	// VatRate nil ise (istekte hiç gönderilmemişse) %20 varsayılır;
-	// açıkça 0 gönderilirse 0 olarak KALIR. BYZ'de tam bu noktada
-	// "value or 20" deseni yüzünden KDV=0 sessizce 20'ye dönüyordu --
-	// burada baştan işaretçi kullanılarak o hata tekrarlanmıyor.
+	// açıkça 0 gönderilirse 0 olarak KALIR (BYZ'deki falsy-zero bug'ının
+	// tekrarlanmaması için pointer kullanılır).
 	VatRate        *float64
 	Items          []OfferItemInput
 	UserID         string
@@ -60,7 +57,7 @@ type computedOfferItem struct {
 	LineTotal float64
 }
 
-// computeOfferTotals, Create ve Update arasında paylaşılan hesaplama
+// computeOfferTotals, Create/Update/Revise arasında paylaşılan hesaplama
 // mantığı -- frontend'den gelen subtotal/vat_amount/grand_total değerlerine
 // ASLA güvenilmez, her zaman burada sunucu tarafında yeniden hesaplanır.
 func computeOfferTotals(items []OfferItemInput, vatRateInput *float64) ([]computedOfferItem, float64, float64, float64, float64, error) {
@@ -107,6 +104,62 @@ func resolveCustomerSnapshot(ctx context.Context, txq *sqlc.Queries, orgID pgtyp
 	return cid, customer, nil
 }
 
+// insertRevisionItems, yeni girilen kalemleri bir revizyona yazar -- her
+// product_id (varsa) aynı organizasyona ait olmadan kabul edilmez (tenant
+// izolasyonu); aksi halde geçersiz UUID'de olduğu gibi sessizce serbest
+// metin satıra düşürülür.
+func insertRevisionItems(ctx context.Context, txq *sqlc.Queries, revisionID, orgID pgtype.UUID, items []computedOfferItem) ([]domain.OfferItem, error) {
+	domainItems := make([]domain.OfferItem, 0, len(items))
+	for i, it := range items {
+		var productID pgtype.UUID
+		if it.ProductID != nil {
+			if pid, err := repository.StringToUUID(*it.ProductID); err == nil {
+				if _, err := txq.GetProductByID(ctx, sqlc.GetProductByIDParams{ID: pid, OrganizationID: orgID}); err == nil {
+					productID = pid
+				}
+			}
+		}
+		itemRow, err := txq.CreateOfferRevisionItem(ctx, sqlc.CreateOfferRevisionItemParams{
+			RevisionID:    revisionID,
+			ProductID:     productID,
+			ProductName:   strings.TrimSpace(it.ProductName),
+			Quantity:      repository.Float64ToNumeric(it.Quantity),
+			UnitPrice:     repository.Float64ToNumeric(it.UnitPrice),
+			DiscountType:  domain.DiscountNone,
+			DiscountValue: repository.Float64ToNumeric(0),
+			LineTotal:     repository.Float64ToNumeric(it.LineTotal),
+			SortOrder:     int32(i),
+		})
+		if err != nil {
+			return nil, err
+		}
+		domainItems = append(domainItems, repository.ToDomainOfferRevisionItem(itemRow))
+	}
+	return domainItems, nil
+}
+
+// cloneRevisionItems, "Revize Et" ile önceki revizyonun kalemlerini AYNEN
+// yeni revizyona kopyalar -- product_id tekrar doğrulanmaz (önceki
+// revizyonda zaten doğrulanmıştı, organizasyon değişmez).
+func cloneRevisionItems(ctx context.Context, txq *sqlc.Queries, newRevisionID pgtype.UUID, items []sqlc.OfferRevisionItem) error {
+	for _, it := range items {
+		if _, err := txq.CreateOfferRevisionItem(ctx, sqlc.CreateOfferRevisionItemParams{
+			RevisionID:    newRevisionID,
+			ProductID:     it.ProductID,
+			ProductName:   it.ProductName,
+			Quantity:      it.Quantity,
+			UnitPrice:     it.UnitPrice,
+			DiscountType:  it.DiscountType,
+			DiscountValue: it.DiscountValue,
+			LineTotal:     it.LineTotal,
+			SortOrder:     it.SortOrder,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain.Offer, error) {
 	orgID, err := repository.StringToUUID(in.OrganizationID)
 	if err != nil {
@@ -115,7 +168,6 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 	if len(in.Items) == 0 {
 		return nil, errors.New("en az bir kalem girilmelidir")
 	}
-
 	items, subtotal, vatRate, vatAmount, grandTotal, err := computeOfferTotals(in.Items, in.VatRate)
 	if err != nil {
 		return nil, err
@@ -142,6 +194,16 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 		}
 	}
 
+	offerRow, err := txq.CreateOffer(ctx, sqlc.CreateOfferParams{
+		OrganizationID: orgID,
+		OfferNo:        offerNo,
+		Status:         domain.OfferStatusTaslak,
+		CreatedBy:      createdBy,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	custID, customer, err := resolveCustomerSnapshot(ctx, txq, orgID, in.CustomerID)
 	if err != nil {
 		return nil, err
@@ -155,20 +217,24 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 		return nil, errors.New("müşteri adı zorunludur")
 	}
 
-	offerRow, err := txq.CreateOffer(ctx, sqlc.CreateOfferParams{
+	revRow, err := txq.CreateOfferRevision(ctx, sqlc.CreateOfferRevisionParams{
 		OrganizationID:  orgID,
-		OfferNo:         offerNo,
+		OfferID:         offerRow.ID,
+		RevisionNo:      0,
 		CustomerID:      custID,
 		CustomerName:    customerName,
 		CustomerPhone:   strings.TrimSpace(customerPhone),
 		CustomerEmail:   strings.TrimSpace(customerEmail),
 		CustomerAddress: strings.TrimSpace(customerAddress),
-		OfferDate:       repository.TimeToDate(time.Now()),
 		ValidUntil:      repository.TimePtrToDate(in.ValidUntil),
 		Subtotal:        repository.Float64ToNumeric(subtotal),
+		DiscountType:    domain.DiscountNone,
+		DiscountValue:   repository.Float64ToNumeric(0),
+		DiscountAmount:  repository.Float64ToNumeric(0),
 		VatRate:         repository.Float64ToNumeric(vatRate),
 		VatAmount:       repository.Float64ToNumeric(vatAmount),
 		GrandTotal:      repository.Float64ToNumeric(grandTotal),
+		Currency:        "TRY",
 		Notes:           strings.TrimSpace(in.Notes),
 		Status:          domain.OfferStatusTaslak,
 		CreatedBy:       createdBy,
@@ -177,8 +243,16 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 		return nil, err
 	}
 
-	domainItems, err := insertOfferItems(ctx, txq, offerRow.ID, orgID, items)
+	domainItems, err := insertRevisionItems(ctx, txq, revRow.ID, orgID, items)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := txq.SetOfferCurrentRevision(ctx, sqlc.SetOfferCurrentRevisionParams{
+		ID:                offerRow.ID,
+		CurrentRevisionID: revRow.ID,
+		Status:            domain.OfferStatusTaslak,
+	}); err != nil {
 		return nil, err
 	}
 
@@ -186,8 +260,10 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 		return nil, err
 	}
 
-	offer := repository.ToDomainOffer(offerRow)
-	offer.Items = domainItems
+	offerRow.CurrentRevisionID = revRow.ID
+	base := repository.ToDomainOfferBase(offerRow)
+	rev := repository.ToDomainOfferRevision(revRow)
+	offer := repository.MergeOfferRevision(base, rev, domainItems)
 	return &offer, nil
 }
 
@@ -231,7 +307,7 @@ func (s *OfferService) List(ctx context.Context, organizationID string, isPassiv
 	}
 	offers := make([]domain.Offer, len(rows))
 	for i, r := range rows {
-		offers[i] = repository.ToDomainOffer(r)
+		offers[i] = repository.ToDomainOfferListItem(r)
 	}
 	return &OfferListResult{Offers: offers, Total: total}, nil
 }
@@ -245,55 +321,35 @@ func (s *OfferService) Get(ctx context.Context, id, organizationID string) (*dom
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	row, err := s.q.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
+	offerRow, err := s.q.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
 	}
-	itemRows, err := s.q.ListOfferItems(ctx, uid)
+	return s.loadOfferWithCurrentRevision(ctx, offerRow, orgID)
+}
+
+// loadOfferWithCurrentRevision, offerRow'un current_revision_id'sini okuyup
+// birleştirilmiş ("düz") görünümü üretir.
+func (s *OfferService) loadOfferWithCurrentRevision(ctx context.Context, offerRow sqlc.Offer, orgID pgtype.UUID) (*domain.Offer, error) {
+	revRow, err := s.q.GetOfferRevisionByID(ctx, sqlc.GetOfferRevisionByIDParams{ID: offerRow.CurrentRevisionID, OrganizationID: orgID})
 	if err != nil {
 		return nil, err
 	}
-	offer := repository.ToDomainOffer(row)
-	offer.Items = make([]domain.OfferItem, len(itemRows))
+	itemRows, err := s.q.ListOfferRevisionItems(ctx, revRow.ID)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]domain.OfferItem, len(itemRows))
 	for i, r := range itemRows {
-		offer.Items[i] = repository.ToDomainOfferItem(r)
+		items[i] = repository.ToDomainOfferRevisionItem(r)
 	}
+	base := repository.ToDomainOfferBase(offerRow)
+	rev := repository.ToDomainOfferRevision(revRow)
+	offer := repository.MergeOfferRevision(base, rev, items)
 	return &offer, nil
-}
-
-// insertOfferItems, Create ve Update arasında paylaşılan kalem yazma
-// mantığı -- her kalemin product_id'si (varsa) aynı organizasyona ait
-// olmadan kabul edilmez (tenant izolasyonu), aksi halde geçersiz UUID'de
-// olduğu gibi sessizce serbest metin satıra düşürülür.
-func insertOfferItems(ctx context.Context, txq *sqlc.Queries, offerID, orgID pgtype.UUID, items []computedOfferItem) ([]domain.OfferItem, error) {
-	domainItems := make([]domain.OfferItem, 0, len(items))
-	for i, it := range items {
-		var productID pgtype.UUID
-		if it.ProductID != nil {
-			if pid, err := repository.StringToUUID(*it.ProductID); err == nil {
-				if _, err := txq.GetProductByID(ctx, sqlc.GetProductByIDParams{ID: pid, OrganizationID: orgID}); err == nil {
-					productID = pid
-				}
-			}
-		}
-		itemRow, err := txq.CreateOfferItem(ctx, sqlc.CreateOfferItemParams{
-			OfferID:     offerID,
-			ProductID:   productID,
-			ProductName: strings.TrimSpace(it.ProductName),
-			Quantity:    repository.Float64ToNumeric(it.Quantity),
-			UnitPrice:   repository.Float64ToNumeric(it.UnitPrice),
-			LineTotal:   repository.Float64ToNumeric(it.LineTotal),
-			SortOrder:   int32(i),
-		})
-		if err != nil {
-			return nil, err
-		}
-		domainItems = append(domainItems, repository.ToDomainOfferItem(itemRow))
-	}
-	return domainItems, nil
 }
 
 var ErrOfferNotEditable = errors.New("yalnızca taslak durumundaki teklifler düzenlenebilir")
@@ -310,10 +366,10 @@ type UpdateOfferInput struct {
 	Items           []OfferItemInput
 }
 
-// Update, yalnızca "taslak" durumundaki teklifleri düzenler -- gönderilmiş
-// veya kabul edilmiş bir teklif doğrudan overwrite edilemez (Faz 3'te bu
-// durumlar için revizyon sistemi eklenecek). Kalemler tamamen silinip
-// yeniden yazılır, toplamlar sunucu tarafında yeniden hesaplanır.
+// Update, yalnızca "taslak" durumundaki (henüz gönderilmemiş ya da yeni
+// "Revize Et" ile açılmış) mevcut revizyonu YERİNDE günceller -- bu YENİ
+// bir revizyon SAYMAZ, revision_no değişmez. Gönderilmiş/kabul edilmiş bir
+// teklif için Revise() kullanılmalıdır.
 func (s *OfferService) Update(ctx context.Context, id, organizationID string, in UpdateOfferInput) (*domain.Offer, error) {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
@@ -324,14 +380,14 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 		return nil, domain.ErrNotFound
 	}
 
-	existing, err := s.q.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
+	offerRow, err := s.q.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
 	}
-	if existing.Status != domain.OfferStatusTaslak {
+	if offerRow.Status != domain.OfferStatusTaslak {
 		return nil, ErrOfferNotEditable
 	}
 
@@ -363,8 +419,8 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 		return nil, errors.New("müşteri adı zorunludur")
 	}
 
-	updatedRow, err := txq.UpdateOffer(ctx, sqlc.UpdateOfferParams{
-		ID:              uid,
+	updatedRev, err := txq.UpdateOfferRevision(ctx, sqlc.UpdateOfferRevisionParams{
+		ID:              offerRow.CurrentRevisionID,
 		OrganizationID:  orgID,
 		CustomerID:      custID,
 		CustomerName:    customerName,
@@ -380,15 +436,17 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
+			// status='taslak' koşulu WHERE'de de var -- ilk kontrolden
+			// sonra bir yarış durumuyla değişmiş olabilir.
+			return nil, ErrOfferNotEditable
 		}
 		return nil, err
 	}
 
-	if err := txq.DeleteOfferItems(ctx, uid); err != nil {
+	if err := txq.DeleteOfferRevisionItems(ctx, offerRow.CurrentRevisionID); err != nil {
 		return nil, err
 	}
-	domainItems, err := insertOfferItems(ctx, txq, uid, orgID, items)
+	domainItems, err := insertRevisionItems(ctx, txq, offerRow.CurrentRevisionID, orgID, items)
 	if err != nil {
 		return nil, err
 	}
@@ -397,10 +455,13 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 		return nil, err
 	}
 
-	offer := repository.ToDomainOffer(updatedRow)
-	offer.Items = domainItems
+	base := repository.ToDomainOfferBase(offerRow)
+	rev := repository.ToDomainOfferRevision(updatedRev)
+	offer := repository.MergeOfferRevision(base, rev, domainItems)
 	return &offer, nil
 }
+
+var ErrOfferLocked = errors.New("kabul edilmiş teklif/revizyon durumu değiştirilemez")
 
 func (s *OfferService) UpdateStatus(ctx context.Context, id, organizationID, status string) (*domain.Offer, error) {
 	if !domain.ValidOfferStatus(status) {
@@ -414,15 +475,58 @@ func (s *OfferService) UpdateStatus(ctx context.Context, id, organizationID, sta
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	row, err := s.q.UpdateOfferStatus(ctx, sqlc.UpdateOfferStatusParams{ID: uid, OrganizationID: orgID, Status: status})
+	offerRow, err := s.q.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
 	}
-	o := repository.ToDomainOffer(row)
-	return &o, nil
+	// Kabul edilmiş bir teklifin durumu (dolayısıyla revizyonu) bir daha
+	// değiştirilemez -- "kabul edilen revizyon sonradan overwrite
+	// edilmez" kuralının durum boyutu.
+	if offerRow.Status == domain.OfferStatusKabulEdildi {
+		return nil, ErrOfferLocked
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	updatedRev, err := txq.UpdateOfferRevisionStatus(ctx, sqlc.UpdateOfferRevisionStatusParams{
+		ID: offerRow.CurrentRevisionID, OrganizationID: orgID, Status: status,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	if err := txq.SetOfferCurrentRevision(ctx, sqlc.SetOfferCurrentRevisionParams{
+		ID: offerRow.ID, CurrentRevisionID: offerRow.CurrentRevisionID, Status: status,
+	}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	itemRows, err := s.q.ListOfferRevisionItems(ctx, offerRow.CurrentRevisionID)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]domain.OfferItem, len(itemRows))
+	for i, r := range itemRows {
+		items[i] = repository.ToDomainOfferRevisionItem(r)
+	}
+	offerRow.Status = status
+	base := repository.ToDomainOfferBase(offerRow)
+	rev := repository.ToDomainOfferRevision(updatedRev)
+	offer := repository.MergeOfferRevision(base, rev, items)
+	return &offer, nil
 }
 
 func (s *OfferService) TogglePassive(ctx context.Context, id, organizationID string) error {
@@ -444,42 +548,215 @@ func (s *OfferService) TogglePassive(ctx context.Context, id, organizationID str
 	return s.q.SetOfferPassive(ctx, sqlc.SetOfferPassiveParams{ID: uid, OrganizationID: orgID, IsPassive: !row.IsPassive})
 }
 
-// GetByShareToken, müşterinin auth gerektirmeyen paylaşım linkinden teklifi
-// görüntülemesi için kullanılır -- güvenlik sınırı organization_id değil,
-// tahmin edilemez token'ın kendisidir (bu yüzden organizationID parametresi
-// almaz).
-func (s *OfferService) GetByShareToken(ctx context.Context, token string) (*domain.Offer, error) {
-	tid, err := repository.StringToUUID(token)
+var ErrOfferNotRevisable = errors.New("bu teklif için revizyon oluşturulamaz")
+
+// Revise, mevcut (current) revizyonun içeriğini başlangıç verisi olarak
+// kopyalayıp yeni, "taslak" durumunda bir revizyon açar ve teklifin
+// current_revision_id'sini ona taşır. Yalnızca "gönderildi" veya
+// "reddedildi" durumundaki bir revizyon için çağrılabilir -- taslak zaten
+// Update() ile düzenlenir, kabul edilmiş teklif kilitlidir. Aynı teklif
+// için eşzamanlı çağrılar bir advisory lock ile serileştirilir, böylece
+// iki istek asla aynı revision_no'yu üretemez.
+func (s *OfferService) Revise(ctx context.Context, id, organizationID, userID string) (*domain.Offer, error) {
+	uid, err := repository.StringToUUID(id)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	row, err := s.q.GetOfferByShareToken(ctx, tid)
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	// hashtext(id), teklif UUID'sini 32 bitlik bir tam sayıya indirger;
+	// nadir hash çakışmaları yalnızca FARKLI tekliflerin gereksiz yere
+	// birbirini beklemesine yol açar, doğruluğu etkilemez. Kilit,
+	// transaction commit/rollback olduğunda otomatik serbest kalır.
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", id); err != nil {
+		return nil, err
+	}
+
+	offerRow, err := txq.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
 	}
-	itemRows, err := s.q.ListOfferItems(ctx, row.ID)
+	if offerRow.Status == domain.OfferStatusTaslak || offerRow.Status == domain.OfferStatusKabulEdildi {
+		return nil, ErrOfferNotRevisable
+	}
+
+	currentRev, err := txq.GetOfferRevisionByID(ctx, sqlc.GetOfferRevisionByIDParams{ID: offerRow.CurrentRevisionID, OrganizationID: orgID})
 	if err != nil {
 		return nil, err
 	}
-	offer := repository.ToDomainOffer(row)
-	offer.Items = make([]domain.OfferItem, len(itemRows))
-	for i, r := range itemRows {
-		offer.Items[i] = repository.ToDomainOfferItem(r)
+	currentItems, err := txq.ListOfferRevisionItems(ctx, currentRev.ID)
+	if err != nil {
+		return nil, err
 	}
+
+	nextNo, err := txq.GetLatestRevisionNo(ctx, offerRow.ID)
+	if err != nil {
+		return nil, err
+	}
+	nextNo++
+
+	var createdBy pgtype.UUID
+	if userID != "" {
+		if u, err := repository.StringToUUID(userID); err == nil {
+			createdBy = u
+		}
+	}
+
+	newRev, err := txq.CreateOfferRevision(ctx, sqlc.CreateOfferRevisionParams{
+		OrganizationID:  orgID,
+		OfferID:         offerRow.ID,
+		RevisionNo:      nextNo,
+		CustomerID:      currentRev.CustomerID,
+		CustomerName:    currentRev.CustomerName,
+		CustomerPhone:   currentRev.CustomerPhone,
+		CustomerEmail:   currentRev.CustomerEmail,
+		CustomerAddress: currentRev.CustomerAddress,
+		ValidUntil:      currentRev.ValidUntil,
+		Subtotal:        currentRev.Subtotal,
+		DiscountType:    currentRev.DiscountType,
+		DiscountValue:   currentRev.DiscountValue,
+		DiscountAmount:  currentRev.DiscountAmount,
+		VatRate:         currentRev.VatRate,
+		VatAmount:       currentRev.VatAmount,
+		GrandTotal:      currentRev.GrandTotal,
+		Currency:        currentRev.Currency,
+		Notes:           currentRev.Notes,
+		Status:          domain.OfferStatusTaslak,
+		CreatedBy:       createdBy,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := cloneRevisionItems(ctx, txq, newRev.ID, currentItems); err != nil {
+		return nil, err
+	}
+
+	if err := txq.SetOfferCurrentRevision(ctx, sqlc.SetOfferCurrentRevisionParams{
+		ID:                offerRow.ID,
+		CurrentRevisionID: newRev.ID,
+		Status:            domain.OfferStatusTaslak,
+	}); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	itemRows, err := s.q.ListOfferRevisionItems(ctx, newRev.ID)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]domain.OfferItem, len(itemRows))
+	for i, r := range itemRows {
+		items[i] = repository.ToDomainOfferRevisionItem(r)
+	}
+	offerRow.CurrentRevisionID = newRev.ID
+	offerRow.Status = domain.OfferStatusTaslak
+	base := repository.ToDomainOfferBase(offerRow)
+	rev := repository.ToDomainOfferRevision(newRev)
+	offer := repository.MergeOfferRevision(base, rev, items)
 	return &offer, nil
+}
+
+// ListRevisions, bir teklifin tüm revizyonlarını (en yeni önce) döner.
+// Sorgu zaten organization_id ile filtrelendiğinden, başka bir firmanın
+// offer_id'si için boş liste döner -- veri sızmaz.
+func (s *OfferService) ListRevisions(ctx context.Context, offerID, organizationID string) ([]domain.OfferRevision, error) {
+	uid, err := repository.StringToUUID(offerID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	rows, err := s.q.ListOfferRevisions(ctx, sqlc.ListOfferRevisionsParams{OfferID: uid, OrganizationID: orgID})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.OfferRevision, len(rows))
+	for i, r := range rows {
+		out[i] = repository.ToDomainOfferRevision(r)
+	}
+	return out, nil
+}
+
+// GetRevision, geçmiş (veya mevcut) bir revizyonun tam, salt-okunur
+// içeriğini döner -- eski revizyonlar bu yolla görüntülenir ama hiçbir
+// zaman bu fonksiyon üzerinden değiştirilemez (böyle bir uç yok).
+func (s *OfferService) GetRevision(ctx context.Context, revisionID, organizationID string) (*domain.OfferRevision, error) {
+	rid, err := repository.StringToUUID(revisionID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	row, err := s.q.GetOfferRevisionByID(ctx, sqlc.GetOfferRevisionByIDParams{ID: rid, OrganizationID: orgID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	itemRows, err := s.q.ListOfferRevisionItems(ctx, rid)
+	if err != nil {
+		return nil, err
+	}
+	rev := repository.ToDomainOfferRevision(row)
+	rev.Items = make([]domain.OfferItem, len(itemRows))
+	for i, r := range itemRows {
+		rev.Items[i] = repository.ToDomainOfferRevisionItem(r)
+	}
+	return &rev, nil
+}
+
+// GetByShareToken, müşterinin auth gerektirmeyen paylaşım linkinden teklifi
+// görüntülemesi için kullanılır -- güvenlik sınırı organization_id değil,
+// tahmin edilemez token'ın kendisidir (bu yüzden organizationID parametresi
+// almaz). Her zaman teklifin O ANKİ (current) revizyonunu gösterir --
+// yeni bir revizyon açılırsa müşteri artık eski içeriği görmez.
+func (s *OfferService) GetByShareToken(ctx context.Context, token string) (*domain.Offer, error) {
+	tid, err := repository.StringToUUID(token)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	offerRow, err := s.q.GetOfferByShareToken(ctx, tid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return s.loadOfferWithCurrentRevision(ctx, offerRow, offerRow.OrganizationID)
 }
 
 var ErrOfferNotRespondable = errors.New("bu teklif için onay/red işlemi yapılamaz")
 
 // RespondByShareToken, müşterinin paylaşım linkinden teklifi kabul/red
-// etmesini sağlar. Yalnızca "gönderildi" durumundaki teklifler için
-// geçerlidir -- taslak bir teklif henüz müşteriye ulaşmamıştır, kabul/red
-// edilmiş bir teklif ise zaten karara bağlanmıştır. organization_id burada
-// da token'dan bulunan satırın kendi org'undan alınır (public parametre
-// olarak DIŞARIDAN gelmez).
+// etmesini sağlar. Yalnızca teklifin O ANKİ revizyonu "gönderildi"
+// durumundaysa geçerlidir -- taslak bir revizyon henüz müşteriye
+// ulaşmamıştır, kabul/red edilmiş olan zaten karara bağlanmıştır. Karar
+// her zaman current_revision_id'ye yazılır: yeni bir revizyon açılıp
+// gönderildiyse, eski revizyonun "gönderildi" durumu donmuş kalır ve bir
+// daha bu yoldan erişilemez -- müşteri yalnızca EN SON gönderilen
+// revizyona karar verebilir.
 func (s *OfferService) RespondByShareToken(ctx context.Context, token, decision string) (*domain.Offer, error) {
 	if decision != domain.OfferStatusKabulEdildi && decision != domain.OfferStatusReddedildi {
 		return nil, errors.New("geçersiz karar")
@@ -488,29 +765,60 @@ func (s *OfferService) RespondByShareToken(ctx context.Context, token, decision 
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	row, err := s.q.GetOfferByShareToken(ctx, tid)
+	offerRow, err := s.q.GetOfferByShareToken(ctx, tid)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
 	}
-	if row.Status != domain.OfferStatusGonderildi {
+	if offerRow.Status != domain.OfferStatusGonderildi {
 		return nil, ErrOfferNotRespondable
 	}
-	updated, err := s.q.UpdateOfferStatus(ctx, sqlc.UpdateOfferStatusParams{ID: row.ID, OrganizationID: row.OrganizationID, Status: decision})
+
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
-	o := repository.ToDomainOffer(updated)
-	return &o, nil
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	updatedRev, err := txq.UpdateOfferRevisionStatus(ctx, sqlc.UpdateOfferRevisionStatusParams{
+		ID: offerRow.CurrentRevisionID, OrganizationID: offerRow.OrganizationID, Status: decision,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := txq.SetOfferCurrentRevision(ctx, sqlc.SetOfferCurrentRevisionParams{
+		ID: offerRow.ID, CurrentRevisionID: offerRow.CurrentRevisionID, Status: decision,
+	}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	itemRows, err := s.q.ListOfferRevisionItems(ctx, offerRow.CurrentRevisionID)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]domain.OfferItem, len(itemRows))
+	for i, r := range itemRows {
+		items[i] = repository.ToDomainOfferRevisionItem(r)
+	}
+	offerRow.Status = decision
+	base := repository.ToDomainOfferBase(offerRow)
+	rev := repository.ToDomainOfferRevision(updatedRev)
+	offer := repository.MergeOfferRevision(base, rev, items)
+	return &offer, nil
 }
 
 var ErrOfferAccepted = errors.New("kabul edilmiş teklif silinemez")
 
 // Delete, BYZ'deki kuralı korur: kabul edilmiş bir teklifin tek dayanağı
 // olduğu müşteri onayı/alacak kaydı olabileceğinden, "kabul edildi"
-// durumundaki teklifler silinemez.
+// durumundaki teklifler silinemez. offers.status, current revizyonun
+// aynası olduğundan ayrıca revizyon fetch etmeye gerek yoktur.
 func (s *OfferService) Delete(ctx context.Context, id, organizationID string) error {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
@@ -520,14 +828,14 @@ func (s *OfferService) Delete(ctx context.Context, id, organizationID string) er
 	if err != nil {
 		return domain.ErrNotFound
 	}
-	row, err := s.q.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
+	offerRow, err := s.q.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ErrNotFound
 		}
 		return err
 	}
-	if row.Status == domain.OfferStatusKabulEdildi {
+	if offerRow.Status == domain.OfferStatusKabulEdildi {
 		return ErrOfferAccepted
 	}
 	return s.q.DeleteOffer(ctx, sqlc.DeleteOfferParams{ID: uid, OrganizationID: orgID})

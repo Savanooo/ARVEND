@@ -7,7 +7,7 @@ import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { Topbar } from "@/components/layout/Topbar";
 import { apiServer } from "@/lib/api";
 import { formatTL } from "@/lib/format";
-import type { Offer } from "@/lib/types";
+import type { Offer, OfferRevision } from "@/lib/types";
 
 import { OfferActions } from "./OfferActions";
 import { ShareOfferCard } from "./ShareOfferCard";
@@ -20,6 +20,10 @@ export default async function TeklifDetayPage({
   const { id } = await params;
   const cookieHeader = (await cookies()).toString();
   const offer = await apiServer<Offer>(`/api/v1/offers/${id}`, cookieHeader);
+  const { revisions } = await apiServer<{ revisions: OfferRevision[] }>(
+    `/api/v1/offers/${id}/revisions`,
+    cookieHeader
+  );
 
   return (
     <>
@@ -106,6 +110,34 @@ export default async function TeklifDetayPage({
           </Card>
 
           <ShareOfferCard offer={offer} />
+
+          {revisions.length > 1 && (
+            <Card className="h-fit">
+              <CardHeader>Revizyon Geçmişi</CardHeader>
+              <CardBody className="flex flex-col gap-2 p-0">
+                {revisions.map((rev) => (
+                  <Link
+                    key={rev.id}
+                    href={`/teklifler/${offer.id}/revizyonlar/${rev.id}`}
+                    className="flex items-center justify-between border-b border-border px-4 py-3 text-sm last:border-b-0 hover:bg-surface-hover"
+                  >
+                    <div>
+                      <div className="font-medium">
+                        Revizyon {rev.revision_no}
+                        {rev.revision_no === offer.revision_no && (
+                          <span className="ml-2 text-xs text-gold">(güncel)</span>
+                        )}
+                      </div>
+                      <div className="text-xs text-text-muted">
+                        {new Date(rev.created_at).toLocaleString("tr-TR")} · {rev.status}
+                      </div>
+                    </div>
+                    <div className="font-medium">{formatTL(rev.grand_total)}</div>
+                  </Link>
+                ))}
+              </CardBody>
+            </Card>
+          )}
         </div>
       </div>
     </>

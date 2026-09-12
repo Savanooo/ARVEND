@@ -53,6 +53,7 @@ export interface Customer {
 export interface Offer {
   id: string;
   offer_no: string;
+  revision_no: number;
   customer_id: string | null;
   customer_name: string;
   customer_phone: string;
@@ -68,6 +69,28 @@ export interface Offer {
   status: OfferStatus;
   share_token: string;
   is_passive: boolean;
+  items?: OfferItem[];
+}
+
+export interface OfferRevision {
+  id: string;
+  offer_id: string;
+  revision_no: number;
+  customer_id: string | null;
+  customer_name: string;
+  customer_phone: string;
+  customer_email: string;
+  customer_address: string;
+  valid_until: string | null;
+  subtotal: number;
+  vat_rate: number;
+  vat_amount: number;
+  grand_total: number;
+  currency: string;
+  notes: string;
+  status: OfferStatus;
+  created_by: string | null;
+  created_at: string;
   items?: OfferItem[];
 }
 

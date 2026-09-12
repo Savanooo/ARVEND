@@ -110,56 +110,137 @@ func Float64ToNumeric(f float64) pgtype.Numeric {
 	return n
 }
 
-func ToDomainOffer(o sqlc.Offer) domain.Offer {
+// ToDomainOfferBase, offers tablosunun kimlik+lifecycle alanlarını
+// dönüştürür -- içerik (müşteri, kalemler, toplamlar) dahil değildir,
+// bkz. MergeOfferRevision.
+func ToDomainOfferBase(o sqlc.Offer) domain.Offer {
 	do := domain.Offer{
-		ID:              o.ID.String(),
-		OrganizationID:  o.OrganizationID.String(),
-		OfferNo:         o.OfferNo,
-		CustomerName:    o.CustomerName,
-		CustomerPhone:   o.CustomerPhone,
-		CustomerEmail:   o.CustomerEmail,
-		CustomerAddress: o.CustomerAddress,
-		OfferDate:       o.OfferDate.Time,
-		Subtotal:        NumericToFloat64(o.Subtotal),
-		VatRate:         NumericToFloat64(o.VatRate),
-		VatAmount:       NumericToFloat64(o.VatAmount),
-		GrandTotal:      NumericToFloat64(o.GrandTotal),
-		Notes:           o.Notes,
-		Status:          o.Status,
-		ShareToken:      o.ShareToken.String(),
-		IsPassive:       o.IsPassive,
-		CreatedAt:       o.CreatedAt.Time,
-		UpdatedAt:       o.UpdatedAt.Time,
+		ID:             o.ID.String(),
+		OrganizationID: o.OrganizationID.String(),
+		OfferNo:        o.OfferNo,
+		OfferDate:      o.OfferDate.Time,
+		Status:         o.Status,
+		ShareToken:     o.ShareToken.String(),
+		IsPassive:      o.IsPassive,
+		CreatedAt:      o.CreatedAt.Time,
+		UpdatedAt:      o.UpdatedAt.Time,
 	}
-	if o.ValidUntil.Valid {
-		t := o.ValidUntil.Time
-		do.ValidUntil = &t
+	if o.CurrentRevisionID.Valid {
+		do.CurrentRevisionID = o.CurrentRevisionID.String()
 	}
 	if o.CreatedBy.Valid {
 		s := o.CreatedBy.String()
 		do.CreatedBy = &s
 	}
-	if o.CustomerID.Valid {
-		s := o.CustomerID.String()
-		do.CustomerID = &s
-	}
 	return do
 }
 
-func ToDomainOfferItem(i sqlc.OfferItem) domain.OfferItem {
+func ToDomainOfferRevision(r sqlc.OfferRevision) domain.OfferRevision {
+	dr := domain.OfferRevision{
+		ID:              r.ID.String(),
+		OrganizationID:  r.OrganizationID.String(),
+		OfferID:         r.OfferID.String(),
+		RevisionNo:      int(r.RevisionNo),
+		CustomerName:    r.CustomerName,
+		CustomerPhone:   r.CustomerPhone,
+		CustomerEmail:   r.CustomerEmail,
+		CustomerAddress: r.CustomerAddress,
+		Subtotal:        NumericToFloat64(r.Subtotal),
+		DiscountType:    r.DiscountType,
+		DiscountValue:   NumericToFloat64(r.DiscountValue),
+		DiscountAmount:  NumericToFloat64(r.DiscountAmount),
+		VatRate:         NumericToFloat64(r.VatRate),
+		VatAmount:       NumericToFloat64(r.VatAmount),
+		GrandTotal:      NumericToFloat64(r.GrandTotal),
+		Currency:        r.Currency,
+		Notes:           r.Notes,
+		Status:          r.Status,
+		CreatedAt:       r.CreatedAt.Time,
+	}
+	if r.ValidUntil.Valid {
+		t := r.ValidUntil.Time
+		dr.ValidUntil = &t
+	}
+	if r.CustomerID.Valid {
+		s := r.CustomerID.String()
+		dr.CustomerID = &s
+	}
+	if r.CreatedBy.Valid {
+		s := r.CreatedBy.String()
+		dr.CreatedBy = &s
+	}
+	return dr
+}
+
+func ToDomainOfferRevisionItem(i sqlc.OfferRevisionItem) domain.OfferItem {
 	di := domain.OfferItem{
-		ID:          i.ID.String(),
-		ProductName: i.ProductName,
-		Quantity:    NumericToFloat64(i.Quantity),
-		UnitPrice:   NumericToFloat64(i.UnitPrice),
-		LineTotal:   NumericToFloat64(i.LineTotal),
-		SortOrder:   int(i.SortOrder),
+		ID:            i.ID.String(),
+		ProductName:   i.ProductName,
+		Quantity:      NumericToFloat64(i.Quantity),
+		UnitPrice:     NumericToFloat64(i.UnitPrice),
+		DiscountType:  i.DiscountType,
+		DiscountValue: NumericToFloat64(i.DiscountValue),
+		LineTotal:     NumericToFloat64(i.LineTotal),
+		SortOrder:     int(i.SortOrder),
 	}
 	if i.ProductID.Valid {
 		s := i.ProductID.String()
 		di.ProductID = &s
 	}
 	return di
+}
+
+// ToDomainOfferListItem, ListOffers'ın JOIN'li satırını (offers +
+// current revizyondan customer_name/grand_total/revision_no) liste
+// görünümü için yeterli bir Offer'a çevirir -- her satır için ayrı bir
+// revizyon sorgusuna gerek kalmaz.
+func ToDomainOfferListItem(r sqlc.ListOffersRow) domain.Offer {
+	o := domain.Offer{
+		ID:             r.ID.String(),
+		OrganizationID: r.OrganizationID.String(),
+		OfferNo:        r.OfferNo,
+		OfferDate:      r.OfferDate.Time,
+		Status:         r.Status,
+		ShareToken:     r.ShareToken.String(),
+		IsPassive:      r.IsPassive,
+		CreatedAt:      r.CreatedAt.Time,
+		UpdatedAt:      r.UpdatedAt.Time,
+		RevisionNo:     int(r.RevisionNo),
+		CustomerName:   r.CustomerName,
+		GrandTotal:     NumericToFloat64(r.GrandTotal),
+	}
+	if r.CurrentRevisionID.Valid {
+		o.CurrentRevisionID = r.CurrentRevisionID.String()
+	}
+	if r.CreatedBy.Valid {
+		s := r.CreatedBy.String()
+		o.CreatedBy = &s
+	}
+	return o
+}
+
+// MergeOfferRevision, kimlik+lifecycle taşıyan Offer'ı, mevcut
+// revizyonunun içeriğiyle birleştirip API'nin beklediği "düz" görünümü
+// üretir.
+func MergeOfferRevision(base domain.Offer, rev domain.OfferRevision, items []domain.OfferItem) domain.Offer {
+	base.RevisionNo = rev.RevisionNo
+	base.CustomerID = rev.CustomerID
+	base.CustomerName = rev.CustomerName
+	base.CustomerPhone = rev.CustomerPhone
+	base.CustomerEmail = rev.CustomerEmail
+	base.CustomerAddress = rev.CustomerAddress
+	base.ValidUntil = rev.ValidUntil
+	base.Subtotal = rev.Subtotal
+	base.DiscountType = rev.DiscountType
+	base.DiscountValue = rev.DiscountValue
+	base.DiscountAmount = rev.DiscountAmount
+	base.VatRate = rev.VatRate
+	base.VatAmount = rev.VatAmount
+	base.GrandTotal = rev.GrandTotal
+	base.Currency = rev.Currency
+	base.Notes = rev.Notes
+	base.Items = items
+	return base
 }
 
 func TimeToDate(t time.Time) pgtype.Date {

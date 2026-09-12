@@ -53,27 +53,17 @@ type Employee struct {
 }
 
 type Offer struct {
-	ID              pgtype.UUID        `json:"id"`
-	OfferNo         string             `json:"offer_no"`
-	CustomerName    string             `json:"customer_name"`
-	CustomerPhone   string             `json:"customer_phone"`
-	CustomerEmail   string             `json:"customer_email"`
-	CustomerAddress string             `json:"customer_address"`
-	OfferDate       pgtype.Date        `json:"offer_date"`
-	ValidUntil      pgtype.Date        `json:"valid_until"`
-	Subtotal        pgtype.Numeric     `json:"subtotal"`
-	VatRate         pgtype.Numeric     `json:"vat_rate"`
-	VatAmount       pgtype.Numeric     `json:"vat_amount"`
-	GrandTotal      pgtype.Numeric     `json:"grand_total"`
-	Notes           string             `json:"notes"`
-	Status          string             `json:"status"`
-	IsPassive       bool               `json:"is_passive"`
-	CreatedBy       pgtype.UUID        `json:"created_by"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	ShareToken      pgtype.UUID        `json:"share_token"`
-	OrganizationID  pgtype.UUID        `json:"organization_id"`
-	CustomerID      pgtype.UUID        `json:"customer_id"`
+	ID                pgtype.UUID        `json:"id"`
+	OfferNo           string             `json:"offer_no"`
+	OfferDate         pgtype.Date        `json:"offer_date"`
+	Status            string             `json:"status"`
+	IsPassive         bool               `json:"is_passive"`
+	CreatedBy         pgtype.UUID        `json:"created_by"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	ShareToken        pgtype.UUID        `json:"share_token"`
+	OrganizationID    pgtype.UUID        `json:"organization_id"`
+	CurrentRevisionID pgtype.UUID        `json:"current_revision_id"`
 }
 
 type OfferCounter struct {
@@ -82,15 +72,42 @@ type OfferCounter struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
 }
 
-type OfferItem struct {
-	ID          pgtype.UUID    `json:"id"`
-	OfferID     pgtype.UUID    `json:"offer_id"`
-	ProductID   pgtype.UUID    `json:"product_id"`
-	ProductName string         `json:"product_name"`
-	Quantity    pgtype.Numeric `json:"quantity"`
-	UnitPrice   pgtype.Numeric `json:"unit_price"`
-	LineTotal   pgtype.Numeric `json:"line_total"`
-	SortOrder   int32          `json:"sort_order"`
+type OfferRevision struct {
+	ID              pgtype.UUID        `json:"id"`
+	OrganizationID  pgtype.UUID        `json:"organization_id"`
+	OfferID         pgtype.UUID        `json:"offer_id"`
+	RevisionNo      int32              `json:"revision_no"`
+	CustomerID      pgtype.UUID        `json:"customer_id"`
+	CustomerName    string             `json:"customer_name"`
+	CustomerPhone   string             `json:"customer_phone"`
+	CustomerEmail   string             `json:"customer_email"`
+	CustomerAddress string             `json:"customer_address"`
+	ValidUntil      pgtype.Date        `json:"valid_until"`
+	Subtotal        pgtype.Numeric     `json:"subtotal"`
+	DiscountType    string             `json:"discount_type"`
+	DiscountValue   pgtype.Numeric     `json:"discount_value"`
+	DiscountAmount  pgtype.Numeric     `json:"discount_amount"`
+	VatRate         pgtype.Numeric     `json:"vat_rate"`
+	VatAmount       pgtype.Numeric     `json:"vat_amount"`
+	GrandTotal      pgtype.Numeric     `json:"grand_total"`
+	Currency        string             `json:"currency"`
+	Notes           string             `json:"notes"`
+	Status          string             `json:"status"`
+	CreatedBy       pgtype.UUID        `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
+type OfferRevisionItem struct {
+	ID            pgtype.UUID    `json:"id"`
+	RevisionID    pgtype.UUID    `json:"revision_id"`
+	ProductID     pgtype.UUID    `json:"product_id"`
+	ProductName   string         `json:"product_name"`
+	Quantity      pgtype.Numeric `json:"quantity"`
+	UnitPrice     pgtype.Numeric `json:"unit_price"`
+	DiscountType  string         `json:"discount_type"`
+	DiscountValue pgtype.Numeric `json:"discount_value"`
+	LineTotal     pgtype.Numeric `json:"line_total"`
+	SortOrder     int32          `json:"sort_order"`
 }
 
 type Organization struct {
