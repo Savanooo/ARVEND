@@ -19,5 +19,5 @@ SET full_name = $3, phone = $4, position = $5, salary = $6, daily_wage = $7,
 WHERE id = $1 AND organization_id = $2
 RETURNING *;
 
--- name: ArchiveEmployee :exec
+-- name: ArchiveEmployee :execrows
 UPDATE employees SET is_active = false, archived_at = now() WHERE id = $1 AND organization_id = $2;

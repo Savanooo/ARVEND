@@ -25,7 +25,7 @@ SET name = $3, normalized_name = $4, unit = $5, unit_price = $6,
 WHERE id = $1 AND organization_id = $2
 RETURNING *;
 
--- name: DeleteProduct :exec
+-- name: DeleteProduct :execrows
 DELETE FROM products WHERE id = $1 AND organization_id = $2;
 
 -- name: CreatePriceHistory :exec

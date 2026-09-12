@@ -136,7 +136,14 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 		var productID pgtype.UUID
 		if it.ProductID != nil {
 			if pid, err := repository.StringToUUID(*it.ProductID); err == nil {
-				productID = pid
+				// Ürünün gerçekten bu organizasyona ait olduğu doğrulanmadan
+				// kabul edilirse, başka bir firmanın product_id'sine
+				// referans veren bir kalem oluşturulabilir (tenant izolasyonu
+				// ihlali). Ait değilse, geçersiz UUID'de olduğu gibi sessizce
+				// serbest metin satıra düşürülür.
+				if _, err := txq.GetProductByID(ctx, sqlc.GetProductByIDParams{ID: pid, OrganizationID: orgID}); err == nil {
+					productID = pid
+				}
 			}
 		}
 		itemRow, err := txq.CreateOfferItem(ctx, sqlc.CreateOfferItemParams{

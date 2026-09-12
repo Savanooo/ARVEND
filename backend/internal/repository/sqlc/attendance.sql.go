@@ -55,7 +55,7 @@ func (q *Queries) CreateAttendance(ctx context.Context, arg CreateAttendancePara
 	return i, err
 }
 
-const deleteAttendance = `-- name: DeleteAttendance :exec
+const deleteAttendance = `-- name: DeleteAttendance :execrows
 DELETE FROM attendance_logs WHERE id = $1 AND organization_id = $2
 `
 
@@ -64,9 +64,12 @@ type DeleteAttendanceParams struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
 }
 
-func (q *Queries) DeleteAttendance(ctx context.Context, arg DeleteAttendanceParams) error {
-	_, err := q.db.Exec(ctx, deleteAttendance, arg.ID, arg.OrganizationID)
-	return err
+func (q *Queries) DeleteAttendance(ctx context.Context, arg DeleteAttendanceParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteAttendance, arg.ID, arg.OrganizationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getAttendanceByID = `-- name: GetAttendanceByID :one

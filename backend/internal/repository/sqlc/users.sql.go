@@ -71,7 +71,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
-const deactivateUser = `-- name: DeactivateUser :exec
+const deactivateUser = `-- name: DeactivateUser :execrows
 UPDATE users SET is_active = false WHERE id = $1 AND organization_id = $2
 `
 
@@ -80,9 +80,12 @@ type DeactivateUserParams struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
 }
 
-func (q *Queries) DeactivateUser(ctx context.Context, arg DeactivateUserParams) error {
-	_, err := q.db.Exec(ctx, deactivateUser, arg.ID, arg.OrganizationID)
-	return err
+func (q *Queries) DeactivateUser(ctx context.Context, arg DeactivateUserParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deactivateUser, arg.ID, arg.OrganizationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getUserByID = `-- name: GetUserByID :one
@@ -248,7 +251,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 	return i, err
 }
 
-const updateUserPassword = `-- name: UpdateUserPassword :exec
+const updateUserPassword = `-- name: UpdateUserPassword :execrows
 UPDATE users SET password_hash = $3 WHERE id = $1 AND organization_id = $2
 `
 
@@ -258,7 +261,10 @@ type UpdateUserPasswordParams struct {
 	PasswordHash   string      `json:"password_hash"`
 }
 
-func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error {
-	_, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.OrganizationID, arg.PasswordHash)
-	return err
+func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateUserPassword, arg.ID, arg.OrganizationID, arg.PasswordHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

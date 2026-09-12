@@ -1,3 +1,8 @@
+-- GÜVENLİ GERİ ALMA SINIRI (smtp_settings kısmı): yalnızca tek
+-- organizasyonun ayar satırı olduğu bir veritabanında çalışır -- birden
+-- fazla organizasyon kendi SMTP ayarını kaydettiyse (beklenen durum),
+-- tüm satırları id=1'e sıkıştırmaya çalışan UPDATE, PRIMARY KEY(id)
+-- ihlaliyle başarısız olur. Bkz. 0014'ün down.sql'i aynı sınır için.
 ALTER TABLE smtp_settings ADD COLUMN id smallint DEFAULT 1;
 UPDATE smtp_settings SET id = 1;
 ALTER TABLE smtp_settings DROP CONSTRAINT smtp_settings_organization_id_fkey;

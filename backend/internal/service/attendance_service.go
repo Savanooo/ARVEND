@@ -85,6 +85,14 @@ func (s *AttendanceService) Create(ctx context.Context, organizationID string, i
 	if err != nil {
 		return nil, errors.New("geçersiz personel")
 	}
+	// Personelin gerçekten bu organizasyona ait olduğu doğrulanmadan mesai
+	// kaydı oluşturulursa, başka bir firmanın employee_id'sine referans
+	// veren bir kayıt açılabilir -- bu hem tenant izolasyonu ihlali hem de
+	// ListAttendanceByMonth'taki JOIN üzerinden o firmanın personel adının
+	// sızmasına yol açar.
+	if _, err := s.q.GetEmployeeByID(ctx, sqlc.GetEmployeeByIDParams{ID: empID, OrganizationID: orgID}); err != nil {
+		return nil, errors.New("geçersiz personel")
+	}
 	row, err := s.q.CreateAttendance(ctx, sqlc.CreateAttendanceParams{
 		OrganizationID: orgID,
 		EmployeeID:     empID,
@@ -146,5 +154,12 @@ func (s *AttendanceService) Delete(ctx context.Context, id, organizationID strin
 	if err != nil {
 		return domain.ErrNotFound
 	}
-	return s.q.DeleteAttendance(ctx, sqlc.DeleteAttendanceParams{ID: uid, OrganizationID: orgID})
+	rows, err := s.q.DeleteAttendance(ctx, sqlc.DeleteAttendanceParams{ID: uid, OrganizationID: orgID})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }

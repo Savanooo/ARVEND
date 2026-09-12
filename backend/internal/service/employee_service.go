@@ -140,5 +140,12 @@ func (s *EmployeeService) Archive(ctx context.Context, id, organizationID string
 	if err != nil {
 		return domain.ErrNotFound
 	}
-	return s.q.ArchiveEmployee(ctx, sqlc.ArchiveEmployeeParams{ID: uid, OrganizationID: orgID})
+	rows, err := s.q.ArchiveEmployee(ctx, sqlc.ArchiveEmployeeParams{ID: uid, OrganizationID: orgID})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }

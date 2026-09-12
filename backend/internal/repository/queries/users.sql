@@ -30,11 +30,11 @@ SET full_name = $3, role = $4, is_active = $5
 WHERE id = $1 AND organization_id = $2
 RETURNING *;
 
--- name: UpdateUserPassword :exec
+-- name: UpdateUserPassword :execrows
 UPDATE users SET password_hash = $3 WHERE id = $1 AND organization_id = $2;
 
 -- name: TouchLastLogin :exec
 UPDATE users SET last_login_at = now() WHERE id = $1;
 
--- name: DeactivateUser :exec
+-- name: DeactivateUser :execrows
 UPDATE users SET is_active = false WHERE id = $1 AND organization_id = $2;

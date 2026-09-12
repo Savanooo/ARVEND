@@ -99,7 +99,7 @@ func (q *Queries) CreateProduct(ctx context.Context, arg CreateProductParams) (P
 	return i, err
 }
 
-const deleteProduct = `-- name: DeleteProduct :exec
+const deleteProduct = `-- name: DeleteProduct :execrows
 DELETE FROM products WHERE id = $1 AND organization_id = $2
 `
 
@@ -108,9 +108,12 @@ type DeleteProductParams struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
 }
 
-func (q *Queries) DeleteProduct(ctx context.Context, arg DeleteProductParams) error {
-	_, err := q.db.Exec(ctx, deleteProduct, arg.ID, arg.OrganizationID)
-	return err
+func (q *Queries) DeleteProduct(ctx context.Context, arg DeleteProductParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteProduct, arg.ID, arg.OrganizationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getProductByID = `-- name: GetProductByID :one

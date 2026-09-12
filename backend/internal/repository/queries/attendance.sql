@@ -20,5 +20,5 @@ SET check_in = $3, check_out = $4, work_hours = $5, status = $6, note = $7
 WHERE id = $1 AND organization_id = $2
 RETURNING *;
 
--- name: DeleteAttendance :exec
+-- name: DeleteAttendance :execrows
 DELETE FROM attendance_logs WHERE id = $1 AND organization_id = $2;

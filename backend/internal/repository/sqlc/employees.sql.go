@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const archiveEmployee = `-- name: ArchiveEmployee :exec
+const archiveEmployee = `-- name: ArchiveEmployee :execrows
 UPDATE employees SET is_active = false, archived_at = now() WHERE id = $1 AND organization_id = $2
 `
 
@@ -20,9 +20,12 @@ type ArchiveEmployeeParams struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
 }
 
-func (q *Queries) ArchiveEmployee(ctx context.Context, arg ArchiveEmployeeParams) error {
-	_, err := q.db.Exec(ctx, archiveEmployee, arg.ID, arg.OrganizationID)
-	return err
+func (q *Queries) ArchiveEmployee(ctx context.Context, arg ArchiveEmployeeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, archiveEmployee, arg.ID, arg.OrganizationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const createEmployee = `-- name: CreateEmployee :one

@@ -169,7 +169,14 @@ func (s *ProductService) Delete(ctx context.Context, id, organizationID string) 
 	if err != nil {
 		return domain.ErrNotFound
 	}
-	return s.q.DeleteProduct(ctx, sqlc.DeleteProductParams{ID: uid, OrganizationID: orgID})
+	rows, err := s.q.DeleteProduct(ctx, sqlc.DeleteProductParams{ID: uid, OrganizationID: orgID})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (s *ProductService) PriceHistory(ctx context.Context, id, organizationID string) ([]domain.PriceHistoryEntry, error) {

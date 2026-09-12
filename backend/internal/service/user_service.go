@@ -183,7 +183,14 @@ func (s *UserService) setPassword(ctx context.Context, uid pgtype.UUID, organiza
 	if err != nil {
 		return err
 	}
-	return s.q.UpdateUserPassword(ctx, sqlc.UpdateUserPasswordParams{ID: uid, OrganizationID: orgID, PasswordHash: hash})
+	rows, err := s.q.UpdateUserPassword(ctx, sqlc.UpdateUserPasswordParams{ID: uid, OrganizationID: orgID, PasswordHash: hash})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (s *UserService) Deactivate(ctx context.Context, id, organizationID string) error {
@@ -195,5 +202,12 @@ func (s *UserService) Deactivate(ctx context.Context, id, organizationID string)
 	if err != nil {
 		return domain.ErrNotFound
 	}
-	return s.q.DeactivateUser(ctx, sqlc.DeactivateUserParams{ID: uid, OrganizationID: orgID})
+	rows, err := s.q.DeactivateUser(ctx, sqlc.DeactivateUserParams{ID: uid, OrganizationID: orgID})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
