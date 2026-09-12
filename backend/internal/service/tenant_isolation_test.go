@@ -62,6 +62,11 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 	ctx := context.Background()
 	stmts := []string{
 		"DELETE FROM attendance_logs WHERE organization_id = $1",
+		// projects, teklife/revizyona CASCADE'siz FK ile bağlıdır (kasıtlı:
+		// bir projeye dayanak olan teklif silinememeli), bu yüzden
+		// tekliflerden ÖNCE temizlenmeli.
+		"DELETE FROM projects WHERE organization_id = $1",
+		"DELETE FROM project_counters WHERE organization_id = $1",
 		"DELETE FROM offers WHERE organization_id = $1",
 		"DELETE FROM offer_counters WHERE organization_id = $1",
 		"DELETE FROM customers WHERE organization_id = $1",

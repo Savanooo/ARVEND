@@ -46,6 +46,10 @@ function label(e: OfferEvent, revNo: number | undefined): string {
     email_sent: rev ? `${rev} e-posta ile gönderildi` : "E-posta gönderildi",
     email_failed: rev ? `${rev} e-postası gönderilemedi` : "E-posta gönderilemedi",
     offer_cancelled: "Teklif arşivlendi / iptal edildi",
+    project_created:
+      typeof e.metadata?.project_no === "string"
+        ? `Projeye dönüştürüldü (${e.metadata.project_no})`
+        : "Teklif projeye dönüştürüldü",
   };
   return map[e.event_type] ?? e.event_type;
 }
@@ -56,6 +60,7 @@ const TONE: Partial<Record<OfferEventType, string>> = {
   email_failed: "text-danger",
   share_link_revoked: "text-text-muted",
   customer_viewed: "text-gold",
+  project_created: "text-success",
 };
 
 export function ActivityTimeline({

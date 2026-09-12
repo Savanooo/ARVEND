@@ -318,6 +318,63 @@ func ToDomainAttendanceRow(r sqlc.ListAttendanceByMonthRow) domain.AttendanceLog
 	}
 }
 
+func ToDomainProject(p sqlc.Project) domain.Project {
+	dp := domain.Project{
+		ID:               p.ID.String(),
+		OrganizationID:   p.OrganizationID.String(),
+		ProjectNo:        p.ProjectNo,
+		Name:             p.Name,
+		ProjectType:      p.ProjectType,
+		SourceOfferID:    p.SourceOfferID.String(),
+		SourceRevisionID: p.SourceRevisionID.String(),
+		CustomerName:     p.CustomerName,
+		CustomerPhone:    p.CustomerPhone,
+		CustomerEmail:    p.CustomerEmail,
+		CustomerAddress:  p.CustomerAddress,
+		ContractAmount:   NumericToFloat64(p.ContractAmount),
+		Currency:         p.Currency,
+		Status:           p.Status,
+		Description:      p.Description,
+		InternalNotes:    p.InternalNotes,
+		CreatedAt:        p.CreatedAt.Time,
+		UpdatedAt:        p.UpdatedAt.Time,
+	}
+	if p.CustomerID.Valid {
+		s := p.CustomerID.String()
+		dp.CustomerID = &s
+	}
+	if p.StartDate.Valid {
+		t := p.StartDate.Time
+		dp.StartDate = &t
+	}
+	if p.EndDate.Valid {
+		t := p.EndDate.Time
+		dp.EndDate = &t
+	}
+	if p.CreatedBy.Valid {
+		s := p.CreatedBy.String()
+		dp.CreatedBy = &s
+	}
+	return dp
+}
+
+// ToDomainProjectListItem, ListProjects'in JOIN'li satırını (projects +
+// kaynak teklifin offer_no/revision_no'su) domain nesnesine çevirir.
+func ToDomainProjectListItem(r sqlc.ListProjectsRow) domain.Project {
+	dp := ToDomainProject(sqlc.Project{
+		ID: r.ID, OrganizationID: r.OrganizationID, ProjectNo: r.ProjectNo, Name: r.Name,
+		ProjectType: r.ProjectType, SourceOfferID: r.SourceOfferID, SourceRevisionID: r.SourceRevisionID,
+		CustomerID: r.CustomerID, CustomerName: r.CustomerName, CustomerPhone: r.CustomerPhone,
+		CustomerEmail: r.CustomerEmail, CustomerAddress: r.CustomerAddress,
+		ContractAmount: r.ContractAmount, Currency: r.Currency, Status: r.Status,
+		StartDate: r.StartDate, EndDate: r.EndDate, Description: r.Description,
+		InternalNotes: r.InternalNotes, CreatedBy: r.CreatedBy, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+	})
+	dp.SourceOfferNo = r.OfferNo
+	dp.SourceRevisionNo = int(r.RevisionNo)
+	return dp
+}
+
 func TimePtrToTimestamptz(t *time.Time) pgtype.Timestamptz {
 	if t == nil {
 		return pgtype.Timestamptz{}

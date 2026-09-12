@@ -95,7 +95,8 @@ export type OfferEventType =
   | "customer_rejected"
   | "email_sent"
   | "email_failed"
-  | "offer_cancelled";
+  | "offer_cancelled"
+  | "project_created";
 
 export interface OfferEvent {
   id: string;
@@ -137,6 +138,42 @@ export interface OfferRevision {
   created_by: string | null;
   created_at: string;
   items?: OfferItem[];
+}
+
+export type ProjectStatus = "planned" | "active" | "paused" | "completed" | "cancelled";
+
+export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
+  planned: "Planlandı",
+  active: "Devam Ediyor",
+  paused: "Beklemede",
+  completed: "Tamamlandı",
+  cancelled: "İptal",
+};
+
+export interface Project {
+  id: string;
+  project_no: string;
+  name: string;
+  project_type: string;
+  source_offer_id: string;
+  source_offer_no: string;
+  source_revision_id: string;
+  source_revision_no: number;
+  customer_id: string | null;
+  customer_name: string;
+  customer_phone: string;
+  customer_email: string;
+  customer_address: string;
+  contract_amount: number;
+  currency: string;
+  status: ProjectStatus;
+  start_date: string | null;
+  end_date: string | null;
+  description: string;
+  internal_notes: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Employee {

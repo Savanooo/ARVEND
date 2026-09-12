@@ -17,6 +17,10 @@ const (
 	EventEmailSent        = "email_sent"
 	EventEmailFailed      = "email_failed"
 	EventOfferCancelled   = "offer_cancelled"
+	// EventProjectCreated, kabul edilen revizyon bir projeye
+	// dönüştürüldüğünde teklifin zaman çizelgesine yazılır (bkz.
+	// ProjectService.CreateFromOffer).
+	EventProjectCreated = "project_created"
 )
 
 // OfferEvent, bir teklifle ilgili değişmez bir denetim (audit) kaydıdır.

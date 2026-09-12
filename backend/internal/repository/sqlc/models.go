@@ -181,6 +181,37 @@ type ProductPriceHistory struct {
 	ChangedAt pgtype.Timestamptz `json:"changed_at"`
 }
 
+type Project struct {
+	ID               pgtype.UUID        `json:"id"`
+	OrganizationID   pgtype.UUID        `json:"organization_id"`
+	ProjectNo        string             `json:"project_no"`
+	Name             string             `json:"name"`
+	ProjectType      string             `json:"project_type"`
+	SourceOfferID    pgtype.UUID        `json:"source_offer_id"`
+	SourceRevisionID pgtype.UUID        `json:"source_revision_id"`
+	CustomerID       pgtype.UUID        `json:"customer_id"`
+	CustomerName     string             `json:"customer_name"`
+	CustomerPhone    string             `json:"customer_phone"`
+	CustomerEmail    string             `json:"customer_email"`
+	CustomerAddress  string             `json:"customer_address"`
+	ContractAmount   pgtype.Numeric     `json:"contract_amount"`
+	Currency         string             `json:"currency"`
+	Status           string             `json:"status"`
+	StartDate        pgtype.Date        `json:"start_date"`
+	EndDate          pgtype.Date        `json:"end_date"`
+	Description      string             `json:"description"`
+	InternalNotes    string             `json:"internal_notes"`
+	CreatedBy        pgtype.UUID        `json:"created_by"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProjectCounter struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Year           int32       `json:"year"`
+	Seq            int32       `json:"seq"`
+}
+
 type RefreshToken struct {
 	ID        pgtype.UUID        `json:"id"`
 	UserID    pgtype.UUID        `json:"user_id"`

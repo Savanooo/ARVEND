@@ -5,9 +5,16 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { Topbar } from "@/components/layout/Topbar";
-import { apiServer } from "@/lib/api";
+import { apiServer, ApiError } from "@/lib/api";
 import { formatTL } from "@/lib/format";
-import type { Offer, OfferEmailLog, OfferEvent, OfferRevision, OfferShareLink } from "@/lib/types";
+import type {
+  Offer,
+  OfferEmailLog,
+  OfferEvent,
+  OfferRevision,
+  OfferShareLink,
+  Project,
+} from "@/lib/types";
 
 import { ActivityTimeline } from "./ActivityTimeline";
 import { OfferActions } from "./OfferActions";
@@ -31,6 +38,14 @@ export default async function TeklifDetayPage({
     revisions.map((r) => [r.id, r.revision_no])
   );
 
+  // Teklif zaten projeye dönüştürülmüş mü? 404 = dönüştürülmemiş.
+  const project = await apiServer<Project>(`/api/v1/offers/${id}/project`, cookieHeader).catch(
+    (err) => {
+      if (err instanceof ApiError) return null;
+      throw err;
+    }
+  );
+
   return (
     <>
       <Topbar
@@ -41,6 +56,17 @@ export default async function TeklifDetayPage({
               <Link href={`/teklifler/${offer.id}/duzenle`}>
                 <Button variant="secondary">Düzenle</Button>
               </Link>
+            )}
+            {project ? (
+              <Link href={`/projeler/${project.id}`}>
+                <Button variant="secondary">Projeyi Görüntüle</Button>
+              </Link>
+            ) : (
+              offer.status === "kabul edildi" && (
+                <Link href={`/teklifler/${offer.id}/projeye-donustur`}>
+                  <Button>Projeye Dönüştür</Button>
+                </Link>
+              )
             )}
             <OfferActions offer={offer} />
           </div>

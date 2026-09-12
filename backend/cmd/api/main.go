@@ -50,6 +50,7 @@ func main() {
 	productSvc := service.NewProductService(q)
 	settingsSvc := service.NewSettingsService(q, secretBox)
 	offerSvc := service.NewOfferService(pool, q, settingsSvc, cfg.FrontendURL)
+	projectSvc := service.NewProjectService(pool, q)
 	customerSvc := service.NewCustomerService(q)
 	employeeSvc := service.NewEmployeeService(q)
 	attendanceSvc := service.NewAttendanceService(q)
@@ -63,6 +64,7 @@ func main() {
 		Users:       handler.NewUserHandler(userSvc),
 		Products:    handler.NewProductHandler(productSvc),
 		Offers:      handler.NewOfferHandler(offerSvc),
+		Projects:    handler.NewProjectHandler(projectSvc),
 		Customers:   handler.NewCustomerHandler(customerSvc),
 		Employees:   handler.NewEmployeeHandler(employeeSvc),
 		Attendance:  handler.NewAttendanceHandler(attendanceSvc),

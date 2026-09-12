@@ -20,6 +20,7 @@ type Deps struct {
 	Users       *handler.UserHandler
 	Products    *handler.ProductHandler
 	Offers      *handler.OfferHandler
+	Projects    *handler.ProjectHandler
 	Customers   *handler.CustomerHandler
 	Employees   *handler.EmployeeHandler
 	Attendance  *handler.AttendanceHandler
@@ -102,7 +103,21 @@ func NewRouter(d Deps) http.Handler {
 			r.Delete("/{id}/share-links/{linkId}", d.Offers.RevokeShareLink)
 			r.Get("/{id}/events", d.Offers.ListEvents)
 			r.Get("/{id}/email-logs", d.Offers.ListEmailLogs)
+			// Teklifin projeye dönüşüp dönüşmediği (dönüşmediyse 404) --
+			// teklif detayındaki "Projeye Dönüştür"/"Projeyi Görüntüle"
+			// ayrımı buna bakar.
+			r.Get("/{id}/project", d.Projects.GetByOffer)
 			r.Delete("/{id}", d.Offers.Delete)
+		})
+
+		r.Route("/projects", func(r chi.Router) {
+			r.Use(requireAuth)
+			// Projeler de teklifler gibi sıradan personel işidir -- admin
+			// şartı YOK (ileride project.* izinleriyle inceltilecek).
+			r.Get("/", d.Projects.List)
+			r.Post("/from-offer/{offerId}", d.Projects.CreateFromOffer)
+			r.Get("/{id}", d.Projects.Get)
+			r.Put("/{id}", d.Projects.Update)
 		})
 
 		r.Route("/customers", func(r chi.Router) {
