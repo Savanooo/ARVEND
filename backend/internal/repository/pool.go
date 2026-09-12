@@ -6,6 +6,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"time"
 
@@ -120,7 +121,6 @@ func ToDomainOfferBase(o sqlc.Offer) domain.Offer {
 		OfferNo:        o.OfferNo,
 		OfferDate:      o.OfferDate.Time,
 		Status:         o.Status,
-		ShareToken:     o.ShareToken.String(),
 		IsPassive:      o.IsPassive,
 		CreatedAt:      o.CreatedAt.Time,
 		UpdatedAt:      o.UpdatedAt.Time,
@@ -201,7 +201,6 @@ func ToDomainOfferListItem(r sqlc.ListOffersRow) domain.Offer {
 		OfferNo:        r.OfferNo,
 		OfferDate:      r.OfferDate.Time,
 		Status:         r.Status,
-		ShareToken:     r.ShareToken.String(),
 		IsPassive:      r.IsPassive,
 		CreatedAt:      r.CreatedAt.Time,
 		UpdatedAt:      r.UpdatedAt.Time,
@@ -317,4 +316,82 @@ func ToDomainAttendanceRow(r sqlc.ListAttendanceByMonthRow) domain.AttendanceLog
 		Note:           r.Note,
 		CreatedAt:      r.CreatedAt.Time,
 	}
+}
+
+func TimePtrToTimestamptz(t *time.Time) pgtype.Timestamptz {
+	if t == nil {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: *t, Valid: true}
+}
+
+func ToDomainOfferShareLink(l sqlc.OfferShareLink) domain.OfferShareLink {
+	dl := domain.OfferShareLink{
+		ID:             l.ID.String(),
+		OrganizationID: l.OrganizationID.String(),
+		OfferID:        l.OfferID.String(),
+		RevisionID:     l.RevisionID.String(),
+		Token:          l.Token.String(),
+		CreatedAt:      l.CreatedAt.Time,
+	}
+	if l.CreatedBy.Valid {
+		s := l.CreatedBy.String()
+		dl.CreatedBy = &s
+	}
+	if l.ExpiresAt.Valid {
+		t := l.ExpiresAt.Time
+		dl.ExpiresAt = &t
+	}
+	if l.RevokedAt.Valid {
+		t := l.RevokedAt.Time
+		dl.RevokedAt = &t
+	}
+	return dl
+}
+
+func ToDomainOfferEvent(e sqlc.OfferEvent) domain.OfferEvent {
+	de := domain.OfferEvent{
+		ID:             e.ID.String(),
+		OrganizationID: e.OrganizationID.String(),
+		OfferID:        e.OfferID.String(),
+		EventType:      e.EventType,
+		IPAddress:      e.IpAddress,
+		UserAgent:      e.UserAgent,
+		CreatedAt:      e.CreatedAt.Time,
+	}
+	if e.RevisionID.Valid {
+		s := e.RevisionID.String()
+		de.RevisionID = &s
+	}
+	if e.UserID.Valid {
+		s := e.UserID.String()
+		de.UserID = &s
+	}
+	if len(e.Metadata) > 0 {
+		var meta map[string]any
+		if err := json.Unmarshal(e.Metadata, &meta); err == nil {
+			de.Metadata = meta
+		}
+	}
+	return de
+}
+
+func ToDomainOfferEmailLog(l sqlc.OfferEmailLog) domain.OfferEmailLog {
+	dl := domain.OfferEmailLog{
+		ID:             l.ID.String(),
+		OrganizationID: l.OrganizationID.String(),
+		OfferID:        l.OfferID.String(),
+		RevisionID:     l.RevisionID.String(),
+		ShareLinkID:    l.ShareLinkID.String(),
+		Recipient:      l.Recipient,
+		Subject:        l.Subject,
+		Status:         l.Status,
+		ErrorMessage:   l.ErrorMessage,
+		SentAt:         l.SentAt.Time,
+	}
+	if l.SentBy.Valid {
+		s := l.SentBy.String()
+		dl.SentBy = &s
+	}
+	return dl
 }

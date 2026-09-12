@@ -15,13 +15,25 @@ const STATUS_TONE: Record<OfferStatus, "success" | "gold" | "danger" | "muted"> 
   reddedildi: "danger",
 };
 
-async function fetchOffer(token: string) {
+type FetchResult = { offer: Offer; error: null } | { offer: null; error: ApiError };
+
+async function fetchOffer(token: string): Promise<FetchResult> {
   try {
-    return await apiServer<Offer>(`/api/v1/public/offers/${token}/`, "");
+    return { offer: await apiServer<Offer>(`/api/v1/public/offers/${token}/`, ""), error: null };
   } catch (err) {
-    if (err instanceof ApiError) return null;
+    if (err instanceof ApiError) return { offer: null, error: err };
     throw err;
   }
+}
+
+// 410 Gone: link bir zamanlar geçerliydi (iptal edildi / süresi doldu);
+// 404: böyle bir link hiç yok. Müşteriye ikisi için farklı, ama teklif
+// içeriğinden hiçbir şey sızdırmayan mesajlar gösterilir.
+function unavailableMessage(error: ApiError) {
+  if (error.status === 410) {
+    return "Bu paylaşım bağlantısı artık geçerli değil: iptal edilmiş veya süresi dolmuş olabilir. Lütfen teklifi gönderen firmayla iletişime geçin.";
+  }
+  return "Bu bağlantıya ait bir teklif bulunamadı. Bağlantı geçersiz olabilir.";
 }
 
 export default async function PaylasPage({
@@ -30,7 +42,7 @@ export default async function PaylasPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const offer = await fetchOffer(token);
+  const { offer, error } = await fetchOffer(token);
 
   return (
     <div className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 p-6 sm:p-10">
@@ -44,10 +56,7 @@ export default async function PaylasPage({
 
       {!offer ? (
         <Card>
-          <CardBody className="text-center text-text-muted">
-            Bu bağlantıya ait bir teklif bulunamadı. Bağlantı geçersiz veya süresi
-            dolmuş olabilir.
-          </CardBody>
+          <CardBody className="text-center text-text-muted">{unavailableMessage(error)}</CardBody>
         </Card>
       ) : (
         <>

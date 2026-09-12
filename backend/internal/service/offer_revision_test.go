@@ -29,7 +29,8 @@ func TestOfferRevisions(t *testing.T) {
 
 	q := sqlc.New(pool)
 	orgSvc := service.NewOrganizationService(q)
-	offerSvc := service.NewOfferService(pool, q)
+	settingsSvc := service.NewSettingsService(q, testSecretBox(t))
+	offerSvc := service.NewOfferService(pool, q, settingsSvc, "http://localhost:3000")
 	productSvc := service.NewProductService(q)
 
 	orgA := mustCreateOrg(t, ctx, orgSvc, pool, "Revizyon Test Firma A", "revizyon-test-firma-a")
@@ -74,7 +75,7 @@ func TestOfferRevisions(t *testing.T) {
 
 	t.Run("2_sent_offer_cannot_be_edited_directly", func(t *testing.T) {
 		o := newOffer(t, orgA.ID)
-		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi); err != nil {
+		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi, ""); err != nil {
 			t.Fatalf("durum güncellenemedi: %v", err)
 		}
 		_, err := offerSvc.Update(ctx, o.ID, orgA.ID, service.UpdateOfferInput{
@@ -88,7 +89,7 @@ func TestOfferRevisions(t *testing.T) {
 
 	t.Run("3_revise_creates_new_revision", func(t *testing.T) {
 		o := newOffer(t, orgA.ID)
-		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi); err != nil {
+		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi, ""); err != nil {
 			t.Fatalf("durum güncellenemedi: %v", err)
 		}
 		revised, err := offerSvc.Revise(ctx, o.ID, orgA.ID, "")
@@ -113,7 +114,7 @@ func TestOfferRevisions(t *testing.T) {
 	t.Run("4_old_revision_immutable", func(t *testing.T) {
 		o := newOffer(t, orgA.ID)
 		rev0ID := o.CurrentRevisionID
-		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi); err != nil {
+		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi, ""); err != nil {
 			t.Fatalf("durum güncellenemedi: %v", err)
 		}
 		if _, err := offerSvc.Revise(ctx, o.ID, orgA.ID, ""); err != nil {
@@ -142,7 +143,7 @@ func TestOfferRevisions(t *testing.T) {
 
 	t.Run("5_cross_org_revision_isolation", func(t *testing.T) {
 		o := newOffer(t, orgA.ID)
-		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi); err != nil {
+		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi, ""); err != nil {
 			t.Fatalf("durum güncellenemedi: %v", err)
 		}
 		if _, err := offerSvc.GetRevision(ctx, o.CurrentRevisionID, orgB.ID); !errors.Is(err, domain.ErrNotFound) {
@@ -193,7 +194,7 @@ func TestOfferRevisions(t *testing.T) {
 	// ikinci istek güvenli, öngörülebilir bir iş kuralı hatası alır.
 	t.Run("7_concurrent_revise_no_duplicate_revision_no", func(t *testing.T) {
 		o := newOffer(t, orgA.ID)
-		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi); err != nil {
+		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi, ""); err != nil {
 			t.Fatalf("durum güncellenemedi: %v", err)
 		}
 
@@ -243,21 +244,35 @@ func TestOfferRevisions(t *testing.T) {
 	t.Run("8_only_current_revision_respondable", func(t *testing.T) {
 		o := newOffer(t, orgA.ID)
 		rev0ID := o.CurrentRevisionID
-		shareToken := o.ShareToken
-		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi); err != nil {
+		link0, err := offerSvc.CreateShareLink(ctx, o.ID, orgA.ID, "", nil)
+		if err != nil {
+			t.Fatalf("paylaşım linki oluşturulamadı: %v", err)
+		}
+		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi, ""); err != nil {
 			t.Fatalf("durum güncellenemedi: %v", err)
 		}
 		if _, err := offerSvc.Revise(ctx, o.ID, orgA.ID, ""); err != nil {
 			t.Fatalf("revize edilemedi: %v", err)
 		}
-		// Yeni revizyon henüz taslak -- müşteri karar veremez.
-		if _, err := offerSvc.RespondByShareToken(ctx, shareToken, domain.OfferStatusKabulEdildi); !errors.Is(err, service.ErrOfferNotRespondable) {
-			t.Errorf("taslak durumundaki yeni revizyona karar verilebildi: err=%v", err)
+		// Yeni revizyon henüz taslak, link0 henüz iptal EDİLMEMİŞ (iptal
+		// yalnızca gönderim anında olur) -- ama artık current revizyon
+		// olmadığı için karar verilemez (yarış durumu savunması).
+		if _, err := offerSvc.RespondByShareLinkToken(ctx, link0.Token, domain.OfferStatusKabulEdildi, "", ""); !errors.Is(err, service.ErrOfferSuperseded) {
+			t.Errorf("current olmayan revizyona eski linkten karar verilebildi: err=%v", err)
 		}
-		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi); err != nil {
+		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi, ""); err != nil {
 			t.Fatalf("yeni revizyon gönderilemedi: %v", err)
 		}
-		accepted, err := offerSvc.RespondByShareToken(ctx, shareToken, domain.OfferStatusKabulEdildi)
+		// Yeni revizyon gönderildiğine göre link0 artık otomatik iptal
+		// edilmiş olmalı.
+		if _, err := offerSvc.RespondByShareLinkToken(ctx, link0.Token, domain.OfferStatusKabulEdildi, "", ""); !errors.Is(err, service.ErrShareLinkRevoked) {
+			t.Errorf("yeni revizyon gönderildikten sonra eski link hâlâ kullanılabildi: err=%v", err)
+		}
+		link1, err := offerSvc.CreateShareLink(ctx, o.ID, orgA.ID, "", nil)
+		if err != nil {
+			t.Fatalf("yeni revizyon için link oluşturulamadı: %v", err)
+		}
+		accepted, err := offerSvc.RespondByShareLinkToken(ctx, link1.Token, domain.OfferStatusKabulEdildi, "", "")
 		if err != nil {
 			t.Fatalf("kabul işlemi başarısız: %v", err)
 		}
@@ -275,14 +290,18 @@ func TestOfferRevisions(t *testing.T) {
 
 	t.Run("9_accepted_revision_stays_unchanged", func(t *testing.T) {
 		o := newOffer(t, orgA.ID)
-		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi); err != nil {
+		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi, ""); err != nil {
 			t.Fatalf("durum güncellenemedi: %v", err)
 		}
-		accepted, err := offerSvc.RespondByShareToken(ctx, o.ShareToken, domain.OfferStatusKabulEdildi)
+		link, err := offerSvc.CreateShareLink(ctx, o.ID, orgA.ID, "", nil)
+		if err != nil {
+			t.Fatalf("paylaşım linki oluşturulamadı: %v", err)
+		}
+		accepted, err := offerSvc.RespondByShareLinkToken(ctx, link.Token, domain.OfferStatusKabulEdildi, "", "")
 		if err != nil {
 			t.Fatalf("kabul işlemi başarısız: %v", err)
 		}
-		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusReddedildi); !errors.Is(err, service.ErrOfferLocked) {
+		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusReddedildi, ""); !errors.Is(err, service.ErrOfferLocked) {
 			t.Errorf("kabul edilmiş teklifin durumu yine de değiştirilebildi: err=%v", err)
 		}
 		if _, err := offerSvc.Revise(ctx, o.ID, orgA.ID, ""); !errors.Is(err, service.ErrOfferNotRevisable) {

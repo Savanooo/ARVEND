@@ -48,11 +48,11 @@ func main() {
 	userSvc := service.NewUserService(q)
 	seedAdmin(ctx, userSvc, q, cfg)
 	productSvc := service.NewProductService(q)
-	offerSvc := service.NewOfferService(pool, q)
+	settingsSvc := service.NewSettingsService(q, secretBox)
+	offerSvc := service.NewOfferService(pool, q, settingsSvc, cfg.FrontendURL)
 	customerSvc := service.NewCustomerService(q)
 	employeeSvc := service.NewEmployeeService(q)
 	attendanceSvc := service.NewAttendanceService(q)
-	settingsSvc := service.NewSettingsService(q, secretBox)
 
 	jwtIssuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL)
 	authSvc := service.NewAuthService(q, jwtIssuer, cfg.RefreshTTL)
@@ -62,7 +62,7 @@ func main() {
 		Auth:        handler.NewAuthHandler(authSvc, cfg.AccessTTL, cfg.RefreshTTL, cfg.CookieDomain, cfg.CookieSecure),
 		Users:       handler.NewUserHandler(userSvc),
 		Products:    handler.NewProductHandler(productSvc),
-		Offers:      handler.NewOfferHandler(offerSvc, settingsSvc, cfg.FrontendURL),
+		Offers:      handler.NewOfferHandler(offerSvc),
 		Customers:   handler.NewCustomerHandler(customerSvc),
 		Employees:   handler.NewEmployeeHandler(employeeSvc),
 		Attendance:  handler.NewAttendanceHandler(attendanceSvc),

@@ -11,18 +11,15 @@ import (
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/httpapi/middleware"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/httpjson"
-	"github.com/Savanooo/ARVEND/backend/internal/platform/mailer"
 	"github.com/Savanooo/ARVEND/backend/internal/service"
 )
 
 type OfferHandler struct {
-	svc         *service.OfferService
-	settingsSvc *service.SettingsService
-	frontendURL string
+	svc *service.OfferService
 }
 
-func NewOfferHandler(svc *service.OfferService, settingsSvc *service.SettingsService, frontendURL string) *OfferHandler {
-	return &OfferHandler{svc: svc, settingsSvc: settingsSvc, frontendURL: frontendURL}
+func NewOfferHandler(svc *service.OfferService) *OfferHandler {
+	return &OfferHandler{svc: svc}
 }
 
 type offerItemResponse struct {
@@ -51,7 +48,6 @@ type offerResponse struct {
 	GrandTotal      float64             `json:"grand_total"`
 	Notes           string              `json:"notes"`
 	Status          string              `json:"status"`
-	ShareToken      string              `json:"share_token"`
 	IsPassive       bool                `json:"is_passive"`
 	Items           []offerItemResponse `json:"items,omitempty"`
 }
@@ -75,7 +71,6 @@ func toOfferResponse(o domain.Offer) offerResponse {
 		GrandTotal:      o.GrandTotal,
 		Notes:           o.Notes,
 		Status:          o.Status,
-		ShareToken:      o.ShareToken,
 		IsPassive:       o.IsPassive,
 	}
 	if o.ValidUntil != nil {
@@ -205,6 +200,7 @@ func (h *OfferHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
 	o, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), orgID, service.UpdateOfferInput{
 		CustomerID:      req.CustomerID,
 		CustomerName:    req.CustomerName,
@@ -215,6 +211,7 @@ func (h *OfferHandler) Update(w http.ResponseWriter, r *http.Request) {
 		Notes:           req.Notes,
 		VatRate:         req.VatRate,
 		Items:           toOfferItemInputs(req.Items),
+		UserID:          userID,
 	})
 	if err != nil {
 		h.writeError(w, err)
@@ -331,7 +328,8 @@ func (h *OfferHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	o, err := h.svc.UpdateStatus(r.Context(), chi.URLParam(r, "id"), orgID, req.Status)
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	o, err := h.svc.UpdateStatus(r.Context(), chi.URLParam(r, "id"), orgID, req.Status, userID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -341,7 +339,8 @@ func (h *OfferHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 
 func (h *OfferHandler) TogglePassive(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	if err := h.svc.TogglePassive(r.Context(), chi.URLParam(r, "id"), orgID); err != nil {
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	if err := h.svc.TogglePassive(r.Context(), chi.URLParam(r, "id"), orgID, userID); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -370,48 +369,159 @@ func (h *OfferHandler) SendEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	o, err := h.svc.Get(r.Context(), chi.URLParam(r, "id"), orgID)
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	_, err := h.svc.SendOfferEmail(r.Context(), chi.URLParam(r, "id"), orgID, userID, service.SendOfferEmailInput{
+		To: req.To, Subject: req.Subject, Message: req.Message,
+	})
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
-	to := req.To
-	if to == "" {
-		to = o.CustomerEmail
-	}
-	if to == "" {
-		httpjson.Error(w, http.StatusBadRequest, "alıcı e-posta adresi belirtilmedi")
-		return
-	}
-	subject := req.Subject
-	if subject == "" {
-		subject = "Teklifiniz: " + o.OfferNo
-	}
-	shareURL := h.frontendURL + "/paylas/" + o.ShareToken
-	body := req.Message
-	if body == "" {
-		body = "Sayın " + o.CustomerName + ",\n\nTalebiniz üzerine hazırladığımız teklifi aşağıdaki bağlantıdan inceleyebilirsiniz:\n"
-	} else {
-		body += "\n\n"
-	}
-	body += shareURL
+	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
+}
 
-	settings, err := h.settingsSvc.GetSmtp(r.Context(), orgID)
+type createShareLinkRequest struct {
+	// ExpiresIn: "7d" | "30d" | "" (boş = süresiz).
+	ExpiresIn string `json:"expires_in"`
+}
+
+type shareLinkResponse struct {
+	ID         string  `json:"id"`
+	OfferID    string  `json:"offer_id"`
+	RevisionID string  `json:"revision_id"`
+	Token      string  `json:"token"`
+	CreatedBy  *string `json:"created_by"`
+	CreatedAt  string  `json:"created_at"`
+	ExpiresAt  *string `json:"expires_at"`
+	RevokedAt  *string `json:"revoked_at"`
+	IsActive   bool    `json:"is_active"`
+}
+
+const rfc3339 = "2006-01-02T15:04:05Z07:00"
+
+func toShareLinkResponse(l domain.OfferShareLink) shareLinkResponse {
+	resp := shareLinkResponse{
+		ID: l.ID, OfferID: l.OfferID, RevisionID: l.RevisionID, Token: l.Token,
+		CreatedBy: l.CreatedBy, CreatedAt: l.CreatedAt.Format(rfc3339),
+		IsActive: l.IsActive(time.Now()),
+	}
+	if l.ExpiresAt != nil {
+		s := l.ExpiresAt.Format(rfc3339)
+		resp.ExpiresAt = &s
+	}
+	if l.RevokedAt != nil {
+		s := l.RevokedAt.Format(rfc3339)
+		resp.RevokedAt = &s
+	}
+	return resp
+}
+
+func (h *OfferHandler) CreateShareLink(w http.ResponseWriter, r *http.Request) {
+	var req createShareLinkRequest
+	if err := httpjson.Decode(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	var expiresAt *time.Time
+	switch req.ExpiresIn {
+	case "", "never":
+		expiresAt = nil
+	case "7d":
+		t := time.Now().Add(7 * 24 * time.Hour)
+		expiresAt = &t
+	case "30d":
+		t := time.Now().Add(30 * 24 * time.Hour)
+		expiresAt = &t
+	default:
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz süre seçeneği")
+		return
+	}
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	link, err := h.svc.CreateShareLink(r.Context(), chi.URLParam(r, "id"), orgID, userID, expiresAt)
 	if err != nil {
-		httpjson.Error(w, http.StatusInternalServerError, "ayarlar alınamadı")
+		h.writeError(w, err)
 		return
 	}
-	if err := mailer.Send(*settings, mailer.Message{To: to, Subject: subject, Body: body}); err != nil {
-		httpjson.Error(w, http.StatusBadRequest, "gönderilemedi: "+err.Error())
+	httpjson.Write(w, http.StatusCreated, toShareLinkResponse(*link))
+}
+
+func (h *OfferHandler) ListShareLinks(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	links, err := h.svc.ListShareLinks(r.Context(), chi.URLParam(r, "id"), orgID)
+	if err != nil {
+		h.writeError(w, err)
 		return
 	}
-	if o.Status == domain.OfferStatusTaslak {
-		if _, err := h.svc.UpdateStatus(r.Context(), o.ID, orgID, domain.OfferStatusGonderildi); err != nil {
-			httpjson.Error(w, http.StatusInternalServerError, "mail gönderildi ama durum güncellenemedi")
-			return
-		}
+	out := make([]shareLinkResponse, len(links))
+	for i, l := range links {
+		out[i] = toShareLinkResponse(l)
+	}
+	httpjson.Write(w, http.StatusOK, map[string]any{"share_links": out})
+}
+
+func (h *OfferHandler) RevokeShareLink(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	if err := h.svc.RevokeShareLink(r.Context(), chi.URLParam(r, "linkId"), orgID, userID); err != nil {
+		h.writeError(w, err)
+		return
 	}
 	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+type offerEventResponse struct {
+	ID         string         `json:"id"`
+	RevisionID *string        `json:"revision_id"`
+	EventType  string         `json:"event_type"`
+	UserID     *string        `json:"user_id"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+	CreatedAt  string         `json:"created_at"`
+}
+
+func (h *OfferHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	events, err := h.svc.ListEvents(r.Context(), chi.URLParam(r, "id"), orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	out := make([]offerEventResponse, len(events))
+	for i, e := range events {
+		out[i] = offerEventResponse{
+			ID: e.ID, RevisionID: e.RevisionID, EventType: e.EventType, UserID: e.UserID,
+			Metadata: e.Metadata, CreatedAt: e.CreatedAt.Format(rfc3339),
+		}
+	}
+	httpjson.Write(w, http.StatusOK, map[string]any{"events": out})
+}
+
+type emailLogResponse struct {
+	ID           string  `json:"id"`
+	RevisionID   string  `json:"revision_id"`
+	Recipient    string  `json:"recipient"`
+	Subject      string  `json:"subject"`
+	Status       string  `json:"status"`
+	ErrorMessage string  `json:"error_message"`
+	SentBy       *string `json:"sent_by"`
+	SentAt       string  `json:"sent_at"`
+}
+
+func (h *OfferHandler) ListEmailLogs(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	logs, err := h.svc.ListEmailLogs(r.Context(), chi.URLParam(r, "id"), orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	out := make([]emailLogResponse, len(logs))
+	for i, l := range logs {
+		out[i] = emailLogResponse{
+			ID: l.ID, RevisionID: l.RevisionID, Recipient: l.Recipient, Subject: l.Subject,
+			Status: l.Status, ErrorMessage: l.ErrorMessage, SentBy: l.SentBy, SentAt: l.SentAt.Format(rfc3339),
+		}
+	}
+	httpjson.Write(w, http.StatusOK, map[string]any{"email_logs": out})
 }
 
 func (h *OfferHandler) writeError(w http.ResponseWriter, err error) {

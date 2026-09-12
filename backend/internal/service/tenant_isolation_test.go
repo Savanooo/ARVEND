@@ -119,9 +119,9 @@ func TestTenantIsolation(t *testing.T) {
 	productSvc := service.NewProductService(q)
 	employeeSvc := service.NewEmployeeService(q)
 	attendanceSvc := service.NewAttendanceService(q)
-	offerSvc := service.NewOfferService(pool, q)
-	userSvc := service.NewUserService(q)
 	settingsSvc := service.NewSettingsService(q, box)
+	offerSvc := service.NewOfferService(pool, q, settingsSvc, "http://localhost:3000")
+	userSvc := service.NewUserService(q)
 	customerSvc := service.NewCustomerService(q)
 
 	orgA := mustCreateOrg(t, ctx, orgSvc, pool, "İzolasyon Test Firma A", "izolasyon-test-firma-a")
@@ -243,10 +243,10 @@ func TestTenantIsolation(t *testing.T) {
 		if _, err := offerSvc.Get(ctx, offer.ID, orgB.ID); !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("Firma B, Firma A'nın teklifini görebildi: err=%v", err)
 		}
-		if _, err := offerSvc.UpdateStatus(ctx, offer.ID, orgB.ID, domain.OfferStatusGonderildi); !errors.Is(err, domain.ErrNotFound) {
+		if _, err := offerSvc.UpdateStatus(ctx, offer.ID, orgB.ID, domain.OfferStatusGonderildi, ""); !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("Firma B, Firma A'nın teklifinin durumunu değiştirebildi: err=%v", err)
 		}
-		if err := offerSvc.TogglePassive(ctx, offer.ID, orgB.ID); !errors.Is(err, domain.ErrNotFound) {
+		if err := offerSvc.TogglePassive(ctx, offer.ID, orgB.ID, ""); !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("Firma B, Firma A'nın teklifini pasife alabildi: err=%v", err)
 		}
 		if err := offerSvc.Delete(ctx, offer.ID, orgB.ID); !errors.Is(err, domain.ErrNotFound) {
@@ -370,7 +370,7 @@ func TestTenantIsolation(t *testing.T) {
 		}
 
 		// Taslak olmayan bir teklif düzenlenemez.
-		if _, err := offerSvc.UpdateStatus(ctx, offer.ID, orgA.ID, domain.OfferStatusGonderildi); err != nil {
+		if _, err := offerSvc.UpdateStatus(ctx, offer.ID, orgA.ID, domain.OfferStatusGonderildi, ""); err != nil {
 			t.Fatalf("durum güncellenemedi: %v", err)
 		}
 		if _, err := offerSvc.Update(ctx, offer.ID, orgA.ID, service.UpdateOfferInput{

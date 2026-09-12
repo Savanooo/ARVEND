@@ -30,7 +30,7 @@ func (q *Queries) CountOffers(ctx context.Context, arg CountOffersParams) (int64
 const createOffer = `-- name: CreateOffer :one
 INSERT INTO offers (organization_id, offer_no, status, created_by)
 VALUES ($1, $2, $3, $4)
-RETURNING id, offer_no, offer_date, status, is_passive, created_by, created_at, updated_at, share_token, organization_id, current_revision_id
+RETURNING id, offer_no, offer_date, status, is_passive, created_by, created_at, updated_at, organization_id, current_revision_id
 `
 
 type CreateOfferParams struct {
@@ -57,7 +57,6 @@ func (q *Queries) CreateOffer(ctx context.Context, arg CreateOfferParams) (Offer
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.ShareToken,
 		&i.OrganizationID,
 		&i.CurrentRevisionID,
 	)
@@ -79,7 +78,7 @@ func (q *Queries) DeleteOffer(ctx context.Context, arg DeleteOfferParams) error 
 }
 
 const getOfferByID = `-- name: GetOfferByID :one
-SELECT id, offer_no, offer_date, status, is_passive, created_by, created_at, updated_at, share_token, organization_id, current_revision_id FROM offers WHERE id = $1 AND organization_id = $2
+SELECT id, offer_no, offer_date, status, is_passive, created_by, created_at, updated_at, organization_id, current_revision_id FROM offers WHERE id = $1 AND organization_id = $2
 `
 
 type GetOfferByIDParams struct {
@@ -99,30 +98,6 @@ func (q *Queries) GetOfferByID(ctx context.Context, arg GetOfferByIDParams) (Off
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.ShareToken,
-		&i.OrganizationID,
-		&i.CurrentRevisionID,
-	)
-	return i, err
-}
-
-const getOfferByShareToken = `-- name: GetOfferByShareToken :one
-SELECT id, offer_no, offer_date, status, is_passive, created_by, created_at, updated_at, share_token, organization_id, current_revision_id FROM offers WHERE share_token = $1
-`
-
-func (q *Queries) GetOfferByShareToken(ctx context.Context, shareToken pgtype.UUID) (Offer, error) {
-	row := q.db.QueryRow(ctx, getOfferByShareToken, shareToken)
-	var i Offer
-	err := row.Scan(
-		&i.ID,
-		&i.OfferNo,
-		&i.OfferDate,
-		&i.Status,
-		&i.IsPassive,
-		&i.CreatedBy,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.ShareToken,
 		&i.OrganizationID,
 		&i.CurrentRevisionID,
 	)
@@ -130,7 +105,7 @@ func (q *Queries) GetOfferByShareToken(ctx context.Context, shareToken pgtype.UU
 }
 
 const listOffers = `-- name: ListOffers :many
-SELECT o.id, o.offer_no, o.offer_date, o.status, o.is_passive, o.created_by, o.created_at, o.updated_at, o.share_token, o.organization_id, o.current_revision_id, r.customer_name, r.grand_total, r.revision_no
+SELECT o.id, o.offer_no, o.offer_date, o.status, o.is_passive, o.created_by, o.created_at, o.updated_at, o.organization_id, o.current_revision_id, r.customer_name, r.grand_total, r.revision_no
 FROM offers o
 JOIN offer_revisions r ON r.id = o.current_revision_id
 WHERE o.organization_id = $1 AND o.is_passive = $2
@@ -154,7 +129,6 @@ type ListOffersRow struct {
 	CreatedBy         pgtype.UUID        `json:"created_by"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	ShareToken        pgtype.UUID        `json:"share_token"`
 	OrganizationID    pgtype.UUID        `json:"organization_id"`
 	CurrentRevisionID pgtype.UUID        `json:"current_revision_id"`
 	CustomerName      string             `json:"customer_name"`
@@ -185,7 +159,6 @@ func (q *Queries) ListOffers(ctx context.Context, arg ListOffersParams) ([]ListO
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.ShareToken,
 			&i.OrganizationID,
 			&i.CurrentRevisionID,
 			&i.CustomerName,

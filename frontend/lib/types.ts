@@ -67,9 +67,54 @@ export interface Offer {
   grand_total: number;
   notes: string;
   status: OfferStatus;
-  share_token: string;
   is_passive: boolean;
   items?: OfferItem[];
+}
+
+export interface OfferShareLink {
+  id: string;
+  offer_id: string;
+  revision_id: string;
+  token: string;
+  created_by: string | null;
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+  is_active: boolean;
+}
+
+export type OfferEventType =
+  | "offer_created"
+  | "offer_updated"
+  | "revision_created"
+  | "revision_sent"
+  | "share_link_created"
+  | "share_link_revoked"
+  | "customer_viewed"
+  | "customer_accepted"
+  | "customer_rejected"
+  | "email_sent"
+  | "email_failed"
+  | "offer_cancelled";
+
+export interface OfferEvent {
+  id: string;
+  revision_id: string | null;
+  event_type: OfferEventType;
+  user_id: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface OfferEmailLog {
+  id: string;
+  revision_id: string;
+  recipient: string;
+  subject: string;
+  status: "sent" | "failed";
+  error_message: string;
+  sent_by: string | null;
+  sent_at: string;
 }
 
 export interface OfferRevision {

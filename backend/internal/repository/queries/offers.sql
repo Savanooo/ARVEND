@@ -14,9 +14,6 @@ UPDATE offers SET current_revision_id = $2, status = $3 WHERE id = $1;
 -- name: GetOfferByID :one
 SELECT * FROM offers WHERE id = $1 AND organization_id = $2;
 
--- name: GetOfferByShareToken :one
-SELECT * FROM offers WHERE share_token = $1;
-
 -- name: ListOffers :many
 SELECT o.*, r.customer_name, r.grand_total, r.revision_no
 FROM offers o

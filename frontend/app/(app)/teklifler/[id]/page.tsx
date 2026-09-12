@@ -7,8 +7,9 @@ import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { Topbar } from "@/components/layout/Topbar";
 import { apiServer } from "@/lib/api";
 import { formatTL } from "@/lib/format";
-import type { Offer, OfferRevision } from "@/lib/types";
+import type { Offer, OfferEmailLog, OfferEvent, OfferRevision, OfferShareLink } from "@/lib/types";
 
+import { ActivityTimeline } from "./ActivityTimeline";
 import { OfferActions } from "./OfferActions";
 import { ShareOfferCard } from "./ShareOfferCard";
 
@@ -19,10 +20,15 @@ export default async function TeklifDetayPage({
 }) {
   const { id } = await params;
   const cookieHeader = (await cookies()).toString();
-  const offer = await apiServer<Offer>(`/api/v1/offers/${id}`, cookieHeader);
-  const { revisions } = await apiServer<{ revisions: OfferRevision[] }>(
-    `/api/v1/offers/${id}/revisions`,
-    cookieHeader
+  const [offer, { revisions }, { share_links }, { events }, { email_logs }] = await Promise.all([
+    apiServer<Offer>(`/api/v1/offers/${id}`, cookieHeader),
+    apiServer<{ revisions: OfferRevision[] }>(`/api/v1/offers/${id}/revisions`, cookieHeader),
+    apiServer<{ share_links: OfferShareLink[] }>(`/api/v1/offers/${id}/share-links`, cookieHeader),
+    apiServer<{ events: OfferEvent[] }>(`/api/v1/offers/${id}/events`, cookieHeader),
+    apiServer<{ email_logs: OfferEmailLog[] }>(`/api/v1/offers/${id}/email-logs`, cookieHeader),
+  ]);
+  const revisionNoById: Record<string, number> = Object.fromEntries(
+    revisions.map((r) => [r.id, r.revision_no])
   );
 
   return (
@@ -86,6 +92,8 @@ export default async function TeklifDetayPage({
               <CardBody className="text-sm text-text-muted">{offer.notes}</CardBody>
             </Card>
           )}
+
+          <ActivityTimeline events={events} emailLogs={email_logs} revisionNoById={revisionNoById} />
         </div>
 
         <div className="flex w-full flex-col gap-6 lg:w-80">
@@ -109,7 +117,7 @@ export default async function TeklifDetayPage({
             </CardBody>
           </Card>
 
-          <ShareOfferCard offer={offer} />
+          <ShareOfferCard offer={offer} links={share_links} revisionNoById={revisionNoById} />
 
           {revisions.length > 1 && (
             <Card className="h-fit">

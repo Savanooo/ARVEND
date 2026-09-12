@@ -61,7 +61,6 @@ type Offer struct {
 	CreatedBy         pgtype.UUID        `json:"created_by"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	ShareToken        pgtype.UUID        `json:"share_token"`
 	OrganizationID    pgtype.UUID        `json:"organization_id"`
 	CurrentRevisionID pgtype.UUID        `json:"current_revision_id"`
 }
@@ -70,6 +69,33 @@ type OfferCounter struct {
 	Year           int32       `json:"year"`
 	Seq            int32       `json:"seq"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+type OfferEmailLog struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	OfferID        pgtype.UUID        `json:"offer_id"`
+	RevisionID     pgtype.UUID        `json:"revision_id"`
+	ShareLinkID    pgtype.UUID        `json:"share_link_id"`
+	Recipient      string             `json:"recipient"`
+	Subject        string             `json:"subject"`
+	Status         string             `json:"status"`
+	ErrorMessage   string             `json:"error_message"`
+	SentBy         pgtype.UUID        `json:"sent_by"`
+	SentAt         pgtype.Timestamptz `json:"sent_at"`
+}
+
+type OfferEvent struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	OfferID        pgtype.UUID        `json:"offer_id"`
+	RevisionID     pgtype.UUID        `json:"revision_id"`
+	EventType      string             `json:"event_type"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	Metadata       []byte             `json:"metadata"`
+	IpAddress      string             `json:"ip_address"`
+	UserAgent      string             `json:"user_agent"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
 type OfferRevision struct {
@@ -108,6 +134,18 @@ type OfferRevisionItem struct {
 	DiscountValue pgtype.Numeric `json:"discount_value"`
 	LineTotal     pgtype.Numeric `json:"line_total"`
 	SortOrder     int32          `json:"sort_order"`
+}
+
+type OfferShareLink struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	OfferID        pgtype.UUID        `json:"offer_id"`
+	RevisionID     pgtype.UUID        `json:"revision_id"`
+	Token          pgtype.UUID        `json:"token"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt      pgtype.Timestamptz `json:"revoked_at"`
 }
 
 type Organization struct {

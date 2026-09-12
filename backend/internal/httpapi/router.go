@@ -97,6 +97,11 @@ func NewRouter(d Deps) http.Handler {
 			r.Put("/{id}/status", d.Offers.UpdateStatus)
 			r.Post("/{id}/toggle-passive", d.Offers.TogglePassive)
 			r.Post("/{id}/send-email", d.Offers.SendEmail)
+			r.Post("/{id}/share-links", d.Offers.CreateShareLink)
+			r.Get("/{id}/share-links", d.Offers.ListShareLinks)
+			r.Delete("/{id}/share-links/{linkId}", d.Offers.RevokeShareLink)
+			r.Get("/{id}/events", d.Offers.ListEvents)
+			r.Get("/{id}/email-logs", d.Offers.ListEmailLogs)
 			r.Delete("/{id}", d.Offers.Delete)
 		})
 

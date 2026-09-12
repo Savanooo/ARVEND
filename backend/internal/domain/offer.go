@@ -51,7 +51,6 @@ type Offer struct {
 	CurrentRevisionID string
 	Status            string
 	IsPassive         bool
-	ShareToken        string
 	CreatedBy         *string
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
