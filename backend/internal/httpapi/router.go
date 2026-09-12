@@ -118,6 +118,33 @@ func NewRouter(d Deps) http.Handler {
 			r.Post("/from-offer/{offerId}", d.Projects.CreateFromOffer)
 			r.Get("/{id}", d.Projects.Get)
 			r.Put("/{id}", d.Projects.Update)
+			r.Get("/{id}/financial-summary", d.Projects.FinancialSummary)
+			r.Get("/{id}/events", d.Projects.ListEvents)
+
+			r.Get("/{id}/payment-plan", d.Projects.ListPaymentPlan)
+			r.Post("/{id}/payment-plan", d.Projects.CreatePaymentPlanItem)
+			r.Put("/{id}/payment-plan/{itemId}", d.Projects.UpdatePaymentPlanItem)
+			r.Delete("/{id}/payment-plan/{itemId}", d.Projects.CancelPaymentPlanItem)
+
+			r.Get("/{id}/collections", d.Projects.ListCollections)
+			r.Post("/{id}/collections", d.Projects.CreateCollection)
+			r.Post("/{id}/collections/{collectionId}/void", d.Projects.VoidCollection)
+
+			r.Get("/{id}/expenses", d.Projects.ListExpenses)
+			r.Post("/{id}/expenses", d.Projects.CreateExpense)
+			r.Put("/{id}/expenses/{expenseId}", d.Projects.UpdateExpense)
+			r.Post("/{id}/expenses/{expenseId}/void", d.Projects.VoidExpense)
+
+			r.Get("/{id}/invoices", d.Projects.ListInvoices)
+			r.Post("/{id}/invoices", d.Projects.CreateInvoice)
+			r.Put("/{id}/invoices/{invoiceId}/status", d.Projects.UpdateInvoiceStatus)
+
+			r.Get("/{id}/subcontractors", d.Projects.ListSubcontractors)
+			r.Post("/{id}/subcontractors", d.Projects.CreateSubcontractor)
+			r.Put("/{id}/subcontractors/{subcontractorId}", d.Projects.UpdateSubcontractor)
+			r.Post("/{id}/subcontractors/{subcontractorId}/payments", d.Projects.CreateSubcontractorPayment)
+			r.Get("/{id}/subcontractor-payments", d.Projects.ListSubcontractorPayments)
+			r.Post("/{id}/subcontractor-payments/{paymentId}/void", d.Projects.VoidSubcontractorPayment)
 		})
 
 		r.Route("/customers", func(r chi.Router) {

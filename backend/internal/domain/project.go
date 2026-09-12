@@ -23,15 +23,17 @@ func ValidProjectStatus(s string) bool {
 }
 
 // projectTransitions, hangi durumdan hangilerine geçilebileceğini tanımlar.
-// "completed" ve "cancelled" uç (terminal) durumlardır: bir proje bittiyse
-// ya da iptal edildiyse geri açılmaz -- yanlışlıkla tamamlanmış bir projeyi
-// düzeltmek gerekirse bu bilinçli bir karar olmalı, sessiz bir durum
-// değişikliği değil.
+// "cancelled" uç (terminal) durumdur. "completed" geri alınabilir ama
+// yalnızca "active"e: tamamlanmış projede finans hareketleri kilitlidir,
+// hareket girmek gerekiyorsa proje bilinçli olarak yeniden açılır.
 var projectTransitions = map[string][]string{
-	ProjectStatusPlanned:   {ProjectStatusActive, ProjectStatusPaused, ProjectStatusCancelled},
-	ProjectStatusActive:    {ProjectStatusPaused, ProjectStatusCompleted, ProjectStatusCancelled},
-	ProjectStatusPaused:    {ProjectStatusActive, ProjectStatusCompleted, ProjectStatusCancelled},
-	ProjectStatusCompleted: {},
+	ProjectStatusPlanned: {ProjectStatusActive, ProjectStatusPaused, ProjectStatusCancelled},
+	ProjectStatusActive:  {ProjectStatusPaused, ProjectStatusCompleted, ProjectStatusCancelled},
+	ProjectStatusPaused:  {ProjectStatusActive, ProjectStatusCompleted, ProjectStatusCancelled},
+	// Tamamlanmış bir proje, finans hareketi girmek için bilinçli olarak
+	// yeniden "active" yapılabilir (Faz 6: completed projede hareketler
+	// varsayılan olarak kilitlidir, yeniden açılırsa girilebilir).
+	ProjectStatusCompleted: {ProjectStatusActive},
 	ProjectStatusCancelled: {},
 }
 
@@ -81,4 +83,23 @@ type Project struct {
 	// projects tablosunda tutulmaz, JOIN ile gelir.
 	SourceOfferNo    string
 	SourceRevisionNo int
+
+	// Liste ekranının finans kolonları. projects tablosunda TUTULMAZ;
+	// ListProjects sorgusunda hareket tablolarından toplanır (N+1 yok).
+	CollectedAmount        float64
+	TotalExpenses          float64
+	SubcontractorPaid      float64
+	SubcontractorRemaining float64
+	InvoiceCount           int64
+	PaidInvoiceCount       int64
 }
+
+// RemainingReceivable, bakiyedir; negatif olabilir (fazla tahsilat).
+func (p Project) RemainingReceivable() float64 { return p.ContractAmount - p.CollectedAmount }
+
+// RealizedCost/RealizedGrossProfit, liste satırı için gerçekleşen
+// maliyet ve kârdır -- özet uçtaki (SQL'de hesaplanan) tanımla birebir
+// aynı formül.
+func (p Project) RealizedCost() float64 { return p.TotalExpenses + p.SubcontractorPaid }
+
+func (p Project) RealizedGrossProfit() float64 { return p.ContractAmount - p.RealizedCost() }

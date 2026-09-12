@@ -46,6 +46,17 @@ type projectResponse struct {
 	CreatedBy        *string `json:"created_by"`
 	CreatedAt        string  `json:"created_at"`
 	UpdatedAt        string  `json:"updated_at"`
+
+	// Liste ekranı için aggregate finans alanları (yalnızca List'te dolu).
+	CollectedAmount        float64 `json:"collected_amount"`
+	TotalExpenses          float64 `json:"total_expenses"`
+	SubcontractorPaid      float64 `json:"subcontractor_paid"`
+	SubcontractorRemaining float64 `json:"subcontractor_remaining"`
+	RemainingReceivable    float64 `json:"remaining_receivable"`
+	RealizedCost           float64 `json:"realized_cost"`
+	RealizedGrossProfit    float64 `json:"realized_gross_profit"`
+	InvoiceCount           int64   `json:"invoice_count"`
+	PaidInvoiceCount       int64   `json:"paid_invoice_count"`
 }
 
 func toProjectResponse(p domain.Project) projectResponse {
@@ -71,6 +82,16 @@ func toProjectResponse(p domain.Project) projectResponse {
 		CreatedBy:        p.CreatedBy,
 		CreatedAt:        p.CreatedAt.Format(rfc3339),
 		UpdatedAt:        p.UpdatedAt.Format(rfc3339),
+
+		CollectedAmount:        p.CollectedAmount,
+		TotalExpenses:          p.TotalExpenses,
+		SubcontractorPaid:      p.SubcontractorPaid,
+		SubcontractorRemaining: p.SubcontractorRemaining,
+		RemainingReceivable:    p.RemainingReceivable(),
+		RealizedCost:           p.RealizedCost(),
+		RealizedGrossProfit:    p.RealizedGrossProfit(),
+		InvoiceCount:           p.InvoiceCount,
+		PaidInvoiceCount:       p.PaidInvoiceCount,
 	}
 	if p.StartDate != nil {
 		s := p.StartDate.Format(dateLayout)
@@ -214,7 +235,10 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "proje bulunamadı")
 	case errors.Is(err, service.ErrOfferNotAccepted),
-		errors.Is(err, service.ErrInvalidProjectState):
+		errors.Is(err, service.ErrInvalidProjectState),
+		errors.Is(err, service.ErrProjectLocked),
+		errors.Is(err, service.ErrCurrencyMismatch),
+		errors.Is(err, service.ErrAlreadyVoided):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case isInternalError(err):
 		writeInternalError(w, err)

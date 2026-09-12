@@ -171,6 +171,19 @@ func (s *ProjectService) CreateFromOffer(ctx context.Context, offerID, organizat
 		}, "", ""); err != nil {
 		return nil, err
 	}
+	// Aynı olay projenin KENDİ zaman çizelgesine de yazılır: teklif
+	// timeline'ı "bu teklif projeye dönüştü", proje timeline'ı ise "bu
+	// proje şu tekliften doğdu" sorusunu yanıtlar.
+	if err := logProjectEvent(ctx, txq, orgID, projectRow.ID, domain.ProjectEventCreated, createdBy,
+		map[string]any{
+			"project_no":         projectRow.ProjectNo,
+			"source_offer_id":    offerRow.ID.String(),
+			"source_offer_no":    offerRow.OfferNo,
+			"source_revision_id": revRow.ID.String(),
+			"contract_amount":    repository.NumericToFloat64(revRow.GrandTotal),
+		}); err != nil {
+		return nil, err
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -358,6 +371,7 @@ type UpdateProjectInput struct {
 	EndDate       *time.Time
 	Description   string
 	InternalNotes string
+	UserID        string
 }
 
 func (s *ProjectService) Update(ctx context.Context, id, organizationID string, in UpdateProjectInput) (*domain.Project, error) {
@@ -393,7 +407,14 @@ func (s *ProjectService) Update(ctx context.Context, id, organizationID string, 
 		return nil, ErrInvalidProjectState
 	}
 
-	row, err := s.q.UpdateProject(ctx, sqlc.UpdateProjectParams{
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	row, err := txq.UpdateProject(ctx, sqlc.UpdateProjectParams{
 		ID:             uid,
 		OrganizationID: orgID,
 		Name:           name,
@@ -408,6 +429,21 @@ func (s *ProjectService) Update(ctx context.Context, id, organizationID string, 
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
+		return nil, err
+	}
+
+	actor := actorUUID(in.UserID)
+	if status != current.Status {
+		if err := logProjectEvent(ctx, txq, orgID, uid, domain.ProjectEventStatusChanged, actor,
+			map[string]any{"from": current.Status, "to": status}); err != nil {
+			return nil, err
+		}
+	} else if err := logProjectEvent(ctx, txq, orgID, uid, domain.ProjectEventUpdated, actor,
+		map[string]any{"name": name}); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return s.withSourceOfferInfo(ctx, row, orgID)

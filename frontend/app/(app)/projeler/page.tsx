@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { Topbar } from "@/components/layout/Topbar";
 import { apiServer } from "@/lib/api";
-import { formatTL } from "@/lib/format";
+import { formatMoney } from "@/lib/format";
 import { PROJECT_STATUS_LABELS, type Project, type ProjectStatus } from "@/lib/types";
 
 import { ProjectFilters } from "./ProjectFilters";
@@ -21,11 +21,15 @@ const STATUS_TONE: Record<ProjectStatus, "muted" | "gold" | "success" | "danger"
 
 const PAGE_SIZE = 25;
 
-// Finans modülleri (tahsilat/masraf/fatura) henüz yok. Bu kolonlar
-// altyapıda yerini almış durumda ama UYDURMA değer göstermiyoruz --
-// "0 TL tahsil edildi" demek, gerçekte hiç tahsilat kaydı olmadığı için
-// yanlış bilgi olurdu. Sonraki fazlarda gerçek hesaplamaya bağlanacak.
 const NO_DATA = "—";
+
+// Fatura durumu, satır başına ayrı sorgu açmadan liste sorgusunda
+// toplanan sayılardan türetilir.
+function invoiceLabel(total?: number, paid?: number) {
+  if (!total) return NO_DATA;
+  if (paid && paid >= total) return `${paid}/${total} ödendi`;
+  return `${paid ?? 0}/${total} ödendi`;
+}
 
 export default async function ProjelerPage({
   searchParams,
@@ -111,13 +115,26 @@ export default async function ProjelerPage({
                     <Td className="text-text-muted">
                       {p.start_date ? new Date(p.start_date).toLocaleDateString("tr-TR") : NO_DATA}
                     </Td>
-                    <Td className="text-right font-medium">{formatTL(p.contract_amount)}</Td>
+                    <Td className="text-right font-medium">
+                      {formatMoney(p.contract_amount, p.currency)}
+                    </Td>
                     <Td className="text-text-muted">{p.currency}</Td>
-                    <Td className="text-right text-text-muted">{NO_DATA}</Td>
-                    <Td className="text-right text-text-muted">{NO_DATA}</Td>
-                    <Td className="text-right text-text-muted">{NO_DATA}</Td>
-                    <Td className="text-right text-text-muted">{NO_DATA}</Td>
-                    <Td className="text-text-muted">{NO_DATA}</Td>
+                    <Td className="text-right">{formatMoney(p.collected_amount ?? 0, p.currency)}</Td>
+                    <Td className="text-right">
+                      {/* Negatif bakiye gizlenmez: fazla tahsilat olarak gösterilir. */}
+                      {(p.remaining_receivable ?? 0) < 0
+                        ? `${formatMoney(-(p.remaining_receivable ?? 0), p.currency)} fazla`
+                        : formatMoney(p.remaining_receivable ?? 0, p.currency)}
+                    </Td>
+                    <Td className="text-right">{formatMoney(p.realized_cost ?? 0, p.currency)}</Td>
+                    <Td
+                      className={`text-right font-medium ${(p.realized_gross_profit ?? 0) < 0 ? "text-danger" : ""}`}
+                    >
+                      {formatMoney(p.realized_gross_profit ?? 0, p.currency)}
+                    </Td>
+                    <Td className="text-text-muted">
+                      {invoiceLabel(p.invoice_count, p.paid_invoice_count)}
+                    </Td>
                     <Td>
                       <Badge tone={STATUS_TONE[p.status]}>{PROJECT_STATUS_LABELS[p.status]}</Badge>
                     </Td>
@@ -158,8 +175,9 @@ export default async function ProjelerPage({
         </div>
 
         <p className="text-xs text-text-muted">
-          Tahsilat, masraf, kârlılık ve fatura kolonları sonraki fazlarda gerçek verilere
-          bağlanacak.
+          Toplam Masraf ve Brüt Kâr, gerçekleşen maliyeti (masraflar + taşerona ödenen) esas
+          alır; taşeronların kalan taahhüdü proje detayındaki &quot;Tahmini&quot; değerlerde
+          gösterilir.
         </p>
       </div>
     </>

@@ -174,6 +174,17 @@ export interface Project {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+
+  // Liste ekranının finans kolonları (backend'de aggregate edilir).
+  collected_amount?: number;
+  total_expenses?: number;
+  subcontractor_paid?: number;
+  subcontractor_remaining?: number;
+  remaining_receivable?: number;
+  realized_cost?: number;
+  realized_gross_profit?: number;
+  invoice_count?: number;
+  paid_invoice_count?: number;
 }
 
 export interface Employee {
@@ -211,4 +222,163 @@ export interface AttendanceLog {
   work_hours: number;
   status: AttendanceStatus;
   note: string;
+}
+
+// ---------- Faz 6: proje finans ----------
+
+export type PlanItemStatus = "pending" | "partial" | "paid" | "overdue" | "cancelled";
+
+export const PLAN_ITEM_STATUS_LABELS: Record<PlanItemStatus, string> = {
+  pending: "Bekliyor",
+  partial: "Kısmi Tahsil",
+  paid: "Tahsil Edildi",
+  overdue: "Gecikti",
+  cancelled: "İptal",
+};
+
+export interface PaymentPlanItem {
+  id: string;
+  sort_order: number;
+  name: string;
+  percentage: number | null;
+  planned_amount: number;
+  collected_amount: number;
+  remaining_amount: number;
+  due_date: string | null;
+  status: PlanItemStatus;
+  notes: string;
+}
+
+export interface Collection {
+  id: string;
+  payment_plan_item_id: string | null;
+  amount: number;
+  currency: string;
+  received_date: string;
+  payment_method: string;
+  description: string;
+  reference_no: string;
+  voided_at: string | null;
+  void_reason: string;
+  created_at: string;
+}
+
+export type ExpenseCategory =
+  | "material" | "personnel" | "transport" | "accommodation"
+  | "food" | "equipment" | "other";
+
+export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
+  material: "Malzeme",
+  personnel: "Personel",
+  transport: "Nakliye",
+  accommodation: "Konaklama",
+  food: "Yemek",
+  equipment: "Ekipman",
+  other: "Diğer",
+};
+
+export interface Expense {
+  id: string;
+  category: ExpenseCategory;
+  description: string;
+  amount: number;
+  currency: string;
+  expense_date: string;
+  supplier_name: string;
+  invoice_no: string;
+  notes: string;
+  voided_at: string | null;
+  void_reason: string;
+  created_at: string;
+}
+
+export type InvoiceStatus = "draft" | "issued" | "sent" | "paid" | "cancelled";
+
+export const INVOICE_STATUS_LABELS: Record<InvoiceStatus, string> = {
+  draft: "Taslak",
+  issued: "Kesildi",
+  sent: "Gönderildi",
+  paid: "Ödendi",
+  cancelled: "İptal",
+};
+
+export interface ProjectInvoice {
+  id: string;
+  invoice_no: string;
+  invoice_type: "sales" | "purchase";
+  invoice_date: string;
+  due_date: string | null;
+  amount: number;
+  currency: string;
+  status: InvoiceStatus;
+  customer_name: string;
+  notes: string;
+  created_at: string;
+}
+
+export type SubcontractorStatus = "planned" | "active" | "completed" | "cancelled";
+
+export const SUBCONTRACTOR_STATUS_LABELS: Record<SubcontractorStatus, string> = {
+  planned: "Planlandı",
+  active: "Devam Ediyor",
+  completed: "Tamamlandı",
+  cancelled: "İptal",
+};
+
+export interface Subcontractor {
+  id: string;
+  name: string;
+  company_name: string;
+  phone: string;
+  email: string;
+  work_description: string;
+  contract_amount: number;
+  paid_amount: number;
+  remaining_amount: number;
+  currency: string;
+  start_date: string | null;
+  end_date: string | null;
+  status: SubcontractorStatus;
+  notes: string;
+}
+
+export interface SubcontractorPayment {
+  id: string;
+  subcontractor_id: string;
+  amount: number;
+  currency: string;
+  paid_date: string;
+  description: string;
+  voided_at: string | null;
+  void_reason: string;
+  created_at: string;
+}
+
+export interface FinancialSummary {
+  contract_amount: number;
+  currency: string;
+  planned_collections: number;
+  collected_amount: number;
+  remaining_receivable: number;
+  over_collected: number;
+  total_expenses: number;
+  total_subcontractor_commitment: number;
+  subcontractor_paid: number;
+  subcontractor_remaining: number;
+  issued_invoice_total: number;
+  paid_invoice_total: number;
+  realized_cost: number;
+  committed_cost: number;
+  realized_gross_profit: number;
+  estimated_gross_profit: number;
+  realized_margin_percent: number;
+  estimated_margin_percent: number;
+}
+
+export interface ProjectEvent {
+  id: string;
+  event_type: string;
+  user_id: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
 }

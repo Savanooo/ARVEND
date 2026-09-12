@@ -206,10 +206,132 @@ type Project struct {
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ProjectCollection struct {
+	ID                pgtype.UUID        `json:"id"`
+	OrganizationID    pgtype.UUID        `json:"organization_id"`
+	ProjectID         pgtype.UUID        `json:"project_id"`
+	PaymentPlanItemID pgtype.UUID        `json:"payment_plan_item_id"`
+	Amount            pgtype.Numeric     `json:"amount"`
+	Currency          string             `json:"currency"`
+	ReceivedDate      pgtype.Date        `json:"received_date"`
+	PaymentMethod     string             `json:"payment_method"`
+	Description       string             `json:"description"`
+	ReferenceNo       string             `json:"reference_no"`
+	IdempotencyKey    *string            `json:"idempotency_key"`
+	CreatedBy         pgtype.UUID        `json:"created_by"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	VoidedAt          pgtype.Timestamptz `json:"voided_at"`
+	VoidedBy          pgtype.UUID        `json:"voided_by"`
+	VoidReason        string             `json:"void_reason"`
+}
+
 type ProjectCounter struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
 	Year           int32       `json:"year"`
 	Seq            int32       `json:"seq"`
+}
+
+type ProjectEvent struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	EventType      string             `json:"event_type"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	Metadata       []byte             `json:"metadata"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type ProjectExpense struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	Category       string             `json:"category"`
+	Description    string             `json:"description"`
+	Amount         pgtype.Numeric     `json:"amount"`
+	Currency       string             `json:"currency"`
+	ExpenseDate    pgtype.Date        `json:"expense_date"`
+	SupplierName   string             `json:"supplier_name"`
+	InvoiceNo      string             `json:"invoice_no"`
+	Notes          string             `json:"notes"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	VoidedAt       pgtype.Timestamptz `json:"voided_at"`
+	VoidedBy       pgtype.UUID        `json:"voided_by"`
+	VoidReason     string             `json:"void_reason"`
+}
+
+type ProjectInvoice struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	InvoiceNo      string             `json:"invoice_no"`
+	InvoiceType    string             `json:"invoice_type"`
+	InvoiceDate    pgtype.Date        `json:"invoice_date"`
+	DueDate        pgtype.Date        `json:"due_date"`
+	Amount         pgtype.Numeric     `json:"amount"`
+	Currency       string             `json:"currency"`
+	Status         string             `json:"status"`
+	CustomerName   string             `json:"customer_name"`
+	Notes          string             `json:"notes"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProjectPaymentPlanItem struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	SortOrder      int32              `json:"sort_order"`
+	Name           string             `json:"name"`
+	Percentage     pgtype.Numeric     `json:"percentage"`
+	PlannedAmount  pgtype.Numeric     `json:"planned_amount"`
+	DueDate        pgtype.Date        `json:"due_date"`
+	Status         string             `json:"status"`
+	Notes          string             `json:"notes"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProjectSubcontractor struct {
+	ID              pgtype.UUID        `json:"id"`
+	OrganizationID  pgtype.UUID        `json:"organization_id"`
+	ProjectID       pgtype.UUID        `json:"project_id"`
+	Name            string             `json:"name"`
+	CompanyName     string             `json:"company_name"`
+	Phone           string             `json:"phone"`
+	Email           string             `json:"email"`
+	WorkDescription string             `json:"work_description"`
+	ContractAmount  pgtype.Numeric     `json:"contract_amount"`
+	Currency        string             `json:"currency"`
+	StartDate       pgtype.Date        `json:"start_date"`
+	EndDate         pgtype.Date        `json:"end_date"`
+	Status          string             `json:"status"`
+	Notes           string             `json:"notes"`
+	CreatedBy       pgtype.UUID        `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProjectSubcontractorPayment struct {
+	ID              pgtype.UUID        `json:"id"`
+	OrganizationID  pgtype.UUID        `json:"organization_id"`
+	ProjectID       pgtype.UUID        `json:"project_id"`
+	SubcontractorID pgtype.UUID        `json:"subcontractor_id"`
+	Amount          pgtype.Numeric     `json:"amount"`
+	Currency        string             `json:"currency"`
+	PaidDate        pgtype.Date        `json:"paid_date"`
+	Description     string             `json:"description"`
+	IdempotencyKey  *string            `json:"idempotency_key"`
+	CreatedBy       pgtype.UUID        `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	VoidedAt        pgtype.Timestamptz `json:"voided_at"`
+	VoidedBy        pgtype.UUID        `json:"voided_by"`
+	VoidReason      string             `json:"void_reason"`
 }
 
 type RefreshToken struct {

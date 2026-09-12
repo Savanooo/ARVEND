@@ -1,0 +1,273 @@
+package domain
+
+import "time"
+
+// --- Ödeme planı kalemi durumları ---
+//
+// SAKLANAN yalnızca "pending" ve "cancelled"dır (manuel niyet).
+// partial/paid/overdue, tahsilat toplamı ve due_date'ten OKUMA ANINDA
+// türetilir -- hiçbir zaman kolonda tutulmaz, dolayısıyla bayatlayamaz.
+const (
+	PlanItemPending   = "pending"
+	PlanItemPartial   = "partial"
+	PlanItemPaid      = "paid"
+	PlanItemOverdue   = "overdue"
+	PlanItemCancelled = "cancelled"
+)
+
+// Masraf kategorileri. 'subcontractor' BİLİNÇLİ olarak yoktur: taşerona
+// ödenen para yalnızca taşeron ödemeleri üzerinden girilir, aksi halde
+// aynı tutar hem masraf hem taşeron ödemesi olarak iki kez sayılabilirdi.
+const (
+	ExpenseMaterial      = "material"
+	ExpensePersonnel     = "personnel"
+	ExpenseTransport     = "transport"
+	ExpenseAccommodation = "accommodation"
+	ExpenseFood          = "food"
+	ExpenseEquipment     = "equipment"
+	ExpenseOther         = "other"
+)
+
+var validExpenseCategories = map[string]bool{
+	ExpenseMaterial: true, ExpensePersonnel: true, ExpenseTransport: true,
+	ExpenseAccommodation: true, ExpenseFood: true, ExpenseEquipment: true, ExpenseOther: true,
+}
+
+func ValidExpenseCategory(s string) bool { return validExpenseCategories[s] }
+
+const (
+	InvoiceTypeSales    = "sales"
+	InvoiceTypePurchase = "purchase"
+)
+
+const (
+	InvoiceDraft     = "draft"
+	InvoiceIssued    = "issued"
+	InvoiceSent      = "sent"
+	InvoicePaid      = "paid"
+	InvoiceCancelled = "cancelled"
+)
+
+var validInvoiceStatuses = map[string]bool{
+	InvoiceDraft: true, InvoiceIssued: true, InvoiceSent: true,
+	InvoicePaid: true, InvoiceCancelled: true,
+}
+
+func ValidInvoiceStatus(s string) bool { return validInvoiceStatuses[s] }
+
+func ValidInvoiceType(s string) bool {
+	return s == InvoiceTypeSales || s == InvoiceTypePurchase
+}
+
+const (
+	SubcontractorPlanned   = "planned"
+	SubcontractorActive    = "active"
+	SubcontractorCompleted = "completed"
+	SubcontractorCancelled = "cancelled"
+)
+
+var validSubcontractorStatuses = map[string]bool{
+	SubcontractorPlanned: true, SubcontractorActive: true,
+	SubcontractorCompleted: true, SubcontractorCancelled: true,
+}
+
+func ValidSubcontractorStatus(s string) bool { return validSubcontractorStatuses[s] }
+
+// Proje olay tipleri (project_events).
+const (
+	ProjectEventCreated                  = "project_created"
+	ProjectEventUpdated                  = "project_updated"
+	ProjectEventStatusChanged            = "project_status_changed"
+	ProjectEventPaymentPlanCreated       = "payment_plan_created"
+	ProjectEventPaymentPlanUpdated       = "payment_plan_updated"
+	ProjectEventPaymentPlanCancelled     = "payment_plan_cancelled"
+	ProjectEventCollectionReceived       = "collection_received"
+	ProjectEventCollectionVoided         = "collection_voided"
+	ProjectEventExpenseAdded             = "expense_added"
+	ProjectEventExpenseUpdated           = "expense_updated"
+	ProjectEventExpenseVoided            = "expense_voided"
+	ProjectEventInvoiceCreated           = "invoice_created"
+	ProjectEventInvoiceStatusChanged     = "invoice_status_changed"
+	ProjectEventSubcontractorAdded       = "subcontractor_added"
+	ProjectEventSubcontractorUpdated     = "subcontractor_updated"
+	ProjectEventSubcontractorPaymentMade = "subcontractor_payment_added"
+	ProjectEventSubcontractorPaymentVoid = "subcontractor_payment_voided"
+)
+
+type PaymentPlanItem struct {
+	ID              string
+	OrganizationID  string
+	ProjectID       string
+	SortOrder       int
+	Name            string
+	Percentage      *float64
+	PlannedAmount   float64
+	DueDate         *time.Time
+	Notes           string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	CollectedAmount float64
+	// Status, türetilmiş (efektif) durumdur; iptal dışındaki değerler
+	// tahsilat toplamı ve due_date'ten hesaplanır.
+	Status string
+}
+
+// EffectivePlanItemStatus, kalemin gerçek durumunu tahsilat toplamına ve
+// vade tarihine göre türetir. storedStatus yalnızca "cancelled" ise
+// belirleyicidir.
+func EffectivePlanItemStatus(storedStatus string, planned, collected float64, dueDate *time.Time, now time.Time) string {
+	if storedStatus == PlanItemCancelled {
+		return PlanItemCancelled
+	}
+	switch {
+	case collected >= planned:
+		return PlanItemPaid
+	case collected > 0:
+		// Kısmen tahsil edilmiş ama vadesi geçmişse gecikme daha önemli
+		// bilgidir.
+		if dueDate != nil && now.After(*dueDate) {
+			return PlanItemOverdue
+		}
+		return PlanItemPartial
+	default:
+		if dueDate != nil && now.After(*dueDate) {
+			return PlanItemOverdue
+		}
+		return PlanItemPending
+	}
+}
+
+type Collection struct {
+	ID                string
+	OrganizationID    string
+	ProjectID         string
+	PaymentPlanItemID *string
+	Amount            float64
+	Currency          string
+	ReceivedDate      time.Time
+	PaymentMethod     string
+	Description       string
+	ReferenceNo       string
+	CreatedBy         *string
+	CreatedAt         time.Time
+	VoidedAt          *time.Time
+	VoidedBy          *string
+	VoidReason        string
+}
+
+type Expense struct {
+	ID             string
+	OrganizationID string
+	ProjectID      string
+	Category       string
+	Description    string
+	Amount         float64
+	Currency       string
+	ExpenseDate    time.Time
+	SupplierName   string
+	InvoiceNo      string
+	Notes          string
+	CreatedBy      *string
+	CreatedAt      time.Time
+	VoidedAt       *time.Time
+	VoidedBy       *string
+	VoidReason     string
+}
+
+type ProjectInvoice struct {
+	ID             string
+	OrganizationID string
+	ProjectID      string
+	InvoiceNo      string
+	InvoiceType    string
+	InvoiceDate    time.Time
+	DueDate        *time.Time
+	Amount         float64
+	Currency       string
+	Status         string
+	CustomerName   string
+	Notes          string
+	CreatedBy      *string
+	CreatedAt      time.Time
+}
+
+type Subcontractor struct {
+	ID              string
+	OrganizationID  string
+	ProjectID       string
+	Name            string
+	CompanyName     string
+	Phone           string
+	Email           string
+	WorkDescription string
+	ContractAmount  float64
+	Currency        string
+	StartDate       *time.Time
+	EndDate         *time.Time
+	Status          string
+	Notes           string
+	CreatedAt       time.Time
+	// Ödeme kayıtlarından toplanır.
+	PaidAmount      float64
+	RemainingAmount float64
+}
+
+type SubcontractorPayment struct {
+	ID              string
+	OrganizationID  string
+	ProjectID       string
+	SubcontractorID string
+	Amount          float64
+	Currency        string
+	PaidDate        time.Time
+	Description     string
+	CreatedBy       *string
+	CreatedAt       time.Time
+	VoidedAt        *time.Time
+	VoidedBy        *string
+	VoidReason      string
+}
+
+// ProjectFinancialSummary, projenin tüm finans tablosunu tek seferde
+// taşır. Tüm değerler SQL tarafında numeric üzerinde hesaplanır.
+type ProjectFinancialSummary struct {
+	ContractAmount               float64
+	Currency                     string
+	PlannedCollections           float64
+	CollectedAmount              float64
+	RemainingReceivable          float64
+	TotalExpenses                float64
+	TotalSubcontractorCommitment float64
+	SubcontractorPaid            float64
+	SubcontractorRemaining       float64
+	IssuedInvoiceTotal           float64
+	PaidInvoiceTotal             float64
+	// RealizedCost: gerçekleşen masraflar + taşerona GERÇEKTEN ödenen.
+	RealizedCost float64
+	// CommittedCost: gerçekleşen + taşeron sözleşmelerinin kalan taahhüdü.
+	CommittedCost          float64
+	RealizedGrossProfit    float64
+	EstimatedGrossProfit   float64
+	RealizedMarginPercent  float64
+	EstimatedMarginPercent float64
+}
+
+// OverCollected, müşterinin sözleşme bedelinden fazla ödeme yaptığı
+// tutarı döner (yoksa 0). Bakiye negatifse UI bunu "fazla tahsilat"
+// olarak gösterir -- negatif değer gizlenmez.
+func (s ProjectFinancialSummary) OverCollected() float64 {
+	if s.RemainingReceivable < 0 {
+		return -s.RemainingReceivable
+	}
+	return 0
+}
+
+type ProjectEvent struct {
+	ID             string
+	OrganizationID string
+	ProjectID      string
+	EventType      string
+	UserID         *string
+	Metadata       map[string]any
+	CreatedAt      time.Time
+}

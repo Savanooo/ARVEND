@@ -250,7 +250,22 @@ func (q *Queries) GetProjectBySourceRevision(ctx context.Context, arg GetProject
 }
 
 const listProjects = `-- name: ListProjects :many
-SELECT p.id, p.organization_id, p.project_no, p.name, p.project_type, p.source_offer_id, p.source_revision_id, p.customer_id, p.customer_name, p.customer_phone, p.customer_email, p.customer_address, p.contract_amount, p.currency, p.status, p.start_date, p.end_date, p.description, p.internal_notes, p.created_by, p.created_at, p.updated_at, o.offer_no, r.revision_no
+SELECT p.id, p.organization_id, p.project_no, p.name, p.project_type, p.source_offer_id, p.source_revision_id, p.customer_id, p.customer_name, p.customer_phone, p.customer_email, p.customer_address, p.contract_amount, p.currency, p.status, p.start_date, p.end_date, p.description, p.internal_notes, p.created_by, p.created_at, p.updated_at, o.offer_no, r.revision_no,
+    COALESCE((SELECT sum(c.amount) FROM project_collections c
+              WHERE c.project_id = p.id AND c.voided_at IS NULL), 0)::numeric(12,2) AS collected_amount,
+    COALESCE((SELECT sum(e.amount) FROM project_expenses e
+              WHERE e.project_id = p.id AND e.voided_at IS NULL), 0)::numeric(12,2) AS total_expenses,
+    COALESCE((SELECT sum(sp.amount) FROM project_subcontractor_payments sp
+              WHERE sp.project_id = p.id AND sp.voided_at IS NULL), 0)::numeric(12,2) AS subcontractor_paid,
+    COALESCE((SELECT sum(GREATEST(s.contract_amount - COALESCE((
+                  SELECT sum(sp2.amount) FROM project_subcontractor_payments sp2
+                  WHERE sp2.subcontractor_id = s.id AND sp2.voided_at IS NULL), 0), 0))
+              FROM project_subcontractors s
+              WHERE s.project_id = p.id AND s.status <> 'cancelled'), 0)::numeric(12,2) AS subcontractor_remaining,
+    COALESCE((SELECT count(*) FROM project_invoices i
+              WHERE i.project_id = p.id AND i.invoice_type = 'sales' AND i.status <> 'cancelled'), 0)::bigint AS invoice_count,
+    COALESCE((SELECT count(*) FROM project_invoices i
+              WHERE i.project_id = p.id AND i.invoice_type = 'sales' AND i.status = 'paid'), 0)::bigint AS paid_invoice_count
 FROM projects p
 JOIN offers o ON o.id = p.source_offer_id
 JOIN offer_revisions r ON r.id = p.source_revision_id
@@ -281,32 +296,42 @@ type ListProjectsParams struct {
 }
 
 type ListProjectsRow struct {
-	ID               pgtype.UUID        `json:"id"`
-	OrganizationID   pgtype.UUID        `json:"organization_id"`
-	ProjectNo        string             `json:"project_no"`
-	Name             string             `json:"name"`
-	ProjectType      string             `json:"project_type"`
-	SourceOfferID    pgtype.UUID        `json:"source_offer_id"`
-	SourceRevisionID pgtype.UUID        `json:"source_revision_id"`
-	CustomerID       pgtype.UUID        `json:"customer_id"`
-	CustomerName     string             `json:"customer_name"`
-	CustomerPhone    string             `json:"customer_phone"`
-	CustomerEmail    string             `json:"customer_email"`
-	CustomerAddress  string             `json:"customer_address"`
-	ContractAmount   pgtype.Numeric     `json:"contract_amount"`
-	Currency         string             `json:"currency"`
-	Status           string             `json:"status"`
-	StartDate        pgtype.Date        `json:"start_date"`
-	EndDate          pgtype.Date        `json:"end_date"`
-	Description      string             `json:"description"`
-	InternalNotes    string             `json:"internal_notes"`
-	CreatedBy        pgtype.UUID        `json:"created_by"`
-	CreatedAt        pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
-	OfferNo          string             `json:"offer_no"`
-	RevisionNo       int32              `json:"revision_no"`
+	ID                     pgtype.UUID        `json:"id"`
+	OrganizationID         pgtype.UUID        `json:"organization_id"`
+	ProjectNo              string             `json:"project_no"`
+	Name                   string             `json:"name"`
+	ProjectType            string             `json:"project_type"`
+	SourceOfferID          pgtype.UUID        `json:"source_offer_id"`
+	SourceRevisionID       pgtype.UUID        `json:"source_revision_id"`
+	CustomerID             pgtype.UUID        `json:"customer_id"`
+	CustomerName           string             `json:"customer_name"`
+	CustomerPhone          string             `json:"customer_phone"`
+	CustomerEmail          string             `json:"customer_email"`
+	CustomerAddress        string             `json:"customer_address"`
+	ContractAmount         pgtype.Numeric     `json:"contract_amount"`
+	Currency               string             `json:"currency"`
+	Status                 string             `json:"status"`
+	StartDate              pgtype.Date        `json:"start_date"`
+	EndDate                pgtype.Date        `json:"end_date"`
+	Description            string             `json:"description"`
+	InternalNotes          string             `json:"internal_notes"`
+	CreatedBy              pgtype.UUID        `json:"created_by"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	OfferNo                string             `json:"offer_no"`
+	RevisionNo             int32              `json:"revision_no"`
+	CollectedAmount        pgtype.Numeric     `json:"collected_amount"`
+	TotalExpenses          pgtype.Numeric     `json:"total_expenses"`
+	SubcontractorPaid      pgtype.Numeric     `json:"subcontractor_paid"`
+	SubcontractorRemaining pgtype.Numeric     `json:"subcontractor_remaining"`
+	InvoiceCount           int64              `json:"invoice_count"`
+	PaidInvoiceCount       int64              `json:"paid_invoice_count"`
 }
 
+// ListProjects, liste ekranının finans kolonlarını (tahsilat/masraf/
+// taşeron/kâr) AYNI sorguda toplar. Her satır için ayrı sorgu açmak
+// (N+1) proje sayısı büyüdüğünde listeyi kullanılamaz hale getirirdi;
+// toplamlar numeric üzerinde SQL tarafında hesaplanır.
 func (q *Queries) ListProjects(ctx context.Context, arg ListProjectsParams) ([]ListProjectsRow, error) {
 	rows, err := q.db.Query(ctx, listProjects,
 		arg.OrganizationID,
@@ -351,6 +376,12 @@ func (q *Queries) ListProjects(ctx context.Context, arg ListProjectsParams) ([]L
 			&i.UpdatedAt,
 			&i.OfferNo,
 			&i.RevisionNo,
+			&i.CollectedAmount,
+			&i.TotalExpenses,
+			&i.SubcontractorPaid,
+			&i.SubcontractorRemaining,
+			&i.InvoiceCount,
+			&i.PaidInvoiceCount,
 		); err != nil {
 			return nil, err
 		}

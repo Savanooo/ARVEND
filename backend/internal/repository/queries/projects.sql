@@ -21,8 +21,27 @@ SELECT * FROM projects WHERE source_revision_id = $1 AND organization_id = $2;
 SELECT * FROM projects WHERE source_offer_id = $1 AND organization_id = $2
 ORDER BY created_at DESC LIMIT 1;
 
+-- ListProjects, liste ekranının finans kolonlarını (tahsilat/masraf/
+-- taşeron/kâr) AYNI sorguda toplar. Her satır için ayrı sorgu açmak
+-- (N+1) proje sayısı büyüdüğünde listeyi kullanılamaz hale getirirdi;
+-- toplamlar numeric üzerinde SQL tarafında hesaplanır.
 -- name: ListProjects :many
-SELECT p.*, o.offer_no, r.revision_no
+SELECT p.*, o.offer_no, r.revision_no,
+    COALESCE((SELECT sum(c.amount) FROM project_collections c
+              WHERE c.project_id = p.id AND c.voided_at IS NULL), 0)::numeric(12,2) AS collected_amount,
+    COALESCE((SELECT sum(e.amount) FROM project_expenses e
+              WHERE e.project_id = p.id AND e.voided_at IS NULL), 0)::numeric(12,2) AS total_expenses,
+    COALESCE((SELECT sum(sp.amount) FROM project_subcontractor_payments sp
+              WHERE sp.project_id = p.id AND sp.voided_at IS NULL), 0)::numeric(12,2) AS subcontractor_paid,
+    COALESCE((SELECT sum(GREATEST(s.contract_amount - COALESCE((
+                  SELECT sum(sp2.amount) FROM project_subcontractor_payments sp2
+                  WHERE sp2.subcontractor_id = s.id AND sp2.voided_at IS NULL), 0), 0))
+              FROM project_subcontractors s
+              WHERE s.project_id = p.id AND s.status <> 'cancelled'), 0)::numeric(12,2) AS subcontractor_remaining,
+    COALESCE((SELECT count(*) FROM project_invoices i
+              WHERE i.project_id = p.id AND i.invoice_type = 'sales' AND i.status <> 'cancelled'), 0)::bigint AS invoice_count,
+    COALESCE((SELECT count(*) FROM project_invoices i
+              WHERE i.project_id = p.id AND i.invoice_type = 'sales' AND i.status = 'paid'), 0)::bigint AS paid_invoice_count
 FROM projects p
 JOIN offers o ON o.id = p.source_offer_id
 JOIN offer_revisions r ON r.id = p.source_revision_id

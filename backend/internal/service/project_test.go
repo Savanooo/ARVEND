@@ -373,16 +373,23 @@ func TestProjectsFromOffers(t *testing.T) {
 			t.Errorf("değiştirilemez alanlar değişti:\nönce=%+v\nsonra=%+v", p, updated)
 		}
 
-		// Geçersiz durum geçişi (completed -> active) reddedilmeli.
+		// Tamamlanmış proje YALNIZCA "active"e dönebilir (Faz 6: finans
+		// hareketi girmek için bilinçli yeniden açma); başka bir duruma
+		// geçiş reddedilmeli.
 		if _, err := projectSvc.Update(ctx, p.ID, orgA.ID, service.UpdateProjectInput{
 			Name: "Yeni Ad", Status: domain.ProjectStatusCompleted,
 		}); err != nil {
 			t.Fatalf("tamamlandı durumuna geçilemedi: %v", err)
 		}
 		if _, err := projectSvc.Update(ctx, p.ID, orgA.ID, service.UpdateProjectInput{
-			Name: "Yeni Ad", Status: domain.ProjectStatusActive,
+			Name: "Yeni Ad", Status: domain.ProjectStatusPaused,
 		}); !errors.Is(err, service.ErrInvalidProjectState) {
-			t.Errorf("tamamlanmış proje yeniden aktife alınabildi: err=%v", err)
+			t.Errorf("tamamlanmış proje beklemeye alınabildi: err=%v", err)
+		}
+		if _, err := projectSvc.Update(ctx, p.ID, orgA.ID, service.UpdateProjectInput{
+			Name: "Yeni Ad", Status: domain.ProjectStatusActive,
+		}); err != nil {
+			t.Errorf("tamamlanmış proje yeniden açılamadı: %v", err)
 		}
 	})
 

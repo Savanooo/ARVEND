@@ -5,10 +5,31 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Topbar } from "@/components/layout/Topbar";
 import { apiServer } from "@/lib/api";
-import { formatTL } from "@/lib/format";
-import { PROJECT_STATUS_LABELS, type Project, type ProjectStatus } from "@/lib/types";
+import { formatMoney } from "@/lib/format";
+import {
+  PROJECT_STATUS_LABELS,
+  type Collection,
+  type Expense,
+  type FinancialSummary,
+  type PaymentPlanItem,
+  type Project,
+  type ProjectEvent,
+  type ProjectInvoice,
+  type ProjectStatus,
+  type Subcontractor,
+  type SubcontractorPayment,
+} from "@/lib/types";
 
 import { Section } from "./Accordion";
+import { FinanceSummary } from "./FinanceSummary";
+import {
+  CollectionsSection,
+  ExpensesSection,
+  InvoicesSection,
+  PaymentPlanSection,
+  SubcontractorsSection,
+} from "./FinanceSections";
+import { ProfitabilitySection, ProjectActivitySection } from "./ProfitabilitySection";
 
 const STATUS_TONE: Record<ProjectStatus, "muted" | "gold" | "success" | "danger"> = {
   planned: "muted",
@@ -25,21 +46,16 @@ const NO_DATA = "—";
 
 // Bu fazda yalnızca ilk üç bölüm çalışır; kalanlar ileride doldurulacak
 // iskelettir.
+// Faz 6'da finans bölümleri gerçek verilerle çalışır hale geldi; aşağıdakiler
+// sonraki fazlara kaldı.
 const PLACEHOLDER_SECTIONS = [
   "Planlama",
-  "Ödeme Planı",
-  "Tahsilatlar",
-  "Masraflar",
-  "Fatura Bilgileri",
-  "Taşeronlar",
   "Personel / Ekip",
   "Görevler",
   "Ek İşler",
   "Dosyalar",
   "Şantiye Fotoğrafları",
   "Notlar",
-  "Maliyet / Kârlılık",
-  "Aktivite Geçmişi",
 ];
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
@@ -62,7 +78,23 @@ export default async function ProjeDetayPage({
 }) {
   const { id } = await params;
   const cookieHeader = (await cookies()).toString();
-  const project = await apiServer<Project>(`/api/v1/projects/${id}`, cookieHeader);
+  const base = `/api/v1/projects/${id}`;
+  const [project, summary, plan, collections, expenses, invoices, subcontractors, subPayments, events] =
+    await Promise.all([
+      apiServer<Project>(base, cookieHeader),
+      apiServer<FinancialSummary>(`${base}/financial-summary`, cookieHeader),
+      apiServer<{ items: PaymentPlanItem[]; planned_total: number }>(`${base}/payment-plan`, cookieHeader),
+      apiServer<{ collections: Collection[] }>(`${base}/collections`, cookieHeader),
+      apiServer<{ expenses: Expense[] }>(`${base}/expenses`, cookieHeader),
+      apiServer<{ invoices: ProjectInvoice[] }>(`${base}/invoices`, cookieHeader),
+      apiServer<{ subcontractors: Subcontractor[] }>(`${base}/subcontractors`, cookieHeader),
+      apiServer<{ payments: SubcontractorPayment[] }>(`${base}/subcontractor-payments`, cookieHeader),
+      apiServer<{ events: ProjectEvent[] }>(`${base}/events`, cookieHeader),
+    ]);
+
+  // Tamamlanmış/iptal edilmiş projede finans hareketleri kilitlidir --
+  // backend zaten reddediyor, UI da form göstermez.
+  const locked = project.status === "completed" || project.status === "cancelled";
 
   return (
     <>
@@ -81,6 +113,8 @@ export default async function ProjeDetayPage({
       />
 
       <div className="flex flex-col gap-6 p-8">
+        <FinanceSummary summary={summary} />
+
         {/* Üst özet şeridi */}
         <div className="grid grid-cols-2 gap-4 rounded-lg border border-border bg-surface p-4 text-sm md:grid-cols-4 lg:grid-cols-6">
           <Row label="Proje No" value={<span className="font-medium">{project.project_no}</span>} />
@@ -89,7 +123,7 @@ export default async function ProjeDetayPage({
             label="Proje Bedeli"
             value={
               <span className="font-medium">
-                {formatTL(project.contract_amount)} {project.currency !== "TRY" && project.currency}
+                {formatMoney(project.contract_amount, project.currency)}
               </span>
             }
           />
@@ -120,20 +154,31 @@ export default async function ProjeDetayPage({
               <Row label="Para Birimi" value={project.currency} />
               <Row
                 label="Ana Sözleşme Bedeli"
-                value={<span className="font-medium">{formatTL(project.contract_amount)}</span>}
+                value={<span className="font-medium">{formatMoney(project.contract_amount, project.currency)}</span>}
               />
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-4 border-t border-border pt-4 md:grid-cols-4">
-              <Row label="Tahsil Edilen" value={<span className="text-text-muted">{NO_DATA}</span>} />
-              <Row label="Kalan Bakiye" value={<span className="text-text-muted">{NO_DATA}</span>} />
-              <Row label="Toplam Maliyet" value={<span className="text-text-muted">{NO_DATA}</span>} />
-              <Row label="Brüt Kâr" value={<span className="text-text-muted">{NO_DATA}</span>} />
+              <Row
+                label="Tahsil Edilen"
+                value={formatMoney(summary.collected_amount, project.currency)}
+              />
+              <Row
+                label={summary.over_collected > 0 ? "Fazla Tahsilat" : "Kalan Bakiye"}
+                value={formatMoney(
+                  summary.over_collected > 0 ? summary.over_collected : summary.remaining_receivable,
+                  project.currency
+                )}
+              />
+              <Row
+                label="Gerçekleşen Maliyet"
+                value={formatMoney(summary.realized_cost, project.currency)}
+              />
+              <Row
+                label="Gerçekleşen Brüt Kâr"
+                value={`${formatMoney(summary.realized_gross_profit, project.currency)} (%${summary.realized_margin_percent})`}
+              />
             </div>
-            <p className="mt-3 text-xs text-text-muted">
-              Tahsilat ve masraf modülleri henüz aktif değil; bu alanlar gerçek kayıtlara
-              bağlanana kadar boş gösterilir.
-            </p>
 
             {project.description && (
               <div className="mt-4 border-t border-border pt-4">
@@ -177,7 +222,7 @@ export default async function ProjeDetayPage({
             <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
               <Row label="Teklif No" value={project.source_offer_no} />
               <Row label="Kabul Edilen Revizyon" value={`Revizyon ${project.source_revision_no}`} />
-              <Row label="Teklif Toplamı" value={formatTL(project.contract_amount)} />
+              <Row label="Teklif Toplamı" value={formatMoney(project.contract_amount, project.currency)} />
               <Row label="Para Birimi" value={project.currency} />
             </div>
             <div className="mt-4 border-t border-border pt-4">
@@ -185,6 +230,49 @@ export default async function ProjeDetayPage({
                 <Button variant="secondary">Teklifi Görüntüle</Button>
               </Link>
             </div>
+          </Section>
+
+          <Section title="Ödeme Planı" defaultOpen>
+            <PaymentPlanSection
+              project={project}
+              items={plan.items}
+              plannedTotal={plan.planned_total}
+              locked={locked}
+            />
+          </Section>
+
+          <Section title="Tahsilatlar" defaultOpen>
+            <CollectionsSection
+              project={project}
+              collections={collections.collections}
+              planItems={plan.items}
+              locked={locked}
+            />
+          </Section>
+
+          <Section title="Masraflar">
+            <ExpensesSection project={project} expenses={expenses.expenses} locked={locked} />
+          </Section>
+
+          <Section title="Fatura Bilgileri">
+            <InvoicesSection project={project} invoices={invoices.invoices} locked={locked} />
+          </Section>
+
+          <Section title="Taşeronlar">
+            <SubcontractorsSection
+              project={project}
+              subcontractors={subcontractors.subcontractors}
+              payments={subPayments.payments}
+              locked={locked}
+            />
+          </Section>
+
+          <Section title="Maliyet / Kârlılık">
+            <ProfitabilitySection summary={summary} />
+          </Section>
+
+          <Section title="Aktivite Geçmişi">
+            <ProjectActivitySection events={events.events} currency={project.currency} />
           </Section>
 
           {PLACEHOLDER_SECTIONS.map((title) => (
