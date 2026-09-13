@@ -688,6 +688,42 @@ func (q *Queries) GetTask(ctx context.Context, arg GetTaskParams) (ProjectTask, 
 	return i, err
 }
 
+const getTaskForUpdate = `-- name: GetTaskForUpdate :one
+SELECT id, organization_id, project_id, schedule_item_id, title, description, assigned_employee_id, assigned_name, priority, status, due_date, completed_at, created_by, created_at, updated_at FROM project_tasks WHERE id = $1 AND organization_id = $2 FOR UPDATE
+`
+
+type GetTaskForUpdateParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+// GetTaskForUpdate, satırı KİLİT ALTINDA okur. UpdateTask bunu kullanır:
+// aksi halde iki eşzamanlı "durumu completed yap" isteği ikisi de eski
+// (completed öncesi) durumu görüp İKİ kez task_completed olayı
+// yazabilirdi (bkz. denetim bulgusu).
+func (q *Queries) GetTaskForUpdate(ctx context.Context, arg GetTaskForUpdateParams) (ProjectTask, error) {
+	row := q.db.QueryRow(ctx, getTaskForUpdate, arg.ID, arg.OrganizationID)
+	var i ProjectTask
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ProjectID,
+		&i.ScheduleItemID,
+		&i.Title,
+		&i.Description,
+		&i.AssignedEmployeeID,
+		&i.AssignedName,
+		&i.Priority,
+		&i.Status,
+		&i.DueDate,
+		&i.CompletedAt,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listProjectFiles = `-- name: ListProjectFiles :many
 SELECT id, organization_id, project_id, original_name, object_key, mime_type, size_bytes, sha256, category, description, uploaded_by, created_at, deleted_at, deleted_by FROM project_files
 WHERE project_id = $1 AND organization_id = $2 AND deleted_at IS NULL

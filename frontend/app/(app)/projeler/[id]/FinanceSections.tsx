@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -194,7 +194,7 @@ export function PaymentPlanSection({
         <span className="text-text-muted">Toplam plan tutarı</span>
         <span className="font-medium">{formatMoney(plannedTotal, project.currency)}</span>
       </div>
-      {plannedTotal !== project.contract_amount && items.length > 0 && (
+      {Math.abs(plannedTotal - project.contract_amount) >= 0.005 && items.length > 0 && (
         <p className="text-xs text-text-muted">
           Plan toplamı sözleşme bedelinden ({formatMoney(project.contract_amount, project.currency)}){" "}
           farklı — özel plan oluşturulmuş olabilir.
@@ -452,16 +452,26 @@ export function ExpensesSection({
     supplier_name: "",
     invoice_no: "",
   });
+  // Tahsilat/taşeron ödemesiyle SİMETRİK: anahtar form örneği başına
+  // sabittir, yalnızca ONAYLANMIŞ bir gönderimden SONRA yenilenir --
+  // aksi halde çift-tıkla/ağ-tekrarı koruması etkisiz kalırdı.
+  const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     const ok = await run(() =>
       apiClient(`/api/v1/projects/${project.id}/expenses`, {
         method: "POST",
-        body: JSON.stringify({ ...form, amount: Number(form.amount), currency: project.currency }),
+        body: JSON.stringify({
+          ...form,
+          amount: Number(form.amount),
+          currency: project.currency,
+          idempotency_key: idempotencyKey,
+        }),
       })
     );
     if (ok) {
+      setIdempotencyKey(newIdempotencyKey());
       setForm({ ...form, description: "", amount: "", supplier_name: "", invoice_no: "" });
       setOpen(false);
     }
@@ -779,7 +789,20 @@ export function SubcontractorsSection({
   const [payingFor, setPayingFor] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", company_name: "", work_description: "", contract_amount: "" });
   const [payForm, setPayForm] = useState({ amount: "", paid_date: new Date().toISOString().slice(0, 10), description: "" });
-  const [payKey, setPayKey] = useState(newIdempotencyKey);
+  // Anahtar TAŞERON BAŞINA tutulur (tek bir bölüm-geneli anahtar DEĞİL):
+  // aksi halde taşeron A'ya ödeme yanıtı ağ hatasıyla kaybolduğunda, aynı
+  // anahtarla taşeron B'ye yapılan bir sonraki ödeme, sunucu tarafında A'nın
+  // kaydı sanılıp sessizce kaybolabiliyordu (bkz. denetim bulgusu; sunucu
+  // tarafında da idempotency indeksini taşeron bazına indirdik, bu ekleme
+  // savunmanın ikinci katmanıdır). ref kullanılır çünkü değer render'a
+  // yansımaz, yalnızca istek gövdesinde taşınır.
+  const payKeysRef = useRef<Record<string, string>>({});
+  function payKeyFor(subId: string) {
+    if (!payKeysRef.current[subId]) {
+      payKeysRef.current[subId] = newIdempotencyKey();
+    }
+    return payKeysRef.current[subId];
+  }
 
   async function addSub(e: FormEvent) {
     e.preventDefault();
@@ -809,12 +832,12 @@ export function SubcontractorsSection({
           currency: project.currency,
           paid_date: payForm.paid_date,
           description: payForm.description,
-          idempotency_key: payKey,
+          idempotency_key: payKeyFor(subId),
         }),
       })
     );
     if (ok) {
-      setPayKey(newIdempotencyKey());
+      payKeysRef.current[subId] = newIdempotencyKey();
       setPayForm({ ...payForm, amount: "", description: "" });
       setPayingFor(null);
     }

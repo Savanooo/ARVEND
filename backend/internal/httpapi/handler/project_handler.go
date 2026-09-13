@@ -47,16 +47,24 @@ type projectResponse struct {
 	CreatedAt        string  `json:"created_at"`
 	UpdatedAt        string  `json:"updated_at"`
 
-	// Liste ekranı için aggregate finans alanları (yalnızca List'te dolu).
-	CollectedAmount        float64 `json:"collected_amount"`
-	TotalExpenses          float64 `json:"total_expenses"`
-	SubcontractorPaid      float64 `json:"subcontractor_paid"`
-	SubcontractorRemaining float64 `json:"subcontractor_remaining"`
-	RemainingReceivable    float64 `json:"remaining_receivable"`
-	RealizedCost           float64 `json:"realized_cost"`
-	RealizedGrossProfit    float64 `json:"realized_gross_profit"`
-	InvoiceCount           int64   `json:"invoice_count"`
-	PaidInvoiceCount       int64   `json:"paid_invoice_count"`
+	// Liste ekranı için aggregate finans alanları. YALNIZCA List
+	// yanıtında dolu (pointer + omitempty): tekil okuma yollarında
+	// (Get/GetByOffer/Create/Update) bu alanlar hiç sorgulanmadığı için
+	// json'da TAMAMEN YOKTUR -- "0" değeri "gerçek sıfır" ile "bu uçta
+	// hiç hesaplanmadı"yı ayırt edemezdi ve bu, financial-summary'nin
+	// döndürdüğü gerçek (sıfır olmayan) değerlerle çelişen, yanlış finans
+	// bilgisi taşıyan bir yanıt üretiyordu (bkz. denetim bulgusu). Proje
+	// detayının gerçek finans kaynağı her zaman
+	// GET /projects/{id}/financial-summary'dir.
+	CollectedAmount        *float64 `json:"collected_amount,omitempty"`
+	TotalExpenses          *float64 `json:"total_expenses,omitempty"`
+	SubcontractorPaid      *float64 `json:"subcontractor_paid,omitempty"`
+	SubcontractorRemaining *float64 `json:"subcontractor_remaining,omitempty"`
+	RemainingReceivable    *float64 `json:"remaining_receivable,omitempty"`
+	RealizedCost           *float64 `json:"realized_cost,omitempty"`
+	RealizedGrossProfit    *float64 `json:"realized_gross_profit,omitempty"`
+	InvoiceCount           *int64   `json:"invoice_count,omitempty"`
+	PaidInvoiceCount       *int64   `json:"paid_invoice_count,omitempty"`
 }
 
 func toProjectResponse(p domain.Project) projectResponse {
@@ -82,16 +90,20 @@ func toProjectResponse(p domain.Project) projectResponse {
 		CreatedBy:        p.CreatedBy,
 		CreatedAt:        p.CreatedAt.Format(rfc3339),
 		UpdatedAt:        p.UpdatedAt.Format(rfc3339),
-
-		CollectedAmount:        p.CollectedAmount,
-		TotalExpenses:          p.TotalExpenses,
-		SubcontractorPaid:      p.SubcontractorPaid,
-		SubcontractorRemaining: p.SubcontractorRemaining,
-		RemainingReceivable:    p.RemainingReceivable(),
-		RealizedCost:           p.RealizedCost(),
-		RealizedGrossProfit:    p.RealizedGrossProfit(),
-		InvoiceCount:           p.InvoiceCount,
-		PaidInvoiceCount:       p.PaidInvoiceCount,
+	}
+	if p.HasFinanceAggregates {
+		resp.CollectedAmount = &p.CollectedAmount
+		resp.TotalExpenses = &p.TotalExpenses
+		resp.SubcontractorPaid = &p.SubcontractorPaid
+		resp.SubcontractorRemaining = &p.SubcontractorRemaining
+		remaining := p.RemainingReceivable()
+		resp.RemainingReceivable = &remaining
+		realizedCost := p.RealizedCost()
+		resp.RealizedCost = &realizedCost
+		realizedProfit := p.RealizedGrossProfit()
+		resp.RealizedGrossProfit = &realizedProfit
+		resp.InvoiceCount = &p.InvoiceCount
+		resp.PaidInvoiceCount = &p.PaidInvoiceCount
 	}
 	if p.StartDate != nil {
 		s := p.StartDate.Format(dateLayout)
@@ -245,8 +257,11 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, service.ErrInvalidEmployee),
 		errors.Is(err, service.ErrInvalidSchedule),
 		errors.Is(err, service.ErrUnsupportedType),
-		errors.Is(err, service.ErrFileTooLarge):
+		errors.Is(err, service.ErrFileTooLarge),
+		errors.Is(err, service.ErrEmptyFile):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, service.ErrStorageFailure):
+		writeInternalError(w, err)
 	case isInternalError(err):
 		writeInternalError(w, err)
 	default:

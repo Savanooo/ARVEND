@@ -90,12 +90,17 @@ func (h *ProjectHandler) ListPaymentPlan(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	out := make([]paymentPlanItemResponse, len(items))
-	var plannedTotal float64
 	for i, it := range items {
 		out[i] = toPaymentPlanItemResponse(it)
-		if it.Status != domain.PlanItemCancelled {
-			plannedTotal += it.PlannedAmount
-		}
+	}
+	// Toplam SQL/numeric üzerinde hesaplanır (Go'da float64 satır satır
+	// toplama YERİNE) -- aksi halde financial-summary'nin
+	// "planned_collections" alanıyla ikili yuvarlama farkından ötürü
+	// ayrışabiliyordu (bkz. denetim bulgusu).
+	plannedTotal, err := h.svc.GetPaymentPlanTotal(r.Context(), chi.URLParam(r, "id"), orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"items": out, "planned_total": plannedTotal})
 }
@@ -262,21 +267,22 @@ func toExpenseResponse(e domain.Expense) expenseResponse {
 }
 
 type expenseRequest struct {
-	Category     string  `json:"category"`
-	Description  string  `json:"description"`
-	Amount       float64 `json:"amount"`
-	Currency     string  `json:"currency"`
-	ExpenseDate  string  `json:"expense_date"`
-	SupplierName string  `json:"supplier_name"`
-	InvoiceNo    string  `json:"invoice_no"`
-	Notes        string  `json:"notes"`
+	Category       string  `json:"category"`
+	Description    string  `json:"description"`
+	Amount         float64 `json:"amount"`
+	Currency       string  `json:"currency"`
+	ExpenseDate    string  `json:"expense_date"`
+	SupplierName   string  `json:"supplier_name"`
+	InvoiceNo      string  `json:"invoice_no"`
+	Notes          string  `json:"notes"`
+	IdempotencyKey string  `json:"idempotency_key"`
 }
 
 func (r expenseRequest) toInput(userID string) service.ExpenseInput {
 	return service.ExpenseInput{
 		Category: r.Category, Description: r.Description, Amount: r.Amount, Currency: r.Currency,
 		ExpenseDate: parseDateOrToday(r.ExpenseDate), SupplierName: r.SupplierName,
-		InvoiceNo: r.InvoiceNo, Notes: r.Notes, UserID: userID,
+		InvoiceNo: r.InvoiceNo, Notes: r.Notes, IdempotencyKey: r.IdempotencyKey, UserID: userID,
 	}
 }
 

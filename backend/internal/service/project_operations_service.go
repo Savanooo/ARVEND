@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -24,8 +25,14 @@ var (
 	ErrInvalidEmployee  = errors.New("geçersiz personel")
 	ErrInvalidSchedule  = errors.New("geçersiz planlama aşaması")
 	ErrFileTooLarge     = errors.New("dosya boyutu sınırı aşıldı")
+	ErrEmptyFile        = errors.New("boş dosya yüklenemez")
 	ErrUnsupportedType  = errors.New("bu dosya türü kabul edilmiyor")
 	ErrDuplicateContent = errors.New("bu dosya bu projeye zaten yüklenmiş")
+	// ErrStorageFailure, depolama katmanından (dosya sistemi) gelen HAM
+	// hatanın istemciye YANSITILMAMASI için kullanılan genel sentinel'dir.
+	// Gerçek hata (ör. *fs.PathError -- sunucunun mutlak depolama yolunu
+	// taşır) yalnızca sunucu logunda görünür (bkz. wrapStorageErr).
+	ErrStorageFailure = errors.New("dosya işlemi sırasında bir hata oluştu")
 )
 
 // MaxUploadBytes, tek bir yükleme için üst sınırdır (25 MB).
@@ -50,11 +57,26 @@ var allowedFileTypes = map[string]bool{
 // sniffMIME, içeriğin ilk 512 baytından gerçek türü tespit eder ve
 // okunan baytları geri "iade eden" yeni bir reader döner (akış
 // kaybolmasın diye).
-func sniffMIME(r io.Reader) (string, io.Reader, error) {
+// wrapStorageErr, depolama katmanından gelen HAM hatayı (ör. *fs.PathError
+// -- sunucunun mutlak dosya yolunu taşır) sunucu loguna yazar ve
+// istemciye yalnızca genel bir sentinel döner. Handler bu sentinel'i
+// 500'e eşler; ham metin ASLA HTTP yanıtına sızmaz.
+func wrapStorageErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	log.Printf("depolama hatası: %v", err)
+	return ErrStorageFailure
+}
+
+// sniffMIME, ilk 512 bayttan MIME türünü tespit eder ve okuduğu bayt
+// sayısını (n) döner -- çağıran, n == 0 ise gövdenin tamamen boş
+// olduğunu anlar ve hiçbir şey depolamaya yazılmadan reddedebilir.
+func sniffMIME(r io.Reader) (string, io.Reader, int, error) {
 	head := make([]byte, 512)
 	n, err := io.ReadFull(r, head)
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-		return "", nil, err
+		return "", nil, 0, err
 	}
 	head = head[:n]
 	mime := http.DetectContentType(head)
@@ -62,7 +84,7 @@ func sniffMIME(r io.Reader) (string, io.Reader, error) {
 	if i := strings.IndexByte(mime, ';'); i >= 0 {
 		mime = strings.TrimSpace(mime[:i])
 	}
-	return mime, io.MultiReader(bytes.NewReader(head), r), nil
+	return mime, io.MultiReader(bytes.NewReader(head), r), n, nil
 }
 
 // ---------- Ekip ----------
@@ -524,7 +546,10 @@ func (s *ProjectService) UpdateTask(ctx context.Context, taskID, organizationID 
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	current, err := txq.GetTask(ctx, sqlc.GetTaskParams{ID: tid, OrganizationID: orgID})
+	// KİLİT ALTINDA okunur: aksi halde iki eşzamanlı "durumu completed
+	// yap" isteği ikisi de aynı eski (completed öncesi) satırı görüp İKİ
+	// kez task_completed olayı yazabilirdi (bkz. denetim bulgusu).
+	current, err := txq.GetTaskForUpdate(ctx, sqlc.GetTaskForUpdateParams{ID: tid, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -601,8 +626,15 @@ func (s *ProjectService) CompleteTask(ctx context.Context, taskID, organizationI
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Ya yok/başka firmaya ait ya da zaten tamamlanmış: ikinci
-			// durumda mevcut kaydı döndürüp idempotent davranıyoruz.
-			existing, gerr := s.q.GetTask(ctx, sqlc.GetTaskParams{ID: tid, OrganizationID: orgID})
+			// durumda mevcut kaydı döndürüp idempotent davranıyoruz. AYNI
+			// transaction/bağlantı (txq) üzerinden okunur -- s.q (havuz)
+			// kullanmak her tekrarlı "tamamla" isteğinde FAZLADAN bir
+			// havuz bağlantısı tüketip yüksek eşzamanlılıkta havuzu
+			// tüketebilirdi (bkz. denetim bulgusu). Buradaki
+			// CompleteTask'ın kendisi bir hata DÖNDÜRMEDİĞİ (yalnızca 0
+			// satır etkilediği) için transaction "aborted" durumda
+			// DEĞİLDİR; aynı tx üzerinden okumak güvenlidir.
+			existing, gerr := txq.GetTask(ctx, sqlc.GetTaskParams{ID: tid, OrganizationID: orgID})
 			if gerr != nil {
 				return nil, domain.ErrNotFound
 			}
@@ -639,9 +671,16 @@ type UploadInput struct {
 // Kullanıcının gönderdiği ad YALNIZCA görüntüleme için saklanır; anahtara
 // yalnızca doğrulanmış uzantı girer.
 func (s *ProjectService) storeUpload(ctx context.Context, kind, orgID, projectID, originalName string, r io.Reader, imagesOnly bool) (storage.Object, string, error) {
-	mime, body, err := sniffMIME(io.LimitReader(r, MaxUploadBytes+1))
+	mime, body, n, err := sniffMIME(io.LimitReader(r, MaxUploadBytes+1))
 	if err != nil {
 		return storage.Object{}, "", err
+	}
+	// Boş gövde HİÇBİR ŞEY diske yazılmadan reddedilir: aksi halde
+	// project_files.size_bytes > 0 CHECK kısıtı ihlal edilip 500 üretirdi
+	// (bkz. denetim bulgusu) -- bu doğrulama hatası olduğu için 400
+	// olarak dönmelidir.
+	if n == 0 {
+		return storage.Object{}, "", ErrEmptyFile
 	}
 	if imagesOnly {
 		if !strings.HasPrefix(mime, "image/") {
@@ -656,7 +695,7 @@ func (s *ProjectService) storeUpload(ctx context.Context, kind, orgID, projectID
 
 	obj, err := s.store.Put(ctx, key, body)
 	if err != nil {
-		return storage.Object{}, "", err
+		return storage.Object{}, "", wrapStorageErr(err)
 	}
 	if obj.Size > MaxUploadBytes {
 		_ = s.store.Delete(ctx, key)
@@ -687,8 +726,17 @@ func (s *ProjectService) UploadFile(ctx context.Context, projectID, organization
 	}
 
 	// Proje sahipliği ve durumu, HERHANGİ bir bayt diske yazılmadan önce
-	// doğrulanır.
-	if _, err := s.requireOpenProject(ctx, s.q, pid, orgID); err != nil {
+	// doğrulanır. Kayıt ve olay yazımı TEK transaction içinde yapılır --
+	// aksi halde (eskiden olduğu gibi) satır oluşup olay yazılamazsa
+	// veya tam tersi olursa denetim izi kaydı tutarsız kalabilirdi.
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
 		return nil, err
 	}
 
@@ -697,7 +745,7 @@ func (s *ProjectService) UploadFile(ctx context.Context, projectID, organization
 		return nil, err
 	}
 
-	row, err := s.q.CreateProjectFile(ctx, sqlc.CreateProjectFileParams{
+	row, err := txq.CreateProjectFile(ctx, sqlc.CreateProjectFileParams{
 		OrganizationID: orgID,
 		ProjectID:      pid,
 		OriginalName:   name,
@@ -711,6 +759,10 @@ func (s *ProjectService) UploadFile(ctx context.Context, projectID, organization
 	})
 	if err != nil {
 		// Aynı içerik zaten yüklenmiş: yeni nesneyi sil, mevcut kaydı dön.
+		// DİKKAT: bir INSERT hatası transaction'ı "aborted" duruma
+		// düşürür -- kurtarma sorgusu aynı tx (txq) ÜZERİNDEN DEĞİL,
+		// havuzdan (s.q) çalıştırılmalıdır (bkz. CreateCollection'daki
+		// aynı desen).
 		if isUniqueViolation(err) {
 			_ = s.store.Delete(ctx, key)
 			if existing, gerr := s.q.GetProjectFileBySHA(ctx, sqlc.GetProjectFileBySHAParams{
@@ -724,8 +776,13 @@ func (s *ProjectService) UploadFile(ctx context.Context, projectID, organization
 		return nil, err
 	}
 
-	if err := logProjectEvent(ctx, s.q, orgID, pid, domain.ProjectEventFileUploaded, actorUUID(in.UserID),
+	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventFileUploaded, actorUUID(in.UserID),
 		map[string]any{"file_id": row.ID.String(), "name": name, "category": category}); err != nil {
+		_ = s.store.Delete(ctx, key)
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		_ = s.store.Delete(ctx, key)
 		return nil, err
 	}
 	out := repository.ToDomainProjectFile(row)
@@ -769,7 +826,7 @@ func (s *ProjectService) OpenFile(ctx context.Context, fileID, organizationID st
 	}
 	rc, err := s.store.Open(ctx, row.ObjectKey)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, wrapStorageErr(err)
 	}
 	out := repository.ToDomainProjectFile(row)
 	return &out, rc, nil
@@ -828,7 +885,14 @@ func (s *ProjectService) UploadPhoto(ctx context.Context, projectID, organizatio
 		name = string([]rune(name)[:255])
 	}
 
-	if _, err := s.requireOpenProject(ctx, s.q, pid, orgID); err != nil {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
 		return nil, err
 	}
 
@@ -838,7 +902,7 @@ func (s *ProjectService) UploadPhoto(ctx context.Context, projectID, organizatio
 		return nil, err
 	}
 
-	row, err := s.q.CreateProjectPhoto(ctx, sqlc.CreateProjectPhotoParams{
+	row, err := txq.CreateProjectPhoto(ctx, sqlc.CreateProjectPhotoParams{
 		OrganizationID: orgID,
 		ProjectID:      pid,
 		OriginalName:   name,
@@ -852,6 +916,8 @@ func (s *ProjectService) UploadPhoto(ctx context.Context, projectID, organizatio
 		UploadedBy:     actorUUID(in.UserID),
 	})
 	if err != nil {
+		// bkz. UploadFile: kurtarma sorgusu havuzdan (s.q) çalışır --
+		// bu noktada txq'nun transaction'ı "aborted" durumdadır.
 		if isUniqueViolation(err) {
 			_ = s.store.Delete(ctx, key)
 			if existing, gerr := s.q.GetProjectPhotoBySHA(ctx, sqlc.GetProjectPhotoBySHAParams{
@@ -865,8 +931,13 @@ func (s *ProjectService) UploadPhoto(ctx context.Context, projectID, organizatio
 		return nil, err
 	}
 
-	if err := logProjectEvent(ctx, s.q, orgID, pid, domain.ProjectEventPhotoUploaded, actorUUID(in.UserID),
+	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventPhotoUploaded, actorUUID(in.UserID),
 		map[string]any{"photo_id": row.ID.String(), "stage": stage}); err != nil {
+		_ = s.store.Delete(ctx, key)
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		_ = s.store.Delete(ctx, key)
 		return nil, err
 	}
 	out := repository.ToDomainProjectPhoto(row)
@@ -907,7 +978,7 @@ func (s *ProjectService) OpenPhoto(ctx context.Context, photoID, organizationID 
 	}
 	rc, err := s.store.Open(ctx, row.ObjectKey)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, wrapStorageErr(err)
 	}
 	out := repository.ToDomainProjectPhoto(row)
 	return &out, rc, nil

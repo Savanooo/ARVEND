@@ -260,6 +260,7 @@ type ProjectExpense struct {
 	VoidedAt       pgtype.Timestamptz `json:"voided_at"`
 	VoidedBy       pgtype.UUID        `json:"voided_by"`
 	VoidReason     string             `json:"void_reason"`
+	IdempotencyKey *string            `json:"idempotency_key"`
 }
 
 type ProjectFile struct {

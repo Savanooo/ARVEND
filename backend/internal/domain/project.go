@@ -92,6 +92,15 @@ type Project struct {
 	SubcontractorRemaining float64
 	InvoiceCount           int64
 	PaidInvoiceCount       int64
+	// HasFinanceAggregates, yukarıdaki finans kolonlarının GERÇEKTEN
+	// doldurulduğunu söyler -- yalnızca liste sorgusundan (ListProjects)
+	// gelen satırlarda true'dur. Tekil okuma yollarında (Get/GetByOffer/
+	// Create/Update) bu alanlar SIFIR kalır çünkü hiç sorgulanmazlar;
+	// bu bayrak olmadan API yanıtı "gerçek sıfır" ile "hiç hesaplanmadı"
+	// durumunu ayırt edemez ve yanlış finans bilgisi sızdırabilirdi
+	// (bkz. denetim bulgusu: detay ucu tüm finans alanlarını 0 olarak
+	// dönüyordu, oysa gerçek değerler farklıydı).
+	HasFinanceAggregates bool
 }
 
 // RemainingReceivable, bakiyedir; negatif olabilir (fazla tahsilat).

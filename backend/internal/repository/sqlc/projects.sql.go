@@ -170,6 +170,51 @@ func (q *Queries) GetProjectByID(ctx context.Context, arg GetProjectByIDParams) 
 	return i, err
 }
 
+const getProjectByIDForUpdate = `-- name: GetProjectByIDForUpdate :one
+SELECT id, organization_id, project_no, name, project_type, source_offer_id, source_revision_id, customer_id, customer_name, customer_phone, customer_email, customer_address, contract_amount, currency, status, start_date, end_date, description, internal_notes, created_by, created_at, updated_at FROM projects WHERE id = $1 AND organization_id = $2 FOR UPDATE
+`
+
+type GetProjectByIDForUpdateParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+// GetProjectByIDForUpdate, projects satırını KİLİT ALTINDA okur. Finans
+// hareketi oluşturan her uç bunu kullanır: aksi halde bir "proje
+// tamamlandı/iptal edildi" güncellemesi ile bir "yeni hareket ekle"
+// isteği aynı anda çakışırsa, kilit kontrolü (requireOpenProject) eski
+// (kilitlenmemiş) durumu görüp hareketin geçmesine izin verebilirdi
+// (bkz. denetim bulgusu -- TOCTOU).
+func (q *Queries) GetProjectByIDForUpdate(ctx context.Context, arg GetProjectByIDForUpdateParams) (Project, error) {
+	row := q.db.QueryRow(ctx, getProjectByIDForUpdate, arg.ID, arg.OrganizationID)
+	var i Project
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ProjectNo,
+		&i.Name,
+		&i.ProjectType,
+		&i.SourceOfferID,
+		&i.SourceRevisionID,
+		&i.CustomerID,
+		&i.CustomerName,
+		&i.CustomerPhone,
+		&i.CustomerEmail,
+		&i.CustomerAddress,
+		&i.ContractAmount,
+		&i.Currency,
+		&i.Status,
+		&i.StartDate,
+		&i.EndDate,
+		&i.Description,
+		&i.InternalNotes,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getProjectBySourceOffer = `-- name: GetProjectBySourceOffer :one
 SELECT id, organization_id, project_no, name, project_type, source_offer_id, source_revision_id, customer_id, customer_name, customer_phone, customer_email, customer_address, contract_amount, currency, status, start_date, end_date, description, internal_notes, created_by, created_at, updated_at FROM projects WHERE source_offer_id = $1 AND organization_id = $2
 ORDER BY created_at DESC LIMIT 1
@@ -252,16 +297,16 @@ func (q *Queries) GetProjectBySourceRevision(ctx context.Context, arg GetProject
 const listProjects = `-- name: ListProjects :many
 SELECT p.id, p.organization_id, p.project_no, p.name, p.project_type, p.source_offer_id, p.source_revision_id, p.customer_id, p.customer_name, p.customer_phone, p.customer_email, p.customer_address, p.contract_amount, p.currency, p.status, p.start_date, p.end_date, p.description, p.internal_notes, p.created_by, p.created_at, p.updated_at, o.offer_no, r.revision_no,
     COALESCE((SELECT sum(c.amount) FROM project_collections c
-              WHERE c.project_id = p.id AND c.voided_at IS NULL), 0)::numeric(12,2) AS collected_amount,
+              WHERE c.project_id = p.id AND c.voided_at IS NULL), 0)::numeric(18,2) AS collected_amount,
     COALESCE((SELECT sum(e.amount) FROM project_expenses e
-              WHERE e.project_id = p.id AND e.voided_at IS NULL), 0)::numeric(12,2) AS total_expenses,
+              WHERE e.project_id = p.id AND e.voided_at IS NULL), 0)::numeric(18,2) AS total_expenses,
     COALESCE((SELECT sum(sp.amount) FROM project_subcontractor_payments sp
-              WHERE sp.project_id = p.id AND sp.voided_at IS NULL), 0)::numeric(12,2) AS subcontractor_paid,
+              WHERE sp.project_id = p.id AND sp.voided_at IS NULL), 0)::numeric(18,2) AS subcontractor_paid,
     COALESCE((SELECT sum(GREATEST(s.contract_amount - COALESCE((
                   SELECT sum(sp2.amount) FROM project_subcontractor_payments sp2
                   WHERE sp2.subcontractor_id = s.id AND sp2.voided_at IS NULL), 0), 0))
               FROM project_subcontractors s
-              WHERE s.project_id = p.id AND s.status <> 'cancelled'), 0)::numeric(12,2) AS subcontractor_remaining,
+              WHERE s.project_id = p.id AND s.status <> 'cancelled'), 0)::numeric(18,2) AS subcontractor_remaining,
     COALESCE((SELECT count(*) FROM project_invoices i
               WHERE i.project_id = p.id AND i.invoice_type = 'sales' AND i.status <> 'cancelled'), 0)::bigint AS invoice_count,
     COALESCE((SELECT count(*) FROM project_invoices i

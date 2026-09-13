@@ -14,6 +14,15 @@ RETURNING *;
 -- name: GetProjectByID :one
 SELECT * FROM projects WHERE id = $1 AND organization_id = $2;
 
+-- GetProjectByIDForUpdate, projects satırını KİLİT ALTINDA okur. Finans
+-- hareketi oluşturan her uç bunu kullanır: aksi halde bir "proje
+-- tamamlandı/iptal edildi" güncellemesi ile bir "yeni hareket ekle"
+-- isteği aynı anda çakışırsa, kilit kontrolü (requireOpenProject) eski
+-- (kilitlenmemiş) durumu görüp hareketin geçmesine izin verebilirdi
+-- (bkz. denetim bulgusu -- TOCTOU).
+-- name: GetProjectByIDForUpdate :one
+SELECT * FROM projects WHERE id = $1 AND organization_id = $2 FOR UPDATE;
+
 -- name: GetProjectBySourceRevision :one
 SELECT * FROM projects WHERE source_revision_id = $1 AND organization_id = $2;
 
@@ -28,16 +37,16 @@ ORDER BY created_at DESC LIMIT 1;
 -- name: ListProjects :many
 SELECT p.*, o.offer_no, r.revision_no,
     COALESCE((SELECT sum(c.amount) FROM project_collections c
-              WHERE c.project_id = p.id AND c.voided_at IS NULL), 0)::numeric(12,2) AS collected_amount,
+              WHERE c.project_id = p.id AND c.voided_at IS NULL), 0)::numeric(18,2) AS collected_amount,
     COALESCE((SELECT sum(e.amount) FROM project_expenses e
-              WHERE e.project_id = p.id AND e.voided_at IS NULL), 0)::numeric(12,2) AS total_expenses,
+              WHERE e.project_id = p.id AND e.voided_at IS NULL), 0)::numeric(18,2) AS total_expenses,
     COALESCE((SELECT sum(sp.amount) FROM project_subcontractor_payments sp
-              WHERE sp.project_id = p.id AND sp.voided_at IS NULL), 0)::numeric(12,2) AS subcontractor_paid,
+              WHERE sp.project_id = p.id AND sp.voided_at IS NULL), 0)::numeric(18,2) AS subcontractor_paid,
     COALESCE((SELECT sum(GREATEST(s.contract_amount - COALESCE((
                   SELECT sum(sp2.amount) FROM project_subcontractor_payments sp2
                   WHERE sp2.subcontractor_id = s.id AND sp2.voided_at IS NULL), 0), 0))
               FROM project_subcontractors s
-              WHERE s.project_id = p.id AND s.status <> 'cancelled'), 0)::numeric(12,2) AS subcontractor_remaining,
+              WHERE s.project_id = p.id AND s.status <> 'cancelled'), 0)::numeric(18,2) AS subcontractor_remaining,
     COALESCE((SELECT count(*) FROM project_invoices i
               WHERE i.project_id = p.id AND i.invoice_type = 'sales' AND i.status <> 'cancelled'), 0)::bigint AS invoice_count,
     COALESCE((SELECT count(*) FROM project_invoices i

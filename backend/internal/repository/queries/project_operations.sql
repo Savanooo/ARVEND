@@ -69,6 +69,13 @@ ORDER BY (status = 'completed' OR status = 'cancelled'),
 -- name: GetTask :one
 SELECT * FROM project_tasks WHERE id = $1 AND organization_id = $2;
 
+-- GetTaskForUpdate, satırı KİLİT ALTINDA okur. UpdateTask bunu kullanır:
+-- aksi halde iki eşzamanlı "durumu completed yap" isteği ikisi de eski
+-- (completed öncesi) durumu görüp İKİ kez task_completed olayı
+-- yazabilirdi (bkz. denetim bulgusu).
+-- name: GetTaskForUpdate :one
+SELECT * FROM project_tasks WHERE id = $1 AND organization_id = $2 FOR UPDATE;
+
 -- UpdateTask, completed_at'i durumla TUTARLI yazar: tamamlandıysa o anki
 -- zaman, değilse NULL (DB'deki CHECK kısıtı da bunu zorunlu kılar).
 -- name: UpdateTask :one

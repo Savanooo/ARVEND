@@ -16,7 +16,7 @@ SELECT * FROM project_payment_plan_items WHERE id = $1 AND organization_id = $2;
 -- name: ListPaymentPlanItems :many
 SELECT p.*,
        COALESCE((SELECT sum(c.amount) FROM project_collections c
-                 WHERE c.payment_plan_item_id = p.id AND c.voided_at IS NULL), 0)::numeric(12,2) AS collected_amount
+                 WHERE c.payment_plan_item_id = p.id AND c.voided_at IS NULL), 0)::numeric(18,2) AS collected_amount
 FROM project_payment_plan_items p
 WHERE p.project_id = $1 AND p.organization_id = $2
 ORDER BY p.sort_order ASC, p.created_at ASC;
@@ -32,6 +32,16 @@ UPDATE project_payment_plan_items SET status = 'cancelled'
 WHERE id = $1 AND organization_id = $2 AND status <> 'cancelled'
 RETURNING *;
 
+-- GetPaymentPlanTotal, planlanan toplamı SQL/numeric üzerinde hesaplar.
+-- Bu değer daha önce Go'da float64 ile satır satır toplanıyordu; aynı
+-- kalemlerin financial-summary'deki "planned_collections" alanıyla ikili
+-- birleştirme sırasında ikili (float) yuvarlama farkından ötürü
+-- ayrışabiliyordu (bkz. denetim bulgusu).
+-- name: GetPaymentPlanTotal :one
+SELECT COALESCE(sum(planned_amount), 0)::numeric(18,2) AS total
+FROM project_payment_plan_items
+WHERE project_id = $1 AND organization_id = $2 AND status <> 'cancelled';
+
 -- ============ Tahsilatlar ============
 
 -- name: CreateCollection :one
@@ -40,6 +50,12 @@ INSERT INTO project_collections (
     received_date, payment_method, description, reference_no, idempotency_key, created_by
 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 RETURNING *;
+
+-- GetCollection, void durumundan BAĞIMSIZ okur. VoidCollection'ın
+-- "bulunamadı" ile "zaten iptal edilmiş" durumlarını ayırt etmesi için
+-- kullanılır (bkz. denetim bulgusu: ikisi de yanlışlıkla 404 dönüyordu).
+-- name: GetCollection :one
+SELECT * FROM project_collections WHERE id = $1 AND organization_id = $2;
 
 -- name: GetCollectionByIdempotencyKey :one
 SELECT * FROM project_collections
@@ -61,9 +77,17 @@ RETURNING *;
 -- name: CreateExpense :one
 INSERT INTO project_expenses (
     organization_id, project_id, category, description, amount, currency,
-    expense_date, supplier_name, invoice_no, notes, created_by
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+    expense_date, supplier_name, invoice_no, notes, idempotency_key, created_by
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 RETURNING *;
+
+-- GetExpense, void durumundan BAĞIMSIZ okur (bkz. GetCollection notu).
+-- name: GetExpense :one
+SELECT * FROM project_expenses WHERE id = $1 AND organization_id = $2;
+
+-- name: GetExpenseByIdempotencyKey :one
+SELECT * FROM project_expenses
+WHERE project_id = $1 AND idempotency_key = $2;
 
 -- name: ListExpenses :many
 SELECT * FROM project_expenses
@@ -122,7 +146,7 @@ SELECT * FROM project_subcontractors WHERE id = $1 AND organization_id = $2;
 -- name: ListSubcontractors :many
 SELECT s.*,
        COALESCE((SELECT sum(p.amount) FROM project_subcontractor_payments p
-                 WHERE p.subcontractor_id = s.id AND p.voided_at IS NULL), 0)::numeric(12,2) AS paid_amount
+                 WHERE p.subcontractor_id = s.id AND p.voided_at IS NULL), 0)::numeric(18,2) AS paid_amount
 FROM project_subcontractors s
 WHERE s.project_id = $1 AND s.organization_id = $2
 ORDER BY s.created_at ASC;
@@ -143,9 +167,18 @@ INSERT INTO project_subcontractor_payments (
 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 RETURNING *;
 
+-- GetSubcontractorPayment, void durumundan BAĞIMSIZ okur (bkz.
+-- GetCollection notu).
+-- name: GetSubcontractorPayment :one
+SELECT * FROM project_subcontractor_payments WHERE id = $1 AND organization_id = $2;
+
+-- GetSubcontractorPaymentByIdempotencyKey, anahtarı TAŞERON bazında
+-- arar (proje bazında DEĞİL) -- aksi halde aynı projede iki farklı
+-- taşerona aynı anahtarla girilen ödemelerden biri diğerinin kaydı
+-- sanılıp sessizce kaybolurdu (bkz. 0026 migration notu).
 -- name: GetSubcontractorPaymentByIdempotencyKey :one
 SELECT * FROM project_subcontractor_payments
-WHERE project_id = $1 AND idempotency_key = $2;
+WHERE subcontractor_id = $1 AND idempotency_key = $2;
 
 -- name: ListSubcontractorPayments :many
 SELECT * FROM project_subcontractor_payments
@@ -174,30 +207,30 @@ WITH proj AS (
     WHERE pr.id = $1 AND pr.organization_id = $2
 ),
 coll AS (
-    SELECT COALESCE(sum(amount), 0)::numeric(12,2) AS total
+    SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
     FROM project_collections WHERE project_id = $1 AND voided_at IS NULL
 ),
 planned AS (
-    SELECT COALESCE(sum(planned_amount), 0)::numeric(12,2) AS total
+    SELECT COALESCE(sum(planned_amount), 0)::numeric(18,2) AS total
     FROM project_payment_plan_items WHERE project_id = $1 AND status <> 'cancelled'
 ),
 expense_total AS (
-    SELECT COALESCE(sum(amount), 0)::numeric(12,2) AS total
+    SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
     FROM project_expenses WHERE project_id = $1 AND voided_at IS NULL
 ),
 subpay AS (
-    SELECT COALESCE(sum(amount), 0)::numeric(12,2) AS total
+    SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
     FROM project_subcontractor_payments WHERE project_id = $1 AND voided_at IS NULL
 ),
 subcommit AS (
     -- İptal edilmiş taşeron sözleşmeleri taahhüde dahil edilmez.
-    SELECT COALESCE(sum(contract_amount), 0)::numeric(12,2) AS total
+    SELECT COALESCE(sum(contract_amount), 0)::numeric(18,2) AS total
     FROM project_subcontractors WHERE project_id = $1 AND status <> 'cancelled'
 ),
 subremaining AS (
     -- Kalan taahhüt taşeron BAŞINA hesaplanır ve negatife düşürülmez:
     -- fazla ödenmiş bir taşeron, diğerlerinin kalan taahhüdünü azaltmamalı.
-    SELECT COALESCE(sum(GREATEST(s.contract_amount - COALESCE(p.paid, 0), 0)), 0)::numeric(12,2) AS total
+    SELECT COALESCE(sum(GREATEST(s.contract_amount - COALESCE(p.paid, 0), 0)), 0)::numeric(18,2) AS total
     FROM project_subcontractors s
     LEFT JOIN (
         SELECT subcontractor_id, sum(amount) AS paid
@@ -208,8 +241,8 @@ subremaining AS (
 ),
 inv AS (
     SELECT
-        COALESCE(sum(amount) FILTER (WHERE status IN ('issued','sent','paid')), 0)::numeric(12,2) AS issued_total,
-        COALESCE(sum(amount) FILTER (WHERE status = 'paid'), 0)::numeric(12,2) AS paid_total
+        COALESCE(sum(amount) FILTER (WHERE status IN ('issued','sent','paid')), 0)::numeric(18,2) AS issued_total,
+        COALESCE(sum(amount) FILTER (WHERE status = 'paid'), 0)::numeric(18,2) AS paid_total
     FROM project_invoices WHERE project_id = $1 AND invoice_type = 'sales'
 )
 SELECT
@@ -217,23 +250,31 @@ SELECT
     proj.currency,
     planned.total AS planned_collections,
     coll.total    AS collected_amount,
-    (proj.contract_amount - coll.total)::numeric(12,2) AS remaining_receivable,
+    (proj.contract_amount - coll.total)::numeric(18,2) AS remaining_receivable,
     expense_total.total     AS total_expenses,
     subcommit.total    AS total_subcontractor_commitment,
     subpay.total       AS subcontractor_paid,
     subremaining.total AS subcontractor_remaining,
     inv.issued_total   AS issued_invoice_total,
     inv.paid_total     AS paid_invoice_total,
-    (expense_total.total + subpay.total)::numeric(12,2) AS realized_cost,
-    (expense_total.total + subpay.total + subremaining.total)::numeric(12,2) AS committed_cost,
-    (proj.contract_amount - (expense_total.total + subpay.total))::numeric(12,2) AS realized_gross_profit,
-    (proj.contract_amount - (expense_total.total + subpay.total + subremaining.total))::numeric(12,2) AS estimated_gross_profit,
+    (expense_total.total + subpay.total)::numeric(18,2) AS realized_cost,
+    (expense_total.total + subpay.total + subremaining.total)::numeric(18,2) AS committed_cost,
+    (proj.contract_amount - (expense_total.total + subpay.total))::numeric(18,2) AS realized_gross_profit,
+    (proj.contract_amount - (expense_total.total + subpay.total + subremaining.total))::numeric(18,2) AS estimated_gross_profit,
+    -- Marj yüzdesi matematiksel olarak SINIRSIZDIR (küçük bir sözleşme
+    -- bedeline karşı çok büyük bir maliyet girilirse oran patlar). Cast
+    -- overflow'la 500 üretmek yerine GREATEST/LEAST ile makul ama geniş
+    -- bir bant içine (±99.999.999,99%) kelepçelenir -- gerçek/gerçekçi
+    -- hiçbir proje bu bandı zorlamaz, yalnızca veri girişi hatalarında
+    -- doygunlaşır (bkz. denetim bulgusu: eski numeric(7,2) taşıyordu).
     CASE WHEN proj.contract_amount > 0
-         THEN round((proj.contract_amount - (expense_total.total + subpay.total)) * 100 / proj.contract_amount, 2)
-         ELSE 0 END::numeric(7,2) AS realized_margin_percent,
+         THEN GREATEST(-99999999.99, LEAST(99999999.99,
+              round((proj.contract_amount - (expense_total.total + subpay.total)) * 100 / proj.contract_amount, 2)))
+         ELSE 0 END::numeric(10,2) AS realized_margin_percent,
     CASE WHEN proj.contract_amount > 0
-         THEN round((proj.contract_amount - (expense_total.total + subpay.total + subremaining.total)) * 100 / proj.contract_amount, 2)
-         ELSE 0 END::numeric(7,2) AS estimated_margin_percent
+         THEN GREATEST(-99999999.99, LEAST(99999999.99,
+              round((proj.contract_amount - (expense_total.total + subpay.total + subremaining.total)) * 100 / proj.contract_amount, 2)))
+         ELSE 0 END::numeric(10,2) AS estimated_margin_percent
 FROM proj, coll, planned, expense_total, subpay, subcommit, subremaining, inv;
 
 -- ============ Proje Olayları (audit) ============

@@ -110,7 +110,7 @@ export default async function ProjeDetayPage({
     apiServer<{ files: ProjectFile[] }>(`${base}/files`, cookieHeader),
     apiServer<{ photos: ProjectPhoto[] }>(`${base}/photos`, cookieHeader),
     apiServer<{ notes: ProjectNote[] }>(`${base}/notes`, cookieHeader),
-    apiServer<{ employees: Employee[] }>(`/api/v1/employees`, cookieHeader),
+    apiServer<{ employees: Employee[] }>(`/api/v1/employees?filter=aktif`, cookieHeader),
   ]);
 
   // Tamamlanmış/iptal edilmiş projede finans hareketleri kilitlidir --

@@ -112,6 +112,23 @@ type PaymentPlanItem struct {
 	Status string
 }
 
+// IsPastDue, dueDate'in "bugün"den (now'un takvim günü) önce olup
+// olmadığını söyler -- vade GÜNÜNÜN kendisi henüz gecikmiş sayılmaz.
+// dueDate bir "date" kolonundan gelir (saat bileşeni anlamsızdır); bu
+// yüzden karşılaştırma iki zaman DAMGASI değil, iki TAKVİM GÜNÜ arasında
+// yapılır. SQL tarafındaki "due_date < CURRENT_DATE" kuralıyla birebir
+// aynı semantiği taşır (bkz. project_operations.sql CountProjectTaskStats).
+func IsPastDue(dueDate *time.Time, now time.Time) bool {
+	if dueDate == nil {
+		return false
+	}
+	dy, dm, dd := dueDate.Date()
+	ny, nm, nd := now.Date()
+	due := time.Date(dy, dm, dd, 0, 0, 0, 0, time.UTC)
+	today := time.Date(ny, nm, nd, 0, 0, 0, 0, time.UTC)
+	return due.Before(today)
+}
+
 // EffectivePlanItemStatus, kalemin gerçek durumunu tahsilat toplamına ve
 // vade tarihine göre türetir. storedStatus yalnızca "cancelled" ise
 // belirleyicidir.
@@ -125,12 +142,12 @@ func EffectivePlanItemStatus(storedStatus string, planned, collected float64, du
 	case collected > 0:
 		// Kısmen tahsil edilmiş ama vadesi geçmişse gecikme daha önemli
 		// bilgidir.
-		if dueDate != nil && now.After(*dueDate) {
+		if IsPastDue(dueDate, now) {
 			return PlanItemOverdue
 		}
 		return PlanItemPartial
 	default:
-		if dueDate != nil && now.After(*dueDate) {
+		if IsPastDue(dueDate, now) {
 			return PlanItemOverdue
 		}
 		return PlanItemPending

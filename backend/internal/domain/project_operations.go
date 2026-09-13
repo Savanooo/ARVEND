@@ -141,11 +141,15 @@ type ProjectTask struct {
 }
 
 // IsOverdue, görevin vadesi geçmiş ve hâlâ açık olup olmadığını söyler.
+// Karşılaştırma takvim günü bazındadır (bkz. domain.IsPastDue) -- vade
+// GÜNÜNÜN kendisi henüz gecikmiş sayılmaz, ve SQL tarafındaki
+// "due_date < CURRENT_DATE" kuralıyla (CountProjectTaskStats) aynı
+// sonucu verir.
 func (t ProjectTask) IsOverdue(now time.Time) bool {
 	if t.Status != TaskStatusTodo && t.Status != TaskStatusInProgress {
 		return false
 	}
-	return t.DueDate != nil && now.After(*t.DueDate)
+	return IsPastDue(t.DueDate, now)
 }
 
 type ProjectFile struct {

@@ -59,8 +59,16 @@ func actorUUID(userID string) pgtype.UUID {
 // olarak kilitlidir (tekrar "active" yapılırsa yeniden açılır); iptal
 // edilmiş projede hiç hareket oluşturulamaz. Okuma uçları bu kontrolü
 // KULLANMAZ -- geçmiş finans verisi her durumda görüntülenebilir.
+//
+// SATIR KİLİDİ İLE okunur (SELECT ... FOR UPDATE) ve q her zaman AÇIK
+// bir transaction'ın Queries'i olmalıdır: aksi halde bu okuma ile asıl
+// hareketin INSERT'i arasında proje durumu değişebilir (ör. bir
+// ProjectService.Update aynı anda projeyi "completed" yapar) ve kilit
+// kontrolü eski/kilitlenmemiş anlık görüntüyü görüp hareketin geçmesine
+// izin verirdi (TOCTOU). Kilit, aynı satırı güncelleyen diğer yazarla
+// (ör. Update) serileşir çünkü o da aynı satırı FOR UPDATE ile okur.
 func (s *ProjectService) requireOpenProject(ctx context.Context, q *sqlc.Queries, projectID, orgID pgtype.UUID) (sqlc.Project, error) {
-	p, err := q.GetProjectByID(ctx, sqlc.GetProjectByIDParams{ID: projectID, OrganizationID: orgID})
+	p, err := q.GetProjectByIDForUpdate(ctx, sqlc.GetProjectByIDForUpdateParams{ID: projectID, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return sqlc.Project{}, domain.ErrNotFound
@@ -194,6 +202,26 @@ func (s *ProjectService) ListPaymentPlan(ctx context.Context, projectID, organiz
 		out[i] = item
 	}
 	return out, nil
+}
+
+// GetPaymentPlanTotal, planlanan toplamı SQL/numeric üzerinde hesaplar
+// (Go'da satır satır float64 toplamak YERİNE) -- financial-summary'deki
+// "planned_collections" ile ikili yuvarlama farkından ötürü
+// ayrışmasının önüne geçer (bkz. denetim bulgusu).
+func (s *ProjectService) GetPaymentPlanTotal(ctx context.Context, projectID, organizationID string) (float64, error) {
+	pid, err := repository.StringToUUID(projectID)
+	if err != nil {
+		return 0, domain.ErrNotFound
+	}
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return 0, domain.ErrNotFound
+	}
+	total, err := s.q.GetPaymentPlanTotal(ctx, sqlc.GetPaymentPlanTotalParams{ProjectID: pid, OrganizationID: orgID})
+	if err != nil {
+		return 0, err
+	}
+	return repository.NumericToFloat64(total), nil
 }
 
 func (s *ProjectService) UpdatePaymentPlanItem(ctx context.Context, itemID, organizationID string, in PaymentPlanItemInput) (*domain.PaymentPlanItem, error) {
@@ -464,7 +492,12 @@ func (s *ProjectService) VoidCollection(ctx context.Context, collectionID, organ
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// Yok, başka firmaya ait ya da zaten iptal edilmiş.
+			// Yok/başka firmaya ait ile ZATEN iptal edilmiş ayrı hatalardır
+			// (biri 404, diğeri 409 olmalı) -- ayrım için voided_at
+			// filtresi OLMADAN tekrar okunur.
+			if existing, gerr := txq.GetCollection(ctx, sqlc.GetCollectionParams{ID: cid, OrganizationID: orgID}); gerr == nil && existing.VoidedAt.Valid {
+				return nil, ErrAlreadyVoided
+			}
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
@@ -483,15 +516,16 @@ func (s *ProjectService) VoidCollection(ctx context.Context, collectionID, organ
 // ---------- Masraflar ----------
 
 type ExpenseInput struct {
-	Category     string
-	Description  string
-	Amount       float64
-	Currency     string
-	ExpenseDate  time.Time
-	SupplierName string
-	InvoiceNo    string
-	Notes        string
-	UserID       string
+	Category       string
+	Description    string
+	Amount         float64
+	Currency       string
+	ExpenseDate    time.Time
+	SupplierName   string
+	InvoiceNo      string
+	Notes          string
+	IdempotencyKey string
+	UserID         string
 }
 
 func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizationID string, in ExpenseInput) (*domain.Expense, error) {
@@ -525,6 +559,25 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 		return nil, err
 	}
 
+	// Çift tıklama/ağ tekrarına karşı: tahsilat ve taşeron ödemesiyle
+	// SİMETRİK idempotency anahtarı (bkz. denetim bulgusu -- masraf
+	// eskiden bu korumaya sahip değildi).
+	key := strings.TrimSpace(in.IdempotencyKey)
+	if key != "" {
+		if existing, err := txq.GetExpenseByIdempotencyKey(ctx, sqlc.GetExpenseByIdempotencyKeyParams{
+			ProjectID: pid, IdempotencyKey: &key,
+		}); err == nil {
+			out := repository.ToDomainExpense(existing)
+			return &out, nil
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+	}
+
+	var keyPtr *string
+	if key != "" {
+		keyPtr = &key
+	}
 	row, err := txq.CreateExpense(ctx, sqlc.CreateExpenseParams{
 		OrganizationID: orgID,
 		ProjectID:      pid,
@@ -536,9 +589,21 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 		SupplierName:   strings.TrimSpace(in.SupplierName),
 		InvoiceNo:      strings.TrimSpace(in.InvoiceNo),
 		Notes:          strings.TrimSpace(in.Notes),
+		IdempotencyKey: keyPtr,
 		CreatedBy:      actorUUID(in.UserID),
 	})
 	if err != nil {
+		// bkz. CreateCollection: eşzamanlı aynı anahtarlı istek kazandıysa
+		// onun kaydını döneriz (havuz üzerinden -- bu transaction artık
+		// iptal durumunda), 500 üretmeyiz.
+		if key != "" && isUniqueViolation(err) {
+			if existing, gerr := s.q.GetExpenseByIdempotencyKey(ctx, sqlc.GetExpenseByIdempotencyKeyParams{
+				ProjectID: pid, IdempotencyKey: &key,
+			}); gerr == nil {
+				out := repository.ToDomainExpense(existing)
+				return &out, nil
+			}
+		}
 		return nil, err
 	}
 	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventExpenseAdded, actorUUID(in.UserID),
@@ -645,6 +710,9 @@ func (s *ProjectService) VoidExpense(ctx context.Context, expenseID, organizatio
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			if existing, gerr := txq.GetExpense(ctx, sqlc.GetExpenseParams{ID: eid, OrganizationID: orgID}); gerr == nil && existing.VoidedAt.Valid {
+				return nil, ErrAlreadyVoided
+			}
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
@@ -1011,10 +1079,13 @@ func (s *ProjectService) CreateSubcontractorPayment(ctx context.Context, subcont
 		return nil, err
 	}
 
+	// Anahtar TAŞERON bazında aranır (proje bazında DEĞİL): aksi halde
+	// aynı projede farklı bir taşerona aynı anahtarla girilen ödeme bu
+	// taşeronun kaydı sanılıp sessizce kaybolurdu (bkz. denetim bulgusu).
 	key := strings.TrimSpace(in.IdempotencyKey)
 	if key != "" {
 		if existing, err := txq.GetSubcontractorPaymentByIdempotencyKey(ctx, sqlc.GetSubcontractorPaymentByIdempotencyKeyParams{
-			ProjectID: sub.ProjectID, IdempotencyKey: &key,
+			SubcontractorID: sid, IdempotencyKey: &key,
 		}); err == nil {
 			out := repository.ToDomainSubcontractorPayment(existing)
 			return &out, nil
@@ -1043,7 +1114,7 @@ func (s *ProjectService) CreateSubcontractorPayment(ctx context.Context, subcont
 		// onun kaydını döneriz, 500 üretmeyiz.
 		if key != "" && isUniqueViolation(err) {
 			if existing, gerr := s.q.GetSubcontractorPaymentByIdempotencyKey(ctx, sqlc.GetSubcontractorPaymentByIdempotencyKeyParams{
-				ProjectID: sub.ProjectID, IdempotencyKey: &key,
+				SubcontractorID: sid, IdempotencyKey: &key,
 			}); gerr == nil {
 				out := repository.ToDomainSubcontractorPayment(existing)
 				return &out, nil
@@ -1104,6 +1175,9 @@ func (s *ProjectService) VoidSubcontractorPayment(ctx context.Context, paymentID
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			if existing, gerr := txq.GetSubcontractorPayment(ctx, sqlc.GetSubcontractorPaymentParams{ID: pid, OrganizationID: orgID}); gerr == nil && existing.VoidedAt.Valid {
+				return nil, ErrAlreadyVoided
+			}
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
