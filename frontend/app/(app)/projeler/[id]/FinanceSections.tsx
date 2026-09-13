@@ -43,9 +43,11 @@ const INVOICE_TONE: Record<InvoiceStatus, "muted" | "gold" | "success" | "danger
   cancelled: "danger",
 };
 
-// Her form gönderiminde yeni bir anahtar üretilir; çift tıklama aynı
-// anahtarı gönderdiği için backend ikinci isteği yeni kayıt olarak
-// yazmaz (bkz. project_collections.idempotency_key).
+// Anahtar form ÖRNEĞİ başına bir kez üretilir ve tekrar denemelerde AYNI
+// kalır; yalnızca kayıt başarıyla oluştuktan sonra yenilenir. Anahtarı her
+// gönderimde yeniden üretmek, çift tıklamada iki FARKLI anahtar göndermek
+// demek olurdu -- yani idempotency tam da korumak istediği durumda
+// çalışmazdı (bkz. project_collections.idempotency_key).
 function newIdempotencyKey() {
   return crypto.randomUUID();
 }
@@ -266,6 +268,7 @@ export function CollectionsSection({
 }) {
   const { busy, error, run } = useFinanceAction(locked);
   const [open, setOpen] = useState(false);
+  const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey);
   const [form, setForm] = useState({
     amount: "",
     received_date: new Date().toISOString().slice(0, 10),
@@ -288,11 +291,14 @@ export function CollectionsSection({
           description: form.description,
           reference_no: form.reference_no,
           payment_plan_item_id: form.payment_plan_item_id || null,
-          idempotency_key: newIdempotencyKey(),
+          idempotency_key: idempotencyKey,
         }),
       })
     );
     if (ok) {
+      // Yalnızca kayıt kesinleştikten sonra yeni anahtar: başarısız bir
+      // denemenin tekrarı aynı anahtarla gider, mükerrer kayıt olmaz.
+      setIdempotencyKey(newIdempotencyKey());
       setForm({ ...form, amount: "", description: "", reference_no: "" });
       setOpen(false);
     }
@@ -773,6 +779,7 @@ export function SubcontractorsSection({
   const [payingFor, setPayingFor] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", company_name: "", work_description: "", contract_amount: "" });
   const [payForm, setPayForm] = useState({ amount: "", paid_date: new Date().toISOString().slice(0, 10), description: "" });
+  const [payKey, setPayKey] = useState(newIdempotencyKey);
 
   async function addSub(e: FormEvent) {
     e.preventDefault();
@@ -802,11 +809,12 @@ export function SubcontractorsSection({
           currency: project.currency,
           paid_date: payForm.paid_date,
           description: payForm.description,
-          idempotency_key: newIdempotencyKey(),
+          idempotency_key: payKey,
         }),
       })
     );
     if (ok) {
+      setPayKey(newIdempotencyKey());
       setPayForm({ ...payForm, amount: "", description: "" });
       setPayingFor(null);
     }

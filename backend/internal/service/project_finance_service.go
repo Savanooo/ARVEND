@@ -394,6 +394,19 @@ func (s *ProjectService) CreateCollection(ctx context.Context, projectID, organi
 		CreatedBy:         actorUUID(in.UserID),
 	})
 	if err != nil {
+		// Eşzamanlı AYNI anahtarlı bir istek bizden önce commit etti:
+		// kısmi UNIQUE indeks bu INSERT'i reddeder. Bu bir sunucu hatası
+		// değil, idempotency'nin ta kendisidir -- transaction'ı bırakıp
+		// kazananın kaydını döneriz (yeniden okuma HAVUZ üzerinden olmalı,
+		// bu transaction artık iptal durumunda).
+		if key != "" && isUniqueViolation(err) {
+			if existing, gerr := s.q.GetCollectionByIdempotencyKey(ctx, sqlc.GetCollectionByIdempotencyKeyParams{
+				ProjectID: pid, IdempotencyKey: &key,
+			}); gerr == nil {
+				out := repository.ToDomainCollection(existing)
+				return &out, nil
+			}
+		}
 		return nil, err
 	}
 	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventCollectionReceived, actorUUID(in.UserID),
@@ -1026,6 +1039,16 @@ func (s *ProjectService) CreateSubcontractorPayment(ctx context.Context, subcont
 		CreatedBy:       actorUUID(in.UserID),
 	})
 	if err != nil {
+		// bkz. CreateCollection: eşzamanlı aynı anahtarlı istek kazandıysa
+		// onun kaydını döneriz, 500 üretmeyiz.
+		if key != "" && isUniqueViolation(err) {
+			if existing, gerr := s.q.GetSubcontractorPaymentByIdempotencyKey(ctx, sqlc.GetSubcontractorPaymentByIdempotencyKeyParams{
+				ProjectID: sub.ProjectID, IdempotencyKey: &key,
+			}); gerr == nil {
+				out := repository.ToDomainSubcontractorPayment(existing)
+				return &out, nil
+			}
+		}
 		return nil, err
 	}
 	if err := logProjectEvent(ctx, txq, orgID, sub.ProjectID, domain.ProjectEventSubcontractorPaymentMade, actorUUID(in.UserID),

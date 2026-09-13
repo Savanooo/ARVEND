@@ -12,17 +12,19 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
+	"github.com/Savanooo/ARVEND/backend/internal/platform/storage"
 	"github.com/Savanooo/ARVEND/backend/internal/repository"
 	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
 )
 
 type ProjectService struct {
-	pool *pgxpool.Pool
-	q    *sqlc.Queries
+	pool  *pgxpool.Pool
+	q     *sqlc.Queries
+	store storage.Store
 }
 
-func NewProjectService(pool *pgxpool.Pool, q *sqlc.Queries) *ProjectService {
-	return &ProjectService{pool: pool, q: q}
+func NewProjectService(pool *pgxpool.Pool, q *sqlc.Queries, store storage.Store) *ProjectService {
+	return &ProjectService{pool: pool, q: q, store: store}
 }
 
 var (
@@ -384,7 +386,22 @@ func (s *ProjectService) Update(ctx context.Context, id, organizationID string, 
 		return nil, domain.ErrNotFound
 	}
 
-	current, err := s.q.GetProjectByID(ctx, sqlc.GetProjectByIDParams{ID: uid, OrganizationID: orgID})
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	// Mevcut durumu KİLİT ALTINDA ve transaction İÇİNDE oku: aksi halde
+	// iki eşzamanlı güncelleme de eski anlık görüntüyü doğrulayıp durum
+	// makinesinin yasakladığı bir kenardan geçebilirdi (ör. completed ->
+	// paused). Bu, Faz 6'dan beri daha da kritik: finans kilidi artık
+	// projects.status'u otorite kabul ediyor.
+	if _, err := tx.Exec(ctx, "SELECT id FROM projects WHERE id = $1 AND organization_id = $2 FOR UPDATE", uid, orgID); err != nil {
+		return nil, err
+	}
+	current, err := txq.GetProjectByID(ctx, sqlc.GetProjectByIDParams{ID: uid, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -406,13 +423,6 @@ func (s *ProjectService) Update(ctx context.Context, id, organizationID string, 
 	if !domain.CanTransitionProjectStatus(current.Status, status) {
 		return nil, ErrInvalidProjectState
 	}
-
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
-	txq := s.q.WithTx(tx)
 
 	row, err := txq.UpdateProject(ctx, sqlc.UpdateProjectParams{
 		ID:             uid,

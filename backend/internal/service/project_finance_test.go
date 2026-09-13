@@ -35,7 +35,7 @@ func TestProjectFinance(t *testing.T) {
 	orgSvc := service.NewOrganizationService(q)
 	settingsSvc := service.NewSettingsService(q, box)
 	offerSvc := service.NewOfferService(pool, q, settingsSvc, "http://localhost:3000")
-	projectSvc := service.NewProjectService(pool, q)
+	projectSvc := service.NewProjectService(pool, q, mustTestStore(t))
 
 	orgA := mustCreateOrg(t, ctx, orgSvc, pool, "Finans Test Firma A", "finans-test-firma-a")
 	orgB := mustCreateOrg(t, ctx, orgSvc, pool, "Finans Test Firma B", "finans-test-firma-b")
@@ -541,7 +541,7 @@ func TestProjectFinance(t *testing.T) {
 		// CountProjects = 2). Satır başına ek sorgu açılsaydı bu sayı
 		// proje sayısıyla birlikte büyürdü.
 		countingPool, counter := newCountingPool(t, ctx, dbURL)
-		countingSvc := service.NewProjectService(countingPool, sqlc.New(countingPool))
+		countingSvc := service.NewProjectService(countingPool, sqlc.New(countingPool), mustTestStore(t))
 
 		list, err := countingSvc.List(ctx, orgA.ID, service.ProjectListFilter{Limit: 200})
 		if err != nil {
@@ -578,16 +578,16 @@ func TestProjectFinance(t *testing.T) {
 		}
 		wg.Wait()
 
-		success := 0
+		// Artık İKİSİ de başarılı olmalı ve AYNI kaydı dönmeli: kaybeden
+		// istek, unique ihlalini yakalayıp kazananın kaydını döndürür
+		// (eskiden ham pg hatası 500'e dönüşüyordu).
 		for i, e := range errs {
-			if e == nil {
-				success++
-			} else {
-				t.Logf("istek #%d hata verdi (tolere edilir): %v", i, e)
+			if e != nil {
+				t.Fatalf("eşzamanlı aynı-anahtarlı istek #%d hata verdi: %v", i, e)
 			}
 		}
-		if success == 0 {
-			t.Fatalf("her iki istek de başarısız: %v", errs)
+		if results[0] == nil || results[1] == nil || results[0].ID != results[1].ID {
+			t.Fatalf("aynı anahtarla iki farklı kayıt döndü: %v / %v", results[0], results[1])
 		}
 		s, _ := projectSvc.FinancialSummary(ctx, p.ID, orgA.ID)
 		if s.CollectedAmount != 5000 {
