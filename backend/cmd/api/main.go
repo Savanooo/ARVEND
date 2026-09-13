@@ -13,6 +13,7 @@ import (
 	"github.com/Savanooo/ARVEND/backend/internal/httpapi"
 	"github.com/Savanooo/ARVEND/backend/internal/httpapi/handler"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/crypto"
+	"github.com/Savanooo/ARVEND/backend/internal/platform/storage"
 	"github.com/Savanooo/ARVEND/backend/internal/repository"
 	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
 	"github.com/Savanooo/ARVEND/backend/internal/service"
@@ -44,13 +45,18 @@ func main() {
 		log.Fatalf("veritabanı ping başarısız: %v", err)
 	}
 
+	fileStore, err := storage.NewLocalStore(cfg.StorageRoot)
+	if err != nil {
+		log.Fatalf("dosya deposu açılamadı: %v", err)
+	}
+
 	q := sqlc.New(pool)
 	userSvc := service.NewUserService(q)
 	seedAdmin(ctx, userSvc, q, cfg)
 	productSvc := service.NewProductService(q)
 	settingsSvc := service.NewSettingsService(q, secretBox)
 	offerSvc := service.NewOfferService(pool, q, settingsSvc, cfg.FrontendURL)
-	projectSvc := service.NewProjectService(pool, q)
+	projectSvc := service.NewProjectService(pool, q, fileStore)
 	customerSvc := service.NewCustomerService(q)
 	employeeSvc := service.NewEmployeeService(q)
 	attendanceSvc := service.NewAttendanceService(q)

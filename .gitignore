@@ -19,3 +19,6 @@ frontend/.env.local
 .DS_Store
 .vscode/
 .idea/
+
+# Yüklenen dosyalar (yerel depolama kökü) -- repoya girmez.
+backend/var/

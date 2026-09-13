@@ -20,6 +20,7 @@ import (
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/crypto"
+	"github.com/Savanooo/ARVEND/backend/internal/platform/storage"
 	"github.com/Savanooo/ARVEND/backend/internal/repository"
 	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
 	"github.com/Savanooo/ARVEND/backend/internal/service"
@@ -385,4 +386,15 @@ func TestTenantIsolation(t *testing.T) {
 			t.Errorf("gönderilmiş teklif yine de düzenlenebildi: err=%v", err)
 		}
 	})
+}
+
+// mustTestStore, testler için geçici bir dosya deposu açar (her test kendi
+// dizinini alır, test bitince silinir).
+func mustTestStore(t *testing.T) storage.Store {
+	t.Helper()
+	s, err := storage.NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("test dosya deposu açılamadı: %v", err)
+	}
+	return s
 }

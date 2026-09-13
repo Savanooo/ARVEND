@@ -1,0 +1,180 @@
+-- ============ Ekip ============
+
+-- name: CreateProjectMember :one
+INSERT INTO project_members (
+    organization_id, project_id, employee_id, employee_name, role_title,
+    start_date, end_date, notes, created_by
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+RETURNING *;
+
+-- name: ListProjectMembers :many
+SELECT * FROM project_members
+WHERE project_id = $1 AND organization_id = $2
+ORDER BY (end_date IS NOT NULL), created_at ASC;
+
+-- name: GetProjectMember :one
+SELECT * FROM project_members WHERE id = $1 AND organization_id = $2;
+
+-- EndProjectMembership, üyeyi SİLMEZ: bitiş tarihi yazılır, geçmiş kayıt
+-- korunur (aynı kişi sonra yeniden atanabilir).
+-- name: EndProjectMembership :one
+UPDATE project_members SET end_date = $3
+WHERE id = $1 AND organization_id = $2 AND end_date IS NULL
+RETURNING *;
+
+-- ============ Planlama ============
+
+-- name: CreateScheduleItem :one
+INSERT INTO project_schedule_items (
+    organization_id, project_id, name, description, start_date, end_date, status, sort_order, created_by
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+RETURNING *;
+
+-- ListScheduleItems, her aşamanın görev sayılarını da getirir (aşama
+-- başına ayrı sorgu yok).
+-- name: ListScheduleItems :many
+SELECT s.*,
+       COALESCE((SELECT count(*) FROM project_tasks t
+                 WHERE t.schedule_item_id = s.id AND t.status <> 'cancelled'), 0)::bigint AS task_count,
+       COALESCE((SELECT count(*) FROM project_tasks t
+                 WHERE t.schedule_item_id = s.id AND t.status = 'completed'), 0)::bigint AS completed_task_count
+FROM project_schedule_items s
+WHERE s.project_id = $1 AND s.organization_id = $2
+ORDER BY s.sort_order ASC, s.start_date ASC NULLS LAST, s.created_at ASC;
+
+-- name: GetScheduleItem :one
+SELECT * FROM project_schedule_items WHERE id = $1 AND organization_id = $2;
+
+-- name: UpdateScheduleItem :one
+UPDATE project_schedule_items
+SET name = $3, description = $4, start_date = $5, end_date = $6, status = $7, sort_order = $8
+WHERE id = $1 AND organization_id = $2
+RETURNING *;
+
+-- ============ Görevler ============
+
+-- name: CreateTask :one
+INSERT INTO project_tasks (
+    organization_id, project_id, schedule_item_id, title, description,
+    assigned_employee_id, assigned_name, priority, status, due_date, created_by
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+RETURNING *;
+
+-- name: ListTasks :many
+SELECT * FROM project_tasks
+WHERE project_id = $1 AND organization_id = $2
+ORDER BY (status = 'completed' OR status = 'cancelled'),
+         due_date ASC NULLS LAST, created_at ASC;
+
+-- name: GetTask :one
+SELECT * FROM project_tasks WHERE id = $1 AND organization_id = $2;
+
+-- UpdateTask, completed_at'i durumla TUTARLI yazar: tamamlandıysa o anki
+-- zaman, değilse NULL (DB'deki CHECK kısıtı da bunu zorunlu kılar).
+-- name: UpdateTask :one
+UPDATE project_tasks
+SET title = $3, description = $4, schedule_item_id = $5, assigned_employee_id = $6,
+    assigned_name = $7, priority = $8, status = $9, due_date = $10,
+    completed_at = CASE WHEN $9::varchar = 'completed'
+                        THEN COALESCE(completed_at, now())
+                        ELSE NULL END
+WHERE id = $1 AND organization_id = $2
+RETURNING *;
+
+-- CompleteTask, görevi yalnızca HENÜZ tamamlanmamışsa tamamlar. Eşzamanlı
+-- iki "tamamla" isteğinden yalnızca biri satır döndürür; ikincisi sessizce
+-- ikinci kez tamamlamak yerine hiçbir şey yapmaz (idempotent davranış).
+-- name: CompleteTask :one
+UPDATE project_tasks
+SET status = 'completed', completed_at = now()
+WHERE id = $1 AND organization_id = $2 AND status <> 'completed'
+RETURNING *;
+
+-- name: CountProjectTaskStats :one
+SELECT
+    COALESCE(count(*) FILTER (WHERE status <> 'cancelled'), 0)::bigint AS total,
+    COALESCE(count(*) FILTER (WHERE status IN ('todo', 'in_progress')), 0)::bigint AS open_count,
+    COALESCE(count(*) FILTER (WHERE status = 'completed'), 0)::bigint AS completed_count,
+    COALESCE(count(*) FILTER (WHERE status IN ('todo', 'in_progress')
+                              AND due_date IS NOT NULL AND due_date < CURRENT_DATE), 0)::bigint AS overdue_count
+FROM project_tasks WHERE project_id = $1 AND organization_id = $2;
+
+-- name: CountActiveMembers :one
+SELECT COALESCE(count(*), 0)::bigint FROM project_members
+WHERE project_id = $1 AND organization_id = $2 AND end_date IS NULL;
+
+-- ============ Dosyalar ============
+
+-- name: CreateProjectFile :one
+INSERT INTO project_files (
+    organization_id, project_id, original_name, object_key, mime_type,
+    size_bytes, sha256, category, description, uploaded_by
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+RETURNING *;
+
+-- name: ListProjectFiles :many
+SELECT * FROM project_files
+WHERE project_id = $1 AND organization_id = $2 AND deleted_at IS NULL
+ORDER BY created_at DESC;
+
+-- GetProjectFile, indirme ucunun tek yetki kapısıdır: organization_id
+-- eşleşmeden hiçbir dosya döndürülmez.
+-- name: GetProjectFile :one
+SELECT * FROM project_files
+WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL;
+
+-- name: GetProjectFileBySHA :one
+SELECT * FROM project_files
+WHERE project_id = $1 AND sha256 = $2 AND deleted_at IS NULL;
+
+-- name: SoftDeleteProjectFile :one
+UPDATE project_files SET deleted_at = now(), deleted_by = $3
+WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
+RETURNING *;
+
+-- ============ Fotoğraflar ============
+
+-- name: CreateProjectPhoto :one
+INSERT INTO project_photos (
+    organization_id, project_id, original_name, object_key, mime_type,
+    size_bytes, sha256, stage, description, taken_at, uploaded_by
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+RETURNING *;
+
+-- name: ListProjectPhotos :many
+SELECT * FROM project_photos
+WHERE project_id = $1 AND organization_id = $2 AND deleted_at IS NULL
+ORDER BY stage ASC, COALESCE(taken_at, created_at) DESC;
+
+-- name: GetProjectPhoto :one
+SELECT * FROM project_photos
+WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL;
+
+-- name: GetProjectPhotoBySHA :one
+SELECT * FROM project_photos
+WHERE project_id = $1 AND sha256 = $2 AND deleted_at IS NULL;
+
+-- name: SoftDeleteProjectPhoto :one
+UPDATE project_photos SET deleted_at = now(), deleted_by = $3
+WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
+RETURNING *;
+
+-- ============ Notlar ============
+
+-- name: CreateProjectNote :one
+INSERT INTO project_notes (organization_id, project_id, content, created_by, created_by_name)
+VALUES ($1,$2,$3,$4,$5)
+RETURNING *;
+
+-- name: ListProjectNotes :many
+SELECT * FROM project_notes
+WHERE project_id = $1 AND organization_id = $2
+ORDER BY created_at DESC;
+
+-- name: UpdateProjectNote :one
+UPDATE project_notes SET content = $3
+WHERE id = $1 AND organization_id = $2
+RETURNING *;
+
+-- name: DeleteProjectNote :execrows
+DELETE FROM project_notes WHERE id = $1 AND organization_id = $2;

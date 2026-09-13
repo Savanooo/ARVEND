@@ -262,6 +262,23 @@ type ProjectExpense struct {
 	VoidReason     string             `json:"void_reason"`
 }
 
+type ProjectFile struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	OriginalName   string             `json:"original_name"`
+	ObjectKey      string             `json:"object_key"`
+	MimeType       string             `json:"mime_type"`
+	SizeBytes      int64              `json:"size_bytes"`
+	Sha256         string             `json:"sha256"`
+	Category       string             `json:"category"`
+	Description    string             `json:"description"`
+	UploadedBy     pgtype.UUID        `json:"uploaded_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+	DeletedBy      pgtype.UUID        `json:"deleted_by"`
+}
+
 type ProjectInvoice struct {
 	ID             pgtype.UUID        `json:"id"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`
@@ -280,6 +297,32 @@ type ProjectInvoice struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ProjectMember struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	EmployeeID     pgtype.UUID        `json:"employee_id"`
+	EmployeeName   string             `json:"employee_name"`
+	RoleTitle      string             `json:"role_title"`
+	StartDate      pgtype.Date        `json:"start_date"`
+	EndDate        pgtype.Date        `json:"end_date"`
+	Notes          string             `json:"notes"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProjectNote struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	Content        string             `json:"content"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedByName  string             `json:"created_by_name"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type ProjectPaymentPlanItem struct {
 	ID             pgtype.UUID        `json:"id"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`
@@ -291,6 +334,39 @@ type ProjectPaymentPlanItem struct {
 	DueDate        pgtype.Date        `json:"due_date"`
 	Status         string             `json:"status"`
 	Notes          string             `json:"notes"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProjectPhoto struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	OriginalName   string             `json:"original_name"`
+	ObjectKey      string             `json:"object_key"`
+	MimeType       string             `json:"mime_type"`
+	SizeBytes      int64              `json:"size_bytes"`
+	Sha256         string             `json:"sha256"`
+	Stage          string             `json:"stage"`
+	Description    string             `json:"description"`
+	TakenAt        pgtype.Timestamptz `json:"taken_at"`
+	UploadedBy     pgtype.UUID        `json:"uploaded_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+	DeletedBy      pgtype.UUID        `json:"deleted_by"`
+}
+
+type ProjectScheduleItem struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	Name           string             `json:"name"`
+	Description    string             `json:"description"`
+	StartDate      pgtype.Date        `json:"start_date"`
+	EndDate        pgtype.Date        `json:"end_date"`
+	Status         string             `json:"status"`
+	SortOrder      int32              `json:"sort_order"`
 	CreatedBy      pgtype.UUID        `json:"created_by"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
@@ -332,6 +408,24 @@ type ProjectSubcontractorPayment struct {
 	VoidedAt        pgtype.Timestamptz `json:"voided_at"`
 	VoidedBy        pgtype.UUID        `json:"voided_by"`
 	VoidReason      string             `json:"void_reason"`
+}
+
+type ProjectTask struct {
+	ID                 pgtype.UUID        `json:"id"`
+	OrganizationID     pgtype.UUID        `json:"organization_id"`
+	ProjectID          pgtype.UUID        `json:"project_id"`
+	ScheduleItemID     pgtype.UUID        `json:"schedule_item_id"`
+	Title              string             `json:"title"`
+	Description        string             `json:"description"`
+	AssignedEmployeeID pgtype.UUID        `json:"assigned_employee_id"`
+	AssignedName       string             `json:"assigned_name"`
+	Priority           string             `json:"priority"`
+	Status             string             `json:"status"`
+	DueDate            pgtype.Date        `json:"due_date"`
+	CompletedAt        pgtype.Timestamptz `json:"completed_at"`
+	CreatedBy          pgtype.UUID        `json:"created_by"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 }
 
 type RefreshToken struct {

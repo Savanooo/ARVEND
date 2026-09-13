@@ -145,6 +145,35 @@ func NewRouter(d Deps) http.Handler {
 			r.Post("/{id}/subcontractors/{subcontractorId}/payments", d.Projects.CreateSubcontractorPayment)
 			r.Get("/{id}/subcontractor-payments", d.Projects.ListSubcontractorPayments)
 			r.Post("/{id}/subcontractor-payments/{paymentId}/void", d.Projects.VoidSubcontractorPayment)
+
+			// --- Faz 7: operasyon ---
+			r.Get("/{id}/operations-summary", d.Projects.OperationsSummary)
+
+			r.Get("/{id}/members", d.Projects.ListMembers)
+			r.Post("/{id}/members", d.Projects.AssignMember)
+			r.Delete("/{id}/members/{memberId}", d.Projects.EndMembership)
+
+			r.Get("/{id}/schedule", d.Projects.ListScheduleItems)
+			r.Post("/{id}/schedule", d.Projects.CreateScheduleItem)
+			r.Put("/{id}/schedule/{itemId}", d.Projects.UpdateScheduleItem)
+
+			r.Get("/{id}/tasks", d.Projects.ListTasks)
+			r.Post("/{id}/tasks", d.Projects.CreateTask)
+			r.Put("/{id}/tasks/{taskId}", d.Projects.UpdateTask)
+			r.Post("/{id}/tasks/{taskId}/complete", d.Projects.CompleteTask)
+
+			r.Get("/{id}/files", d.Projects.ListFiles)
+			r.Post("/{id}/files", d.Projects.UploadFile)
+			r.Get("/{id}/files/{fileId}/download", d.Projects.DownloadFile)
+			r.Delete("/{id}/files/{fileId}", d.Projects.DeleteFile)
+
+			r.Get("/{id}/photos", d.Projects.ListPhotos)
+			r.Post("/{id}/photos", d.Projects.UploadPhoto)
+			r.Get("/{id}/photos/{photoId}/content", d.Projects.DownloadPhoto)
+			r.Delete("/{id}/photos/{photoId}", d.Projects.DeletePhoto)
+
+			r.Get("/{id}/notes", d.Projects.ListNotes)
+			r.Post("/{id}/notes", d.Projects.CreateNote)
 		})
 
 		r.Route("/customers", func(r chi.Router) {

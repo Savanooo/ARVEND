@@ -238,8 +238,15 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrInvalidProjectState),
 		errors.Is(err, service.ErrProjectLocked),
 		errors.Is(err, service.ErrCurrencyMismatch),
-		errors.Is(err, service.ErrAlreadyVoided):
+		errors.Is(err, service.ErrAlreadyVoided),
+		errors.Is(err, service.ErrDuplicateMember),
+		errors.Is(err, service.ErrDuplicateContent):
 		httpjson.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrInvalidEmployee),
+		errors.Is(err, service.ErrInvalidSchedule),
+		errors.Is(err, service.ErrUnsupportedType),
+		errors.Is(err, service.ErrFileTooLarge):
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	case isInternalError(err):
 		writeInternalError(w, err)
 	default:

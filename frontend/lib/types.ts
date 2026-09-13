@@ -382,3 +382,124 @@ export interface ProjectEvent {
   metadata?: Record<string, unknown>;
   created_at: string;
 }
+
+// ---------- Faz 7: proje operasyon ----------
+
+export interface ProjectMember {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  role_title: string;
+  start_date: string | null;
+  end_date: string | null;
+  notes: string;
+  is_active: boolean;
+}
+
+export type ScheduleStatus = "planned" | "active" | "completed" | "cancelled";
+
+export const SCHEDULE_STATUS_LABELS: Record<ScheduleStatus, string> = {
+  planned: "Planlandı",
+  active: "Devam Ediyor",
+  completed: "Tamamlandı",
+  cancelled: "İptal",
+};
+
+export interface ScheduleItem {
+  id: string;
+  name: string;
+  description: string;
+  start_date: string | null;
+  end_date: string | null;
+  status: ScheduleStatus;
+  sort_order: number;
+  task_count: number;
+  completed_task_count: number;
+}
+
+export type TaskStatus = "todo" | "in_progress" | "completed" | "cancelled";
+export type TaskPriority = "low" | "normal" | "high" | "urgent";
+
+export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
+  todo: "Yapılacak",
+  in_progress: "Devam Ediyor",
+  completed: "Tamamlandı",
+  cancelled: "İptal",
+};
+
+export const TASK_PRIORITY_LABELS: Record<TaskPriority, string> = {
+  low: "Düşük",
+  normal: "Normal",
+  high: "Yüksek",
+  urgent: "Acil",
+};
+
+export interface ProjectTask {
+  id: string;
+  schedule_item_id: string | null;
+  title: string;
+  description: string;
+  assigned_employee_id: string | null;
+  assigned_name: string;
+  priority: TaskPriority;
+  status: TaskStatus;
+  due_date: string | null;
+  completed_at: string | null;
+  is_overdue: boolean;
+}
+
+export type FileCategory = "contract" | "drawing" | "invoice" | "report" | "other";
+
+export const FILE_CATEGORY_LABELS: Record<FileCategory, string> = {
+  contract: "Sözleşme",
+  drawing: "Çizim",
+  invoice: "Fatura",
+  report: "Rapor",
+  other: "Diğer",
+};
+
+export interface ProjectFile {
+  id: string;
+  original_name: string;
+  mime_type: string;
+  size_bytes: number;
+  sha256: string;
+  category: FileCategory;
+  description: string;
+  created_at: string;
+}
+
+export type PhotoStage = "before" | "progress" | "after";
+
+export const PHOTO_STAGE_LABELS: Record<PhotoStage, string> = {
+  before: "İş Öncesi",
+  progress: "İlerleme",
+  after: "İş Sonrası",
+};
+
+export interface ProjectPhoto {
+  id: string;
+  original_name: string;
+  mime_type: string;
+  size_bytes: number;
+  stage: PhotoStage;
+  description: string;
+  taken_at: string | null;
+  created_at: string;
+}
+
+export interface ProjectNote {
+  id: string;
+  content: string;
+  created_by_name: string;
+  created_at: string;
+}
+
+export interface OperationsSummary {
+  active_member_count: number;
+  total_task_count: number;
+  open_task_count: number;
+  overdue_task_count: number;
+  completed_task_count: number;
+  task_completion_ratio: number;
+}

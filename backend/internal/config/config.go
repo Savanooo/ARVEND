@@ -26,6 +26,10 @@ type Config struct {
 	// şifreli olarak durur -- düz metin .env'de tutulmaz.
 	SettingsEncryptionKey string
 	FrontendURL           string
+	// StorageRoot, yüklenen dosyaların saklandığı kök dizin. Nesne
+	// anahtarları sunucu tarafında üretildiği için bu dizinin dışına
+	// yazılması mümkün değildir (bkz. platform/storage).
+	StorageRoot string
 }
 
 func Load() Config {
@@ -46,6 +50,7 @@ func Load() Config {
 		SeedAdminName:         getEnv("SEED_ADMIN_FULLNAME", "Yönetici"),
 		SettingsEncryptionKey: getEnv("SETTINGS_ENCRYPTION_KEY", ""),
 		FrontendURL:           getEnv("FRONTEND_URL", "http://localhost:3000"),
+		StorageRoot:           getEnv("STORAGE_ROOT", "./var/uploads"),
 	}
 }
 

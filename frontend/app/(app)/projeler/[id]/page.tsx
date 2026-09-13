@@ -18,6 +18,14 @@ import {
   type ProjectStatus,
   type Subcontractor,
   type SubcontractorPayment,
+  type Employee,
+  type OperationsSummary,
+  type ProjectFile,
+  type ProjectMember,
+  type ProjectNote,
+  type ProjectPhoto,
+  type ProjectTask,
+  type ScheduleItem,
 } from "@/lib/types";
 
 import { Section } from "./Accordion";
@@ -30,6 +38,14 @@ import {
   SubcontractorsSection,
 } from "./FinanceSections";
 import { ProfitabilitySection, ProjectActivitySection } from "./ProfitabilitySection";
+import {
+  FilesSection,
+  MembersSection,
+  NotesSection,
+  PhotosSection,
+  ScheduleSection,
+  TasksSection,
+} from "./OperationSections";
 
 const STATUS_TONE: Record<ProjectStatus, "muted" | "gold" | "success" | "danger"> = {
   planned: "muted",
@@ -48,15 +64,9 @@ const NO_DATA = "—";
 // iskelettir.
 // Faz 6'da finans bölümleri gerçek verilerle çalışır hale geldi; aşağıdakiler
 // sonraki fazlara kaldı.
-const PLACEHOLDER_SECTIONS = [
-  "Planlama",
-  "Personel / Ekip",
-  "Görevler",
-  "Ek İşler",
-  "Dosyalar",
-  "Şantiye Fotoğrafları",
-  "Notlar",
-];
+// Faz 7'de operasyon bölümleri gerçek verilerle çalışır hale geldi;
+// geriye yalnızca Ek İşler (change orders) kaldı.
+const PLACEHOLDER_SECTIONS = ["Ek İşler"];
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -92,6 +102,17 @@ export default async function ProjeDetayPage({
       apiServer<{ events: ProjectEvent[] }>(`${base}/events`, cookieHeader),
     ]);
 
+  const [ops, members, schedule, tasks, files, photos, notes, employees] = await Promise.all([
+    apiServer<OperationsSummary>(`${base}/operations-summary`, cookieHeader),
+    apiServer<{ members: ProjectMember[] }>(`${base}/members`, cookieHeader),
+    apiServer<{ items: ScheduleItem[] }>(`${base}/schedule`, cookieHeader),
+    apiServer<{ tasks: ProjectTask[] }>(`${base}/tasks`, cookieHeader),
+    apiServer<{ files: ProjectFile[] }>(`${base}/files`, cookieHeader),
+    apiServer<{ photos: ProjectPhoto[] }>(`${base}/photos`, cookieHeader),
+    apiServer<{ notes: ProjectNote[] }>(`${base}/notes`, cookieHeader),
+    apiServer<{ employees: Employee[] }>(`/api/v1/employees`, cookieHeader),
+  ]);
+
   // Tamamlanmış/iptal edilmiş projede finans hareketleri kilitlidir --
   // backend zaten reddediyor, UI da form göstermez.
   const locked = project.status === "completed" || project.status === "cancelled";
@@ -114,6 +135,28 @@ export default async function ProjeDetayPage({
 
       <div className="flex flex-col gap-6 p-8">
         <FinanceSummary summary={summary} />
+
+        {/* Operasyon özeti */}
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+          <Row label="Aktif Ekip" value={`${ops.active_member_count} kişi`} />
+          <Row label="Açık Görev" value={`${ops.open_task_count}`} />
+          <Row
+            label="Geciken Görev"
+            value={
+              <span className={ops.overdue_task_count > 0 ? "text-danger" : ""}>
+                {ops.overdue_task_count}
+              </span>
+            }
+          />
+          <Row
+            label="Tamamlanma"
+            value={`%${ops.task_completion_ratio.toFixed(0)} (${ops.completed_task_count}/${ops.total_task_count})`}
+          />
+          <Row
+            label="Süre"
+            value={`${formatDate(project.start_date)} → ${formatDate(project.end_date)}`}
+          />
+        </div>
 
         {/* Üst özet şeridi */}
         <div className="grid grid-cols-2 gap-4 rounded-lg border border-border bg-surface p-4 text-sm md:grid-cols-4 lg:grid-cols-6">
@@ -269,6 +312,41 @@ export default async function ProjeDetayPage({
 
           <Section title="Maliyet / Kârlılık">
             <ProfitabilitySection summary={summary} />
+          </Section>
+
+          <Section title="Planlama" defaultOpen>
+            <ScheduleSection project={project} items={schedule.items} locked={locked} />
+          </Section>
+
+          <Section title="Personel / Ekip" defaultOpen>
+            <MembersSection
+              project={project}
+              members={members.members}
+              employees={employees.employees}
+              locked={locked}
+            />
+          </Section>
+
+          <Section title="Görevler" defaultOpen>
+            <TasksSection
+              project={project}
+              tasks={tasks.tasks}
+              scheduleItems={schedule.items}
+              members={members.members}
+              locked={locked}
+            />
+          </Section>
+
+          <Section title="Dosyalar">
+            <FilesSection project={project} files={files.files} locked={locked} />
+          </Section>
+
+          <Section title="Şantiye Fotoğrafları">
+            <PhotosSection project={project} photos={photos.photos} locked={locked} />
+          </Section>
+
+          <Section title="Notlar">
+            <NotesSection project={project} notes={notes.notes} locked={locked} />
           </Section>
 
           <Section title="Aktivite Geçmişi">
