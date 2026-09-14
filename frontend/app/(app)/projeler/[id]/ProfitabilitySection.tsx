@@ -10,6 +10,11 @@ function Line({ label, value, strong }: { label: string; value: string; strong?:
   );
 }
 
+// Bu bölüm bir KPI tekrarı DEĞİL, kâr/marjın türetimidir: üst KPI
+// şeridindeki toplamlar burada yalnızca hesabın adımları olarak geçer.
+// Gerçekleşen brüt kâr ve marjı yalnızca burada gösterilir (KPI'da yok);
+// tahmini taraf, gerçekleşen maliyetin üzerine kalan taahhüdü ekleyerek
+// devam eder -- aynı satırı iki sütunda tekrar etmez.
 export function ProfitabilitySection({ summary }: { summary: FinancialSummary }) {
   const c = summary.currency;
   return (
@@ -34,9 +39,8 @@ export function ProfitabilitySection({ summary }: { summary: FinancialSummary })
         <div className="text-xs font-semibold uppercase tracking-widest text-text-muted">
           Taahhüt dahil (tahmini)
         </div>
-        <Line label="Gerçekleşen maliyet" value={formatMoney(summary.realized_cost, c)} />
         <Line
-          label="Taşeron kalan taahhüdü"
+          label="Gerçekleşen maliyetin üzerine taşeron kalan taahhüdü"
           value={`+ ${formatMoney(summary.subcontractor_remaining, c)}`}
         />
         <div className="my-1 border-t border-border" />

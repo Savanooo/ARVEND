@@ -3,18 +3,21 @@
 import { useRouter } from "next/navigation";
 import { FormEvent, useRef, useState } from "react";
 
+import { Section } from "@/components/ui/Accordion";
 import { Button } from "@/components/ui/Button";
 import { DateInput } from "@/components/ui/DateInput";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
+import { Textarea } from "@/components/ui/Textarea";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import { INVOICE_STATUS, PLAN_ITEM_STATUS, SUBCONTRACTOR_STATUS } from "@/lib/status";
 import {
   EXPENSE_CATEGORY_LABELS,
   INVOICE_STATUS_LABELS,
+  type ChangeOrder,
   type Collection,
   type Expense,
   type ExpenseCategory,
@@ -422,29 +425,56 @@ export function CollectionsSection({
 
 // ---------- Masraflar ----------
 
+const emptyExpenseForm = () => ({
+  category: "material" as ExpenseCategory,
+  description: "",
+  amount: "",
+  expense_date: new Date().toISOString().slice(0, 10),
+  supplier_name: "",
+  invoice_no: "",
+  notes: "",
+  change_order_id: "",
+});
+
+// Masraflar bölümü kendi <Section> sarmalayıcısını render eder: başlıktaki
+// "+ Masraf Ekle" aksiyonu hem bölümü açmak hem formu göstermek zorunda
+// olduğundan, bölümün açık/kapalı durumu ile form durumu AYNI bileşende
+// yaşamalıdır. Form alanları, backend'in expenseRequest'inde ZATEN kabul
+// ettiği alanların tamamıdır (bkz. handler/project_finance_handler.go) --
+// yeni bir backend yeteneği eklenmedi. Para birimi kullanıcıya sorulmaz,
+// projeninkinden gelir.
 export function ExpensesSection({
   project,
   expenses,
+  changeOrders,
   locked,
 }: {
   project: Project;
   expenses: Expense[];
+  changeOrders: ChangeOrder[];
   locked: boolean;
 }) {
   const { busy, error, run } = useFinanceAction(locked);
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
-    category: "material" as ExpenseCategory,
-    description: "",
-    amount: "",
-    expense_date: new Date().toISOString().slice(0, 10),
-    supplier_name: "",
-    invoice_no: "",
-  });
+  const [sectionOpen, setSectionOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [form, setForm] = useState(emptyExpenseForm);
   // Tahsilat/taşeron ödemesiyle SİMETRİK: anahtar form örneği başına
   // sabittir, yalnızca ONAYLANMIŞ bir gönderimden SONRA yenilenir --
   // aksi halde çift-tıkla/ağ-tekrarı koruması etkisiz kalırdı.
   const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey);
+
+  // Ek iş bağlantısı için iptal/superseded olmayan ek işler sunulur --
+  // backend aynı projeye ait her ek işi kabul eder, bu yalnızca anlamlı
+  // seçenekleri gösteren bir UI daraltmasıdır.
+  const linkableChangeOrders = changeOrders.filter(
+    (co) => co.status !== "cancelled" && co.status !== "superseded"
+  );
+  const changeOrderNoById = new Map(changeOrders.map((co) => [co.id, co.change_order_no]));
+
+  function openForm() {
+    setSectionOpen(true);
+    setFormOpen(true);
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -461,136 +491,196 @@ export function ExpensesSection({
     );
     if (ok) {
       setIdempotencyKey(newIdempotencyKey());
-      setForm({ ...form, description: "", amount: "", supplier_name: "", invoice_no: "" });
-      setOpen(false);
+      setForm(emptyExpenseForm());
+      setFormOpen(false);
     }
   }
 
   const validTotal = expenses.filter((e) => !e.voided_at).reduce((sum, e) => sum + e.amount, 0);
 
   return (
-    <div className="flex flex-col gap-3">
-      {expenses.length === 0 ? (
-        <p className="text-text-muted">Henüz masraf kaydı yok.</p>
-      ) : (
-        <Table>
-          <thead>
-            <tr>
-              <Th>Tarih</Th>
-              <Th>Kategori</Th>
-              <Th>Açıklama</Th>
-              <Th>Tedarikçi</Th>
-              <Th className="text-right">Tutar</Th>
-              <Th className="w-16" />
-            </tr>
-          </thead>
-          <tbody>
-            {expenses.map((e) => (
-              <Tr key={e.id} className={e.voided_at ? "opacity-50" : ""}>
-                <Td className="text-text-muted">
-                  {new Date(e.expense_date).toLocaleDateString("tr-TR")}
-                </Td>
-                <Td>{EXPENSE_CATEGORY_LABELS[e.category]}</Td>
-                <Td>
-                  {e.description}
-                  {e.voided_at && <span className="ml-2 text-xs text-danger">İPTAL</span>}
-                </Td>
-                <Td className="text-text-muted">{e.supplier_name || "—"}</Td>
-                <Td className={`text-right ${e.voided_at ? "line-through" : "font-medium"}`}>
-                  {formatMoney(e.amount, e.currency)}
-                </Td>
-                <Td className="text-right">
-                  {!e.voided_at && !locked && (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => {
-                        const reason = prompt("İptal nedeni:") ?? "";
-                        run(() =>
-                          apiClient(`/api/v1/projects/${project.id}/expenses/${e.id}/void`, {
-                            method: "POST",
-                            body: JSON.stringify({ reason }),
-                          })
-                        );
-                      }}
-                      className="text-xs text-danger hover:underline"
-                    >
-                      İptal Et
-                    </button>
-                  )}
-                </Td>
-              </Tr>
-            ))}
-          </tbody>
-        </Table>
-      )}
-
-      <div className="flex items-center justify-between border-t border-border pt-2 text-sm">
-        <span className="text-text-muted">Geçerli masraf toplamı</span>
-        <span className="font-medium">{formatMoney(validTotal, project.currency)}</span>
-      </div>
-      <p className="text-xs text-text-muted">
-        Taşeron ödemeleri buraya girilmez — çift sayımı önlemek için yalnızca Taşeronlar
-        bölümünden kaydedilir.
-      </p>
-
-      {locked ? (
-        <LockedNote project={project} />
-      ) : open ? (
-        <form onSubmit={submit} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
-          <Select
-            value={form.category}
-            onChange={(e) => setForm({ ...form, category: e.target.value as ExpenseCategory })}
-            aria-label="Kategori"
-            className="w-40"
-          >
-            {Object.entries(EXPENSE_CATEGORY_LABELS).map(([k, label]) => (
-              <option key={k} value={k}>
-                {label}
-              </option>
-            ))}
-          </Select>
-          <Input
-            placeholder="Açıklama"
-            required
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-          />
-          <Input
-            className="w-36"
-            placeholder="Tutar"
-            type="number"
-            step="0.01"
-            required
-            value={form.amount}
-            onChange={(e) => setForm({ ...form, amount: e.target.value })}
-          />
-          <DateInput
-            required
-            value={form.expense_date}
-            onChange={(e) => setForm({ ...form, expense_date: e.target.value })}
-          />
-          <Input
-            placeholder="Tedarikçi"
-            value={form.supplier_name}
-            onChange={(e) => setForm({ ...form, supplier_name: e.target.value })}
-          />
-          <Button type="submit" loading={busy}>
-            Masraf Ekle
-          </Button>
-          <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-            Vazgeç
-          </Button>
-        </form>
-      ) : (
-        <div>
-          <Button type="button" variant="secondary" onClick={() => setOpen(true)}>
+    <Section
+      title="Masraflar"
+      open={sectionOpen}
+      onOpenChange={setSectionOpen}
+      action={
+        !locked && (
+          <Button type="button" onClick={openForm} disabled={busy}>
             + Masraf Ekle
           </Button>
+        )
+      }
+    >
+      <div className="flex flex-col gap-3">
+        {expenses.length === 0 ? (
+          <p className="text-text-muted">Henüz masraf kaydı yok.</p>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Tarih</Th>
+                <Th>Kategori</Th>
+                <Th>Açıklama</Th>
+                <Th>Tedarikçi</Th>
+                <Th>Fatura No</Th>
+                <Th className="text-right">Tutar</Th>
+                <Th className="w-16" />
+              </tr>
+            </thead>
+            <tbody>
+              {expenses.map((e) => (
+                <Tr key={e.id} className={e.voided_at ? "opacity-50" : ""}>
+                  <Td className="text-text-muted">
+                    {new Date(e.expense_date).toLocaleDateString("tr-TR")}
+                  </Td>
+                  <Td>{EXPENSE_CATEGORY_LABELS[e.category]}</Td>
+                  <Td>
+                    {e.description}
+                    {e.change_order_id && (
+                      <span className="ml-2 text-xs text-text-muted">
+                        · {changeOrderNoById.get(e.change_order_id) ?? "Ek iş"}
+                      </span>
+                    )}
+                    {e.voided_at && (
+                      <span className="ml-2 text-xs text-danger">
+                        İPTAL{e.void_reason && ` · ${e.void_reason}`}
+                      </span>
+                    )}
+                    {e.notes && <div className="text-xs text-text-muted">{e.notes}</div>}
+                  </Td>
+                  <Td className="text-text-muted">{e.supplier_name || "—"}</Td>
+                  <Td className="text-text-muted">{e.invoice_no || "—"}</Td>
+                  <Td className={`text-right ${e.voided_at ? "line-through" : "font-medium"}`}>
+                    {formatMoney(e.amount, e.currency)}
+                  </Td>
+                  <Td className="text-right">
+                    {!e.voided_at && !locked && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          const reason = prompt("İptal nedeni:") ?? "";
+                          run(() =>
+                            apiClient(`/api/v1/projects/${project.id}/expenses/${e.id}/void`, {
+                              method: "POST",
+                              body: JSON.stringify({ reason }),
+                            })
+                          );
+                        }}
+                        className="text-xs text-danger hover:underline"
+                      >
+                        İptal Et
+                      </button>
+                    )}
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+
+        <div className="flex items-center justify-between border-t border-border pt-2 text-sm">
+          <span className="text-text-muted">Geçerli masraf toplamı</span>
+          <span className="font-medium">{formatMoney(validTotal, project.currency)}</span>
         </div>
-      )}
-      {error && <p className="text-xs text-danger">{error}</p>}
-    </div>
+        <p className="text-xs text-text-muted">
+          Taşeron ödemeleri buraya girilmez — çift sayımı önlemek için yalnızca Taşeronlar
+          bölümünden kaydedilir.
+        </p>
+
+        {locked ? (
+          <LockedNote project={project} />
+        ) : (
+          formOpen && (
+            <form onSubmit={submit} className="flex flex-col gap-3 border-t border-border pt-3">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <Select
+                  label="Kategori"
+                  name="expense_category"
+                  value={form.category}
+                  onChange={(e) => setForm({ ...form, category: e.target.value as ExpenseCategory })}
+                >
+                  {Object.entries(EXPENSE_CATEGORY_LABELS).map(([k, label]) => (
+                    <option key={k} value={k}>
+                      {label}
+                    </option>
+                  ))}
+                </Select>
+                <Input
+                  label={`Tutar (${project.currency})`}
+                  name="expense_amount"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  value={form.amount}
+                  onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                />
+                <DateInput
+                  label="Tarih"
+                  name="expense_date"
+                  required
+                  value={form.expense_date}
+                  onChange={(e) => setForm({ ...form, expense_date: e.target.value })}
+                />
+                <Input
+                  label="Tedarikçi"
+                  name="expense_supplier"
+                  value={form.supplier_name}
+                  onChange={(e) => setForm({ ...form, supplier_name: e.target.value })}
+                />
+                <Input
+                  label="Fatura No"
+                  name="expense_invoice_no"
+                  value={form.invoice_no}
+                  onChange={(e) => setForm({ ...form, invoice_no: e.target.value })}
+                />
+                {linkableChangeOrders.length > 0 && (
+                  <Select
+                    label="Ek İş (opsiyonel)"
+                    name="expense_change_order"
+                    value={form.change_order_id}
+                    onChange={(e) => setForm({ ...form, change_order_id: e.target.value })}
+                  >
+                    <option value="">Bağlı değil</option>
+                    {linkableChangeOrders.map((co) => (
+                      <option key={co.id} value={co.id}>
+                        {co.change_order_no} · {co.title}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+                <div className="col-span-2">
+                  <Input
+                    label="Açıklama"
+                    name="expense_description"
+                    required
+                    value={form.description}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  />
+                </div>
+              </div>
+              <Textarea
+                label="Not"
+                name="expense_notes"
+                className="min-h-16"
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              />
+              <div className="flex gap-2">
+                <Button type="submit" loading={busy}>
+                  Kaydet
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => setFormOpen(false)}>
+                  Vazgeç
+                </Button>
+              </div>
+            </form>
+          )
+        )}
+        {error && <p className="text-xs text-danger">{error}</p>}
+      </div>
+    </Section>
   );
 }
 

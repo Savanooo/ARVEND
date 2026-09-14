@@ -6,7 +6,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ControlledTabPanel, ControlledTabs } from "@/components/ui/Tabs";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, formatSignedMoney } from "@/lib/format";
 import { PROJECT_STATUS } from "@/lib/status";
 import {
   type ChangeOrder,
@@ -196,31 +196,40 @@ export default async function ProjeDetayPage({
                 <Row label="Başlangıç Tarihi" value={formatDate(project.start_date)} />
                 <Row label="Planlanan Bitiş" value={formatDate(project.end_date)} />
                 <Row label="Para Birimi" value={project.currency} />
+              </div>
+
+              {/* Fiyat kırılımı: ana sözleşme + onaylı ek işler/eksiltmeler.
+                  Bunların toplamı olan güncel proje bedeli üstteki KPI
+                  şeridinde; gerçekleşen kâr/marj ise Finans > Maliyet /
+                  Kârlılık bölümünde -- burada tekrarlanmaz. */}
+              <div className="mt-4 grid grid-cols-2 gap-4 border-t border-border pt-4 md:grid-cols-4">
                 <Row
                   label="Ana Sözleşme Bedeli"
                   value={<span className="font-medium">{formatMoney(project.contract_amount, project.currency)}</span>}
                 />
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-4 border-t border-border pt-4 md:grid-cols-4">
                 <Row
-                  label="Tahsil Edilen"
-                  value={formatMoney(summary.collected_amount, project.currency)}
+                  label="Onaylı Ek İşler"
+                  value={
+                    <span className={summary.approved_additions > 0 ? "text-success" : ""}>
+                      {formatSignedMoney(summary.approved_additions, project.currency)}
+                    </span>
+                  }
                 />
                 <Row
-                  label={summary.over_collected > 0 ? "Fazla Tahsilat" : "Kalan Bakiye"}
-                  value={formatMoney(
-                    summary.over_collected > 0 ? summary.over_collected : summary.remaining_receivable,
-                    project.currency
-                  )}
+                  label="Onaylı Eksiltmeler"
+                  value={
+                    <span className={summary.approved_deductions > 0 ? "text-danger" : ""}>
+                      {formatSignedMoney(-summary.approved_deductions, project.currency)}
+                    </span>
+                  }
                 />
                 <Row
-                  label="Gerçekleşen Maliyet"
-                  value={formatMoney(summary.realized_cost, project.currency)}
-                />
-                <Row
-                  label="Gerçekleşen Brüt Kâr"
-                  value={`${formatMoney(summary.realized_gross_profit, project.currency)} (%${summary.realized_margin_percent})`}
+                  label="Güncel Proje Bedeli"
+                  value={
+                    <span className="font-medium text-gold">
+                      {formatMoney(summary.current_contract_value, project.currency)}
+                    </span>
+                  }
                 />
               </div>
 
@@ -297,9 +306,12 @@ export default async function ProjeDetayPage({
               />
             </Section>
 
-            <Section title="Masraflar">
-              <ExpensesSection project={project} expenses={expenses.expenses} locked={locked} />
-            </Section>
+            <ExpensesSection
+              project={project}
+              expenses={expenses.expenses}
+              changeOrders={changeOrders.change_orders}
+              locked={locked}
+            />
 
             <Section title="Fatura Bilgileri">
               <InvoicesSection project={project} invoices={invoices.invoices} locked={locked} />
