@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import type { Project } from "@/lib/types";
 
@@ -17,7 +17,7 @@ export default async function ProjeDuzenlePage({
 
   return (
     <>
-      <Topbar title={`${project.project_no} — Düzenle`} />
+      <PageHeader title={`${project.project_no} — Düzenle`} />
       <ProjectEditForm project={project} />
     </>
   );

@@ -1,11 +1,15 @@
 "use client";
 
+import { Check, Copy } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
+import { useToast } from "@/components/ui/Toast";
 import { apiClient, ApiError } from "@/lib/api";
 import type { Offer, OfferShareLink } from "@/lib/types";
 
@@ -17,9 +21,6 @@ const EXPIRY_OPTIONS: { value: ExpiresIn; label: string }[] = [
   { value: "never", label: "Süresiz" },
 ];
 
-const selectClass =
-  "rounded-md border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-gold disabled:opacity-50";
-
 export function ShareOfferCard({
   offer,
   links,
@@ -30,13 +31,14 @@ export function ShareOfferCard({
   revisionNoById: Record<string, number>;
 }) {
   const router = useRouter();
+  const toast = useToast();
+  const { confirm, dialog } = useConfirmDialog();
   const [expiresIn, setExpiresIn] = useState<ExpiresIn>("never");
   const [creating, setCreating] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showMailForm, setShowMailForm] = useState(false);
   const [sending, setSending] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [mail, setMail] = useState({
     to: offer.customer_email,
     subject: `Teklifiniz: ${offer.offer_no}`,
@@ -52,15 +54,15 @@ export function ShareOfferCard({
 
   async function handleCreate() {
     setCreating(true);
-    setMessage(null);
     try {
       await apiClient(`/api/v1/offers/${offer.id}/share-links`, {
         method: "POST",
         body: JSON.stringify({ expires_in: expiresIn }),
       });
+      toast.success("Paylaşım linki oluşturuldu.");
       router.refresh();
     } catch (err) {
-      setMessage(err instanceof ApiError ? err.message : "Bağlantı hatası");
+      toast.error(err instanceof ApiError ? err.message : "Bağlantı hatası");
     } finally {
       setCreating(false);
     }
@@ -72,19 +74,24 @@ export function ShareOfferCard({
       setCopiedId(link.id);
       setTimeout(() => setCopiedId(null), 2000);
     } catch {
-      setMessage("Link kopyalanamadı, tarayıcı izin vermiyor olabilir.");
+      toast.error("Link kopyalanamadı, tarayıcı izin vermiyor olabilir.");
     }
   }
 
   async function handleRevoke(link: OfferShareLink) {
-    if (!confirm("Bu paylaşım linki iptal edilsin mi? Müşteri bu linkten teklifi artık göremez.")) return;
+    const ok = await confirm({
+      title: "Linki İptal Et",
+      message: "Bu paylaşım linki iptal edilsin mi? Müşteri bu linkten teklifi artık göremez.",
+      danger: true,
+    });
+    if (!ok) return;
     setRevokingId(link.id);
-    setMessage(null);
     try {
       await apiClient(`/api/v1/offers/${offer.id}/share-links/${link.id}`, { method: "DELETE" });
+      toast.success("Paylaşım linki iptal edildi.");
       router.refresh();
     } catch (err) {
-      setMessage(err instanceof ApiError ? err.message : "Bağlantı hatası");
+      toast.error(err instanceof ApiError ? err.message : "Bağlantı hatası");
     } finally {
       setRevokingId(null);
     }
@@ -93,17 +100,16 @@ export function ShareOfferCard({
   async function handleSendMail(e: FormEvent) {
     e.preventDefault();
     setSending(true);
-    setMessage(null);
     try {
       await apiClient(`/api/v1/offers/${offer.id}/send-email`, {
         method: "POST",
         body: JSON.stringify(mail),
       });
-      setMessage("Mail gönderildi.");
+      toast.success("Mail gönderildi.");
       setShowMailForm(false);
       router.refresh();
     } catch (err) {
-      setMessage(err instanceof ApiError ? err.message : "Bağlantı hatası");
+      toast.error(err instanceof ApiError ? err.message : "Bağlantı hatası");
       // Gönderim başarısız olsa bile sunucu tarafında kalıcı kayıtlar
       // oluşmuş olabilir (paylaşım linki ve "başarısız" mail logu), bu
       // yüzden hata durumunda da tazeliyoruz -- aksi halde ekran
@@ -155,7 +161,17 @@ export function ShareOfferCard({
                 </div>
                 <div className="mt-2 flex gap-2">
                   <Button type="button" variant="secondary" onClick={() => handleCopy(link)}>
-                    {copiedId === link.id ? "Kopyalandı ✓" : "Kopyala"}
+                    {copiedId === link.id ? (
+                      <>
+                        <Check size={14} strokeWidth={2} />
+                        Kopyalandı
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={14} strokeWidth={1.75} />
+                        Kopyala
+                      </>
+                    )}
                   </Button>
                   <Button
                     type="button"
@@ -172,19 +188,19 @@ export function ShareOfferCard({
         )}
 
         <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-          <select
+          <Select
             value={expiresIn}
             disabled={creating}
             onChange={(e) => setExpiresIn(e.target.value as ExpiresIn)}
-            className={selectClass}
             aria-label="Link süresi"
+            className="w-32"
           >
             {EXPIRY_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
               </option>
             ))}
-          </select>
+          </Select>
           <Button type="button" variant="secondary" disabled={creating} onClick={handleCreate}>
             {creating ? "Oluşturuluyor…" : activeLinks.length === 0 ? "Link Oluştur" : "Yeni Link Oluştur"}
           </Button>
@@ -217,8 +233,8 @@ export function ShareOfferCard({
               Mail, güncel revizyonun paylaşım linkini içerir; aktif link yoksa süresiz bir link
               otomatik oluşturulur.
             </p>
-            <Button type="submit" disabled={sending}>
-              {sending ? "Gönderiliyor…" : "Gönder"}
+            <Button type="submit" loading={sending} className="w-fit">
+              Gönder
             </Button>
           </form>
         )}
@@ -235,9 +251,8 @@ export function ShareOfferCard({
             </ul>
           </details>
         )}
-
-        {message && <p className="text-xs text-text-muted">{message}</p>}
       </CardBody>
+      {dialog}
     </Card>
   );
 }

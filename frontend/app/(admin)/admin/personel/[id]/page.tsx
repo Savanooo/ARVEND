@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import type { Employee } from "@/lib/types";
 
@@ -17,7 +17,7 @@ export default async function PersonelDetayPage({
 
   return (
     <>
-      <Topbar title={employee.full_name} />
+      <PageHeader title={employee.full_name} />
       <div className="flex max-w-md flex-col gap-6 p-8">
         <EditEmployeeForm employee={employee} />
       </div>

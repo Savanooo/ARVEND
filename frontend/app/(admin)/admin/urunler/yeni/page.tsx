@@ -6,7 +6,7 @@ import { FormEvent, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { apiClient, ApiError } from "@/lib/api";
 import type { Product } from "@/lib/types";
 
@@ -41,7 +41,7 @@ export default function YeniUrunPage() {
 
   return (
     <>
-      <Topbar title="Yeni Ürün" />
+      <PageHeader title="Yeni Ürün" />
       <div className="p-8">
         <Card className="max-w-md">
           <CardBody>

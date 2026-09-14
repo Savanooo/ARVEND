@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import { formatTL } from "@/lib/format";
 import type { Employee } from "@/lib/types";
@@ -26,7 +26,7 @@ export default async function PersonelPage({
 
   return (
     <>
-      <Topbar
+      <PageHeader
         title="Personel"
         action={
           <Link href="/admin/personel/yeni">

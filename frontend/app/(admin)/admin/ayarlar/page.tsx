@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import type { SmtpSettings } from "@/lib/types";
 
@@ -12,7 +12,7 @@ export default async function AyarlarPage() {
 
   return (
     <>
-      <Topbar title="Ayarlar" />
+      <PageHeader title="Ayarlar" />
       <div className="flex max-w-md flex-col gap-6 p-8">
         <SmtpSettingsForm settings={settings} />
       </div>

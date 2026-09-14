@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import type { AttendanceLog, AttendanceStatus, Employee } from "@/lib/types";
 
@@ -51,7 +51,7 @@ export default async function MesaiPage({
 
   return (
     <>
-      <Topbar title="Mesai" />
+      <PageHeader title="Mesai" />
       <div className="flex flex-col gap-4 p-8">
         <AddAttendanceForm employees={employees} />
 

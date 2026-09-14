@@ -1,23 +1,17 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 
-import { Badge } from "@/components/ui/Badge";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Card } from "@/components/ui/Card";
+import { Pagination } from "@/components/ui/Pagination";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
-import { Topbar } from "@/components/layout/Topbar";
 import { apiServer } from "@/lib/api";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
-import { PROJECT_STATUS_LABELS, type Project, type ProjectStatus } from "@/lib/types";
+import { PROJECT_STATUS } from "@/lib/status";
+import type { Project } from "@/lib/types";
 
 import { ProjectFilters } from "./ProjectFilters";
-
-const STATUS_TONE: Record<ProjectStatus, "muted" | "gold" | "success" | "danger"> = {
-  planned: "muted",
-  active: "gold",
-  paused: "muted",
-  completed: "success",
-  cancelled: "danger",
-};
 
 const PAGE_SIZE = 25;
 
@@ -68,7 +62,7 @@ export default async function ProjelerPage({
 
   return (
     <>
-      <Topbar title="Projeler" />
+      <PageHeader title="Projeler" />
       <div className="flex flex-col gap-4 p-8">
         <ProjectFilters
           status={sp.status ?? ""}
@@ -90,6 +84,7 @@ export default async function ProjelerPage({
                   <Th>Başlangıç</Th>
                   <Th className="text-right">Proje Bedeli</Th>
                   <Th className="text-right">Ek İşler</Th>
+                  <Th className="text-right">Güncel Proje Bedeli</Th>
                   <Th>PB</Th>
                   <Th className="text-right">Tahsil Edilen</Th>
                   <Th className="text-right">Bakiye</Th>
@@ -122,6 +117,9 @@ export default async function ProjelerPage({
                     <Td className="text-right text-text-muted">
                       {p.change_order_net ? formatSignedMoney(p.change_order_net, p.currency) : NO_DATA}
                     </Td>
+                    <Td className="text-right font-medium text-gold">
+                      {formatMoney(p.current_contract_value ?? p.contract_amount, p.currency)}
+                    </Td>
                     <Td className="text-text-muted">{p.currency}</Td>
                     <Td className="text-right">{formatMoney(p.collected_amount ?? 0, p.currency)}</Td>
                     <Td className="text-right">
@@ -140,13 +138,13 @@ export default async function ProjelerPage({
                       {invoiceLabel(p.invoice_count, p.paid_invoice_count)}
                     </Td>
                     <Td>
-                      <Badge tone={STATUS_TONE[p.status]}>{PROJECT_STATUS_LABELS[p.status]}</Badge>
+                      <StatusBadge status={p.status} registry={PROJECT_STATUS} />
                     </Td>
                   </Tr>
                 ))}
                 {projects.length === 0 && (
                   <tr>
-                    <Td colSpan={13} className="text-center text-text-muted">
+                    <Td colSpan={15} className="text-center text-text-muted">
                       Proje bulunamadı. Kabul edilmiş bir teklifi &quot;Projeye Dönüştür&quot; ile
                       projeye çevirebilirsiniz.
                     </Td>
@@ -157,31 +155,12 @@ export default async function ProjelerPage({
           </div>
         </Card>
 
-        <div className="flex items-center justify-between text-xs text-text-muted">
-          <span>
-            {total} proje
-            {totalPages > 1 && ` · sayfa ${page}/${totalPages}`}
-          </span>
-          {totalPages > 1 && (
-            <div className="flex gap-3">
-              {page > 1 && (
-                <Link href={pageHref(page - 1)} className="hover:text-gold">
-                  ← Önceki
-                </Link>
-              )}
-              {page < totalPages && (
-                <Link href={pageHref(page + 1)} className="hover:text-gold">
-                  Sonraki →
-                </Link>
-              )}
-            </div>
-          )}
-        </div>
+        <Pagination page={page} totalPages={totalPages} total={total} itemLabel="proje" hrefForPage={pageHref} />
 
         <p className="text-xs text-text-muted">
-          Toplam Masraf ve Brüt Kâr, gerçekleşen maliyeti (masraflar + taşerona ödenen) esas
-          alır; taşeronların kalan taahhüdü proje detayındaki &quot;Tahmini&quot; değerlerde
-          gösterilir.
+          Güncel Proje Bedeli, ana sözleşme + onaylı ek işler/eksiltmeler toplamıdır. Toplam
+          Masraf ve Brüt Kâr, gerçekleşen maliyeti (masraflar + taşerona ödenen) esas alır;
+          taşeronların kalan taahhüdü proje detayındaki &quot;Tahmini&quot; değerlerde gösterilir.
         </p>
       </div>
     </>

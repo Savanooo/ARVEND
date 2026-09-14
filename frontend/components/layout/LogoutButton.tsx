@@ -1,11 +1,12 @@
 "use client";
 
+import { LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { apiClient } from "@/lib/api";
 
-export function LogoutButton() {
+export function LogoutButton({ collapsed = false }: { collapsed?: boolean }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
@@ -23,9 +24,11 @@ export function LogoutButton() {
     <button
       onClick={handleLogout}
       disabled={loading}
-      className="sidebar-nav-link text-xs font-semibold uppercase tracking-widest disabled:opacity-50"
+      title={collapsed ? "Çıkış Yap" : undefined}
+      className="sidebar-nav-link flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-semibold uppercase tracking-widest disabled:opacity-50"
     >
-      {loading ? "Çıkış yapılıyor…" : "Çıkış Yap"}
+      <LogOut size={16} strokeWidth={1.75} />
+      {!collapsed && <span>{loading ? "Çıkış yapılıyor…" : "Çıkış Yap"}</span>}
     </button>
   );
 }

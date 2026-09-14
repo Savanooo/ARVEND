@@ -6,6 +6,7 @@ import { FormEvent, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatTL } from "@/lib/format";
 import { PROJECT_STATUS_LABELS, type Project, type ProjectStatus } from "@/lib/types";
@@ -20,9 +21,6 @@ const TRANSITIONS: Record<ProjectStatus, ProjectStatus[]> = {
   completed: ["completed"],
   cancelled: ["cancelled"],
 };
-
-const selectClass =
-  "rounded-md border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-gold";
 
 export function ProjectEditForm({ project }: { project: Project }) {
   const router = useRouter();
@@ -78,15 +76,8 @@ export function ProjectEditForm({ project }: { project: Project }) {
               onChange={(e) => setForm({ ...form, project_type: e.target.value })}
             />
             <div className="flex flex-col gap-1.5">
-              <label
-                htmlFor="status"
-                className="text-xs font-semibold uppercase tracking-widest text-text-muted"
-              >
-                Durum
-              </label>
-              <select
-                id="status"
-                className={selectClass}
+              <Select
+                label="Durum"
                 value={form.status}
                 onChange={(e) => setForm({ ...form, status: e.target.value as ProjectStatus })}
               >
@@ -95,7 +86,7 @@ export function ProjectEditForm({ project }: { project: Project }) {
                     {PROJECT_STATUS_LABELS[s]}
                   </option>
                 ))}
-              </select>
+              </Select>
               {TRANSITIONS[project.status].length === 1 && (
                 <p className="text-xs text-text-muted">
                   {PROJECT_STATUS_LABELS[project.status]} durumundaki bir proje yeniden

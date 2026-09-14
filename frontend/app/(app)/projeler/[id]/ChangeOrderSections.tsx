@@ -1,33 +1,29 @@
 "use client";
 
+import { Check, Copy } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Select } from "@/components/ui/Select";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Table, Td, Th, Tr } from "@/components/ui/Table";
+import { Textarea } from "@/components/ui/Textarea";
+import { useToast } from "@/components/ui/Toast";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
+import { CHANGE_ORDER_STATUS } from "@/lib/status";
 import {
-  CHANGE_ORDER_STATUS_LABELS,
   CHANGE_ORDER_TYPE_LABELS,
   type ChangeOrder,
   type ChangeOrderItemInput,
-  type ChangeOrderStatus,
   type ChangeOrderType,
   type Project,
 } from "@/lib/types";
 
 const inputClass =
   "rounded-md border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-muted/60 outline-none focus:border-gold";
-
-const STATUS_TONE: Record<ChangeOrderStatus, "muted" | "gold" | "success" | "danger"> = {
-  draft: "muted",
-  sent: "gold",
-  approved: "success",
-  rejected: "danger",
-  cancelled: "danger",
-  superseded: "muted",
-};
 
 // Anahtar form ÖRNEĞİ başına bir kez üretilir, yalnızca ONAYLANMIŞ bir
 // gönderimden SONRA yenilenir (bkz. FinanceSections.tsx'teki aynı ilke).
@@ -132,6 +128,8 @@ function ChangeOrderCard({
   locked: boolean;
 }) {
   const { busy, error, run } = useChangeOrderAction(locked);
+  const toast = useToast();
+  const { confirm, dialog } = useConfirmDialog();
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
@@ -182,6 +180,11 @@ function ChangeOrderCard({
 
   useEffect(() => {
     if (!expanded || detail || loadingDetail) return;
+    // Kart genişletildiğinde GERÇEK kalemleri çekmek için kasıtlı bir ağ
+    // yan etkisi -- "you might not need an effect" burada geçerli değil,
+    // veri sunucudan gelir. fetchDetail zaten kendi içinde busy/finally
+    // koruması taşıyor.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchDetail();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded]);
@@ -214,16 +217,24 @@ function ChangeOrderCard({
   }
 
   async function send() {
-    await run(() => apiClient(`/api/v1/projects/${project.id}/change-orders/${co.id}/send`, { method: "POST" }));
+    const ok = await run(() => apiClient(`/api/v1/projects/${project.id}/change-orders/${co.id}/send`, { method: "POST" }));
+    if (ok) toast.success(`${co.change_order_no} müşteriye gönderildi.`);
   }
 
   async function cancel() {
-    if (!confirm("Bu ek işi iptal etmek istediğinize emin misiniz?")) return;
-    await run(() => apiClient(`/api/v1/projects/${project.id}/change-orders/${co.id}/cancel`, { method: "POST" }));
+    const ok = await confirm({
+      title: "Ek İşi İptal Et",
+      message: "Bu ek işi iptal etmek istediğinize emin misiniz?",
+      danger: true,
+    });
+    if (!ok) return;
+    const done = await run(() => apiClient(`/api/v1/projects/${project.id}/change-orders/${co.id}/cancel`, { method: "POST" }));
+    if (done) toast.success(`${co.change_order_no} iptal edildi.`);
   }
 
   async function revise() {
-    await run(() => apiClient(`/api/v1/projects/${project.id}/change-orders/${co.id}/revise`, { method: "POST" }));
+    const ok = await run(() => apiClient(`/api/v1/projects/${project.id}/change-orders/${co.id}/revise`, { method: "POST" }));
+    if (ok) toast.success("Yeni revizyon (taslak) oluşturuldu.");
   }
 
   async function sendEmail(e: FormEvent) {
@@ -237,11 +248,22 @@ function ChangeOrderCard({
     if (ok) {
       setEmailKey(newIdempotencyKey());
       setShowEmailForm(false);
+      toast.success("Mail gönderildi.");
     }
   }
 
   function shareUrl() {
     return `${window.location.origin}/ek-is/${co.active_share_token ?? ""}`;
+  }
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(shareUrl());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Link kopyalanamadı, tarayıcı izin vermiyor olabilir.");
+    }
   }
 
   return (
@@ -259,7 +281,7 @@ function ChangeOrderCard({
           <span className={co.change_type === "addition" ? "text-success" : "text-danger"}>
             {formatSignedMoney(co.change_type === "deduction" ? -co.grand_total : co.grand_total, c)}
           </span>
-          <Badge tone={STATUS_TONE[co.status]}>{CHANGE_ORDER_STATUS_LABELS[co.status]}</Badge>
+          <StatusBadge status={co.status} registry={CHANGE_ORDER_STATUS} />
         </div>
       </button>
 
@@ -268,14 +290,13 @@ function ChangeOrderCard({
           {editing ? (
             <form onSubmit={saveDraft} className="flex flex-col gap-2">
               <div className="grid grid-cols-2 gap-2">
-                <select
-                  className={inputClass}
+                <Select
                   value={form.change_type}
                   onChange={(e) => setForm({ ...form, change_type: e.target.value as ChangeOrderType })}
                 >
                   <option value="addition">{CHANGE_ORDER_TYPE_LABELS.addition}</option>
                   <option value="deduction">{CHANGE_ORDER_TYPE_LABELS.deduction}</option>
-                </select>
+                </Select>
                 <input
                   className={inputClass}
                   placeholder="Başlık"
@@ -300,14 +321,13 @@ function ChangeOrderCard({
                   onChange={(e) => setForm({ ...form, customer_notes: e.target.value })}
                 />
               </div>
-              <textarea
-                className={inputClass}
+              <Textarea
                 placeholder="Dahili not (yalnızca ekip görür)"
                 value={form.internal_notes}
                 onChange={(e) => setForm({ ...form, internal_notes: e.target.value })}
               />
               <div className="flex gap-2">
-                <Button type="submit" disabled={busy}>
+                <Button type="submit" loading={busy}>
                   Kaydet
                 </Button>
                 <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
@@ -317,35 +337,35 @@ function ChangeOrderCard({
             </form>
           ) : (
             <>
-              <table className="w-full text-sm">
+              <Table>
                 <thead>
-                  <tr className="text-left text-xs uppercase tracking-widest text-text-muted">
-                    <th className="pb-1">Kalem</th>
-                    <th className="pb-1 text-right">Miktar</th>
-                    <th className="pb-1 text-right">Birim Fiyat</th>
-                    <th className="pb-1 text-right">Tutar</th>
+                  <tr>
+                    <Th>Kalem</Th>
+                    <Th className="text-right">Miktar</Th>
+                    <Th className="text-right">Birim Fiyat</Th>
+                    <Th className="text-right">Tutar</Th>
                   </tr>
                 </thead>
                 <tbody>
                   {loadingDetail && displayItems.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="py-1 text-text-muted">
+                      <Td colSpan={4} className="text-text-muted">
                         Kalemler yükleniyor...
-                      </td>
+                      </Td>
                     </tr>
                   )}
                   {displayItems.map((it) => (
-                    <tr key={it.id}>
-                      <td className="py-0.5">{it.description}</td>
-                      <td className="py-0.5 text-right">
+                    <Tr key={it.id}>
+                      <Td>{it.description}</Td>
+                      <Td className="text-right">
                         {it.quantity} {it.unit}
-                      </td>
-                      <td className="py-0.5 text-right">{formatMoney(it.unit_price, c)}</td>
-                      <td className="py-0.5 text-right">{formatMoney(it.line_total, c)}</td>
-                    </tr>
+                      </Td>
+                      <Td className="text-right">{formatMoney(it.unit_price, c)}</Td>
+                      <Td className="text-right">{formatMoney(it.line_total, c)}</Td>
+                    </Tr>
                   ))}
                 </tbody>
-              </table>
+              </Table>
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2 text-xs text-text-muted">
                 <span>
                   Ara Toplam: {formatMoney(co.subtotal, c)} · KDV (%{co.vat_rate}): {formatMoney(co.vat_amount, c)}
@@ -390,17 +410,18 @@ function ChangeOrderCard({
               )}
               {isSent && (
                 <>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    disabled={busy}
-                    onClick={() => {
-                      navigator.clipboard.writeText(shareUrl());
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 2000);
-                    }}
-                  >
-                    {copied ? "Kopyalandı" : "Linki Kopyala"}
+                  <Button type="button" variant="secondary" disabled={busy} onClick={copyLink}>
+                    {copied ? (
+                      <>
+                        <Check size={14} strokeWidth={2} />
+                        Kopyalandı
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={14} strokeWidth={1.75} />
+                        Linki Kopyala
+                      </>
+                    )}
                   </Button>
                   <Button type="button" variant="secondary" disabled={busy} onClick={() => setShowEmailForm(!showEmailForm)}>
                     Mail Gönder
@@ -435,13 +456,12 @@ function ChangeOrderCard({
                 value={mail.subject}
                 onChange={(e) => setMail({ ...mail, subject: e.target.value })}
               />
-              <textarea
-                className={inputClass}
+              <Textarea
                 placeholder="Mesaj (opsiyonel)"
                 value={mail.message}
                 onChange={(e) => setMail({ ...mail, message: e.target.value })}
               />
-              <Button type="submit" disabled={busy}>
+              <Button type="submit" loading={busy}>
                 Gönder
               </Button>
             </form>
@@ -450,6 +470,7 @@ function ChangeOrderCard({
           {error && <p className="text-xs text-danger">{error}</p>}
         </div>
       )}
+      {dialog}
     </div>
   );
 }
@@ -506,14 +527,13 @@ export function ChangeOrdersSection({
       {open ? (
         <form onSubmit={submit} className="flex flex-col gap-2 rounded-md border border-border p-3">
           <div className="grid grid-cols-2 gap-2">
-            <select
-              className={inputClass}
+            <Select
               value={form.change_type}
               onChange={(e) => setForm({ ...form, change_type: e.target.value as ChangeOrderType })}
             >
               <option value="addition">{CHANGE_ORDER_TYPE_LABELS.addition}</option>
               <option value="deduction">{CHANGE_ORDER_TYPE_LABELS.deduction}</option>
-            </select>
+            </Select>
             <input
               className={inputClass}
               placeholder="Başlık"

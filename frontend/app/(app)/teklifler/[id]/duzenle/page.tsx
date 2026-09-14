@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import type { Offer } from "@/lib/types";
 
@@ -25,7 +25,7 @@ export default async function TeklifDuzenlePage({
 
   return (
     <>
-      <Topbar title={`${offer.offer_no} — Düzenle`} />
+      <PageHeader title={`${offer.offer_no} — Düzenle`} />
       <OfferForm offer={offer} />
     </>
   );

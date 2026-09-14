@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import type { User } from "@/lib/types";
 
@@ -22,7 +22,7 @@ export default async function KullanicilarPage() {
 
   return (
     <>
-      <Topbar
+      <PageHeader
         title="Kullanıcılar"
         action={
           <Link href="/admin/kullanicilar/yeni">

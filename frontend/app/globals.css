@@ -20,17 +20,29 @@
   --color-danger-soft: rgba(162, 63, 53, 0.1);
   --color-success: #4f7038;
   --color-success-soft: rgba(79, 112, 56, 0.1);
+  /* Bilgi/gönderildi durumları için -- desatüre çelik mavisi, success/
+     danger'ın yanında yabancı durmasın diye aynı düşük-doygunluk
+     mantığıyla seçildi. */
+  --color-info: #2f6fb0;
+  --color-info-soft: rgba(47, 111, 176, 0.1);
 
   /* Sidebar bilinçli olarak ayrı, koyu bir palet kullanır -- marka
      kimliği (logo, altın) orada yaşar; asıl çalışma alanı (tablo/form
-     dolu sayfalar) göz yormasın diye açık kalır. */
-  --sidebar-bg: #14120e;
-  --sidebar-border: #2a271f;
-  --sidebar-hover: #211e18;
-  --sidebar-text: #f3efe6;
-  --sidebar-text-muted: #a39c8c;
-  --sidebar-gold: #c9a227;
-  --sidebar-gold-soft: rgba(201, 162, 39, 0.16);
+     dolu sayfalar) göz yormasın diye açık kalır. --color- önekiyle
+     tanımlanır ki Tailwind v4 bunlardan gerçek bg-, text-, border-
+     utility'leri üretsin (aşağıdaki @theme inline bloğuna bakın). */
+  --color-sidebar-bg: #14120e;
+  --color-sidebar-border: #2a271f;
+  --color-sidebar-hover: #211e18;
+  --color-sidebar-text: #f3efe6;
+  --color-sidebar-text-muted: #a39c8c;
+  --color-sidebar-gold: #c9a227;
+  --color-sidebar-gold-soft: rgba(201, 162, 39, 0.16);
+
+  /* Sidebar collapse genişlikleri -- renk değil, @theme inline'a
+     taşınmaz; .app-sidebar kuralı aşağıda bunları doğrudan tüketir. */
+  --sidebar-width-expanded: 15rem;
+  --sidebar-width-collapsed: 4.5rem;
 }
 
 @theme inline {
@@ -48,13 +60,15 @@
   --color-danger-soft: var(--color-danger-soft);
   --color-success: var(--color-success);
   --color-success-soft: var(--color-success-soft);
-  --sidebar-bg: var(--sidebar-bg);
-  --sidebar-border: var(--sidebar-border);
-  --sidebar-hover: var(--sidebar-hover);
-  --sidebar-text: var(--sidebar-text);
-  --sidebar-text-muted: var(--sidebar-text-muted);
-  --sidebar-gold: var(--sidebar-gold);
-  --sidebar-gold-soft: var(--sidebar-gold-soft);
+  --color-info: var(--color-info);
+  --color-info-soft: var(--color-info-soft);
+  --color-sidebar-bg: var(--color-sidebar-bg);
+  --color-sidebar-border: var(--color-sidebar-border);
+  --color-sidebar-hover: var(--color-sidebar-hover);
+  --color-sidebar-text: var(--color-sidebar-text);
+  --color-sidebar-text-muted: var(--color-sidebar-text-muted);
+  --color-sidebar-gold: var(--color-sidebar-gold);
+  --color-sidebar-gold-soft: var(--color-sidebar-gold-soft);
   --font-sans: var(--font-body);
 }
 
@@ -64,14 +78,24 @@ body {
 }
 
 .sidebar-nav-link {
-  color: var(--sidebar-text-muted);
+  color: var(--color-sidebar-text-muted);
 }
 .sidebar-nav-link:hover {
-  background: var(--sidebar-hover);
-  color: var(--sidebar-text);
+  background: var(--color-sidebar-hover);
+  color: var(--color-sidebar-text);
 }
 .sidebar-nav-link-active,
 .sidebar-nav-link-active:hover {
-  background: var(--sidebar-gold-soft);
-  color: var(--sidebar-gold);
+  background: var(--color-sidebar-gold-soft);
+  color: var(--color-sidebar-gold);
+}
+
+/* Sidebar collapse: genişlik, sunucu tarafında cookie'den okunan bir
+   prop'a göre JSX'te doğrudan seçilir (bkz. AppShell.tsx/Sidebar.tsx) --
+   bu yüzden animasyon/geçiş YOK, ilk render zaten doğru genişlikle gelir. */
+.app-sidebar {
+  width: var(--sidebar-width-expanded);
+}
+.app-sidebar-collapsed {
+  width: var(--sidebar-width-collapsed);
 }

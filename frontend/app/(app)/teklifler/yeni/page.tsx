@@ -1,11 +1,11 @@
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 import { OfferForm } from "../OfferForm";
 
 export default function YeniTeklifPage() {
   return (
     <>
-      <Topbar title="Yeni Teklif" />
+      <PageHeader title="Yeni Teklif" />
       <OfferForm />
     </>
   );

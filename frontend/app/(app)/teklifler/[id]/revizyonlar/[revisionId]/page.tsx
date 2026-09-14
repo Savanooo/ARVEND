@@ -1,10 +1,12 @@
 import { cookies } from "next/headers";
 
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import { formatTL } from "@/lib/format";
+import { OFFER_STATUS } from "@/lib/status";
 import type { OfferRevision } from "@/lib/types";
 
 export default async function TeklifRevizyonDetayPage({
@@ -21,7 +23,7 @@ export default async function TeklifRevizyonDetayPage({
 
   return (
     <>
-      <Topbar title={`Revizyon ${revision.revision_no}`} />
+      <PageHeader title={`Revizyon ${revision.revision_no}`} />
       <div className="flex flex-col gap-6 p-8 lg:flex-row">
         <div className="flex flex-1 flex-col gap-6">
           <Card>
@@ -91,7 +93,9 @@ export default async function TeklifRevizyonDetayPage({
               <div className="mt-3 border-t border-border pt-3 text-xs uppercase tracking-widest text-text-muted">
                 Durum
               </div>
-              <div>{revision.status}</div>
+              <div>
+                <StatusBadge status={revision.status} registry={OFFER_STATUS} />
+              </div>
             </CardBody>
           </Card>
         </div>

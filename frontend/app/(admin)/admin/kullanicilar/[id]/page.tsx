@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import type { User } from "@/lib/types";
 
@@ -17,7 +17,7 @@ export default async function KullaniciDetayPage({
 
   return (
     <>
-      <Topbar title={user.full_name} />
+      <PageHeader title={user.full_name} />
       <div className="p-8">
         <EditUserForm user={user} />
       </div>

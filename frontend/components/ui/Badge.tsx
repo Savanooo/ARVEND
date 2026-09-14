@@ -1,10 +1,11 @@
-type Tone = "gold" | "success" | "danger" | "muted";
+export type Tone = "gold" | "success" | "danger" | "muted" | "info";
 
 const tones: Record<Tone, string> = {
   gold: "bg-gold-soft text-gold",
   success: "bg-success-soft text-success",
   danger: "bg-danger-soft text-danger",
   muted: "bg-surface-hover text-text-muted",
+  info: "bg-info-soft text-info",
 };
 
 export function Badge({ tone = "muted", children }: { tone?: Tone; children: React.ReactNode }) {

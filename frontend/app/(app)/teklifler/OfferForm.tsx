@@ -4,8 +4,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+import { Trash2 } from "lucide-react";
+
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatTL } from "@/lib/format";
@@ -239,14 +242,14 @@ export function OfferForm({ offer }: { offer?: Offer }) {
                   {formatTL(computedRows[i].lineTotal)}
                 </div>
                 <div className="col-span-1 text-right">
-                  <button
-                    type="button"
+                  <IconButton
+                    label="Satırı kaldır"
+                    variant="ghost"
                     onClick={() => setItems((prev) => prev.filter((_, idx) => idx !== i))}
-                    className="text-text-muted hover:text-danger"
-                    aria-label="Satırı kaldır"
+                    className="hover:text-danger"
                   >
-                    ✕
-                  </button>
+                    <Trash2 size={16} strokeWidth={1.75} />
+                  </IconButton>
                 </div>
               </div>
             ))}

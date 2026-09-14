@@ -1,9 +1,11 @@
+import { Loader2 } from "lucide-react";
 import { ButtonHTMLAttributes, forwardRef } from "react";
 
 type Variant = "primary" | "secondary" | "danger" | "ghost";
 
 interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
+  loading?: boolean;
 }
 
 const base =
@@ -18,12 +20,16 @@ const variants: Record<Variant, string> = {
 };
 
 export const Button = forwardRef<HTMLButtonElement, Props>(
-  ({ variant = "primary", className = "", ...props }, ref) => (
+  ({ variant = "primary", loading = false, disabled, className = "", children, ...props }, ref) => (
     <button
       ref={ref}
+      disabled={disabled || loading}
       className={`${base} ${variants[variant]} ${className}`}
       {...props}
-    />
+    >
+      {loading && <Loader2 size={14} strokeWidth={2} className="animate-spin" />}
+      {children}
+    </button>
   )
 );
 Button.displayName = "Button";

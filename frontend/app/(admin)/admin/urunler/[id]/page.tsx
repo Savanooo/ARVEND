@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import { formatTL } from "@/lib/format";
 import type { PriceHistoryEntry, Product } from "@/lib/types";
@@ -25,7 +25,7 @@ export default async function UrunDetayPage({
 
   return (
     <>
-      <Topbar title={product.name} />
+      <PageHeader title={product.name} />
       <div className="flex max-w-md flex-col gap-6 p-8">
         <EditProductForm product={product} />
 

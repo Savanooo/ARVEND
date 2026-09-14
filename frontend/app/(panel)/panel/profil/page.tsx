@@ -5,7 +5,7 @@ import { FormEvent, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { apiClient, ApiError } from "@/lib/api";
 
 export default function ProfilPage() {
@@ -38,7 +38,7 @@ export default function ProfilPage() {
 
   return (
     <>
-      <Topbar title="Profilim" />
+      <PageHeader title="Profilim" />
       <div className="p-8">
         <Card className="max-w-sm">
           <CardHeader>Şifre Değiştir</CardHeader>

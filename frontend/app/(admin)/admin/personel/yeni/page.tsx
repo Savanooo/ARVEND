@@ -6,7 +6,7 @@ import { FormEvent, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { apiClient, ApiError } from "@/lib/api";
 import type { Employee } from "@/lib/types";
 
@@ -51,7 +51,7 @@ export default function YeniPersonelPage() {
 
   return (
     <>
-      <Topbar title="Yeni Personel" />
+      <PageHeader title="Yeni Personel" />
       <div className="p-8">
         <Card className="max-w-md">
           <CardBody>

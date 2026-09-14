@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import type { Customer } from "@/lib/types";
 
@@ -26,7 +26,7 @@ export default async function MusterilerPage({
 
   return (
     <>
-      <Topbar
+      <PageHeader
         title="Müşteriler"
         action={
           <Link href="/musteriler/yeni">

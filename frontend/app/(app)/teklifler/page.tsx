@@ -1,21 +1,13 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 
-import { Badge } from "@/components/ui/Badge";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
-import { Table, Td, Th, Tr } from "@/components/ui/Table";
-import { Topbar } from "@/components/layout/Topbar";
+import { Tabs } from "@/components/ui/Tabs";
 import { apiServer } from "@/lib/api";
-import { formatTL } from "@/lib/format";
-import type { Offer, OfferStatus } from "@/lib/types";
+import type { Offer } from "@/lib/types";
 
-const STATUS_TONE: Record<OfferStatus, "muted" | "gold" | "success" | "danger"> = {
-  "taslak": "muted",
-  "gönderildi": "gold",
-  "kabul edildi": "success",
-  "reddedildi": "danger",
-};
+import { OffersBoard } from "./OffersBoard";
 
 async function fetchOffers(filter: string) {
   const cookieHeader = (await cookies()).toString();
@@ -31,11 +23,11 @@ export default async function TekliflerPage({
   searchParams: Promise<{ filter?: string }>;
 }) {
   const { filter = "aktif" } = await searchParams;
-  const { offers, total } = await fetchOffers(filter);
+  const { offers } = await fetchOffers(filter);
 
   return (
     <>
-      <Topbar
+      <PageHeader
         title="Teklifler"
         action={
           <Link href="/teklifler/yeni">
@@ -44,64 +36,16 @@ export default async function TekliflerPage({
         }
       />
       <div className="flex flex-col gap-4 p-8">
-        <div className="flex gap-2 text-sm">
-          <Link
-            href="/teklifler?filter=aktif"
-            className={filter === "aktif" ? "font-semibold text-gold" : "text-text-muted"}
-          >
-            Aktif
-          </Link>
-          <span className="text-text-muted">·</span>
-          <Link
-            href="/teklifler?filter=pasif"
-            className={filter === "pasif" ? "font-semibold text-gold" : "text-text-muted"}
-          >
-            Pasif
-          </Link>
-        </div>
-        <Card>
-          <Table>
-            <thead>
-              <tr>
-                <Th>Teklif No</Th>
-                <Th>Müşteri</Th>
-                <Th>Tarih</Th>
-                <Th>Durum</Th>
-                <Th className="text-right">Tutar</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {offers.map((o) => (
-                <Tr key={o.id}>
-                  <Td>
-                    <Link
-                      href={`/teklifler/${o.id}`}
-                      className="font-medium hover:text-gold hover:underline"
-                    >
-                      {o.offer_no}
-                    </Link>
-                  </Td>
-                  <Td className="text-text-muted">{o.customer_name}</Td>
-                  <Td className="text-text-muted">
-                    {new Date(o.offer_date).toLocaleDateString("tr-TR")}
-                  </Td>
-                  <Td>
-                    <Badge tone={STATUS_TONE[o.status]}>{o.status}</Badge>
-                  </Td>
-                  <Td className="text-right font-medium">{formatTL(o.grand_total)}</Td>
-                </Tr>
-              ))}
-              {offers.length === 0 && (
-                <tr>
-                  <Td colSpan={5} className="text-center text-text-muted">
-                    Teklif bulunamadı.
-                  </Td>
-                </tr>
-              )}
-            </tbody>
-          </Table>
-        </Card>
-        <p className="text-xs text-text-muted">{total} teklif</p>
+        <p className="-mt-1 text-sm text-text-muted">
+          Tekliflerinizi oluşturun, takip edin ve müşterilerinize gönderin.
+        </p>
+        <Tabs
+          items={[
+            { key: "aktif", label: "Aktif", active: filter === "aktif", href: "/teklifler?filter=aktif" },
+            { key: "pasif", label: "Pasif", active: filter === "pasif", href: "/teklifler?filter=pasif" },
+          ]}
+        />
+        <OffersBoard offers={offers} />
       </div>
     </>
   );

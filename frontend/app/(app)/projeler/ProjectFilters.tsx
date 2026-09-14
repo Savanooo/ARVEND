@@ -4,7 +4,12 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
-import { PROJECT_STATUS_LABELS, type ProjectStatus } from "@/lib/types";
+import { DateInput } from "@/components/ui/DateInput";
+import { Input } from "@/components/ui/Input";
+import { SearchInput } from "@/components/ui/SearchInput";
+import { Select } from "@/components/ui/Select";
+import { Tabs } from "@/components/ui/Tabs";
+import { PROJECT_STATUS_LABELS } from "@/lib/types";
 
 const STATUS_TABS: { value: string; label: string }[] = [
   { value: "", label: "Tümü" },
@@ -14,9 +19,6 @@ const STATUS_TABS: { value: string; label: string }[] = [
   { value: "completed", label: PROJECT_STATUS_LABELS.completed },
   { value: "cancelled", label: PROJECT_STATUS_LABELS.cancelled },
 ];
-
-const inputClass =
-  "rounded-md border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-muted/60 outline-none focus:border-gold";
 
 export function ProjectFilters({
   status,
@@ -51,55 +53,48 @@ export function ProjectFilters({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        {STATUS_TABS.map((tab) => (
-          <a
-            key={tab.value || "all"}
-            href={buildHref({ status: tab.value })}
-            className={
-              status === tab.value ? "font-semibold text-gold" : "text-text-muted hover:text-text"
-            }
-          >
-            {tab.label}
-          </a>
-        ))}
-      </div>
+      <Tabs
+        items={STATUS_TABS.map((tab) => ({
+          key: tab.value || "all",
+          label: tab.label,
+          active: status === tab.value,
+          href: buildHref({ status: tab.value }),
+        }))}
+      />
 
       <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2">
-        <input
-          className={inputClass}
-          placeholder="Proje no, ad veya müşteri ara"
-          value={form.q}
-          onChange={(e) => setForm({ ...form, q: e.target.value })}
-          aria-label="Ara"
-        />
-        <input
-          className={inputClass}
-          placeholder="Proje tipi"
-          value={form.project_type}
-          onChange={(e) => setForm({ ...form, project_type: e.target.value })}
-          aria-label="Proje tipi"
-        />
-        <select
-          className={inputClass}
+        <div className="w-64">
+          <SearchInput
+            placeholder="Proje no, ad veya müşteri ara"
+            value={form.q}
+            onChange={(e) => setForm({ ...form, q: e.target.value })}
+            aria-label="Ara"
+          />
+        </div>
+        <div className="w-40">
+          <Input
+            placeholder="Proje tipi"
+            value={form.project_type}
+            onChange={(e) => setForm({ ...form, project_type: e.target.value })}
+            aria-label="Proje tipi"
+          />
+        </div>
+        <Select
           value={form.currency}
           onChange={(e) => setForm({ ...form, currency: e.target.value })}
           aria-label="Para birimi"
+          className="w-40"
         >
           <option value="">Tüm para birimleri</option>
           <option value="TRY">TRY</option>
           <option value="USD">USD</option>
           <option value="EUR">EUR</option>
-        </select>
-        <label className="flex flex-col gap-1 text-xs uppercase tracking-widest text-text-muted">
-          Başlangıç (en erken)
-          <input
-            type="date"
-            className={inputClass}
-            value={form.start_from}
-            onChange={(e) => setForm({ ...form, start_from: e.target.value })}
-          />
-        </label>
+        </Select>
+        <DateInput
+          label="Başlangıç (en erken)"
+          value={form.start_from}
+          onChange={(e) => setForm({ ...form, start_from: e.target.value })}
+        />
         <Button type="submit" variant="secondary">
           Filtrele
         </Button>

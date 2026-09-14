@@ -6,10 +6,9 @@
 export function Skyline({ className = "" }: { className?: string }) {
   return (
     <svg
-      className={`pointer-events-none absolute inset-x-0 bottom-0 h-40 w-full opacity-[0.08] ${className}`}
+      className={`pointer-events-none absolute inset-x-0 bottom-0 h-40 w-full fill-sidebar-gold opacity-[0.08] ${className}`}
       viewBox="0 0 400 160"
       preserveAspectRatio="none"
-      fill="var(--sidebar-gold)"
       aria-hidden
     >
       <rect x="10" y="60" width="28" height="100" />

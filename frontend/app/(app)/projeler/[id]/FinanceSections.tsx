@@ -3,45 +3,27 @@
 import { useRouter } from "next/navigation";
 import { FormEvent, useRef, useState } from "react";
 
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { DateInput } from "@/components/ui/DateInput";
+import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
+import { INVOICE_STATUS, PLAN_ITEM_STATUS, SUBCONTRACTOR_STATUS } from "@/lib/status";
 import {
   EXPENSE_CATEGORY_LABELS,
   INVOICE_STATUS_LABELS,
-  PLAN_ITEM_STATUS_LABELS,
-  SUBCONTRACTOR_STATUS_LABELS,
   type Collection,
   type Expense,
   type ExpenseCategory,
-  type InvoiceStatus,
   type PaymentPlanItem,
-  type PlanItemStatus,
   type Project,
   type ProjectInvoice,
   type Subcontractor,
   type SubcontractorPayment,
 } from "@/lib/types";
-
-const inputClass =
-  "rounded-md border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-muted/60 outline-none focus:border-gold";
-
-const PLAN_TONE: Record<PlanItemStatus, "muted" | "gold" | "success" | "danger"> = {
-  pending: "muted",
-  partial: "gold",
-  paid: "success",
-  overdue: "danger",
-  cancelled: "muted",
-};
-
-const INVOICE_TONE: Record<InvoiceStatus, "muted" | "gold" | "success" | "danger"> = {
-  draft: "muted",
-  issued: "gold",
-  sent: "gold",
-  paid: "success",
-  cancelled: "danger",
-};
 
 // Anahtar form ÖRNEĞİ başına bir kez üretilir ve tekrar denemelerde AYNI
 // kalır; yalnızca kayıt başarıyla oluştuktan sonra yenilenir. Anahtarı her
@@ -140,60 +122,58 @@ export function PaymentPlanSection({
       {items.length === 0 ? (
         <p className="text-text-muted">Henüz ödeme planı kalemi yok.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-widest text-text-muted">
-                <th className="pb-2">Kalem</th>
-                <th className="pb-2">Vade</th>
-                <th className="pb-2 text-right">Planlanan</th>
-                <th className="pb-2 text-right">Tahsil</th>
-                <th className="pb-2 text-right">Kalan</th>
-                <th className="pb-2">Durum</th>
-                <th className="pb-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((it) => (
-                <tr key={it.id} className="border-t border-border">
-                  <td className="py-2">
-                    {it.name}
-                    {it.percentage !== null && (
-                      <span className="ml-1 text-xs text-text-muted">%{it.percentage}</span>
-                    )}
-                  </td>
-                  <td className="py-2 text-text-muted">
-                    {it.due_date ? new Date(it.due_date).toLocaleDateString("tr-TR") : "—"}
-                  </td>
-                  <td className="py-2 text-right">{formatMoney(it.planned_amount, project.currency)}</td>
-                  <td className="py-2 text-right">{formatMoney(it.collected_amount, project.currency)}</td>
-                  <td className="py-2 text-right">{formatMoney(it.remaining_amount, project.currency)}</td>
-                  <td className="py-2">
-                    <Badge tone={PLAN_TONE[it.status]}>{PLAN_ITEM_STATUS_LABELS[it.status]}</Badge>
-                  </td>
-                  <td className="py-2 text-right">
-                    {!locked && it.status !== "cancelled" && (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          run(() =>
-                            apiClient(`/api/v1/projects/${project.id}/payment-plan/${it.id}`, {
-                              method: "DELETE",
-                            })
-                          )
-                        }
-                        className="text-xs text-danger hover:underline"
-                      >
-                        İptal
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table>
+          <thead>
+            <tr>
+              <Th>Kalem</Th>
+              <Th>Vade</Th>
+              <Th className="text-right">Planlanan</Th>
+              <Th className="text-right">Tahsil</Th>
+              <Th className="text-right">Kalan</Th>
+              <Th>Durum</Th>
+              <Th className="w-10" />
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((it) => (
+              <Tr key={it.id}>
+                <Td>
+                  {it.name}
+                  {it.percentage !== null && (
+                    <span className="ml-1 text-xs text-text-muted">%{it.percentage}</span>
+                  )}
+                </Td>
+                <Td className="text-text-muted">
+                  {it.due_date ? new Date(it.due_date).toLocaleDateString("tr-TR") : "—"}
+                </Td>
+                <Td className="text-right">{formatMoney(it.planned_amount, project.currency)}</Td>
+                <Td className="text-right">{formatMoney(it.collected_amount, project.currency)}</Td>
+                <Td className="text-right">{formatMoney(it.remaining_amount, project.currency)}</Td>
+                <Td>
+                  <StatusBadge status={it.status} registry={PLAN_ITEM_STATUS} />
+                </Td>
+                <Td className="text-right">
+                  {!locked && it.status !== "cancelled" && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        run(() =>
+                          apiClient(`/api/v1/projects/${project.id}/payment-plan/${it.id}`, {
+                            method: "DELETE",
+                          })
+                        )
+                      }
+                      className="text-xs text-danger hover:underline"
+                    >
+                      İptal
+                    </button>
+                  )}
+                </Td>
+              </Tr>
+            ))}
+          </tbody>
+        </Table>
       )}
 
       <div className="flex items-center justify-between border-t border-border pt-2 text-sm">
@@ -223,37 +203,34 @@ export function PaymentPlanSection({
         <LockedNote project={project} />
       ) : open ? (
         <form onSubmit={submit} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
-          <input
-            className={inputClass}
+          <Input
             placeholder="Kalem adı (ör. Peşinat)"
             required
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
-          <input
-            className={`${inputClass} w-28`}
+          <Input
+            className="w-28"
             placeholder="Yüzde"
             type="number"
             step="0.01"
             value={form.percentage}
             onChange={(e) => setForm({ ...form, percentage: e.target.value, planned_amount: "" })}
           />
-          <input
-            className={`${inputClass} w-36`}
+          <Input
+            className="w-36"
             placeholder="veya tutar"
             type="number"
             step="0.01"
             value={form.planned_amount}
             onChange={(e) => setForm({ ...form, planned_amount: e.target.value, percentage: "" })}
           />
-          <input
-            className={inputClass}
-            type="date"
+          <DateInput
             value={form.due_date}
             onChange={(e) => setForm({ ...form, due_date: e.target.value })}
           />
-          <Button type="submit" disabled={busy}>
-            {busy ? "Ekleniyor…" : "Ekle"}
+          <Button type="submit" loading={busy}>
+            Ekle
           </Button>
           <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
             Vazgeç
@@ -329,68 +306,66 @@ export function CollectionsSection({
       {collections.length === 0 ? (
         <p className="text-text-muted">Henüz tahsilat kaydı yok.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-widest text-text-muted">
-                <th className="pb-2">Tarih</th>
-                <th className="pb-2">Açıklama</th>
-                <th className="pb-2">Yöntem</th>
-                <th className="pb-2 text-right">Tutar</th>
-                <th className="pb-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {collections.map((c) => (
-                <tr key={c.id} className={`border-t border-border ${c.voided_at ? "opacity-50" : ""}`}>
-                  <td className="py-2 text-text-muted">
-                    {new Date(c.received_date).toLocaleDateString("tr-TR")}
-                  </td>
-                  <td className="py-2">
-                    {c.description || "—"}
-                    {c.voided_at && (
-                      <span className="ml-2 text-xs text-danger">
-                        İPTAL{c.void_reason && ` · ${c.void_reason}`}
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-2 text-text-muted">{c.payment_method || "—"}</td>
-                  <td className={`py-2 text-right ${c.voided_at ? "line-through" : "font-medium"}`}>
-                    {formatMoney(c.amount, c.currency)}
-                  </td>
-                  <td className="py-2 text-right">
-                    {!c.voided_at && !locked && (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => {
-                          const reason = prompt("İptal nedeni:") ?? "";
-                          run(() =>
-                            apiClient(`/api/v1/projects/${project.id}/collections/${c.id}/void`, {
-                              method: "POST",
-                              body: JSON.stringify({ reason }),
-                            })
-                          );
-                        }}
-                        className="text-xs text-danger hover:underline"
-                      >
-                        İptal Et
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table>
+          <thead>
+            <tr>
+              <Th>Tarih</Th>
+              <Th>Açıklama</Th>
+              <Th>Yöntem</Th>
+              <Th className="text-right">Tutar</Th>
+              <Th className="w-16" />
+            </tr>
+          </thead>
+          <tbody>
+            {collections.map((c) => (
+              <Tr key={c.id} className={c.voided_at ? "opacity-50" : ""}>
+                <Td className="text-text-muted">
+                  {new Date(c.received_date).toLocaleDateString("tr-TR")}
+                </Td>
+                <Td>
+                  {c.description || "—"}
+                  {c.voided_at && (
+                    <span className="ml-2 text-xs text-danger">
+                      İPTAL{c.void_reason && ` · ${c.void_reason}`}
+                    </span>
+                  )}
+                </Td>
+                <Td className="text-text-muted">{c.payment_method || "—"}</Td>
+                <Td className={`text-right ${c.voided_at ? "line-through" : "font-medium"}`}>
+                  {formatMoney(c.amount, c.currency)}
+                </Td>
+                <Td className="text-right">
+                  {!c.voided_at && !locked && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        const reason = prompt("İptal nedeni:") ?? "";
+                        run(() =>
+                          apiClient(`/api/v1/projects/${project.id}/collections/${c.id}/void`, {
+                            method: "POST",
+                            body: JSON.stringify({ reason }),
+                          })
+                        );
+                      }}
+                      className="text-xs text-danger hover:underline"
+                    >
+                      İptal Et
+                    </button>
+                  )}
+                </Td>
+              </Tr>
+            ))}
+          </tbody>
+        </Table>
       )}
 
       {locked ? (
         <LockedNote project={project} />
       ) : open ? (
         <form onSubmit={submit} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
-          <input
-            className={`${inputClass} w-36`}
+          <Input
+            className="w-36"
             placeholder="Tutar"
             type="number"
             step="0.01"
@@ -398,18 +373,16 @@ export function CollectionsSection({
             value={form.amount}
             onChange={(e) => setForm({ ...form, amount: e.target.value })}
           />
-          <input
-            className={inputClass}
-            type="date"
+          <DateInput
             required
             value={form.received_date}
             onChange={(e) => setForm({ ...form, received_date: e.target.value })}
           />
-          <select
-            className={inputClass}
+          <Select
             value={form.payment_plan_item_id}
             onChange={(e) => setForm({ ...form, payment_plan_item_id: e.target.value })}
             aria-label="Ödeme planı kalemi"
+            className="w-44"
           >
             <option value="">Plan kalemi (opsiyonel)</option>
             {activePlanItems.map((i) => (
@@ -417,21 +390,19 @@ export function CollectionsSection({
                 {i.name}
               </option>
             ))}
-          </select>
-          <input
-            className={inputClass}
+          </Select>
+          <Input
             placeholder="Ödeme yöntemi"
             value={form.payment_method}
             onChange={(e) => setForm({ ...form, payment_method: e.target.value })}
           />
-          <input
-            className={inputClass}
+          <Input
             placeholder="Açıklama"
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
           />
-          <Button type="submit" disabled={busy}>
-            {busy ? "Kaydediliyor…" : "Tahsilat Ekle"}
+          <Button type="submit" loading={busy}>
+            Tahsilat Ekle
           </Button>
           <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
             Vazgeç
@@ -502,58 +473,56 @@ export function ExpensesSection({
       {expenses.length === 0 ? (
         <p className="text-text-muted">Henüz masraf kaydı yok.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-widest text-text-muted">
-                <th className="pb-2">Tarih</th>
-                <th className="pb-2">Kategori</th>
-                <th className="pb-2">Açıklama</th>
-                <th className="pb-2">Tedarikçi</th>
-                <th className="pb-2 text-right">Tutar</th>
-                <th className="pb-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {expenses.map((e) => (
-                <tr key={e.id} className={`border-t border-border ${e.voided_at ? "opacity-50" : ""}`}>
-                  <td className="py-2 text-text-muted">
-                    {new Date(e.expense_date).toLocaleDateString("tr-TR")}
-                  </td>
-                  <td className="py-2">{EXPENSE_CATEGORY_LABELS[e.category]}</td>
-                  <td className="py-2">
-                    {e.description}
-                    {e.voided_at && <span className="ml-2 text-xs text-danger">İPTAL</span>}
-                  </td>
-                  <td className="py-2 text-text-muted">{e.supplier_name || "—"}</td>
-                  <td className={`py-2 text-right ${e.voided_at ? "line-through" : "font-medium"}`}>
-                    {formatMoney(e.amount, e.currency)}
-                  </td>
-                  <td className="py-2 text-right">
-                    {!e.voided_at && !locked && (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => {
-                          const reason = prompt("İptal nedeni:") ?? "";
-                          run(() =>
-                            apiClient(`/api/v1/projects/${project.id}/expenses/${e.id}/void`, {
-                              method: "POST",
-                              body: JSON.stringify({ reason }),
-                            })
-                          );
-                        }}
-                        className="text-xs text-danger hover:underline"
-                      >
-                        İptal Et
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table>
+          <thead>
+            <tr>
+              <Th>Tarih</Th>
+              <Th>Kategori</Th>
+              <Th>Açıklama</Th>
+              <Th>Tedarikçi</Th>
+              <Th className="text-right">Tutar</Th>
+              <Th className="w-16" />
+            </tr>
+          </thead>
+          <tbody>
+            {expenses.map((e) => (
+              <Tr key={e.id} className={e.voided_at ? "opacity-50" : ""}>
+                <Td className="text-text-muted">
+                  {new Date(e.expense_date).toLocaleDateString("tr-TR")}
+                </Td>
+                <Td>{EXPENSE_CATEGORY_LABELS[e.category]}</Td>
+                <Td>
+                  {e.description}
+                  {e.voided_at && <span className="ml-2 text-xs text-danger">İPTAL</span>}
+                </Td>
+                <Td className="text-text-muted">{e.supplier_name || "—"}</Td>
+                <Td className={`text-right ${e.voided_at ? "line-through" : "font-medium"}`}>
+                  {formatMoney(e.amount, e.currency)}
+                </Td>
+                <Td className="text-right">
+                  {!e.voided_at && !locked && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        const reason = prompt("İptal nedeni:") ?? "";
+                        run(() =>
+                          apiClient(`/api/v1/projects/${project.id}/expenses/${e.id}/void`, {
+                            method: "POST",
+                            body: JSON.stringify({ reason }),
+                          })
+                        );
+                      }}
+                      className="text-xs text-danger hover:underline"
+                    >
+                      İptal Et
+                    </button>
+                  )}
+                </Td>
+              </Tr>
+            ))}
+          </tbody>
+        </Table>
       )}
 
       <div className="flex items-center justify-between border-t border-border pt-2 text-sm">
@@ -569,27 +538,26 @@ export function ExpensesSection({
         <LockedNote project={project} />
       ) : open ? (
         <form onSubmit={submit} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
-          <select
-            className={inputClass}
+          <Select
             value={form.category}
             onChange={(e) => setForm({ ...form, category: e.target.value as ExpenseCategory })}
             aria-label="Kategori"
+            className="w-40"
           >
             {Object.entries(EXPENSE_CATEGORY_LABELS).map(([k, label]) => (
               <option key={k} value={k}>
                 {label}
               </option>
             ))}
-          </select>
-          <input
-            className={inputClass}
+          </Select>
+          <Input
             placeholder="Açıklama"
             required
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
           />
-          <input
-            className={`${inputClass} w-36`}
+          <Input
+            className="w-36"
             placeholder="Tutar"
             type="number"
             step="0.01"
@@ -597,21 +565,18 @@ export function ExpensesSection({
             value={form.amount}
             onChange={(e) => setForm({ ...form, amount: e.target.value })}
           />
-          <input
-            className={inputClass}
-            type="date"
+          <DateInput
             required
             value={form.expense_date}
             onChange={(e) => setForm({ ...form, expense_date: e.target.value })}
           />
-          <input
-            className={inputClass}
+          <Input
             placeholder="Tedarikçi"
             value={form.supplier_name}
             onChange={(e) => setForm({ ...form, supplier_name: e.target.value })}
           />
-          <Button type="submit" disabled={busy}>
-            {busy ? "Kaydediliyor…" : "Masraf Ekle"}
+          <Button type="submit" loading={busy}>
+            Masraf Ekle
           </Button>
           <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
             Vazgeç
@@ -675,87 +640,82 @@ export function InvoicesSection({
       {invoices.length === 0 ? (
         <p className="text-text-muted">Henüz fatura kaydı yok.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-widest text-text-muted">
-                <th className="pb-2">Fatura No</th>
-                <th className="pb-2">Tip</th>
-                <th className="pb-2">Tarih</th>
-                <th className="pb-2">Vade</th>
-                <th className="pb-2 text-right">Tutar</th>
-                <th className="pb-2">Durum</th>
-              </tr>
-            </thead>
-            <tbody>
-              {invoices.map((inv) => (
-                <tr key={inv.id} className="border-t border-border">
-                  <td className="py-2 font-medium">{inv.invoice_no}</td>
-                  <td className="py-2 text-text-muted">
-                    {inv.invoice_type === "sales" ? "Satış" : "Alış"}
-                  </td>
-                  <td className="py-2 text-text-muted">
-                    {new Date(inv.invoice_date).toLocaleDateString("tr-TR")}
-                  </td>
-                  <td className="py-2 text-text-muted">
-                    {inv.due_date ? new Date(inv.due_date).toLocaleDateString("tr-TR") : "—"}
-                  </td>
-                  <td className="py-2 text-right font-medium">{formatMoney(inv.amount, inv.currency)}</td>
-                  <td className="py-2">
-                    {locked ? (
-                      <Badge tone={INVOICE_TONE[inv.status]}>{INVOICE_STATUS_LABELS[inv.status]}</Badge>
-                    ) : (
-                      <select
-                        className={`${inputClass} py-1 text-xs`}
-                        value={inv.status}
-                        disabled={busy}
-                        onChange={(e) =>
-                          run(() =>
-                            apiClient(`/api/v1/projects/${project.id}/invoices/${inv.id}/status`, {
-                              method: "PUT",
-                              body: JSON.stringify({ status: e.target.value }),
-                            })
-                          )
-                        }
-                        aria-label="Fatura durumu"
-                      >
-                        {Object.entries(INVOICE_STATUS_LABELS).map(([k, label]) => (
-                          <option key={k} value={k}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table>
+          <thead>
+            <tr>
+              <Th>Fatura No</Th>
+              <Th>Tip</Th>
+              <Th>Tarih</Th>
+              <Th>Vade</Th>
+              <Th className="text-right">Tutar</Th>
+              <Th>Durum</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {invoices.map((inv) => (
+              <Tr key={inv.id}>
+                <Td className="font-medium">{inv.invoice_no}</Td>
+                <Td className="text-text-muted">{inv.invoice_type === "sales" ? "Satış" : "Alış"}</Td>
+                <Td className="text-text-muted">
+                  {new Date(inv.invoice_date).toLocaleDateString("tr-TR")}
+                </Td>
+                <Td className="text-text-muted">
+                  {inv.due_date ? new Date(inv.due_date).toLocaleDateString("tr-TR") : "—"}
+                </Td>
+                <Td className="text-right font-medium">{formatMoney(inv.amount, inv.currency)}</Td>
+                <Td>
+                  {locked ? (
+                    <StatusBadge status={inv.status} registry={INVOICE_STATUS} />
+                  ) : (
+                    <Select
+                      value={inv.status}
+                      disabled={busy}
+                      onChange={(e) =>
+                        run(() =>
+                          apiClient(`/api/v1/projects/${project.id}/invoices/${inv.id}/status`, {
+                            method: "PUT",
+                            body: JSON.stringify({ status: e.target.value }),
+                          })
+                        )
+                      }
+                      aria-label="Fatura durumu"
+                      className="py-1 text-xs"
+                    >
+                      {Object.entries(INVOICE_STATUS_LABELS).map(([k, label]) => (
+                        <option key={k} value={k}>
+                          {label}
+                        </option>
+                      ))}
+                    </Select>
+                  )}
+                </Td>
+              </Tr>
+            ))}
+          </tbody>
+        </Table>
       )}
 
       {locked ? (
         <LockedNote project={project} />
       ) : open ? (
         <form onSubmit={submit} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
-          <input
-            className={inputClass}
+          <Input
             placeholder="Fatura no"
             required
             value={form.invoice_no}
             onChange={(e) => setForm({ ...form, invoice_no: e.target.value })}
           />
-          <select
-            className={inputClass}
+          <Select
             value={form.invoice_type}
             onChange={(e) => setForm({ ...form, invoice_type: e.target.value })}
             aria-label="Fatura tipi"
+            className="w-32"
           >
             <option value="sales">Satış</option>
             <option value="purchase">Alış</option>
-          </select>
-          <input
-            className={`${inputClass} w-36`}
+          </Select>
+          <Input
+            className="w-36"
             placeholder="Tutar"
             type="number"
             step="0.01"
@@ -763,15 +723,13 @@ export function InvoicesSection({
             value={form.amount}
             onChange={(e) => setForm({ ...form, amount: e.target.value })}
           />
-          <input
-            className={inputClass}
-            type="date"
+          <DateInput
             required
             value={form.invoice_date}
             onChange={(e) => setForm({ ...form, invoice_date: e.target.value })}
           />
-          <Button type="submit" disabled={busy}>
-            {busy ? "Kaydediliyor…" : "Fatura Ekle"}
+          <Button type="submit" loading={busy}>
+            Fatura Ekle
           </Button>
           <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
             Vazgeç
@@ -878,9 +836,7 @@ export function SubcontractorsSection({
                     <div className="text-xs text-text-muted">{s.work_description}</div>
                   )}
                 </div>
-                <Badge tone={s.status === "completed" ? "success" : s.status === "cancelled" ? "danger" : "gold"}>
-                  {SUBCONTRACTOR_STATUS_LABELS[s.status]}
-                </Badge>
+                <StatusBadge status={s.status} registry={SUBCONTRACTOR_STATUS} />
               </div>
               <div className="mt-2 grid grid-cols-3 gap-3 text-sm">
                 <div>
@@ -913,8 +869,8 @@ export function SubcontractorsSection({
                 <div className="mt-2">
                   {payingFor === s.id ? (
                     <form onSubmit={(e) => addPayment(e, s.id)} className="flex flex-wrap items-end gap-2">
-                      <input
-                        className={`${inputClass} w-32`}
+                      <Input
+                        className="w-32"
                         placeholder="Tutar"
                         type="number"
                         step="0.01"
@@ -922,21 +878,18 @@ export function SubcontractorsSection({
                         value={payForm.amount}
                         onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })}
                       />
-                      <input
-                        className={inputClass}
-                        type="date"
+                      <DateInput
                         required
                         value={payForm.paid_date}
                         onChange={(e) => setPayForm({ ...payForm, paid_date: e.target.value })}
                       />
-                      <input
-                        className={inputClass}
+                      <Input
                         placeholder="Açıklama"
                         value={payForm.description}
                         onChange={(e) => setPayForm({ ...payForm, description: e.target.value })}
                       />
-                      <Button type="submit" disabled={busy}>
-                        {busy ? "…" : "Ödeme Kaydet"}
+                      <Button type="submit" loading={busy}>
+                        Ödeme Kaydet
                       </Button>
                       <Button type="button" variant="ghost" onClick={() => setPayingFor(null)}>
                         Vazgeç
@@ -958,27 +911,24 @@ export function SubcontractorsSection({
         <LockedNote project={project} />
       ) : open ? (
         <form onSubmit={addSub} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
-          <input
-            className={inputClass}
+          <Input
             placeholder="Taşeron adı"
             required
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
-          <input
-            className={inputClass}
+          <Input
             placeholder="Firma"
             value={form.company_name}
             onChange={(e) => setForm({ ...form, company_name: e.target.value })}
           />
-          <input
-            className={inputClass}
+          <Input
             placeholder="Yapılan iş"
             value={form.work_description}
             onChange={(e) => setForm({ ...form, work_description: e.target.value })}
           />
-          <input
-            className={`${inputClass} w-36`}
+          <Input
+            className="w-36"
             placeholder="Sözleşme bedeli"
             type="number"
             step="0.01"
@@ -986,8 +936,8 @@ export function SubcontractorsSection({
             value={form.contract_amount}
             onChange={(e) => setForm({ ...form, contract_amount: e.target.value })}
           />
-          <Button type="submit" disabled={busy}>
-            {busy ? "Ekleniyor…" : "Taşeron Ekle"}
+          <Button type="submit" loading={busy}>
+            Taşeron Ekle
           </Button>
           <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
             Vazgeç

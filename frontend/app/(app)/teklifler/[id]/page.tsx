@@ -3,10 +3,12 @@ import { cookies } from "next/headers";
 
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer, ApiError } from "@/lib/api";
 import { formatTL } from "@/lib/format";
+import { OFFER_STATUS } from "@/lib/status";
 import type {
   Offer,
   OfferEmailLog,
@@ -48,8 +50,13 @@ export default async function TeklifDetayPage({
 
   return (
     <>
-      <Topbar
-        title={offer.offer_no}
+      <PageHeader
+        title={
+          <span className="flex items-center gap-3">
+            {offer.offer_no}
+            <StatusBadge status={offer.status} registry={OFFER_STATUS} />
+          </span>
+        }
         action={
           <div className="flex items-center gap-3">
             {offer.status === "taslak" && (
@@ -156,14 +163,15 @@ export default async function TeklifDetayPage({
                     className="flex items-center justify-between border-b border-border px-4 py-3 text-sm last:border-b-0 hover:bg-surface-hover"
                   >
                     <div>
-                      <div className="font-medium">
+                      <div className="flex items-center gap-2 font-medium">
                         Revizyon {rev.revision_no}
                         {rev.revision_no === offer.revision_no && (
-                          <span className="ml-2 text-xs text-gold">(güncel)</span>
+                          <span className="text-xs text-gold">(güncel)</span>
                         )}
+                        <StatusBadge status={rev.status} registry={OFFER_STATUS} />
                       </div>
                       <div className="text-xs text-text-muted">
-                        {new Date(rev.created_at).toLocaleString("tr-TR")} · {rev.status}
+                        {new Date(rev.created_at).toLocaleString("tr-TR")}
                       </div>
                     </div>
                     <div className="font-medium">{formatTL(rev.grand_total)}</div>

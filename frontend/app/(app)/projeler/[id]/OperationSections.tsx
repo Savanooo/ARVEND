@@ -3,9 +3,15 @@
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
-import { Badge } from "@/components/ui/Badge";
+import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Button } from "@/components/ui/Button";
+import { DateInput } from "@/components/ui/DateInput";
+import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Textarea } from "@/components/ui/Textarea";
 import { API_BASE, apiClient, ApiError } from "@/lib/api";
+import { SCHEDULE_STATUS, TASK_STATUS } from "@/lib/status";
 import {
   FILE_CATEGORY_LABELS,
   PHOTO_STAGE_LABELS,
@@ -22,13 +28,8 @@ import {
   type ProjectPhoto,
   type ProjectTask,
   type ScheduleItem,
-  type ScheduleStatus,
   type TaskPriority,
-  type TaskStatus,
 } from "@/lib/types";
-
-const inputClass =
-  "rounded-md border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-muted/60 outline-none focus:border-gold";
 
 function useAction(locked: boolean) {
   const router = useRouter();
@@ -155,12 +156,12 @@ export function MembersSection({
         <LockedNote />
       ) : (
         <form onSubmit={submit} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
-          <select
-            className={inputClass}
+          <Select
             required
             value={form.employee_id}
             onChange={(e) => setForm({ ...form, employee_id: e.target.value })}
             aria-label="Personel"
+            className="w-56"
           >
             <option value="">Personel seçin</option>
             {available.map((e) => (
@@ -169,15 +170,14 @@ export function MembersSection({
                 {e.position ? ` — ${e.position}` : ""}
               </option>
             ))}
-          </select>
-          <input
-            className={inputClass}
+          </Select>
+          <Input
             placeholder="Görev/rol (ör. Şantiye Şefi)"
             value={form.role_title}
             onChange={(e) => setForm({ ...form, role_title: e.target.value })}
           />
-          <Button type="submit" disabled={busy || !form.employee_id}>
-            {busy ? "Atanıyor…" : "Ekibe Ekle"}
+          <Button type="submit" loading={busy} disabled={!form.employee_id}>
+            Ekibe Ekle
           </Button>
         </form>
       )}
@@ -187,13 +187,6 @@ export function MembersSection({
 }
 
 // ---------- Planlama ----------
-
-const SCHEDULE_TONE: Record<ScheduleStatus, "muted" | "gold" | "success" | "danger"> = {
-  planned: "muted",
-  active: "gold",
-  completed: "success",
-  cancelled: "danger",
-};
 
 export function ScheduleSection({
   project,
@@ -240,10 +233,9 @@ export function ScheduleSection({
                     </span>
                   )}
                   {locked ? (
-                    <Badge tone={SCHEDULE_TONE[it.status]}>{SCHEDULE_STATUS_LABELS[it.status]}</Badge>
+                    <StatusBadge status={it.status} registry={SCHEDULE_STATUS} />
                   ) : (
-                    <select
-                      className={`${inputClass} py-1 text-xs`}
+                    <Select
                       value={it.status}
                       disabled={busy}
                       onChange={(e) =>
@@ -262,13 +254,14 @@ export function ScheduleSection({
                         )
                       }
                       aria-label="Aşama durumu"
+                      className="py-1 text-xs"
                     >
                       {Object.entries(SCHEDULE_STATUS_LABELS).map(([k, label]) => (
                         <option key={k} value={k}>
                           {label}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   )}
                 </div>
               </div>
@@ -288,29 +281,24 @@ export function ScheduleSection({
         <LockedNote />
       ) : (
         <form onSubmit={submit} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
-          <input
-            className={inputClass}
+          <Input
             placeholder="Aşama adı (ör. Kaba İnşaat)"
             required
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
-          <input
-            className={inputClass}
-            type="date"
+          <DateInput
             value={form.start_date}
             onChange={(e) => setForm({ ...form, start_date: e.target.value })}
             aria-label="Başlangıç"
           />
-          <input
-            className={inputClass}
-            type="date"
+          <DateInput
             value={form.end_date}
             onChange={(e) => setForm({ ...form, end_date: e.target.value })}
             aria-label="Bitiş"
           />
-          <Button type="submit" disabled={busy}>
-            {busy ? "Ekleniyor…" : "Aşama Ekle"}
+          <Button type="submit" loading={busy}>
+            Aşama Ekle
           </Button>
         </form>
       )}
@@ -320,13 +308,6 @@ export function ScheduleSection({
 }
 
 // ---------- Görevler ----------
-
-const TASK_TONE: Record<TaskStatus, "muted" | "gold" | "success" | "danger"> = {
-  todo: "muted",
-  in_progress: "gold",
-  completed: "success",
-  cancelled: "danger",
-};
 
 export function TasksSection({
   project,
@@ -421,21 +402,21 @@ export function TasksSection({
                     </span>
                   )}
                   {locked ? (
-                    <Badge tone={TASK_TONE[t.status]}>{TASK_STATUS_LABELS[t.status]}</Badge>
+                    <StatusBadge status={t.status} registry={TASK_STATUS} />
                   ) : (
-                    <select
-                      className={`${inputClass} py-1 text-xs`}
+                    <Select
                       value={t.status}
                       disabled={busy}
                       onChange={(e) => updateStatus(t, e.target.value)}
                       aria-label="Görev durumu"
+                      className="py-1 text-xs"
                     >
                       {Object.entries(TASK_STATUS_LABELS).map(([k, label]) => (
                         <option key={k} value={k}>
                           {label}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   )}
                 </div>
               </div>
@@ -448,18 +429,17 @@ export function TasksSection({
         <LockedNote />
       ) : (
         <form onSubmit={submit} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
-          <input
-            className={inputClass}
+          <Input
             placeholder="Görev başlığı"
             required
             value={form.title}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
           />
-          <select
-            className={inputClass}
+          <Select
             value={form.schedule_item_id}
             onChange={(e) => setForm({ ...form, schedule_item_id: e.target.value })}
             aria-label="Aşama"
+            className="w-44"
           >
             <option value="">Aşama (opsiyonel)</option>
             {scheduleItems.map((s) => (
@@ -467,12 +447,12 @@ export function TasksSection({
                 {s.name}
               </option>
             ))}
-          </select>
-          <select
-            className={inputClass}
+          </Select>
+          <Select
             value={form.assigned_employee_id}
             onChange={(e) => setForm({ ...form, assigned_employee_id: e.target.value })}
             aria-label="Atanan"
+            className="w-44"
           >
             <option value="">Atanan (opsiyonel)</option>
             {activeMembers.map((m) => (
@@ -480,28 +460,26 @@ export function TasksSection({
                 {m.employee_name}
               </option>
             ))}
-          </select>
-          <select
-            className={inputClass}
+          </Select>
+          <Select
             value={form.priority}
             onChange={(e) => setForm({ ...form, priority: e.target.value as TaskPriority })}
             aria-label="Öncelik"
+            className="w-32"
           >
             {Object.entries(TASK_PRIORITY_LABELS).map(([k, label]) => (
               <option key={k} value={k}>
                 {label}
               </option>
             ))}
-          </select>
-          <input
-            className={inputClass}
-            type="date"
+          </Select>
+          <DateInput
             value={form.due_date}
             onChange={(e) => setForm({ ...form, due_date: e.target.value })}
             aria-label="Termin"
           />
-          <Button type="submit" disabled={busy}>
-            {busy ? "Ekleniyor…" : "Görev Ekle"}
+          <Button type="submit" loading={busy}>
+            Görev Ekle
           </Button>
         </form>
       )}
@@ -511,6 +489,9 @@ export function TasksSection({
 }
 
 // ---------- Dosyalar ----------
+
+const fileInputClass =
+  "rounded-md border border-border bg-surface px-3 py-2 text-sm text-text file:mr-3 file:rounded file:border-0 file:bg-surface-hover file:px-2 file:py-1 file:text-xs";
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -546,6 +527,7 @@ export function FilesSection({
   const { busy, error, run } = useAction(locked);
   const [category, setCategory] = useState<FileCategory>("other");
   const [description, setDescription] = useState("");
+  const { confirm, dialog } = useConfirmDialog();
 
   function upload(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -562,6 +544,12 @@ export function FilesSection({
         setDescription("");
       }
     });
+  }
+
+  async function handleDelete(f: ProjectFile) {
+    const ok = await confirm({ title: "Dosyayı Sil", message: `${f.original_name} silinsin mi?`, danger: true });
+    if (!ok) return;
+    run(() => apiClient(`/api/v1/projects/${project.id}/files/${f.id}`, { method: "DELETE" }));
   }
 
   return (
@@ -588,12 +576,7 @@ export function FilesSection({
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => {
-                    if (!confirm(`${f.original_name} silinsin mi?`)) return;
-                    run(() =>
-                      apiClient(`/api/v1/projects/${project.id}/files/${f.id}`, { method: "DELETE" })
-                    );
-                  }}
+                  onClick={() => handleDelete(f)}
                   className="text-xs text-danger hover:underline"
                 >
                   Sil
@@ -608,31 +591,31 @@ export function FilesSection({
         <LockedNote />
       ) : (
         <form onSubmit={upload} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
-          <input type="file" name="file" required className={inputClass} aria-label="Dosya" />
-          <select
-            className={inputClass}
+          <input type="file" name="file" required className={fileInputClass} aria-label="Dosya" />
+          <Select
             value={category}
             onChange={(e) => setCategory(e.target.value as FileCategory)}
             aria-label="Kategori"
+            className="w-40"
           >
             {Object.entries(FILE_CATEGORY_LABELS).map(([k, label]) => (
               <option key={k} value={k}>
                 {label}
               </option>
             ))}
-          </select>
-          <input
-            className={inputClass}
+          </Select>
+          <Input
             placeholder="Açıklama"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
-          <Button type="submit" disabled={busy}>
-            {busy ? "Yükleniyor…" : "Yükle"}
+          <Button type="submit" loading={busy}>
+            Yükle
           </Button>
         </form>
       )}
       {error && <p className="text-xs text-danger">{error}</p>}
+      {dialog}
     </div>
   );
 }
@@ -730,27 +713,26 @@ export function PhotosSection({
         <LockedNote />
       ) : (
         <form onSubmit={upload} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
-          <input type="file" name="file" accept="image/*" required className={inputClass} aria-label="Fotoğraf" />
-          <select
-            className={inputClass}
+          <input type="file" name="file" accept="image/*" required className={fileInputClass} aria-label="Fotoğraf" />
+          <Select
             value={stage}
             onChange={(e) => setStage(e.target.value as PhotoStage)}
             aria-label="Aşama"
+            className="w-32"
           >
             {Object.entries(PHOTO_STAGE_LABELS).map(([k, label]) => (
               <option key={k} value={k}>
                 {label}
               </option>
             ))}
-          </select>
-          <input
-            className={inputClass}
+          </Select>
+          <Input
             placeholder="Açıklama"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
-          <Button type="submit" disabled={busy}>
-            {busy ? "Yükleniyor…" : "Fotoğraf Yükle"}
+          <Button type="submit" loading={busy}>
+            Fotoğraf Yükle
           </Button>
         </form>
       )}
@@ -805,16 +787,16 @@ export function NotesSection({
         <LockedNote />
       ) : (
         <form onSubmit={submit} className="flex flex-col gap-2 border-t border-border pt-3">
-          <textarea
-            className={`${inputClass} min-h-20`}
+          <Textarea
+            className="min-h-20"
             placeholder="Proje notu yazın…"
             required
             value={content}
             onChange={(e) => setContent(e.target.value)}
           />
           <div>
-            <Button type="submit" disabled={busy}>
-              {busy ? "Ekleniyor…" : "Not Ekle"}
+            <Button type="submit" loading={busy}>
+              Not Ekle
             </Button>
           </div>
         </form>

@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import type { Customer } from "@/lib/types";
 
@@ -17,7 +17,7 @@ export default async function MusteriDetayPage({
 
   return (
     <>
-      <Topbar title={customer.name} />
+      <PageHeader title={customer.name} />
       <div className="flex max-w-md flex-col gap-6 p-8">
         <EditCustomerForm customer={customer} />
       </div>

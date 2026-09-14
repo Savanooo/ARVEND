@@ -1,12 +1,12 @@
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
-import { Topbar } from "@/components/layout/Topbar";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { getCurrentUser } from "@/lib/auth";
 
 export default async function AdminOzetPage() {
   const user = await getCurrentUser();
   return (
     <>
-      <Topbar title="Özet" />
+      <PageHeader title="Özet" />
       <div className="p-8">
         <Card className="max-w-md">
           <CardHeader>Hoş Geldin</CardHeader>

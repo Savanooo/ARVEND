@@ -4,25 +4,29 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Select } from "@/components/ui/Select";
+import { useToast } from "@/components/ui/Toast";
 import { apiClient, ApiError } from "@/lib/api";
+import { OFFER_STATUS } from "@/lib/status";
 import type { Offer, OfferStatus } from "@/lib/types";
 
 const STATUSES: OfferStatus[] = ["taslak", "gönderildi", "kabul edildi", "reddedildi"];
 
 export function OfferActions({ offer }: { offer: Offer }) {
   const router = useRouter();
+  const toast = useToast();
+  const { confirm, dialog } = useConfirmDialog();
   const [status, setStatus] = useState<OfferStatus>(offer.status);
   const [savingStatus, setSavingStatus] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [revising, setRevising] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
 
   const canRevise = offer.status === "gönderildi" || offer.status === "reddedildi";
 
   async function handleStatusChange(next: OfferStatus) {
     setStatus(next);
     setSavingStatus(true);
-    setMessage(null);
     try {
       await apiClient(`/api/v1/offers/${offer.id}/status`, {
         method: "PUT",
@@ -31,55 +35,64 @@ export function OfferActions({ offer }: { offer: Offer }) {
       router.refresh();
     } catch (err) {
       setStatus(offer.status);
-      setMessage(err instanceof ApiError ? err.message : "Bağlantı hatası");
+      toast.error(err instanceof ApiError ? err.message : "Bağlantı hatası");
     } finally {
       setSavingStatus(false);
     }
   }
 
   async function handleRevise() {
-    if (!confirm("Bu teklif için yeni bir revizyon oluşturulsun mu? Yeni revizyon taslak olarak düzenlenebilir.")) return;
+    const ok = await confirm({
+      title: "Yeni Revizyon Oluştur",
+      message: "Bu teklif için yeni bir revizyon oluşturulsun mu? Yeni revizyon taslak olarak düzenlenebilir.",
+    });
+    if (!ok) return;
     setRevising(true);
-    setMessage(null);
     try {
       await apiClient(`/api/v1/offers/${offer.id}/revise`, { method: "POST" });
+      toast.success("Yeni revizyon oluşturuldu.");
       router.push(`/teklifler/${offer.id}/duzenle`);
       router.refresh();
     } catch (err) {
-      setMessage(err instanceof ApiError ? err.message : "Bağlantı hatası");
+      toast.error(err instanceof ApiError ? err.message : "Bağlantı hatası");
       setRevising(false);
     }
   }
 
   async function handleDelete() {
-    if (!confirm(`${offer.offer_no} silinsin mi?`)) return;
+    const ok = await confirm({
+      title: "Teklifi Sil",
+      message: `${offer.offer_no} silinsin mi?`,
+      danger: true,
+    });
+    if (!ok) return;
     setDeleting(true);
-    setMessage(null);
     try {
       await apiClient(`/api/v1/offers/${offer.id}`, { method: "DELETE" });
+      toast.success(`${offer.offer_no} silindi.`);
       router.push("/teklifler");
       router.refresh();
     } catch (err) {
-      setMessage(err instanceof ApiError ? err.message : "Bağlantı hatası");
+      toast.error(err instanceof ApiError ? err.message : "Bağlantı hatası");
       setDeleting(false);
     }
   }
 
   return (
     <div className="flex items-center gap-3">
-      {message && <span className="text-xs text-danger">{message}</span>}
-      <select
+      <Select
         value={status}
         disabled={savingStatus}
         onChange={(e) => handleStatusChange(e.target.value as OfferStatus)}
-        className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-gold disabled:opacity-50"
+        aria-label="Teklif durumu"
+        className="w-40"
       >
         {STATUSES.map((s) => (
           <option key={s} value={s}>
-            {s}
+            {OFFER_STATUS[s].label}
           </option>
         ))}
-      </select>
+      </Select>
       {canRevise && (
         <Button variant="secondary" disabled={revising} onClick={handleRevise}>
           {revising ? "Oluşturuluyor…" : "Revize Et"}
@@ -88,6 +101,7 @@ export function OfferActions({ offer }: { offer: Offer }) {
       <Button variant="danger" disabled={deleting} onClick={handleDelete}>
         {deleting ? "Siliniyor…" : "Sil"}
       </Button>
+      {dialog}
     </div>
   );
 }
