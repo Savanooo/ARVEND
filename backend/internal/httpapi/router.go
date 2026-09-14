@@ -15,18 +15,19 @@ import (
 )
 
 type Deps struct {
-	JWT         *auth.JWTIssuer
-	Auth        *handler.AuthHandler
-	Users       *handler.UserHandler
-	Products    *handler.ProductHandler
-	Offers      *handler.OfferHandler
-	Projects    *handler.ProjectHandler
-	Customers   *handler.CustomerHandler
-	Employees   *handler.EmployeeHandler
-	Attendance  *handler.AttendanceHandler
-	Settings    *handler.SettingsHandler
-	PublicOffer *handler.PublicOfferHandler
-	CORSOrigins []string
+	JWT               *auth.JWTIssuer
+	Auth              *handler.AuthHandler
+	Users             *handler.UserHandler
+	Products          *handler.ProductHandler
+	Offers            *handler.OfferHandler
+	Projects          *handler.ProjectHandler
+	Customers         *handler.CustomerHandler
+	Employees         *handler.EmployeeHandler
+	Attendance        *handler.AttendanceHandler
+	Settings          *handler.SettingsHandler
+	PublicOffer       *handler.PublicOfferHandler
+	PublicChangeOrder *handler.PublicChangeOrderHandler
+	CORSOrigins       []string
 }
 
 func NewRouter(d Deps) http.Handler {
@@ -174,6 +175,16 @@ func NewRouter(d Deps) http.Handler {
 
 			r.Get("/{id}/notes", d.Projects.ListNotes)
 			r.Post("/{id}/notes", d.Projects.CreateNote)
+
+			// --- Faz 8: ek işler / değişiklik emirleri ---
+			r.Get("/{id}/change-orders", d.Projects.ListChangeOrders)
+			r.Post("/{id}/change-orders", d.Projects.CreateChangeOrder)
+			r.Get("/{id}/change-orders/{changeOrderId}", d.Projects.GetChangeOrder)
+			r.Put("/{id}/change-orders/{changeOrderId}", d.Projects.UpdateChangeOrder)
+			r.Post("/{id}/change-orders/{changeOrderId}/send", d.Projects.SendChangeOrder)
+			r.Post("/{id}/change-orders/{changeOrderId}/send-email", d.Projects.SendChangeOrderEmail)
+			r.Post("/{id}/change-orders/{changeOrderId}/revise", d.Projects.ReviseChangeOrder)
+			r.Post("/{id}/change-orders/{changeOrderId}/cancel", d.Projects.CancelChangeOrder)
 		})
 
 		r.Route("/customers", func(r chi.Router) {
@@ -224,6 +235,13 @@ func NewRouter(d Deps) http.Handler {
 		r.Route("/public/offers/{token}", func(r chi.Router) {
 			r.Get("/", d.PublicOffer.Get)
 			r.Post("/respond", d.PublicOffer.Respond)
+		})
+
+		// Faz 8: müşterinin ek işi (değişiklik emri) görüntüleyip kabul/
+		// red edebildiği paylaşım linki -- aynı güvenlik sınırı (token).
+		r.Route("/public/change-orders/{token}", func(r chi.Router) {
+			r.Get("/", d.PublicChangeOrder.Get)
+			r.Post("/respond", d.PublicChangeOrder.Respond)
 		})
 	})
 

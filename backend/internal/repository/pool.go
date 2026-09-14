@@ -111,6 +111,26 @@ func Float64ToNumeric(f float64) pgtype.Numeric {
 	return n
 }
 
+// Float64PtrToNumeric, opsiyonel (nullable) bir tutarı pgtype.Numeric'e
+// çevirir -- nil ise SQL NULL (Valid=false) döner.
+func Float64PtrToNumeric(f *float64) pgtype.Numeric {
+	if f == nil {
+		return pgtype.Numeric{}
+	}
+	return Float64ToNumeric(*f)
+}
+
+// NumericToFloat64Ptr, nullable bir numeric kolonu opsiyonel float64'e
+// çevirir -- Valid değilse nil döner (ToDomainProduct'taki SourcePrice
+// deseniyle aynı).
+func NumericToFloat64Ptr(n pgtype.Numeric) *float64 {
+	if !n.Valid {
+		return nil
+	}
+	v := NumericToFloat64(n)
+	return &v
+}
+
 // ToDomainOfferBase, offers tablosunun kimlik+lifecycle alanlarını
 // dönüştürür -- içerik (müşteri, kalemler, toplamlar) dahil değildir,
 // bkz. MergeOfferRevision.
@@ -378,6 +398,7 @@ func ToDomainProjectListItem(r sqlc.ListProjectsRow) domain.Project {
 	dp.SubcontractorRemaining = NumericToFloat64(r.SubcontractorRemaining)
 	dp.InvoiceCount = r.InvoiceCount
 	dp.PaidInvoiceCount = r.PaidInvoiceCount
+	dp.ChangeOrderNet = NumericToFloat64(r.ChangeOrderNet)
 	dp.HasFinanceAggregates = true
 	return dp
 }

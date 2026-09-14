@@ -12,19 +12,30 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
+	"github.com/Savanooo/ARVEND/backend/internal/platform/mailer"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/storage"
 	"github.com/Savanooo/ARVEND/backend/internal/repository"
 	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
 )
 
 type ProjectService struct {
-	pool  *pgxpool.Pool
-	q     *sqlc.Queries
-	store storage.Store
+	pool        *pgxpool.Pool
+	q           *sqlc.Queries
+	store       storage.Store
+	settingsSvc *SettingsService
+	frontendURL string
+
+	// SendMailFunc, ek iş e-postalarında gerçek SMTP gönderimini yapar --
+	// varsayılan mailer.Send'dir, testlerde sahte bir gönderici ile
+	// değiştirilebilir (bkz. OfferService.SendMailFunc, aynı desen).
+	SendMailFunc func(domain.SmtpSettings, mailer.Message) error
 }
 
-func NewProjectService(pool *pgxpool.Pool, q *sqlc.Queries, store storage.Store) *ProjectService {
-	return &ProjectService{pool: pool, q: q, store: store}
+func NewProjectService(pool *pgxpool.Pool, q *sqlc.Queries, store storage.Store, settingsSvc *SettingsService, frontendURL string) *ProjectService {
+	return &ProjectService{
+		pool: pool, q: q, store: store, settingsSvc: settingsSvc, frontendURL: frontendURL,
+		SendMailFunc: mailer.Send,
+	}
 }
 
 var (

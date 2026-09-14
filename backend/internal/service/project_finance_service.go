@@ -525,7 +525,9 @@ type ExpenseInput struct {
 	InvoiceNo      string
 	Notes          string
 	IdempotencyKey string
-	UserID         string
+	// ChangeOrderID, OPSİYONELDİR (bkz. SubcontractorInput notu).
+	ChangeOrderID string
+	UserID        string
 }
 
 func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizationID string, in ExpenseInput) (*domain.Expense, error) {
@@ -578,6 +580,10 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 	if key != "" {
 		keyPtr = &key
 	}
+	changeOrderID, err := resolveChangeOrderRef(ctx, txq, in.ChangeOrderID, pid, orgID)
+	if err != nil {
+		return nil, err
+	}
 	row, err := txq.CreateExpense(ctx, sqlc.CreateExpenseParams{
 		OrganizationID: orgID,
 		ProjectID:      pid,
@@ -591,6 +597,7 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 		Notes:          strings.TrimSpace(in.Notes),
 		IdempotencyKey: keyPtr,
 		CreatedBy:      actorUUID(in.UserID),
+		ChangeOrderID:  changeOrderID,
 	})
 	if err != nil {
 		// bkz. CreateCollection: eşzamanlı aynı anahtarlı istek kazandıysa
@@ -888,7 +895,11 @@ type SubcontractorInput struct {
 	EndDate         *time.Time
 	Status          string
 	Notes           string
-	UserID          string
+	// ChangeOrderID, OPSİYONELDİR: bu taşeron sözleşmesini bir ek işe
+	// etiketler (bkz. Faz 8 kârlılık filtrelemesi). Boşsa ana sözleşme
+	// kapsamındadır.
+	ChangeOrderID string
+	UserID        string
 }
 
 func (s *ProjectService) CreateSubcontractor(ctx context.Context, projectID, organizationID string, in SubcontractorInput) (*domain.Subcontractor, error) {
@@ -925,6 +936,10 @@ func (s *ProjectService) CreateSubcontractor(ctx context.Context, projectID, org
 	if err := validateMoney(in.ContractAmount, in.Currency, project); err != nil {
 		return nil, err
 	}
+	changeOrderID, err := resolveChangeOrderRef(ctx, txq, in.ChangeOrderID, pid, orgID)
+	if err != nil {
+		return nil, err
+	}
 
 	row, err := txq.CreateSubcontractor(ctx, sqlc.CreateSubcontractorParams{
 		OrganizationID:  orgID,
@@ -941,6 +956,7 @@ func (s *ProjectService) CreateSubcontractor(ctx context.Context, projectID, org
 		Status:          status,
 		Notes:           strings.TrimSpace(in.Notes),
 		CreatedBy:       actorUUID(in.UserID),
+		ChangeOrderID:   changeOrderID,
 	})
 	if err != nil {
 		return nil, err

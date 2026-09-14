@@ -189,6 +189,9 @@ type Expense struct {
 	VoidedAt       *time.Time
 	VoidedBy       *string
 	VoidReason     string
+	// ChangeOrderID, OPSİYONELDİR: bu masrafı bir ek işe etiketler (Faz 8
+	// kârlılık filtrelemesi). NULL ise ana sözleşme kapsamındadır.
+	ChangeOrderID *string
 }
 
 type ProjectInvoice struct {
@@ -224,6 +227,8 @@ type Subcontractor struct {
 	Status          string
 	Notes           string
 	CreatedAt       time.Time
+	// ChangeOrderID, OPSİYONELDİR (bkz. Expense.ChangeOrderID notu).
+	ChangeOrderID *string
 	// Ödeme kayıtlarından toplanır.
 	PaidAmount      float64
 	RemainingAmount float64
@@ -248,8 +253,23 @@ type SubcontractorPayment struct {
 // ProjectFinancialSummary, projenin tüm finans tablosunu tek seferde
 // taşır. Tüm değerler SQL tarafında numeric üzerinde hesaplanır.
 type ProjectFinancialSummary struct {
-	ContractAmount               float64
-	Currency                     string
+	// BaseContractAmount, ana sözleşme bedelidir (projects.contract_amount
+	// -- ASLA değişmez). ContractAmount alanı geriye dönük uyumluluk için
+	// AYNI değeri taşımaya devam eder.
+	BaseContractAmount float64
+	ContractAmount     float64
+	Currency           string
+
+	// Faz 8: onaylı/bekleyen ek iş-eksiltme toplamları ve bunlardan
+	// türetilen güncel/potansiyel proje bedeli. Hiçbiri bir kolon olarak
+	// TUTULMAZ -- her okumada change order kayıtlarından aggregate edilir.
+	ApprovedAdditions      float64
+	ApprovedDeductions     float64
+	CurrentContractValue   float64
+	PendingAdditions       float64
+	PendingDeductions      float64
+	PotentialContractValue float64
+
 	PlannedCollections           float64
 	CollectedAmount              float64
 	RemainingReceivable          float64

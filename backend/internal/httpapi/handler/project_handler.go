@@ -65,6 +65,11 @@ type projectResponse struct {
 	RealizedGrossProfit    *float64 `json:"realized_gross_profit,omitempty"`
 	InvoiceCount           *int64   `json:"invoice_count,omitempty"`
 	PaidInvoiceCount       *int64   `json:"paid_invoice_count,omitempty"`
+	// ChangeOrderNet/CurrentContractValue, Faz 8: onaylı ek iş/eksiltme
+	// net etkisi ve ondan türetilen güncel proje bedeli (ana sözleşme
+	// ASLA değişmez -- bkz. domain.Project.CurrentContractValue).
+	ChangeOrderNet       *float64 `json:"change_order_net,omitempty"`
+	CurrentContractValue *float64 `json:"current_contract_value,omitempty"`
 }
 
 func toProjectResponse(p domain.Project) projectResponse {
@@ -104,6 +109,9 @@ func toProjectResponse(p domain.Project) projectResponse {
 		resp.RealizedGrossProfit = &realizedProfit
 		resp.InvoiceCount = &p.InvoiceCount
 		resp.PaidInvoiceCount = &p.PaidInvoiceCount
+		resp.ChangeOrderNet = &p.ChangeOrderNet
+		current := p.CurrentContractValue()
+		resp.CurrentContractValue = &current
 	}
 	if p.StartDate != nil {
 		s := p.StartDate.Format(dateLayout)
@@ -252,13 +260,20 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrCurrencyMismatch),
 		errors.Is(err, service.ErrAlreadyVoided),
 		errors.Is(err, service.ErrDuplicateMember),
-		errors.Is(err, service.ErrDuplicateContent):
+		errors.Is(err, service.ErrDuplicateContent),
+		errors.Is(err, service.ErrChangeOrderNotEditable),
+		errors.Is(err, service.ErrChangeOrderNotSendable),
+		errors.Is(err, service.ErrChangeOrderNotCancellable),
+		errors.Is(err, service.ErrChangeOrderNotRevisable),
+		errors.Is(err, service.ErrChangeOrderWouldGoNegative):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrInvalidEmployee),
 		errors.Is(err, service.ErrInvalidSchedule),
 		errors.Is(err, service.ErrUnsupportedType),
 		errors.Is(err, service.ErrFileTooLarge),
-		errors.Is(err, service.ErrEmptyFile):
+		errors.Is(err, service.ErrEmptyFile),
+		errors.Is(err, service.ErrInvalidChangeOrderRef),
+		errors.Is(err, service.ErrNoChangeOrderItems):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, service.ErrStorageFailure):
 		writeInternalError(w, err)

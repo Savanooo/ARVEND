@@ -56,7 +56,7 @@ func main() {
 	productSvc := service.NewProductService(q)
 	settingsSvc := service.NewSettingsService(q, secretBox)
 	offerSvc := service.NewOfferService(pool, q, settingsSvc, cfg.FrontendURL)
-	projectSvc := service.NewProjectService(pool, q, fileStore)
+	projectSvc := service.NewProjectService(pool, q, fileStore, settingsSvc, cfg.FrontendURL)
 	customerSvc := service.NewCustomerService(q)
 	employeeSvc := service.NewEmployeeService(q)
 	attendanceSvc := service.NewAttendanceService(q)
@@ -65,17 +65,18 @@ func main() {
 	authSvc := service.NewAuthService(q, jwtIssuer, cfg.RefreshTTL)
 
 	router := httpapi.NewRouter(httpapi.Deps{
-		JWT:         jwtIssuer,
-		Auth:        handler.NewAuthHandler(authSvc, cfg.AccessTTL, cfg.RefreshTTL, cfg.CookieDomain, cfg.CookieSecure),
-		Users:       handler.NewUserHandler(userSvc),
-		Products:    handler.NewProductHandler(productSvc),
-		Offers:      handler.NewOfferHandler(offerSvc),
-		Projects:    handler.NewProjectHandler(projectSvc),
-		Customers:   handler.NewCustomerHandler(customerSvc),
-		Employees:   handler.NewEmployeeHandler(employeeSvc),
-		Attendance:  handler.NewAttendanceHandler(attendanceSvc),
-		Settings:    handler.NewSettingsHandler(settingsSvc),
-		PublicOffer: handler.NewPublicOfferHandler(offerSvc),
+		JWT:               jwtIssuer,
+		Auth:              handler.NewAuthHandler(authSvc, cfg.AccessTTL, cfg.RefreshTTL, cfg.CookieDomain, cfg.CookieSecure),
+		Users:             handler.NewUserHandler(userSvc),
+		Products:          handler.NewProductHandler(productSvc),
+		Offers:            handler.NewOfferHandler(offerSvc),
+		Projects:          handler.NewProjectHandler(projectSvc),
+		Customers:         handler.NewCustomerHandler(customerSvc),
+		Employees:         handler.NewEmployeeHandler(employeeSvc),
+		Attendance:        handler.NewAttendanceHandler(attendanceSvc),
+		Settings:          handler.NewSettingsHandler(settingsSvc),
+		PublicOffer:       handler.NewPublicOfferHandler(offerSvc),
+		PublicChangeOrder: handler.NewPublicChangeOrderHandler(projectSvc),
 		CORSOrigins: []string{
 			"http://localhost:3000",
 		},

@@ -117,6 +117,10 @@ func ToDomainExpense(e sqlc.ProjectExpense) domain.Expense {
 		s := e.VoidedBy.String()
 		exp.VoidedBy = &s
 	}
+	if e.ChangeOrderID.Valid {
+		s := e.ChangeOrderID.String()
+		exp.ChangeOrderID = &s
+	}
 	return exp
 }
 
@@ -178,6 +182,10 @@ func ToDomainSubcontractor(r sqlc.ListSubcontractorsRow) domain.Subcontractor {
 		t := r.EndDate.Time
 		sub.EndDate = &t
 	}
+	if r.ChangeOrderID.Valid {
+		s := r.ChangeOrderID.String()
+		sub.ChangeOrderID = &s
+	}
 	return sub
 }
 
@@ -204,6 +212,10 @@ func ToDomainSubcontractorRow(s sqlc.ProjectSubcontractor) domain.Subcontractor 
 	if s.EndDate.Valid {
 		t := s.EndDate.Time
 		sub.EndDate = &t
+	}
+	if s.ChangeOrderID.Valid {
+		v := s.ChangeOrderID.String()
+		sub.ChangeOrderID = &v
 	}
 	return sub
 }
@@ -238,8 +250,15 @@ func ToDomainSubcontractorPayment(p sqlc.ProjectSubcontractorPayment) domain.Sub
 
 func ToDomainFinancialSummary(r sqlc.GetProjectFinancialSummaryRow) domain.ProjectFinancialSummary {
 	return domain.ProjectFinancialSummary{
+		BaseContractAmount:           NumericToFloat64(r.BaseContractAmount),
 		ContractAmount:               NumericToFloat64(r.ContractAmount),
 		Currency:                     r.Currency,
+		ApprovedAdditions:            NumericToFloat64(r.ApprovedAdditions),
+		ApprovedDeductions:           NumericToFloat64(r.ApprovedDeductions),
+		CurrentContractValue:         NumericToFloat64(r.CurrentContractValue),
+		PendingAdditions:             NumericToFloat64(r.PendingAdditions),
+		PendingDeductions:            NumericToFloat64(r.PendingDeductions),
+		PotentialContractValue:       NumericToFloat64(r.PotentialContractValue),
 		PlannedCollections:           NumericToFloat64(r.PlannedCollections),
 		CollectedAmount:              NumericToFloat64(r.CollectedAmount),
 		RemainingReceivable:          NumericToFloat64(r.RemainingReceivable),

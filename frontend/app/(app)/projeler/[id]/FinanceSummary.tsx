@@ -1,4 +1,4 @@
-import { formatMoney } from "@/lib/format";
+import { formatMoney, formatSignedMoney } from "@/lib/format";
 import type { FinancialSummary } from "@/lib/types";
 
 function Card({
@@ -27,9 +27,28 @@ export function FinanceSummary({ summary }: { summary: FinancialSummary }) {
   const c = summary.currency;
   const over = summary.over_collected > 0;
 
+  const hasChangeOrders = summary.approved_additions > 0 || summary.approved_deductions > 0;
+  const hasPending = summary.pending_additions > 0 || summary.pending_deductions > 0;
+
   return (
+    <div className="flex flex-col gap-2">
     <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-      <Card label="Proje Bedeli" value={formatMoney(summary.contract_amount, c)} />
+      <Card label="Ana Sözleşme" value={formatMoney(summary.base_contract_amount, c)} />
+      {hasChangeOrders && (
+        <>
+          <Card
+            label="Onaylı Ek İşler"
+            value={formatSignedMoney(summary.approved_additions, c)}
+            tone={summary.approved_additions > 0 ? "success" : undefined}
+          />
+          <Card
+            label="Onaylı Eksiltmeler"
+            value={formatSignedMoney(-summary.approved_deductions, c)}
+            tone={summary.approved_deductions > 0 ? "danger" : undefined}
+          />
+          <Card label="Güncel Proje Bedeli" value={formatMoney(summary.current_contract_value, c)} tone="gold" />
+        </>
+      )}
       <Card
         label="Tahsil Edilen"
         value={formatMoney(summary.collected_amount, c)}
@@ -65,6 +84,15 @@ export function FinanceSummary({ summary }: { summary: FinancialSummary }) {
         tone={summary.estimated_gross_profit >= 0 ? "success" : "danger"}
         hint={`%${summary.estimated_margin_percent}`}
       />
+    </div>
+      {/* Potansiyel değer, GERÇEK güncel proje bedeliyle KESİNLİKLE
+          karıştırılmamalı -- bilgi amaçlı, ayrı ve daha soluk gösterilir. */}
+      {hasPending && (
+        <div className="text-xs text-text-muted">
+          Onay bekleyen ek iş: <span className="font-medium">{formatSignedMoney(summary.pending_additions - summary.pending_deductions, c)}</span>
+          {" — "}Potansiyel proje bedeli: <span className="font-medium">{formatMoney(summary.potential_contract_value, c)}</span>
+        </div>
+      )}
     </div>
   );
 }

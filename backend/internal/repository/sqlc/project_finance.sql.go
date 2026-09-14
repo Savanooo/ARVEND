@@ -108,9 +108,9 @@ const createExpense = `-- name: CreateExpense :one
 
 INSERT INTO project_expenses (
     organization_id, project_id, category, description, amount, currency,
-    expense_date, supplier_name, invoice_no, notes, idempotency_key, created_by
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key
+    expense_date, supplier_name, invoice_no, notes, idempotency_key, created_by, change_order_id
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id
 `
 
 type CreateExpenseParams struct {
@@ -126,9 +126,14 @@ type CreateExpenseParams struct {
 	Notes          string         `json:"notes"`
 	IdempotencyKey *string        `json:"idempotency_key"`
 	CreatedBy      pgtype.UUID    `json:"created_by"`
+	ChangeOrderID  pgtype.UUID    `json:"change_order_id"`
 }
 
 // ============ Masraflar ============
+// change_order_id OPSİYONELDİR: bir masrafı bir ek işe etiketler. Bu
+// SADECE proje toplamının filtrelenmiş bir görünümü içindir (bkz.
+// project_change_orders.sql ListChangeOrders notu) -- masraf, NULL
+// olsun ya da olmasın, proje toplamına yalnızca BİR KEZ girer.
 func (q *Queries) CreateExpense(ctx context.Context, arg CreateExpenseParams) (ProjectExpense, error) {
 	row := q.db.QueryRow(ctx, createExpense,
 		arg.OrganizationID,
@@ -143,6 +148,7 @@ func (q *Queries) CreateExpense(ctx context.Context, arg CreateExpenseParams) (P
 		arg.Notes,
 		arg.IdempotencyKey,
 		arg.CreatedBy,
+		arg.ChangeOrderID,
 	)
 	var i ProjectExpense
 	err := row.Scan(
@@ -164,6 +170,7 @@ func (q *Queries) CreateExpense(ctx context.Context, arg CreateExpenseParams) (P
 		&i.VoidedBy,
 		&i.VoidReason,
 		&i.IdempotencyKey,
+		&i.ChangeOrderID,
 	)
 	return i, err
 }
@@ -322,9 +329,9 @@ const createSubcontractor = `-- name: CreateSubcontractor :one
 
 INSERT INTO project_subcontractors (
     organization_id, project_id, name, company_name, phone, email, work_description,
-    contract_amount, currency, start_date, end_date, status, notes, created_by
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-RETURNING id, organization_id, project_id, name, company_name, phone, email, work_description, contract_amount, currency, start_date, end_date, status, notes, created_by, created_at, updated_at
+    contract_amount, currency, start_date, end_date, status, notes, created_by, change_order_id
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+RETURNING id, organization_id, project_id, name, company_name, phone, email, work_description, contract_amount, currency, start_date, end_date, status, notes, created_by, created_at, updated_at, change_order_id
 `
 
 type CreateSubcontractorParams struct {
@@ -342,9 +349,11 @@ type CreateSubcontractorParams struct {
 	Status          string         `json:"status"`
 	Notes           string         `json:"notes"`
 	CreatedBy       pgtype.UUID    `json:"created_by"`
+	ChangeOrderID   pgtype.UUID    `json:"change_order_id"`
 }
 
 // ============ Taşeronlar ============
+// change_order_id OPSİYONELDİR (bkz. CreateExpense notu).
 func (q *Queries) CreateSubcontractor(ctx context.Context, arg CreateSubcontractorParams) (ProjectSubcontractor, error) {
 	row := q.db.QueryRow(ctx, createSubcontractor,
 		arg.OrganizationID,
@@ -361,6 +370,7 @@ func (q *Queries) CreateSubcontractor(ctx context.Context, arg CreateSubcontract
 		arg.Status,
 		arg.Notes,
 		arg.CreatedBy,
+		arg.ChangeOrderID,
 	)
 	var i ProjectSubcontractor
 	err := row.Scan(
@@ -381,6 +391,7 @@ func (q *Queries) CreateSubcontractor(ctx context.Context, arg CreateSubcontract
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ChangeOrderID,
 	)
 	return i, err
 }
@@ -513,7 +524,7 @@ func (q *Queries) GetCollectionByIdempotencyKey(ctx context.Context, arg GetColl
 }
 
 const getExpense = `-- name: GetExpense :one
-SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key FROM project_expenses WHERE id = $1 AND organization_id = $2
+SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id FROM project_expenses WHERE id = $1 AND organization_id = $2
 `
 
 type GetExpenseParams struct {
@@ -544,12 +555,13 @@ func (q *Queries) GetExpense(ctx context.Context, arg GetExpenseParams) (Project
 		&i.VoidedBy,
 		&i.VoidReason,
 		&i.IdempotencyKey,
+		&i.ChangeOrderID,
 	)
 	return i, err
 }
 
 const getExpenseByIdempotencyKey = `-- name: GetExpenseByIdempotencyKey :one
-SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key FROM project_expenses
+SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id FROM project_expenses
 WHERE project_id = $1 AND idempotency_key = $2
 `
 
@@ -580,6 +592,7 @@ func (q *Queries) GetExpenseByIdempotencyKey(ctx context.Context, arg GetExpense
 		&i.VoidedBy,
 		&i.VoidReason,
 		&i.IdempotencyKey,
+		&i.ChangeOrderID,
 	)
 	return i, err
 }
@@ -713,13 +726,37 @@ inv AS (
         COALESCE(sum(amount) FILTER (WHERE status IN ('issued','sent','paid')), 0)::numeric(18,2) AS issued_total,
         COALESCE(sum(amount) FILTER (WHERE status = 'paid'), 0)::numeric(18,2) AS paid_total
     FROM project_invoices WHERE project_id = $1 AND invoice_type = 'sales'
+),
+co_effect AS (
+    SELECT
+        COALESCE(sum(grand_total) FILTER (WHERE change_type = 'addition' AND status = 'approved'), 0)::numeric(18,2)
+            AS approved_additions,
+        COALESCE(sum(grand_total) FILTER (WHERE change_type = 'deduction' AND status = 'approved'), 0)::numeric(18,2)
+            AS approved_deductions,
+        COALESCE(sum(grand_total) FILTER (WHERE change_type = 'addition' AND status IN ('draft','sent')), 0)::numeric(18,2)
+            AS pending_additions,
+        COALESCE(sum(grand_total) FILTER (WHERE change_type = 'deduction' AND status IN ('draft','sent')), 0)::numeric(18,2)
+            AS pending_deductions
+    FROM project_change_orders WHERE project_id = $1 AND organization_id = $2
+),
+current_value AS (
+    SELECT (proj.contract_amount + co_effect.approved_additions - co_effect.approved_deductions)::numeric(18,2) AS total
+    FROM proj, co_effect
 )
 SELECT
+    proj.contract_amount AS base_contract_amount,
     proj.contract_amount,
     proj.currency,
+    co_effect.approved_additions,
+    co_effect.approved_deductions,
+    current_value.total AS current_contract_value,
+    co_effect.pending_additions,
+    co_effect.pending_deductions,
+    (current_value.total + co_effect.pending_additions - co_effect.pending_deductions)::numeric(18,2)
+        AS potential_contract_value,
     planned.total AS planned_collections,
     coll.total    AS collected_amount,
-    (proj.contract_amount - coll.total)::numeric(18,2) AS remaining_receivable,
+    (current_value.total - coll.total)::numeric(18,2) AS remaining_receivable,
     expense_total.total     AS total_expenses,
     subcommit.total    AS total_subcontractor_commitment,
     subpay.total       AS subcontractor_paid,
@@ -728,23 +765,26 @@ SELECT
     inv.paid_total     AS paid_invoice_total,
     (expense_total.total + subpay.total)::numeric(18,2) AS realized_cost,
     (expense_total.total + subpay.total + subremaining.total)::numeric(18,2) AS committed_cost,
-    (proj.contract_amount - (expense_total.total + subpay.total))::numeric(18,2) AS realized_gross_profit,
-    (proj.contract_amount - (expense_total.total + subpay.total + subremaining.total))::numeric(18,2) AS estimated_gross_profit,
+    (current_value.total - (expense_total.total + subpay.total))::numeric(18,2) AS realized_gross_profit,
+    (current_value.total - (expense_total.total + subpay.total + subremaining.total))::numeric(18,2) AS estimated_gross_profit,
     -- Marj yüzdesi matematiksel olarak SINIRSIZDIR (küçük bir sözleşme
     -- bedeline karşı çok büyük bir maliyet girilirse oran patlar). Cast
     -- overflow'la 500 üretmek yerine GREATEST/LEAST ile makul ama geniş
     -- bir bant içine (±99.999.999,99%) kelepçelenir -- gerçek/gerçekçi
     -- hiçbir proje bu bandı zorlamaz, yalnızca veri girişi hatalarında
     -- doygunlaşır (bkz. denetim bulgusu: eski numeric(7,2) taşıyordu).
-    CASE WHEN proj.contract_amount > 0
+    -- current_contract_value <= 0 (henüz nadir, ama onaylı eksiltmeler
+    -- ana sözleşmeyi sıfıra kadar düşürebilir) durumunda marj güvenle 0
+    -- döner -- sıfıra bölme yoktur.
+    CASE WHEN current_value.total > 0
          THEN GREATEST(-99999999.99, LEAST(99999999.99,
-              round((proj.contract_amount - (expense_total.total + subpay.total)) * 100 / proj.contract_amount, 2)))
+              round((current_value.total - (expense_total.total + subpay.total)) * 100 / current_value.total, 2)))
          ELSE 0 END::numeric(10,2) AS realized_margin_percent,
-    CASE WHEN proj.contract_amount > 0
+    CASE WHEN current_value.total > 0
          THEN GREATEST(-99999999.99, LEAST(99999999.99,
-              round((proj.contract_amount - (expense_total.total + subpay.total + subremaining.total)) * 100 / proj.contract_amount, 2)))
+              round((current_value.total - (expense_total.total + subpay.total + subremaining.total)) * 100 / current_value.total, 2)))
          ELSE 0 END::numeric(10,2) AS estimated_margin_percent
-FROM proj, coll, planned, expense_total, subpay, subcommit, subremaining, inv
+FROM proj, coll, planned, expense_total, subpay, subcommit, subremaining, inv, co_effect, current_value
 `
 
 type GetProjectFinancialSummaryParams struct {
@@ -753,8 +793,15 @@ type GetProjectFinancialSummaryParams struct {
 }
 
 type GetProjectFinancialSummaryRow struct {
+	BaseContractAmount           pgtype.Numeric `json:"base_contract_amount"`
 	ContractAmount               pgtype.Numeric `json:"contract_amount"`
 	Currency                     string         `json:"currency"`
+	ApprovedAdditions            pgtype.Numeric `json:"approved_additions"`
+	ApprovedDeductions           pgtype.Numeric `json:"approved_deductions"`
+	CurrentContractValue         pgtype.Numeric `json:"current_contract_value"`
+	PendingAdditions             pgtype.Numeric `json:"pending_additions"`
+	PendingDeductions            pgtype.Numeric `json:"pending_deductions"`
+	PotentialContractValue       pgtype.Numeric `json:"potential_contract_value"`
 	PlannedCollections           pgtype.Numeric `json:"planned_collections"`
 	CollectedAmount              pgtype.Numeric `json:"collected_amount"`
 	RemainingReceivable          pgtype.Numeric `json:"remaining_receivable"`
@@ -782,12 +829,23 @@ type GetProjectFinancialSummaryRow struct {
 //
 //	realized_cost  = gerçekleşen masraflar + taşerona GERÇEKTEN ödenen
 //	committed_cost = realized_cost + taşeron sözleşmelerinin KALAN taahhüdü
+//
+// Faz 8: projects.contract_amount ASLA değişmez (ana sözleşme). "Güncel
+// proje bedeli", onaylı ek işler/eksiltmelerden HER SEFERİNDE aggregate
+// edilir -- bir kolon olarak TUTULMAZ (bkz. 0027 migration notu).
 func (q *Queries) GetProjectFinancialSummary(ctx context.Context, arg GetProjectFinancialSummaryParams) (GetProjectFinancialSummaryRow, error) {
 	row := q.db.QueryRow(ctx, getProjectFinancialSummary, arg.ID, arg.OrganizationID)
 	var i GetProjectFinancialSummaryRow
 	err := row.Scan(
+		&i.BaseContractAmount,
 		&i.ContractAmount,
 		&i.Currency,
+		&i.ApprovedAdditions,
+		&i.ApprovedDeductions,
+		&i.CurrentContractValue,
+		&i.PendingAdditions,
+		&i.PendingDeductions,
+		&i.PotentialContractValue,
 		&i.PlannedCollections,
 		&i.CollectedAmount,
 		&i.RemainingReceivable,
@@ -808,7 +866,7 @@ func (q *Queries) GetProjectFinancialSummary(ctx context.Context, arg GetProject
 }
 
 const getSubcontractor = `-- name: GetSubcontractor :one
-SELECT id, organization_id, project_id, name, company_name, phone, email, work_description, contract_amount, currency, start_date, end_date, status, notes, created_by, created_at, updated_at FROM project_subcontractors WHERE id = $1 AND organization_id = $2
+SELECT id, organization_id, project_id, name, company_name, phone, email, work_description, contract_amount, currency, start_date, end_date, status, notes, created_by, created_at, updated_at, change_order_id FROM project_subcontractors WHERE id = $1 AND organization_id = $2
 `
 
 type GetSubcontractorParams struct {
@@ -837,6 +895,7 @@ func (q *Queries) GetSubcontractor(ctx context.Context, arg GetSubcontractorPara
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ChangeOrderID,
 	)
 	return i, err
 }
@@ -962,7 +1021,7 @@ func (q *Queries) ListCollections(ctx context.Context, arg ListCollectionsParams
 }
 
 const listExpenses = `-- name: ListExpenses :many
-SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key FROM project_expenses
+SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id FROM project_expenses
 WHERE project_id = $1 AND organization_id = $2
 ORDER BY expense_date DESC, created_at DESC
 `
@@ -1000,6 +1059,7 @@ func (q *Queries) ListExpenses(ctx context.Context, arg ListExpensesParams) ([]P
 			&i.VoidedBy,
 			&i.VoidReason,
 			&i.IdempotencyKey,
+			&i.ChangeOrderID,
 		); err != nil {
 			return nil, err
 		}
@@ -1215,7 +1275,7 @@ func (q *Queries) ListSubcontractorPayments(ctx context.Context, arg ListSubcont
 }
 
 const listSubcontractors = `-- name: ListSubcontractors :many
-SELECT s.id, s.organization_id, s.project_id, s.name, s.company_name, s.phone, s.email, s.work_description, s.contract_amount, s.currency, s.start_date, s.end_date, s.status, s.notes, s.created_by, s.created_at, s.updated_at,
+SELECT s.id, s.organization_id, s.project_id, s.name, s.company_name, s.phone, s.email, s.work_description, s.contract_amount, s.currency, s.start_date, s.end_date, s.status, s.notes, s.created_by, s.created_at, s.updated_at, s.change_order_id,
        COALESCE((SELECT sum(p.amount) FROM project_subcontractor_payments p
                  WHERE p.subcontractor_id = s.id AND p.voided_at IS NULL), 0)::numeric(18,2) AS paid_amount
 FROM project_subcontractors s
@@ -1246,6 +1306,7 @@ type ListSubcontractorsRow struct {
 	CreatedBy       pgtype.UUID        `json:"created_by"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	ChangeOrderID   pgtype.UUID        `json:"change_order_id"`
 	PaidAmount      pgtype.Numeric     `json:"paid_amount"`
 }
 
@@ -1278,6 +1339,7 @@ func (q *Queries) ListSubcontractors(ctx context.Context, arg ListSubcontractors
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ChangeOrderID,
 			&i.PaidAmount,
 		); err != nil {
 			return nil, err
@@ -1295,7 +1357,7 @@ UPDATE project_expenses
 SET category = $3, description = $4, amount = $5, expense_date = $6,
     supplier_name = $7, invoice_no = $8, notes = $9
 WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL
-RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key
+RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id
 `
 
 type UpdateExpenseParams struct {
@@ -1342,6 +1404,7 @@ func (q *Queries) UpdateExpense(ctx context.Context, arg UpdateExpenseParams) (P
 		&i.VoidedBy,
 		&i.VoidReason,
 		&i.IdempotencyKey,
+		&i.ChangeOrderID,
 	)
 	return i, err
 }
@@ -1434,7 +1497,7 @@ UPDATE project_subcontractors
 SET name = $3, company_name = $4, phone = $5, email = $6, work_description = $7,
     contract_amount = $8, start_date = $9, end_date = $10, status = $11, notes = $12
 WHERE id = $1 AND organization_id = $2
-RETURNING id, organization_id, project_id, name, company_name, phone, email, work_description, contract_amount, currency, start_date, end_date, status, notes, created_by, created_at, updated_at
+RETURNING id, organization_id, project_id, name, company_name, phone, email, work_description, contract_amount, currency, start_date, end_date, status, notes, created_by, created_at, updated_at, change_order_id
 `
 
 type UpdateSubcontractorParams struct {
@@ -1486,6 +1549,7 @@ func (q *Queries) UpdateSubcontractor(ctx context.Context, arg UpdateSubcontract
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ChangeOrderID,
 	)
 	return i, err
 }
@@ -1538,7 +1602,7 @@ const voidExpense = `-- name: VoidExpense :one
 UPDATE project_expenses
 SET voided_at = now(), voided_by = $3, void_reason = $4
 WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL
-RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key
+RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id
 `
 
 type VoidExpenseParams struct {
@@ -1575,6 +1639,7 @@ func (q *Queries) VoidExpense(ctx context.Context, arg VoidExpenseParams) (Proje
 		&i.VoidedBy,
 		&i.VoidReason,
 		&i.IdempotencyKey,
+		&i.ChangeOrderID,
 	)
 	return i, err
 }

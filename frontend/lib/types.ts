@@ -185,6 +185,10 @@ export interface Project {
   realized_gross_profit?: number;
   invoice_count?: number;
   paid_invoice_count?: number;
+  // Faz 8: onaylı ek iş/eksiltme net etkisi ve ondan türetilen güncel
+  // proje bedeli. contract_amount (ana sözleşme) ASLA değişmez.
+  change_order_net?: number;
+  current_contract_value?: number;
 }
 
 export interface Employee {
@@ -290,6 +294,7 @@ export interface Expense {
   voided_at: string | null;
   void_reason: string;
   created_at: string;
+  change_order_id?: string | null;
 }
 
 export type InvoiceStatus = "draft" | "issued" | "sent" | "paid" | "cancelled";
@@ -340,6 +345,7 @@ export interface Subcontractor {
   end_date: string | null;
   status: SubcontractorStatus;
   notes: string;
+  change_order_id?: string | null;
 }
 
 export interface SubcontractorPayment {
@@ -355,6 +361,16 @@ export interface SubcontractorPayment {
 }
 
 export interface FinancialSummary {
+  // Faz 8: ana sözleşme (ASLA değişmez) ile güncel proje bedeli (onaylı
+  // ek işler/eksiltmelerle) arasındaki ayrım.
+  base_contract_amount: number;
+  approved_additions: number;
+  approved_deductions: number;
+  current_contract_value: number;
+  pending_additions: number;
+  pending_deductions: number;
+  potential_contract_value: number;
+
   contract_amount: number;
   currency: string;
   planned_collections: number;
@@ -502,4 +518,121 @@ export interface OperationsSummary {
   overdue_task_count: number;
   completed_task_count: number;
   task_completion_ratio: number;
+}
+
+// ---------- Faz 8: ek işler / değişiklik emirleri ----------
+
+export type ChangeOrderType = "addition" | "deduction";
+
+export const CHANGE_ORDER_TYPE_LABELS: Record<ChangeOrderType, string> = {
+  addition: "Ek İş",
+  deduction: "Eksiltme",
+};
+
+export type ChangeOrderStatus = "draft" | "sent" | "approved" | "rejected" | "cancelled" | "superseded";
+
+export const CHANGE_ORDER_STATUS_LABELS: Record<ChangeOrderStatus, string> = {
+  draft: "Taslak",
+  sent: "Gönderildi",
+  approved: "Onaylandı",
+  rejected: "Reddedildi",
+  cancelled: "İptal",
+  superseded: "Yerine Yeni Revizyon Oluşturuldu",
+};
+
+export interface ChangeOrderItem {
+  id: string;
+  product_id: string | null;
+  description: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  line_total: number;
+  sort_order: number;
+  estimated_unit_cost?: number | null;
+  estimated_cost?: number | null;
+}
+
+export interface ChangeOrderItemInput {
+  product_id?: string | null;
+  description: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  estimated_unit_cost?: number | null;
+}
+
+export interface ChangeOrderProfitability {
+  revenue_effect: number;
+  realized_cost: number;
+  committed_cost: number;
+  realized_profit: number;
+  estimated_profit: number;
+  realized_margin_percent: number;
+  estimated_margin_percent: number;
+}
+
+// ChangeOrder, kimlik doğrulamalı (dahili) uçlardan gelir --
+// internal_notes ve profitability (maliyet/kâr) taşır. Müşteri paylaşım
+// sayfası bunun yerine PublicChangeOrder'ı kullanır (bkz. aşağısı).
+export interface ChangeOrder {
+  id: string;
+  project_id: string;
+  sequence_no: number;
+  change_order_no: string;
+  change_type: ChangeOrderType;
+  title: string;
+  description: string;
+  status: ChangeOrderStatus;
+  subtotal: number;
+  vat_rate: number;
+  vat_amount: number;
+  grand_total: number;
+  currency: string;
+  internal_notes: string;
+  customer_notes: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  sent_at: string | null;
+  responded_at: string | null;
+  approved_at: string | null;
+  rejected_at: string | null;
+  cancelled_at: string | null;
+  supersedes_change_order_id: string | null;
+  active_share_token?: string | null;
+  items?: ChangeOrderItem[];
+  profitability?: ChangeOrderProfitability;
+}
+
+// PublicChangeOrder, müşteri paylaşım sayfasının aldığı TEK şekildir --
+// maliyet/kâr/internal_notes ASLA içermez (bkz. backend
+// publicChangeOrderResponse).
+export interface PublicChangeOrder {
+  change_order_no: string;
+  project_no: string;
+  project_name: string;
+  customer_name: string;
+  change_type: ChangeOrderType;
+  title: string;
+  description: string;
+  status: ChangeOrderStatus;
+  items: Array<{
+    id: string;
+    description: string;
+    quantity: number;
+    unit: string;
+    unit_price: number;
+    line_total: number;
+  }>;
+  subtotal: number;
+  vat_rate: number;
+  vat_amount: number;
+  grand_total: number;
+  currency: string;
+  customer_notes: string;
+  base_contract_amount: number;
+  current_contract_value: number;
+  projected_contract_value: number;
+  can_respond: boolean;
 }

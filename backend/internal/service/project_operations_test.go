@@ -32,7 +32,7 @@ func TestProjectOperations(t *testing.T) {
 	orgSvc := service.NewOrganizationService(q)
 	settingsSvc := service.NewSettingsService(q, box)
 	offerSvc := service.NewOfferService(pool, q, settingsSvc, "http://localhost:3000")
-	projectSvc := service.NewProjectService(pool, q, mustTestStore(t))
+	projectSvc := service.NewProjectService(pool, q, mustTestStore(t), settingsSvc, "http://localhost:3000")
 	employeeSvc := service.NewEmployeeService(q)
 
 	orgA := mustCreateOrg(t, ctx, orgSvc, pool, "Operasyon Test A", "operasyon-test-a")

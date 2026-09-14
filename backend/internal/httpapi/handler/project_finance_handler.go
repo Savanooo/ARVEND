@@ -243,18 +243,19 @@ func (h *ProjectHandler) VoidCollection(w http.ResponseWriter, r *http.Request) 
 // ---------- Masraflar ----------
 
 type expenseResponse struct {
-	ID           string  `json:"id"`
-	Category     string  `json:"category"`
-	Description  string  `json:"description"`
-	Amount       float64 `json:"amount"`
-	Currency     string  `json:"currency"`
-	ExpenseDate  string  `json:"expense_date"`
-	SupplierName string  `json:"supplier_name"`
-	InvoiceNo    string  `json:"invoice_no"`
-	Notes        string  `json:"notes"`
-	VoidedAt     *string `json:"voided_at"`
-	VoidReason   string  `json:"void_reason"`
-	CreatedAt    string  `json:"created_at"`
+	ID            string  `json:"id"`
+	Category      string  `json:"category"`
+	Description   string  `json:"description"`
+	Amount        float64 `json:"amount"`
+	Currency      string  `json:"currency"`
+	ExpenseDate   string  `json:"expense_date"`
+	SupplierName  string  `json:"supplier_name"`
+	InvoiceNo     string  `json:"invoice_no"`
+	Notes         string  `json:"notes"`
+	VoidedAt      *string `json:"voided_at"`
+	VoidReason    string  `json:"void_reason"`
+	CreatedAt     string  `json:"created_at"`
+	ChangeOrderID *string `json:"change_order_id,omitempty"`
 }
 
 func toExpenseResponse(e domain.Expense) expenseResponse {
@@ -263,6 +264,7 @@ func toExpenseResponse(e domain.Expense) expenseResponse {
 		Currency: e.Currency, ExpenseDate: e.ExpenseDate.Format(dateLayout),
 		SupplierName: e.SupplierName, InvoiceNo: e.InvoiceNo, Notes: e.Notes,
 		VoidedAt: tsStrPtr(e.VoidedAt), VoidReason: e.VoidReason, CreatedAt: e.CreatedAt.Format(rfc3339),
+		ChangeOrderID: e.ChangeOrderID,
 	}
 }
 
@@ -276,13 +278,15 @@ type expenseRequest struct {
 	InvoiceNo      string  `json:"invoice_no"`
 	Notes          string  `json:"notes"`
 	IdempotencyKey string  `json:"idempotency_key"`
+	ChangeOrderID  string  `json:"change_order_id"`
 }
 
 func (r expenseRequest) toInput(userID string) service.ExpenseInput {
 	return service.ExpenseInput{
 		Category: r.Category, Description: r.Description, Amount: r.Amount, Currency: r.Currency,
 		ExpenseDate: parseDateOrToday(r.ExpenseDate), SupplierName: r.SupplierName,
-		InvoiceNo: r.InvoiceNo, Notes: r.Notes, IdempotencyKey: r.IdempotencyKey, UserID: userID,
+		InvoiceNo: r.InvoiceNo, Notes: r.Notes, IdempotencyKey: r.IdempotencyKey,
+		ChangeOrderID: r.ChangeOrderID, UserID: userID,
 	}
 }
 
@@ -454,6 +458,7 @@ type subcontractorResponse struct {
 	EndDate         *string `json:"end_date"`
 	Status          string  `json:"status"`
 	Notes           string  `json:"notes"`
+	ChangeOrderID   *string `json:"change_order_id,omitempty"`
 }
 
 func toSubcontractorResponse(s domain.Subcontractor) subcontractorResponse {
@@ -462,7 +467,7 @@ func toSubcontractorResponse(s domain.Subcontractor) subcontractorResponse {
 		WorkDescription: s.WorkDescription, ContractAmount: s.ContractAmount,
 		PaidAmount: s.PaidAmount, RemainingAmount: s.RemainingAmount, Currency: s.Currency,
 		StartDate: dateStrPtr(s.StartDate), EndDate: dateStrPtr(s.EndDate),
-		Status: s.Status, Notes: s.Notes,
+		Status: s.Status, Notes: s.Notes, ChangeOrderID: s.ChangeOrderID,
 	}
 }
 
@@ -478,6 +483,7 @@ type subcontractorRequest struct {
 	EndDate         *string `json:"end_date"`
 	Status          string  `json:"status"`
 	Notes           string  `json:"notes"`
+	ChangeOrderID   string  `json:"change_order_id"`
 }
 
 func (r subcontractorRequest) toInput(userID string) service.SubcontractorInput {
@@ -485,7 +491,7 @@ func (r subcontractorRequest) toInput(userID string) service.SubcontractorInput 
 		Name: r.Name, CompanyName: r.CompanyName, Phone: r.Phone, Email: r.Email,
 		WorkDescription: r.WorkDescription, ContractAmount: r.ContractAmount, Currency: r.Currency,
 		StartDate: parseDateParam(r.StartDate), EndDate: parseDateParam(r.EndDate),
-		Status: r.Status, Notes: r.Notes, UserID: userID,
+		Status: r.Status, Notes: r.Notes, ChangeOrderID: r.ChangeOrderID, UserID: userID,
 	}
 }
 
@@ -612,6 +618,17 @@ func (h *ProjectHandler) VoidSubcontractorPayment(w http.ResponseWriter, r *http
 // ---------- Finans Özeti + Olaylar ----------
 
 type financialSummaryResponse struct {
+	// Faz 8: ana sözleşme ile güncel proje bedeli arasındaki ayrım.
+	// ContractAmount, geriye dönük uyumluluk için AYNI değeri taşımaya
+	// devam eder (== BaseContractAmount).
+	BaseContractAmount     float64 `json:"base_contract_amount"`
+	ApprovedAdditions      float64 `json:"approved_additions"`
+	ApprovedDeductions     float64 `json:"approved_deductions"`
+	CurrentContractValue   float64 `json:"current_contract_value"`
+	PendingAdditions       float64 `json:"pending_additions"`
+	PendingDeductions      float64 `json:"pending_deductions"`
+	PotentialContractValue float64 `json:"potential_contract_value"`
+
 	ContractAmount               float64 `json:"contract_amount"`
 	Currency                     string  `json:"currency"`
 	PlannedCollections           float64 `json:"planned_collections"`
@@ -640,7 +657,11 @@ func (h *ProjectHandler) FinancialSummary(w http.ResponseWriter, r *http.Request
 		return
 	}
 	httpjson.Write(w, http.StatusOK, financialSummaryResponse{
-		ContractAmount: s.ContractAmount, Currency: s.Currency,
+		BaseContractAmount: s.BaseContractAmount, ApprovedAdditions: s.ApprovedAdditions,
+		ApprovedDeductions: s.ApprovedDeductions, CurrentContractValue: s.CurrentContractValue,
+		PendingAdditions: s.PendingAdditions, PendingDeductions: s.PendingDeductions,
+		PotentialContractValue: s.PotentialContractValue,
+		ContractAmount:         s.ContractAmount, Currency: s.Currency,
 		PlannedCollections: s.PlannedCollections, CollectedAmount: s.CollectedAmount,
 		RemainingReceivable: s.RemainingReceivable, OverCollected: s.OverCollected(),
 		TotalExpenses: s.TotalExpenses, TotalSubcontractorCommitment: s.TotalSubcontractorCommitment,

@@ -8,6 +8,7 @@ import { apiServer } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import {
   PROJECT_STATUS_LABELS,
+  type ChangeOrder,
   type Collection,
   type Expense,
   type FinancialSummary,
@@ -29,6 +30,7 @@ import {
 } from "@/lib/types";
 
 import { Section } from "./Accordion";
+import { ChangeOrdersSection } from "./ChangeOrderSections";
 import { FinanceSummary } from "./FinanceSummary";
 import {
   CollectionsSection,
@@ -60,13 +62,9 @@ const STATUS_TONE: Record<ProjectStatus, "muted" | "gold" | "success" | "danger"
 // tutulmadığı için doğru değil, sadece doğru GÖRÜNEN bir varsayım olurdu.
 const NO_DATA = "—";
 
-// Bu fazda yalnızca ilk üç bölüm çalışır; kalanlar ileride doldurulacak
-// iskelettir.
-// Faz 6'da finans bölümleri gerçek verilerle çalışır hale geldi; aşağıdakiler
-// sonraki fazlara kaldı.
-// Faz 7'de operasyon bölümleri gerçek verilerle çalışır hale geldi;
-// geriye yalnızca Ek İşler (change orders) kaldı.
-const PLACEHOLDER_SECTIONS = ["Ek İşler"];
+// Faz 6'da finans bölümleri, Faz 7'de operasyon bölümleri, Faz 8'de ek
+// işler (change orders) gerçek verilerle çalışır hale geldi -- hiçbir
+// placeholder bölüm kalmadı.
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -102,7 +100,7 @@ export default async function ProjeDetayPage({
       apiServer<{ events: ProjectEvent[] }>(`${base}/events`, cookieHeader),
     ]);
 
-  const [ops, members, schedule, tasks, files, photos, notes, employees] = await Promise.all([
+  const [ops, members, schedule, tasks, files, photos, notes, employees, changeOrders] = await Promise.all([
     apiServer<OperationsSummary>(`${base}/operations-summary`, cookieHeader),
     apiServer<{ members: ProjectMember[] }>(`${base}/members`, cookieHeader),
     apiServer<{ items: ScheduleItem[] }>(`${base}/schedule`, cookieHeader),
@@ -111,6 +109,7 @@ export default async function ProjeDetayPage({
     apiServer<{ photos: ProjectPhoto[] }>(`${base}/photos`, cookieHeader),
     apiServer<{ notes: ProjectNote[] }>(`${base}/notes`, cookieHeader),
     apiServer<{ employees: Employee[] }>(`/api/v1/employees?filter=aktif`, cookieHeader),
+    apiServer<{ change_orders: ChangeOrder[] }>(`${base}/change-orders`, cookieHeader),
   ]);
 
   // Tamamlanmış/iptal edilmiş projede finans hareketleri kilitlidir --
@@ -163,7 +162,7 @@ export default async function ProjeDetayPage({
           <Row label="Proje No" value={<span className="font-medium">{project.project_no}</span>} />
           <Row label="Müşteri" value={project.customer_name} />
           <Row
-            label="Proje Bedeli"
+            label="Ana Sözleşme Bedeli"
             value={
               <span className="font-medium">
                 {formatMoney(project.contract_amount, project.currency)}
@@ -280,6 +279,7 @@ export default async function ProjeDetayPage({
               project={project}
               items={plan.items}
               plannedTotal={plan.planned_total}
+              currentContractValue={summary.current_contract_value}
               locked={locked}
             />
           </Section>
@@ -349,13 +349,13 @@ export default async function ProjeDetayPage({
             <NotesSection project={project} notes={notes.notes} locked={locked} />
           </Section>
 
+          <Section title="Ek İşler" defaultOpen>
+            <ChangeOrdersSection project={project} changeOrders={changeOrders.change_orders} locked={locked} />
+          </Section>
+
           <Section title="Aktivite Geçmişi">
             <ProjectActivitySection events={events.events} currency={project.currency} />
           </Section>
-
-          {PLACEHOLDER_SECTIONS.map((title) => (
-            <Section key={title} title={title} placeholder />
-          ))}
         </div>
       </div>
     </>

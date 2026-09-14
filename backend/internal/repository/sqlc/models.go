@@ -21,6 +21,11 @@ type AttendanceLog struct {
 	OrganizationID pgtype.UUID        `json:"organization_id"`
 }
 
+type ChangeOrderCounter struct {
+	ProjectID pgtype.UUID `json:"project_id"`
+	Seq       int32       `json:"seq"`
+}
+
 type Customer struct {
 	ID             pgtype.UUID        `json:"id"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`
@@ -206,6 +211,75 @@ type Project struct {
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ProjectChangeOrder struct {
+	ID                      pgtype.UUID        `json:"id"`
+	OrganizationID          pgtype.UUID        `json:"organization_id"`
+	ProjectID               pgtype.UUID        `json:"project_id"`
+	SequenceNo              int32              `json:"sequence_no"`
+	ChangeType              string             `json:"change_type"`
+	Title                   string             `json:"title"`
+	Description             string             `json:"description"`
+	Status                  string             `json:"status"`
+	Subtotal                pgtype.Numeric     `json:"subtotal"`
+	VatRate                 pgtype.Numeric     `json:"vat_rate"`
+	VatAmount               pgtype.Numeric     `json:"vat_amount"`
+	GrandTotal              pgtype.Numeric     `json:"grand_total"`
+	Currency                string             `json:"currency"`
+	InternalNotes           string             `json:"internal_notes"`
+	CustomerNotes           string             `json:"customer_notes"`
+	CreatedBy               pgtype.UUID        `json:"created_by"`
+	CreatedAt               pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt               pgtype.Timestamptz `json:"updated_at"`
+	SentAt                  pgtype.Timestamptz `json:"sent_at"`
+	RespondedAt             pgtype.Timestamptz `json:"responded_at"`
+	ApprovedAt              pgtype.Timestamptz `json:"approved_at"`
+	RejectedAt              pgtype.Timestamptz `json:"rejected_at"`
+	CancelledAt             pgtype.Timestamptz `json:"cancelled_at"`
+	SupersedesChangeOrderID pgtype.UUID        `json:"supersedes_change_order_id"`
+}
+
+type ProjectChangeOrderEmailLog struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	ChangeOrderID  pgtype.UUID        `json:"change_order_id"`
+	ShareLinkID    pgtype.UUID        `json:"share_link_id"`
+	Recipient      string             `json:"recipient"`
+	Subject        string             `json:"subject"`
+	Status         string             `json:"status"`
+	ErrorMessage   string             `json:"error_message"`
+	SentBy         pgtype.UUID        `json:"sent_by"`
+	SentAt         pgtype.Timestamptz `json:"sent_at"`
+}
+
+type ProjectChangeOrderItem struct {
+	ID                pgtype.UUID    `json:"id"`
+	OrganizationID    pgtype.UUID    `json:"organization_id"`
+	ProjectID         pgtype.UUID    `json:"project_id"`
+	ChangeOrderID     pgtype.UUID    `json:"change_order_id"`
+	ProductID         pgtype.UUID    `json:"product_id"`
+	Description       string         `json:"description"`
+	Quantity          pgtype.Numeric `json:"quantity"`
+	Unit              string         `json:"unit"`
+	UnitPrice         pgtype.Numeric `json:"unit_price"`
+	LineTotal         pgtype.Numeric `json:"line_total"`
+	SortOrder         int32          `json:"sort_order"`
+	EstimatedUnitCost pgtype.Numeric `json:"estimated_unit_cost"`
+	EstimatedCost     pgtype.Numeric `json:"estimated_cost"`
+}
+
+type ProjectChangeOrderShareLink struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	ChangeOrderID  pgtype.UUID        `json:"change_order_id"`
+	Token          pgtype.UUID        `json:"token"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt      pgtype.Timestamptz `json:"revoked_at"`
+}
+
 type ProjectCollection struct {
 	ID                pgtype.UUID        `json:"id"`
 	OrganizationID    pgtype.UUID        `json:"organization_id"`
@@ -261,6 +335,7 @@ type ProjectExpense struct {
 	VoidedBy       pgtype.UUID        `json:"voided_by"`
 	VoidReason     string             `json:"void_reason"`
 	IdempotencyKey *string            `json:"idempotency_key"`
+	ChangeOrderID  pgtype.UUID        `json:"change_order_id"`
 }
 
 type ProjectFile struct {
@@ -391,6 +466,7 @@ type ProjectSubcontractor struct {
 	CreatedBy       pgtype.UUID        `json:"created_by"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	ChangeOrderID   pgtype.UUID        `json:"change_order_id"`
 }
 
 type ProjectSubcontractorPayment struct {

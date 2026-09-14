@@ -75,10 +75,14 @@ RETURNING *;
 -- ============ Masraflar ============
 
 -- name: CreateExpense :one
+-- change_order_id OPSİYONELDİR: bir masrafı bir ek işe etiketler. Bu
+-- SADECE proje toplamının filtrelenmiş bir görünümü içindir (bkz.
+-- project_change_orders.sql ListChangeOrders notu) -- masraf, NULL
+-- olsun ya da olmasın, proje toplamına yalnızca BİR KEZ girer.
 INSERT INTO project_expenses (
     organization_id, project_id, category, description, amount, currency,
-    expense_date, supplier_name, invoice_no, notes, idempotency_key, created_by
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+    expense_date, supplier_name, invoice_no, notes, idempotency_key, created_by, change_order_id
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 RETURNING *;
 
 -- GetExpense, void durumundan BAĞIMSIZ okur (bkz. GetCollection notu).
@@ -132,10 +136,11 @@ RETURNING *;
 -- ============ Taşeronlar ============
 
 -- name: CreateSubcontractor :one
+-- change_order_id OPSİYONELDİR (bkz. CreateExpense notu).
 INSERT INTO project_subcontractors (
     organization_id, project_id, name, company_name, phone, email, work_description,
-    contract_amount, currency, start_date, end_date, status, notes, created_by
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+    contract_amount, currency, start_date, end_date, status, notes, created_by, change_order_id
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 RETURNING *;
 
 -- name: GetSubcontractor :one
@@ -244,13 +249,40 @@ inv AS (
         COALESCE(sum(amount) FILTER (WHERE status IN ('issued','sent','paid')), 0)::numeric(18,2) AS issued_total,
         COALESCE(sum(amount) FILTER (WHERE status = 'paid'), 0)::numeric(18,2) AS paid_total
     FROM project_invoices WHERE project_id = $1 AND invoice_type = 'sales'
+),
+-- Faz 8: projects.contract_amount ASLA değişmez (ana sözleşme). "Güncel
+-- proje bedeli", onaylı ek işler/eksiltmelerden HER SEFERİNDE aggregate
+-- edilir -- bir kolon olarak TUTULMAZ (bkz. 0027 migration notu).
+co_effect AS (
+    SELECT
+        COALESCE(sum(grand_total) FILTER (WHERE change_type = 'addition' AND status = 'approved'), 0)::numeric(18,2)
+            AS approved_additions,
+        COALESCE(sum(grand_total) FILTER (WHERE change_type = 'deduction' AND status = 'approved'), 0)::numeric(18,2)
+            AS approved_deductions,
+        COALESCE(sum(grand_total) FILTER (WHERE change_type = 'addition' AND status IN ('draft','sent')), 0)::numeric(18,2)
+            AS pending_additions,
+        COALESCE(sum(grand_total) FILTER (WHERE change_type = 'deduction' AND status IN ('draft','sent')), 0)::numeric(18,2)
+            AS pending_deductions
+    FROM project_change_orders WHERE project_id = $1 AND organization_id = $2
+),
+current_value AS (
+    SELECT (proj.contract_amount + co_effect.approved_additions - co_effect.approved_deductions)::numeric(18,2) AS total
+    FROM proj, co_effect
 )
 SELECT
+    proj.contract_amount AS base_contract_amount,
     proj.contract_amount,
     proj.currency,
+    co_effect.approved_additions,
+    co_effect.approved_deductions,
+    current_value.total AS current_contract_value,
+    co_effect.pending_additions,
+    co_effect.pending_deductions,
+    (current_value.total + co_effect.pending_additions - co_effect.pending_deductions)::numeric(18,2)
+        AS potential_contract_value,
     planned.total AS planned_collections,
     coll.total    AS collected_amount,
-    (proj.contract_amount - coll.total)::numeric(18,2) AS remaining_receivable,
+    (current_value.total - coll.total)::numeric(18,2) AS remaining_receivable,
     expense_total.total     AS total_expenses,
     subcommit.total    AS total_subcontractor_commitment,
     subpay.total       AS subcontractor_paid,
@@ -259,23 +291,26 @@ SELECT
     inv.paid_total     AS paid_invoice_total,
     (expense_total.total + subpay.total)::numeric(18,2) AS realized_cost,
     (expense_total.total + subpay.total + subremaining.total)::numeric(18,2) AS committed_cost,
-    (proj.contract_amount - (expense_total.total + subpay.total))::numeric(18,2) AS realized_gross_profit,
-    (proj.contract_amount - (expense_total.total + subpay.total + subremaining.total))::numeric(18,2) AS estimated_gross_profit,
+    (current_value.total - (expense_total.total + subpay.total))::numeric(18,2) AS realized_gross_profit,
+    (current_value.total - (expense_total.total + subpay.total + subremaining.total))::numeric(18,2) AS estimated_gross_profit,
     -- Marj yüzdesi matematiksel olarak SINIRSIZDIR (küçük bir sözleşme
     -- bedeline karşı çok büyük bir maliyet girilirse oran patlar). Cast
     -- overflow'la 500 üretmek yerine GREATEST/LEAST ile makul ama geniş
     -- bir bant içine (±99.999.999,99%) kelepçelenir -- gerçek/gerçekçi
     -- hiçbir proje bu bandı zorlamaz, yalnızca veri girişi hatalarında
     -- doygunlaşır (bkz. denetim bulgusu: eski numeric(7,2) taşıyordu).
-    CASE WHEN proj.contract_amount > 0
+    -- current_contract_value <= 0 (henüz nadir, ama onaylı eksiltmeler
+    -- ana sözleşmeyi sıfıra kadar düşürebilir) durumunda marj güvenle 0
+    -- döner -- sıfıra bölme yoktur.
+    CASE WHEN current_value.total > 0
          THEN GREATEST(-99999999.99, LEAST(99999999.99,
-              round((proj.contract_amount - (expense_total.total + subpay.total)) * 100 / proj.contract_amount, 2)))
+              round((current_value.total - (expense_total.total + subpay.total)) * 100 / current_value.total, 2)))
          ELSE 0 END::numeric(10,2) AS realized_margin_percent,
-    CASE WHEN proj.contract_amount > 0
+    CASE WHEN current_value.total > 0
          THEN GREATEST(-99999999.99, LEAST(99999999.99,
-              round((proj.contract_amount - (expense_total.total + subpay.total + subremaining.total)) * 100 / proj.contract_amount, 2)))
+              round((current_value.total - (expense_total.total + subpay.total + subremaining.total)) * 100 / current_value.total, 2)))
          ELSE 0 END::numeric(10,2) AS estimated_margin_percent
-FROM proj, coll, planned, expense_total, subpay, subcommit, subremaining, inv;
+FROM proj, coll, planned, expense_total, subpay, subcommit, subremaining, inv, co_effect, current_value;
 
 -- ============ Proje Olayları (audit) ============
 

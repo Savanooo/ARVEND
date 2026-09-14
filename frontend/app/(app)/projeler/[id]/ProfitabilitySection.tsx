@@ -18,7 +18,7 @@ export function ProfitabilitySection({ summary }: { summary: FinancialSummary })
         <div className="text-xs font-semibold uppercase tracking-widest text-text-muted">
           Gerçekleşen
         </div>
-        <Line label="Sözleşme bedeli" value={formatMoney(summary.contract_amount, c)} />
+        <Line label="Güncel proje bedeli" value={formatMoney(summary.current_contract_value, c)} />
         <Line label="Masraflar" value={`- ${formatMoney(summary.total_expenses, c)}`} />
         <Line label="Taşerona ödenen" value={`- ${formatMoney(summary.subcontractor_paid, c)}`} />
         <div className="my-1 border-t border-border" />
@@ -69,17 +69,45 @@ const EVENT_LABELS: Record<string, string> = {
   subcontractor_updated: "Taşeron güncellendi",
   subcontractor_payment_added: "Taşerona ödeme yapıldı",
   subcontractor_payment_voided: "Taşeron ödemesi iptal edildi",
+  // Faz 7: operasyon olayları (aynı zaman çizelgesinde finans olaylarıyla birlikte).
+  member_assigned: "Ekibe personel atandı",
+  member_removed: "Personel ekipten çıkarıldı",
+  schedule_created: "Planlama aşaması eklendi",
+  schedule_updated: "Planlama aşaması güncellendi",
+  schedule_completed: "Planlama aşaması tamamlandı",
+  task_created: "Görev oluşturuldu",
+  task_assigned: "Görev atandı",
+  task_completed: "Görev tamamlandı",
+  task_updated: "Görev güncellendi",
+  file_uploaded: "Dosya yüklendi",
+  file_removed: "Dosya silindi",
+  photo_uploaded: "Şantiye fotoğrafı yüklendi",
+  photo_removed: "Şantiye fotoğrafı silindi",
+  note_added: "Not eklendi",
+  // Faz 8: ek iş (değişiklik emri) olayları.
+  change_order_created: "Ek iş oluşturuldu",
+  change_order_updated: "Ek iş güncellendi",
+  change_order_sent: "Ek iş müşteriye gönderildi",
+  change_order_viewed: "Müşteri ek işi görüntüledi",
+  change_order_approved: "Müşteri ek işi onayladı",
+  change_order_rejected: "Müşteri ek işi reddetti",
+  change_order_cancelled: "Ek iş iptal edildi",
+  change_order_superseded: "Ek iş revize edildi",
+  change_order_email_sent: "Ek iş e-postası gönderildi",
+  change_order_email_failed: "Ek iş e-postası gönderilemedi",
 };
 
 function detail(e: ProjectEvent, currency: string): string {
   const m = e.metadata ?? {};
   const parts: string[] = [];
   if (typeof m.name === "string") parts.push(m.name);
+  if (typeof m.title === "string") parts.push(m.title);
   if (typeof m.project_no === "string") parts.push(m.project_no);
   if (typeof m.invoice_no === "string") parts.push(m.invoice_no);
   if (typeof m.amount === "number") parts.push(formatMoney(m.amount, currency));
   if (typeof m.planned_amount === "number") parts.push(formatMoney(m.planned_amount, currency));
   if (typeof m.contract_amount === "number") parts.push(formatMoney(m.contract_amount, currency));
+  if (typeof m.grand_total === "number") parts.push(formatMoney(m.grand_total, currency));
   if (typeof m.from === "string" && typeof m.to === "string") parts.push(`${m.from} → ${m.to}`);
   if (typeof m.status === "string") parts.push(String(m.status));
   if (typeof m.reason === "string" && m.reason) parts.push(String(m.reason));

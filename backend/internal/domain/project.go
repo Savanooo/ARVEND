@@ -92,6 +92,11 @@ type Project struct {
 	SubcontractorRemaining float64
 	InvoiceCount           int64
 	PaidInvoiceCount       int64
+	// ChangeOrderNet, onaylı ek işler/eksiltmelerin işaretli net etkisidir
+	// (ek iş: +, eksiltme: -). "Güncel proje bedeli" = ContractAmount +
+	// ChangeOrderNet -- projects tablosunda TUTULMAZ (bkz. Faz 8, 0027
+	// migration).
+	ChangeOrderNet float64
 	// HasFinanceAggregates, yukarıdaki finans kolonlarının GERÇEKTEN
 	// doldurulduğunu söyler -- yalnızca liste sorgusundan (ListProjects)
 	// gelen satırlarda true'dur. Tekil okuma yollarında (Get/GetByOffer/
@@ -103,12 +108,19 @@ type Project struct {
 	HasFinanceAggregates bool
 }
 
+// CurrentContractValue, ana sözleşme bedeline onaylı ek iş/eksiltmelerin
+// net etkisini ekler. ContractAmount kendisi ASLA değişmez; bu yalnızca
+// bir TÜRETME'dir (Faz 8).
+func (p Project) CurrentContractValue() float64 { return p.ContractAmount + p.ChangeOrderNet }
+
 // RemainingReceivable, bakiyedir; negatif olabilir (fazla tahsilat).
-func (p Project) RemainingReceivable() float64 { return p.ContractAmount - p.CollectedAmount }
+// Faz 8'den beri GÜNCEL proje bedeli (ana sözleşme + onaylı ek işler)
+// üzerinden hesaplanır -- ana sözleşmenin kendisi üzerinden değil.
+func (p Project) RemainingReceivable() float64 { return p.CurrentContractValue() - p.CollectedAmount }
 
 // RealizedCost/RealizedGrossProfit, liste satırı için gerçekleşen
 // maliyet ve kârdır -- özet uçtaki (SQL'de hesaplanan) tanımla birebir
 // aynı formül.
 func (p Project) RealizedCost() float64 { return p.TotalExpenses + p.SubcontractorPaid }
 
-func (p Project) RealizedGrossProfit() float64 { return p.ContractAmount - p.RealizedCost() }
+func (p Project) RealizedGrossProfit() float64 { return p.CurrentContractValue() - p.RealizedCost() }

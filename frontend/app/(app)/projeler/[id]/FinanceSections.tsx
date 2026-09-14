@@ -97,11 +97,17 @@ export function PaymentPlanSection({
   project,
   items,
   plannedTotal,
+  currentContractValue,
   locked,
 }: {
   project: Project;
   items: PaymentPlanItem[];
   plannedTotal: number;
+  // Faz 8: karşılaştırma ana sözleşme (project.contract_amount) yerine
+  // GÜNCEL proje bedeliyle yapılır -- onaylı ek işler mevcut ödeme
+  // planında henüz karşılığı olmayan bir bakiye yaratabilir; bu artık
+  // bir "hata" değil, doğru bir sinyaldir (bkz. spesifikasyon madde 25).
+  currentContractValue: number;
   locked: boolean;
 }) {
   const { busy, error, run } = useFinanceAction(locked);
@@ -194,12 +200,24 @@ export function PaymentPlanSection({
         <span className="text-text-muted">Toplam plan tutarı</span>
         <span className="font-medium">{formatMoney(plannedTotal, project.currency)}</span>
       </div>
-      {Math.abs(plannedTotal - project.contract_amount) >= 0.005 && items.length > 0 && (
-        <p className="text-xs text-text-muted">
-          Plan toplamı sözleşme bedelinden ({formatMoney(project.contract_amount, project.currency)}){" "}
-          farklı — özel plan oluşturulmuş olabilir.
-        </p>
-      )}
+      {(() => {
+        const diff = currentContractValue - plannedTotal;
+        if (Math.abs(diff) < 0.005 || items.length === 0) return null;
+        if (diff > 0) {
+          return (
+            <p className="text-xs text-gold">
+              Ödeme planında {formatMoney(diff, project.currency)} planlanmamış bakiye bulunmaktadır
+              (güncel proje bedeli {formatMoney(currentContractValue, project.currency)}).
+            </p>
+          );
+        }
+        return (
+          <p className="text-xs text-text-muted">
+            Plan toplamı güncel proje bedelinden ({formatMoney(currentContractValue, project.currency)}){" "}
+            farklı — özel plan oluşturulmuş olabilir.
+          </p>
+        );
+      })()}
 
       {locked ? (
         <LockedNote project={project} />

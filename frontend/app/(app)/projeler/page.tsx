@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { Topbar } from "@/components/layout/Topbar";
 import { apiServer } from "@/lib/api";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, formatSignedMoney } from "@/lib/format";
 import { PROJECT_STATUS_LABELS, type Project, type ProjectStatus } from "@/lib/types";
 
 import { ProjectFilters } from "./ProjectFilters";
@@ -89,6 +89,7 @@ export default async function ProjelerPage({
                   <Th>Proje Tipi</Th>
                   <Th>Başlangıç</Th>
                   <Th className="text-right">Proje Bedeli</Th>
+                  <Th className="text-right">Ek İşler</Th>
                   <Th>PB</Th>
                   <Th className="text-right">Tahsil Edilen</Th>
                   <Th className="text-right">Bakiye</Th>
@@ -117,6 +118,9 @@ export default async function ProjelerPage({
                     </Td>
                     <Td className="text-right font-medium">
                       {formatMoney(p.contract_amount, p.currency)}
+                    </Td>
+                    <Td className="text-right text-text-muted">
+                      {p.change_order_net ? formatSignedMoney(p.change_order_net, p.currency) : NO_DATA}
                     </Td>
                     <Td className="text-text-muted">{p.currency}</Td>
                     <Td className="text-right">{formatMoney(p.collected_amount ?? 0, p.currency)}</Td>

@@ -310,7 +310,13 @@ SELECT p.id, p.organization_id, p.project_no, p.name, p.project_type, p.source_o
     COALESCE((SELECT count(*) FROM project_invoices i
               WHERE i.project_id = p.id AND i.invoice_type = 'sales' AND i.status <> 'cancelled'), 0)::bigint AS invoice_count,
     COALESCE((SELECT count(*) FROM project_invoices i
-              WHERE i.project_id = p.id AND i.invoice_type = 'sales' AND i.status = 'paid'), 0)::bigint AS paid_invoice_count
+              WHERE i.project_id = p.id AND i.invoice_type = 'sales' AND i.status = 'paid'), 0)::bigint AS paid_invoice_count,
+    -- Faz 8: onaylı ek işler/eksiltmelerin İŞARETLİ net etkisi
+    -- (contract_amount'a eklenip "güncel proje bedeli"ni türetir; kolon
+    -- olarak TUTULMAZ, bkz. GetProjectFinancialSummary).
+    COALESCE((SELECT sum(CASE WHEN co.change_type = 'addition' THEN co.grand_total ELSE -co.grand_total END)
+              FROM project_change_orders co
+              WHERE co.project_id = p.id AND co.status = 'approved'), 0)::numeric(18,2) AS change_order_net
 FROM projects p
 JOIN offers o ON o.id = p.source_offer_id
 JOIN offer_revisions r ON r.id = p.source_revision_id
@@ -371,6 +377,7 @@ type ListProjectsRow struct {
 	SubcontractorRemaining pgtype.Numeric     `json:"subcontractor_remaining"`
 	InvoiceCount           int64              `json:"invoice_count"`
 	PaidInvoiceCount       int64              `json:"paid_invoice_count"`
+	ChangeOrderNet         pgtype.Numeric     `json:"change_order_net"`
 }
 
 // ListProjects, liste ekranının finans kolonlarını (tahsilat/masraf/
@@ -427,6 +434,7 @@ func (q *Queries) ListProjects(ctx context.Context, arg ListProjectsParams) ([]L
 			&i.SubcontractorRemaining,
 			&i.InvoiceCount,
 			&i.PaidInvoiceCount,
+			&i.ChangeOrderNet,
 		); err != nil {
 			return nil, err
 		}
