@@ -86,11 +86,18 @@ func main() {
 
 	addr := ":" + cfg.Port
 	log.Printf("ARVEND API %s adresinde dinliyor", addr)
+	// Başlık okuma kısa tutulur (slowloris koruması); gövde/yanıt süreleri ise
+	// 25 MiB proje dosyası/fotoğrafının yavaş mobil bağlantıda (~100 KB/s)
+	// kesilmeden yüklenip indirilebilmesi için uzundur. Go'da WriteTimeout,
+	// isteğin başlığı okunduğu anda başlar -- yani upload gövdesinin okunmasını
+	// da kapsar; bu yüzden ReadTimeout ile aynı tutulur.
 	srv := &http.Server{
-		Addr:         addr,
-		Handler:      router,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		Addr:              addr,
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       5 * time.Minute,
+		WriteTimeout:      5 * time.Minute,
+		IdleTimeout:       120 * time.Second,
 	}
 	log.Fatal(srv.ListenAndServe())
 }
