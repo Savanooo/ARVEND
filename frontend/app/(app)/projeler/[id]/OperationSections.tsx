@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Textarea } from "@/components/ui/Textarea";
-import { API_BASE, apiClient, ApiError } from "@/lib/api";
+import { API_BASE, apiClient, ApiError, fetchWithSession } from "@/lib/api";
 import { SCHEDULE_STATUS, TASK_STATUS } from "@/lib/status";
 import {
   FILE_CATEGORY_LABELS,
@@ -499,12 +499,11 @@ function formatSize(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-// Yükleme multipart olduğu için apiClient (JSON) yerine doğrudan fetch;
-// credentials: "include" oturum çerezini taşır.
+// Yükleme multipart olduğu için apiClient (JSON header'ı) yerine
+// fetchWithSession; oturum çerezi ve 401'de yenileme aynı yoldan gelir.
 async function uploadMultipart(path: string, form: FormData) {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetchWithSession(path, {
     method: "POST",
-    credentials: "include",
     body: form,
   });
   const text = await res.text();

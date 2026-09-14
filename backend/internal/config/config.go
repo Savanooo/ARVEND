@@ -4,13 +4,22 @@ package config
 
 import (
 	"os"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	Port          string
+	Port string
+	// ListenAddr, HTTP sunucusunun bağlandığı adres. Üretimde gateway'in
+	// arkasında yalnızca loopback (127.0.0.1:8080) olmalı; LISTEN_ADDR
+	// verilmezse ":"+PORT ile tüm arayüzlerde dinler (yerel geliştirme).
+	ListenAddr string
+	// CORSOrigins, tarayıcıdan cross-origin çağrıya izin verilen origin'ler
+	// (CORS_ORIGINS, virgülle ayrılmış). Aynı-origin gateway arkasında
+	// devreye girmez; yerel geliştirmede :3000 -> :8080 için gerekir.
+	CORSOrigins   []string
 	DatabaseURL   string
 	JWTSecret     string
 	AccessTTL     time.Duration
@@ -37,8 +46,11 @@ func Load() Config {
 	// sessizce geçilir -- bu bir hata değildir.
 	_ = godotenv.Load()
 
+	port := getEnv("PORT", "8080")
 	return Config{
-		Port:                  getEnv("PORT", "8080"),
+		Port:                  port,
+		ListenAddr:            getEnv("LISTEN_ADDR", ":"+port),
+		CORSOrigins:           splitCSV(getEnv("CORS_ORIGINS", "http://localhost:3000")),
 		DatabaseURL:           getEnv("DB_URL", ""),
 		JWTSecret:             getEnv("JWT_SECRET", ""),
 		AccessTTL:             15 * time.Minute,
@@ -59,4 +71,14 @@ func getEnv(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func splitCSV(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

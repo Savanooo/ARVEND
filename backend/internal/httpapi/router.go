@@ -12,6 +12,7 @@ import (
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/httpapi/handler"
 	appmw "github.com/Savanooo/ARVEND/backend/internal/httpapi/middleware"
+	"github.com/Savanooo/ARVEND/backend/internal/platform/httpjson"
 )
 
 type Deps struct {
@@ -46,6 +47,13 @@ func NewRouter(d Deps) http.Handler {
 
 	requireAuth := appmw.RequireAuth(d.JWT)
 	requireAdmin := appmw.RequireRole(domain.RoleAdmin)
+
+	// Kimlik doğrulamasız, bağımlılık kontrolü yapmayan liveness ucu
+	// (systemd/gateway sağlık kontrolü). /api/v1 dışında olduğu için
+	// gateway'in /api/* kuralından geçmez; yalnızca loopback'ten erişilir.
+	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		httpjson.Write(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Route("/auth", func(r chi.Router) {

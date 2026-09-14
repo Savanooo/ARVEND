@@ -79,12 +79,10 @@ func main() {
 		PublicOffer:       handler.NewPublicOfferHandler(offerSvc),
 		PublicChangeOrder: handler.NewPublicChangeOrderHandler(projectSvc),
 		Calc:              handler.NewCalcHandler(calcSvc),
-		CORSOrigins: []string{
-			"http://localhost:3000",
-		},
+		CORSOrigins:       cfg.CORSOrigins,
 	})
 
-	addr := ":" + cfg.Port
+	addr := cfg.ListenAddr
 	log.Printf("ARVEND API %s adresinde dinliyor", addr)
 	// Başlık okuma kısa tutulur (slowloris koruması); gövde/yanıt süreleri ise
 	// 25 MiB proje dosyası/fotoğrafının yavaş mobil bağlantıda (~100 KB/s)
