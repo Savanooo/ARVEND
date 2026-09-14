@@ -60,6 +60,7 @@ func main() {
 	customerSvc := service.NewCustomerService(q)
 	employeeSvc := service.NewEmployeeService(q)
 	attendanceSvc := service.NewAttendanceService(q)
+	calcSvc := service.NewCalcService(q)
 
 	jwtIssuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL)
 	authSvc := service.NewAuthService(q, jwtIssuer, cfg.RefreshTTL)
@@ -77,6 +78,7 @@ func main() {
 		Settings:          handler.NewSettingsHandler(settingsSvc),
 		PublicOffer:       handler.NewPublicOfferHandler(offerSvc),
 		PublicChangeOrder: handler.NewPublicChangeOrderHandler(projectSvc),
+		Calc:              handler.NewCalcHandler(calcSvc),
 		CORSOrigins: []string{
 			"http://localhost:3000",
 		},

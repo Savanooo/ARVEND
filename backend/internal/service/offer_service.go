@@ -92,6 +92,17 @@ type OfferItemInput struct {
 	ProductName string
 	Quantity    float64
 	UnitPrice   float64
+
+	// Unit/SectionLabel/CalcCategoryID/CalcSnapshot: Metraj Hesaplama
+	// entegrasyonundan ("Metraj Hesapla" -> "Teklife Ekle") gelen
+	// kalemler için doldurulur; serbest/elle girilen kalemlerde hepsi
+	// sıfır değerdir. CalcCategoryID verilmişse aynı organizasyona ait
+	// olduğu doğrulanır (bkz. insertRevisionItems) -- doğrulanamazsa
+	// sessizce NULL'a düşürülür (product_id ile AYNI, mevcut ilke).
+	Unit           string
+	SectionLabel   *string
+	CalcCategoryID *string
+	CalcSnapshot   json.RawMessage
 }
 
 type CreateOfferInput struct {
@@ -169,7 +180,9 @@ func resolveCustomerSnapshot(ctx context.Context, txq *sqlc.Queries, orgID pgtyp
 // insertRevisionItems, yeni girilen kalemleri bir revizyona yazar -- her
 // product_id (varsa) aynı organizasyona ait olmadan kabul edilmez (tenant
 // izolasyonu); aksi halde geçersiz UUID'de olduğu gibi sessizce serbest
-// metin satıra düşürülür.
+// metin satıra düşürülür. calc_category_id AYNI ilkeyle doğrulanır --
+// başka bir organizasyonun kategori id'si sessizce NULL'a düşer, calc_snapshot
+// (dondurulmuş sonuç) buna bakılmaksızın olduğu gibi yazılır.
 func insertRevisionItems(ctx context.Context, txq *sqlc.Queries, revisionID, orgID pgtype.UUID, items []computedOfferItem) ([]domain.OfferItem, error) {
 	domainItems := make([]domain.OfferItem, 0, len(items))
 	for i, it := range items {
@@ -181,16 +194,28 @@ func insertRevisionItems(ctx context.Context, txq *sqlc.Queries, revisionID, org
 				}
 			}
 		}
+		var calcCategoryID pgtype.UUID
+		if it.CalcCategoryID != nil {
+			if cid, err := repository.StringToUUID(*it.CalcCategoryID); err == nil {
+				if _, err := txq.GetCalcCategoryByID(ctx, sqlc.GetCalcCategoryByIDParams{ID: cid, OrganizationID: orgID}); err == nil {
+					calcCategoryID = cid
+				}
+			}
+		}
 		itemRow, err := txq.CreateOfferRevisionItem(ctx, sqlc.CreateOfferRevisionItemParams{
-			RevisionID:    revisionID,
-			ProductID:     productID,
-			ProductName:   strings.TrimSpace(it.ProductName),
-			Quantity:      repository.Float64ToNumeric(it.Quantity),
-			UnitPrice:     repository.Float64ToNumeric(it.UnitPrice),
-			DiscountType:  domain.DiscountNone,
-			DiscountValue: repository.Float64ToNumeric(0),
-			LineTotal:     repository.Float64ToNumeric(it.LineTotal),
-			SortOrder:     int32(i),
+			RevisionID:     revisionID,
+			ProductID:      productID,
+			ProductName:    strings.TrimSpace(it.ProductName),
+			Quantity:       repository.Float64ToNumeric(it.Quantity),
+			UnitPrice:      repository.Float64ToNumeric(it.UnitPrice),
+			DiscountType:   domain.DiscountNone,
+			DiscountValue:  repository.Float64ToNumeric(0),
+			LineTotal:      repository.Float64ToNumeric(it.LineTotal),
+			SortOrder:      int32(i),
+			Unit:           strings.TrimSpace(it.Unit),
+			SectionLabel:   it.SectionLabel,
+			CalcCategoryID: calcCategoryID,
+			CalcSnapshot:   []byte(it.CalcSnapshot),
 		})
 		if err != nil {
 			return nil, err
@@ -203,18 +228,26 @@ func insertRevisionItems(ctx context.Context, txq *sqlc.Queries, revisionID, org
 // cloneRevisionItems, "Revize Et" ile önceki revizyonun kalemlerini AYNEN
 // yeni revizyona kopyalar -- product_id tekrar doğrulanmaz (önceki
 // revizyonda zaten doğrulanmıştı, organizasyon değişmez).
+// cloneRevisionItems, "Revize Et" ile önceki revizyonun kalemlerini AYNEN
+// yeni revizyona kopyalar -- calc_category_id/calc_snapshot dahil, TÜM
+// alanlar birebir taşınır (calc_category_id zaten bir önceki revizyonda
+// doğrulanmıştı, tekrar sorgulanmaz -- product_id ile aynı ilke).
 func cloneRevisionItems(ctx context.Context, txq *sqlc.Queries, newRevisionID pgtype.UUID, items []sqlc.OfferRevisionItem) error {
 	for _, it := range items {
 		if _, err := txq.CreateOfferRevisionItem(ctx, sqlc.CreateOfferRevisionItemParams{
-			RevisionID:    newRevisionID,
-			ProductID:     it.ProductID,
-			ProductName:   it.ProductName,
-			Quantity:      it.Quantity,
-			UnitPrice:     it.UnitPrice,
-			DiscountType:  it.DiscountType,
-			DiscountValue: it.DiscountValue,
-			LineTotal:     it.LineTotal,
-			SortOrder:     it.SortOrder,
+			RevisionID:     newRevisionID,
+			ProductID:      it.ProductID,
+			ProductName:    it.ProductName,
+			Quantity:       it.Quantity,
+			UnitPrice:      it.UnitPrice,
+			DiscountType:   it.DiscountType,
+			DiscountValue:  it.DiscountValue,
+			LineTotal:      it.LineTotal,
+			SortOrder:      it.SortOrder,
+			Unit:           it.Unit,
+			SectionLabel:   it.SectionLabel,
+			CalcCategoryID: it.CalcCategoryID,
+			CalcSnapshot:   it.CalcSnapshot,
 		}); err != nil {
 			return err
 		}

@@ -21,6 +21,56 @@ type AttendanceLog struct {
 	OrganizationID pgtype.UUID        `json:"organization_id"`
 }
 
+type CalcCategory struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	GroupID        pgtype.UUID        `json:"group_id"`
+	Slug           string             `json:"slug"`
+	Name           string             `json:"name"`
+	Description    string             `json:"description"`
+	ImageFileID    pgtype.UUID        `json:"image_file_id"`
+	SortOrder      int32              `json:"sort_order"`
+	IsActive       bool               `json:"is_active"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type CalcGroup struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	Slug           string             `json:"slug"`
+	Name           string             `json:"name"`
+	Description    string             `json:"description"`
+	SortOrder      int32              `json:"sort_order"`
+	IsActive       bool               `json:"is_active"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type CalcRecipeItem struct {
+	ID                 pgtype.UUID        `json:"id"`
+	OrganizationID     pgtype.UUID        `json:"organization_id"`
+	CategoryID         pgtype.UUID        `json:"category_id"`
+	ProductID          pgtype.UUID        `json:"product_id"`
+	MaterialName       string             `json:"material_name"`
+	Unit               string             `json:"unit"`
+	CalculationType    string             `json:"calculation_type"`
+	QuantityPerM2      pgtype.Numeric     `json:"quantity_per_m2"`
+	QuantityPerMeter   pgtype.Numeric     `json:"quantity_per_meter"`
+	FixedQuantity      pgtype.Numeric     `json:"fixed_quantity"`
+	WastePercent       pgtype.Numeric     `json:"waste_percent"`
+	RoundingType       string             `json:"rounding_type"`
+	MinQuantity        pgtype.Numeric     `json:"min_quantity"`
+	PackageSize        pgtype.Numeric     `json:"package_size"`
+	ReferenceUnitPrice pgtype.Numeric     `json:"reference_unit_price"`
+	GroupName          string             `json:"group_name"`
+	SortOrder          int32              `json:"sort_order"`
+	IsActive           bool               `json:"is_active"`
+	Notes              *string            `json:"notes"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+}
+
 type ChangeOrderCounter struct {
 	ProjectID pgtype.UUID `json:"project_id"`
 	Seq       int32       `json:"seq"`
@@ -129,16 +179,20 @@ type OfferRevision struct {
 }
 
 type OfferRevisionItem struct {
-	ID            pgtype.UUID    `json:"id"`
-	RevisionID    pgtype.UUID    `json:"revision_id"`
-	ProductID     pgtype.UUID    `json:"product_id"`
-	ProductName   string         `json:"product_name"`
-	Quantity      pgtype.Numeric `json:"quantity"`
-	UnitPrice     pgtype.Numeric `json:"unit_price"`
-	DiscountType  string         `json:"discount_type"`
-	DiscountValue pgtype.Numeric `json:"discount_value"`
-	LineTotal     pgtype.Numeric `json:"line_total"`
-	SortOrder     int32          `json:"sort_order"`
+	ID             pgtype.UUID    `json:"id"`
+	RevisionID     pgtype.UUID    `json:"revision_id"`
+	ProductID      pgtype.UUID    `json:"product_id"`
+	ProductName    string         `json:"product_name"`
+	Quantity       pgtype.Numeric `json:"quantity"`
+	UnitPrice      pgtype.Numeric `json:"unit_price"`
+	DiscountType   string         `json:"discount_type"`
+	DiscountValue  pgtype.Numeric `json:"discount_value"`
+	LineTotal      pgtype.Numeric `json:"line_total"`
+	SortOrder      int32          `json:"sort_order"`
+	Unit           string         `json:"unit"`
+	SectionLabel   *string        `json:"section_label"`
+	CalcCategoryID pgtype.UUID    `json:"calc_category_id"`
+	CalcSnapshot   []byte         `json:"calc_snapshot"`
 }
 
 type OfferShareLink struct {

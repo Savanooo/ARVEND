@@ -202,10 +202,17 @@ func ToDomainOfferRevisionItem(i sqlc.OfferRevisionItem) domain.OfferItem {
 		DiscountValue: NumericToFloat64(i.DiscountValue),
 		LineTotal:     NumericToFloat64(i.LineTotal),
 		SortOrder:     int(i.SortOrder),
+		Unit:          i.Unit,
+		SectionLabel:  i.SectionLabel,
+		CalcSnapshot:  json.RawMessage(i.CalcSnapshot),
 	}
 	if i.ProductID.Valid {
 		s := i.ProductID.String()
 		di.ProductID = &s
+	}
+	if i.CalcCategoryID.Valid {
+		s := i.CalcCategoryID.String()
+		di.CalcCategoryID = &s
 	}
 	return di
 }

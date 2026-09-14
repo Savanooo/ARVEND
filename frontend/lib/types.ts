@@ -36,6 +36,113 @@ export interface OfferItem {
   quantity: number;
   unit_price: number;
   line_total: number;
+  // Metraj Hesaplama entegrasyonu — serbest kalemlerde hepsi boş/null.
+  unit?: string;
+  section_label?: string | null;
+  calc_category_id?: string | null;
+  calc_snapshot?: CalcSnapshot | null;
+}
+
+// --- Metraj Hesaplama ---
+
+export type CalcType = "area_based" | "perimeter_based" | "fixed";
+export type RoundingType = "none" | "ceil" | "round";
+
+export interface CalcGroup {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  sort_order: number;
+  is_active: boolean;
+}
+
+export interface CalcCategory {
+  id: string;
+  group_id: string;
+  group_slug?: string;
+  group_name?: string;
+  slug: string;
+  name: string;
+  description: string;
+  image_file_id?: string | null;
+  sort_order: number;
+  is_active: boolean;
+}
+
+export interface CalcGroupWithCategories {
+  id: string;
+  slug: string;
+  name: string;
+  categories: CalcCategory[];
+}
+
+export interface CalcRecipeItem {
+  id: string;
+  category_id: string;
+  product_id?: string | null;
+  material_name: string;
+  unit: string;
+  calculation_type: CalcType;
+  quantity_per_m2: string;
+  quantity_per_meter: string;
+  fixed_quantity: string;
+  waste_percent: string;
+  rounding_type: RoundingType;
+  min_quantity?: string | null;
+  package_size?: string | null;
+  reference_unit_price: string;
+  group_name: string;
+  sort_order: number;
+  is_active: boolean;
+  notes?: string | null;
+}
+
+// calc_snapshot alanları — hesap ANINDA teklif kalemine dondurulur;
+// motor/reçete sonradan değişse bile bu değerler bir daha güncellenmez.
+export interface CalcSnapshot {
+  area: string;
+  perimeter: string | null;
+  pitch_deg: string | null;
+  recipe_factor: string;
+  waste_percent: string;
+  rounding_type: RoundingType;
+  price_at_calc: string;
+  category_name?: string;
+  group_name?: string;
+}
+
+export interface CalcWarning {
+  item_id?: string;
+  code: string;
+  message: string;
+}
+
+export interface CalcResultItem {
+  recipe_item_id: string;
+  material_name: string;
+  unit: string;
+  quantity: string;
+  product_id: string | null;
+  unit_price: string;
+  line_total: string;
+  group_name: string;
+  calculation_type: CalcType;
+  factor: string;
+  waste_percent: string;
+  rounding_type: RoundingType;
+}
+
+export interface CalcRunResult {
+  category: { id: string; slug: string; name: string };
+  input: {
+    footprint_area: string;
+    effective_area: string;
+    perimeter: string | null;
+  };
+  items: CalcResultItem[];
+  total_cost: string;
+  warnings: CalcWarning[];
 }
 
 export interface Customer {

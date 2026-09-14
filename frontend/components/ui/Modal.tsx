@@ -12,12 +12,16 @@ export function Modal({
   title,
   children,
   footer,
+  widthClassName = "max-w-md",
 }: {
   open: boolean;
   onClose: () => void;
   title?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  // Mevcut tüm kullanım yerleri bunu vermediği için max-w-md korunur;
+  // Metraj Hesapla gibi tablo içeren geniş paneller için override edilir.
+  widthClassName?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
 
@@ -41,7 +45,7 @@ export function Modal({
       onClose={onClose}
       onCancel={onClose}
       onClick={handleBackdropClick}
-      className="w-full max-w-md rounded-lg border border-border bg-surface p-0 text-text shadow-lg backdrop:bg-black/40"
+      className={`w-full ${widthClassName} rounded-lg border border-border bg-surface p-0 text-text shadow-lg backdrop:bg-black/40`}
     >
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
         {title && <h2 className="text-sm font-semibold">{title}</h2>}
@@ -54,7 +58,7 @@ export function Modal({
           <X size={18} strokeWidth={1.75} />
         </button>
       </div>
-      <div className="px-5 py-4 text-sm">{children}</div>
+      <div className="max-h-[75vh] overflow-y-auto px-5 py-4 text-sm">{children}</div>
       {footer && <div className="flex justify-end gap-2 border-t border-border px-5 py-4">{footer}</div>}
     </dialog>
   );

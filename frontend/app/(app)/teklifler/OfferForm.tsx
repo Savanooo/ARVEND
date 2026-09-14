@@ -6,22 +6,38 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { Trash2 } from "lucide-react";
 
+import { MetrajHesaplaPanel, type MetrajOfferItemDraft } from "@/components/calc/MetrajHesaplaPanel";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatTL } from "@/lib/format";
-import type { Customer, Offer, Product } from "@/lib/types";
+import type { CalcSnapshot, Customer, Offer, Product } from "@/lib/types";
 
 interface ItemRow {
   product_id: string | null;
   product_name: string;
   quantity: string;
   unit_price: string;
+  // Metraj Hesaplama entegrasyonu — serbest/elle eklenen satırlarda hepsi
+  // boş/null kalır.
+  unit: string;
+  section_label: string | null;
+  calc_category_id: string | null;
+  calc_snapshot: CalcSnapshot | null;
 }
 
-const emptyRow = (): ItemRow => ({ product_id: null, product_name: "", quantity: "1", unit_price: "0" });
+const emptyRow = (): ItemRow => ({
+  product_id: null,
+  product_name: "",
+  quantity: "1",
+  unit_price: "0",
+  unit: "",
+  section_label: null,
+  calc_category_id: null,
+  calc_snapshot: null,
+});
 
 function offerToRows(offer?: Offer): ItemRow[] {
   if (!offer?.items?.length) return [emptyRow()];
@@ -30,7 +46,24 @@ function offerToRows(offer?: Offer): ItemRow[] {
     product_name: it.product_name,
     quantity: String(it.quantity),
     unit_price: String(it.unit_price),
+    unit: it.unit ?? "",
+    section_label: it.section_label ?? null,
+    calc_category_id: it.calc_category_id ?? null,
+    calc_snapshot: it.calc_snapshot ?? null,
   }));
+}
+
+function draftToRow(draft: MetrajOfferItemDraft): ItemRow {
+  return {
+    product_id: draft.product_id,
+    product_name: draft.product_name,
+    quantity: String(draft.quantity),
+    unit_price: String(draft.unit_price),
+    unit: draft.unit,
+    section_label: draft.section_label,
+    calc_category_id: draft.calc_category_id,
+    calc_snapshot: draft.calc_snapshot,
+  };
 }
 
 // Hem yeni teklif oluşturma hem taslak düzenleme için ortak form --
@@ -55,6 +88,7 @@ export function OfferForm({ offer }: { offer?: Offer }) {
   const [items, setItems] = useState<ItemRow[]>(offerToRows(offer));
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [metrajOpen, setMetrajOpen] = useState(false);
 
   useEffect(() => {
     apiClient<{ products: Product[]; total: number }>("/api/v1/products?limit=2000")
@@ -90,6 +124,17 @@ export function OfferForm({ offer }: { offer?: Offer }) {
 
   function updateItem(index: number, patch: Partial<ItemRow>) {
     setItems((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
+
+  // Metraj Hesapla panelinden gelen satırlar: form hâlâ hiç dokunulmamış
+  // tek bir boş satır taşıyorsa (yeni teklif akışının başlangıç durumu)
+  // o satırın YERİNE geçilir; aksi halde mevcut satırların sonuna eklenir.
+  function handleAddFromMetraj(drafts: MetrajOfferItemDraft[]) {
+    const newRows = drafts.map(draftToRow);
+    setItems((prev) => {
+      const isSinglePristineRow = prev.length === 1 && !prev[0].product_name.trim();
+      return isSinglePristineRow ? newRows : [...prev, ...newRows];
+    });
   }
 
   function handleProductName(index: number, name: string) {
@@ -128,6 +173,10 @@ export function OfferForm({ offer }: { offer?: Offer }) {
             product_name: r.product_name.trim(),
             quantity: parseFloat(r.quantity.replace(",", ".")) || 0,
             unit_price: parseFloat(r.unit_price.replace(",", ".")) || 0,
+            unit: r.unit,
+            section_label: r.section_label,
+            calc_category_id: r.calc_category_id,
+            calc_snapshot: r.calc_snapshot,
           })),
       };
       const saved = isEdit
@@ -219,6 +268,12 @@ export function OfferForm({ offer }: { offer?: Offer }) {
                     onChange={(e) => handleProductName(i, e.target.value)}
                     placeholder="Ürün adı yazın veya seçin"
                   />
+                  {row.calc_snapshot && (
+                    <p className="mt-1 text-xs text-text-muted">
+                      Metraj Hesapla{row.section_label ? ` · ${row.section_label}` : ""}
+                      {row.unit ? ` · ${row.unit}` : ""}
+                    </p>
+                  )}
                 </div>
                 <div className="col-span-2">
                   <Input
@@ -253,16 +308,27 @@ export function OfferForm({ offer }: { offer?: Offer }) {
                 </div>
               </div>
             ))}
-            <Button
-              type="button"
-              variant="secondary"
-              className="w-fit"
-              onClick={() => setItems((prev) => [...prev, emptyRow()])}
-            >
-              + Kalem Ekle
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-fit"
+                onClick={() => setItems((prev) => [...prev, emptyRow()])}
+              >
+                + Kalem Ekle
+              </Button>
+              <Button type="button" variant="secondary" className="w-fit" onClick={() => setMetrajOpen(true)}>
+                Metraj Hesapla
+              </Button>
+            </div>
           </CardBody>
         </Card>
+
+        <MetrajHesaplaPanel
+          open={metrajOpen}
+          onClose={() => setMetrajOpen(false)}
+          onAddItems={handleAddFromMetraj}
+        />
 
         {error && <p className="text-sm text-danger">{error}</p>}
         <Button type="submit" disabled={loading} className="w-fit">

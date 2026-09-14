@@ -27,6 +27,7 @@ type Deps struct {
 	Settings          *handler.SettingsHandler
 	PublicOffer       *handler.PublicOfferHandler
 	PublicChangeOrder *handler.PublicChangeOrderHandler
+	Calc              *handler.CalcHandler
 	CORSOrigins       []string
 }
 
@@ -82,6 +83,28 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/", d.Products.Create)
 				r.Put("/{id}", d.Products.Update)
 				r.Delete("/{id}", d.Products.Delete)
+			})
+		})
+
+		r.Route("/calculations", func(r chi.Router) {
+			r.Use(requireAuth)
+			// Metraj Hesapla paneli teklif oluştururken herkese lazım
+			// (Products ile aynı ilke: katalog/reçete okuma serbest,
+			// reçete katsayılarını düzenlemek admin'e özel).
+			r.Get("/groups", d.Calc.ListGroups)
+			r.Get("/categories", d.Calc.ListCategories)
+			r.Post("/run", d.Calc.Run)
+			r.Get("/recipe-items", d.Calc.ListRecipeItems)
+
+			r.Group(func(r chi.Router) {
+				r.Use(requireAdmin)
+				r.Post("/groups", d.Calc.CreateGroup)
+				r.Put("/groups/{id}", d.Calc.UpdateGroup)
+				r.Post("/categories", d.Calc.CreateCategory)
+				r.Put("/categories/{id}", d.Calc.UpdateCategory)
+				r.Post("/recipe-items", d.Calc.CreateRecipeItem)
+				r.Put("/recipe-items/{id}", d.Calc.UpdateRecipeItem)
+				r.Delete("/recipe-items/{id}", d.Calc.DeleteRecipeItem)
 			})
 		})
 

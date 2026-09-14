@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -29,6 +30,15 @@ type offerItemResponse struct {
 	Quantity    float64 `json:"quantity"`
 	UnitPrice   float64 `json:"unit_price"`
 	LineTotal   float64 `json:"line_total"`
+
+	// Unit/SectionLabel/CalcCategoryID/CalcSnapshot: Metraj Hesaplama
+	// entegrasyonu (Faz M2) -- serbest kalemlerde Unit="" ve diğerleri
+	// null döner. CalcSnapshot ham JSON olarak geçirilir (sunucu
+	// tarafında yorumlanmaz, hesap anındaki dondurulmuş görünümdür).
+	Unit           string          `json:"unit,omitempty"`
+	SectionLabel   *string         `json:"section_label,omitempty"`
+	CalcCategoryID *string         `json:"calc_category_id,omitempty"`
+	CalcSnapshot   json.RawMessage `json:"calc_snapshot,omitempty"`
 }
 
 type offerResponse struct {
@@ -81,12 +91,16 @@ func toOfferResponse(o domain.Offer) offerResponse {
 		resp.Items = make([]offerItemResponse, len(o.Items))
 		for i, it := range o.Items {
 			resp.Items[i] = offerItemResponse{
-				ID:          it.ID,
-				ProductID:   it.ProductID,
-				ProductName: it.ProductName,
-				Quantity:    it.Quantity,
-				UnitPrice:   it.UnitPrice,
-				LineTotal:   it.LineTotal,
+				ID:             it.ID,
+				ProductID:      it.ProductID,
+				ProductName:    it.ProductName,
+				Quantity:       it.Quantity,
+				UnitPrice:      it.UnitPrice,
+				LineTotal:      it.LineTotal,
+				Unit:           it.Unit,
+				SectionLabel:   it.SectionLabel,
+				CalcCategoryID: it.CalcCategoryID,
+				CalcSnapshot:   it.CalcSnapshot,
 			}
 		}
 	}
@@ -125,6 +139,13 @@ type createOfferItemRequest struct {
 	ProductName string  `json:"product_name"`
 	Quantity    float64 `json:"quantity"`
 	UnitPrice   float64 `json:"unit_price"`
+
+	// Metraj Hesaplama entegrasyonu (Faz M2) -- "Teklife Ekle" bu dört
+	// alanı da gönderir; serbest kalemlerde hepsi boş/nil bırakılır.
+	Unit           string          `json:"unit"`
+	SectionLabel   *string         `json:"section_label"`
+	CalcCategoryID *string         `json:"calc_category_id"`
+	CalcSnapshot   json.RawMessage `json:"calc_snapshot"`
 }
 
 type createOfferRequest struct {
@@ -154,10 +175,14 @@ func toOfferItemInputs(items []createOfferItemRequest) []service.OfferItemInput 
 	out := make([]service.OfferItemInput, len(items))
 	for i, it := range items {
 		out[i] = service.OfferItemInput{
-			ProductID:   it.ProductID,
-			ProductName: it.ProductName,
-			Quantity:    it.Quantity,
-			UnitPrice:   it.UnitPrice,
+			ProductID:      it.ProductID,
+			ProductName:    it.ProductName,
+			Quantity:       it.Quantity,
+			UnitPrice:      it.UnitPrice,
+			Unit:           it.Unit,
+			SectionLabel:   it.SectionLabel,
+			CalcCategoryID: it.CalcCategoryID,
+			CalcSnapshot:   it.CalcSnapshot,
 		}
 	}
 	return out
@@ -281,12 +306,16 @@ func toOfferRevisionResponse(r domain.OfferRevision) offerRevisionResponse {
 		resp.Items = make([]offerItemResponse, len(r.Items))
 		for i, it := range r.Items {
 			resp.Items[i] = offerItemResponse{
-				ID:          it.ID,
-				ProductID:   it.ProductID,
-				ProductName: it.ProductName,
-				Quantity:    it.Quantity,
-				UnitPrice:   it.UnitPrice,
-				LineTotal:   it.LineTotal,
+				ID:             it.ID,
+				ProductID:      it.ProductID,
+				ProductName:    it.ProductName,
+				Quantity:       it.Quantity,
+				UnitPrice:      it.UnitPrice,
+				LineTotal:      it.LineTotal,
+				Unit:           it.Unit,
+				SectionLabel:   it.SectionLabel,
+				CalcCategoryID: it.CalcCategoryID,
+				CalcSnapshot:   it.CalcSnapshot,
 			}
 		}
 	}

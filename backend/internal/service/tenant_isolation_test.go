@@ -74,6 +74,12 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM employees WHERE organization_id = $1",
 		"DELETE FROM products WHERE organization_id = $1",
 		"DELETE FROM smtp_settings WHERE organization_id = $1",
+		// calc_recipe_items -> calc_categories -> calc_groups, üçü de
+		// organization_id'ye CASCADE'siz (RESTRICT) FK taşır -- diğer
+		// tablolarla aynı "açıkça sırayla temizle" ilkesi.
+		"DELETE FROM calc_recipe_items WHERE organization_id = $1",
+		"DELETE FROM calc_categories WHERE organization_id = $1",
+		"DELETE FROM calc_groups WHERE organization_id = $1",
 		"DELETE FROM users WHERE organization_id = $1",
 		"DELETE FROM organizations WHERE id = $1",
 	}

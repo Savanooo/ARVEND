@@ -97,23 +97,39 @@ func (q *Queries) CreateOfferRevision(ctx context.Context, arg CreateOfferRevisi
 }
 
 const createOfferRevisionItem = `-- name: CreateOfferRevisionItem :one
-INSERT INTO offer_revision_items (revision_id, product_id, product_name, quantity, unit_price, discount_type, discount_value, line_total, sort_order)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, revision_id, product_id, product_name, quantity, unit_price, discount_type, discount_value, line_total, sort_order
+INSERT INTO offer_revision_items (
+    revision_id, product_id, product_name, quantity, unit_price, discount_type, discount_value,
+    line_total, sort_order, unit, section_label, calc_category_id, calc_snapshot
+)
+VALUES (
+    $1, $2, $3, $4,
+    $5, $6, $7, $8,
+    $9, $10, $11, $12,
+    $13
+)
+RETURNING id, revision_id, product_id, product_name, quantity, unit_price, discount_type, discount_value, line_total, sort_order, unit, section_label, calc_category_id, calc_snapshot
 `
 
 type CreateOfferRevisionItemParams struct {
-	RevisionID    pgtype.UUID    `json:"revision_id"`
-	ProductID     pgtype.UUID    `json:"product_id"`
-	ProductName   string         `json:"product_name"`
-	Quantity      pgtype.Numeric `json:"quantity"`
-	UnitPrice     pgtype.Numeric `json:"unit_price"`
-	DiscountType  string         `json:"discount_type"`
-	DiscountValue pgtype.Numeric `json:"discount_value"`
-	LineTotal     pgtype.Numeric `json:"line_total"`
-	SortOrder     int32          `json:"sort_order"`
+	RevisionID     pgtype.UUID    `json:"revision_id"`
+	ProductID      pgtype.UUID    `json:"product_id"`
+	ProductName    string         `json:"product_name"`
+	Quantity       pgtype.Numeric `json:"quantity"`
+	UnitPrice      pgtype.Numeric `json:"unit_price"`
+	DiscountType   string         `json:"discount_type"`
+	DiscountValue  pgtype.Numeric `json:"discount_value"`
+	LineTotal      pgtype.Numeric `json:"line_total"`
+	SortOrder      int32          `json:"sort_order"`
+	Unit           string         `json:"unit"`
+	SectionLabel   *string        `json:"section_label"`
+	CalcCategoryID pgtype.UUID    `json:"calc_category_id"`
+	CalcSnapshot   []byte         `json:"calc_snapshot"`
 }
 
+// unit/section_label/calc_category_id/calc_snapshot: Metraj Hesaplama
+// entegrasyonu (Faz M2) -- serbest/elle girilen kalemlerde hepsi boş/NULL
+// kalır. calc_snapshot bir kez yazılır, offer_revisions ilkesiyle AYNI
+// şekilde bir daha ASLA güncellenmez (yeni revizyon = yeni satır).
 func (q *Queries) CreateOfferRevisionItem(ctx context.Context, arg CreateOfferRevisionItemParams) (OfferRevisionItem, error) {
 	row := q.db.QueryRow(ctx, createOfferRevisionItem,
 		arg.RevisionID,
@@ -125,6 +141,10 @@ func (q *Queries) CreateOfferRevisionItem(ctx context.Context, arg CreateOfferRe
 		arg.DiscountValue,
 		arg.LineTotal,
 		arg.SortOrder,
+		arg.Unit,
+		arg.SectionLabel,
+		arg.CalcCategoryID,
+		arg.CalcSnapshot,
 	)
 	var i OfferRevisionItem
 	err := row.Scan(
@@ -138,6 +158,10 @@ func (q *Queries) CreateOfferRevisionItem(ctx context.Context, arg CreateOfferRe
 		&i.DiscountValue,
 		&i.LineTotal,
 		&i.SortOrder,
+		&i.Unit,
+		&i.SectionLabel,
+		&i.CalcCategoryID,
+		&i.CalcSnapshot,
 	)
 	return i, err
 }
@@ -202,7 +226,7 @@ func (q *Queries) GetOfferRevisionByID(ctx context.Context, arg GetOfferRevision
 }
 
 const listOfferRevisionItems = `-- name: ListOfferRevisionItems :many
-SELECT id, revision_id, product_id, product_name, quantity, unit_price, discount_type, discount_value, line_total, sort_order FROM offer_revision_items WHERE revision_id = $1 ORDER BY sort_order ASC
+SELECT id, revision_id, product_id, product_name, quantity, unit_price, discount_type, discount_value, line_total, sort_order, unit, section_label, calc_category_id, calc_snapshot FROM offer_revision_items WHERE revision_id = $1 ORDER BY sort_order ASC
 `
 
 func (q *Queries) ListOfferRevisionItems(ctx context.Context, revisionID pgtype.UUID) ([]OfferRevisionItem, error) {
@@ -225,6 +249,10 @@ func (q *Queries) ListOfferRevisionItems(ctx context.Context, revisionID pgtype.
 			&i.DiscountValue,
 			&i.LineTotal,
 			&i.SortOrder,
+			&i.Unit,
+			&i.SectionLabel,
+			&i.CalcCategoryID,
+			&i.CalcSnapshot,
 		); err != nil {
 			return nil, err
 		}

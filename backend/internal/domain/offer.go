@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 const (
 	OfferStatusTaslak      = "taslak"
@@ -36,6 +39,18 @@ type OfferItem struct {
 	DiscountValue float64
 	LineTotal     float64
 	SortOrder     int
+
+	// Unit/SectionLabel/CalcCategoryID/CalcSnapshot: Metraj Hesaplama
+	// entegrasyonu (Faz M2). Serbest/elle girilen kalemlerde Unit boş,
+	// diğerleri nil'dir. CalcSnapshot, hesap ANINDAKİ dondurulmuş
+	// görünümdür (area/perimeter/pitch_deg/factor/waste/rounding/
+	// price_at_calc) -- kategori/reçete sonradan değişse/silinse bile
+	// bu kalem üzerinde HİÇBİR ZAMAN güncellenmez (offer_revisions'ın
+	// "geçmişi mutate etme" ilkesiyle aynı).
+	Unit           string
+	SectionLabel   *string
+	CalcCategoryID *string
+	CalcSnapshot   json.RawMessage
 }
 
 // Offer, teklifin kimliğini ve lifecycle bilgisini taşır -- gerçek içerik

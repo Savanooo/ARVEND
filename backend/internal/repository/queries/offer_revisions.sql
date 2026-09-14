@@ -30,8 +30,20 @@ UPDATE offer_revisions SET status = $3 WHERE id = $1 AND organization_id = $2
 RETURNING *;
 
 -- name: CreateOfferRevisionItem :one
-INSERT INTO offer_revision_items (revision_id, product_id, product_name, quantity, unit_price, discount_type, discount_value, line_total, sort_order)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+-- unit/section_label/calc_category_id/calc_snapshot: Metraj Hesaplama
+-- entegrasyonu (Faz M2) -- serbest/elle girilen kalemlerde hepsi boş/NULL
+-- kalır. calc_snapshot bir kez yazılır, offer_revisions ilkesiyle AYNI
+-- şekilde bir daha ASLA güncellenmez (yeni revizyon = yeni satır).
+INSERT INTO offer_revision_items (
+    revision_id, product_id, product_name, quantity, unit_price, discount_type, discount_value,
+    line_total, sort_order, unit, section_label, calc_category_id, calc_snapshot
+)
+VALUES (
+    sqlc.arg(revision_id), sqlc.arg(product_id), sqlc.arg(product_name), sqlc.arg(quantity),
+    sqlc.arg(unit_price), sqlc.arg(discount_type), sqlc.arg(discount_value), sqlc.arg(line_total),
+    sqlc.arg(sort_order), sqlc.arg(unit), sqlc.narg(section_label), sqlc.narg(calc_category_id),
+    sqlc.narg(calc_snapshot)
+)
 RETURNING *;
 
 -- name: ListOfferRevisionItems :many
