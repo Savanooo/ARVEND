@@ -13,14 +13,25 @@ class OtherMenuScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authControllerProvider).valueOrNull;
+    // RBAC/Project Membership sprint'i: permissions boşsa (nadir, henüz
+    // yüklenmemiş) HİÇBİR öğe izin kontrolüyle gizlenmez -- backend zaten
+    // 403 üretir, burada yalnızca UX'tir (spec: "hide inaccessible nav
+    // items"). owner/admin/legacy_user TÜM izinlere sahip olduğu için bu
+    // kontroller onlar için hiçbir zaman bir şey gizlemez.
+    final noPermissionData = user == null || user.permissions.isEmpty;
+    bool canSee(String code) => noPermissionData || user.hasPermission(code);
+
     return Scaffold(
       appBar: buildAppBar('Diğer'),
       body: ListView(
         padding: kScreenPadding,
         children: [
-          _MenuTile(icon: Icons.straighten_outlined, label: 'Metraj Hesaplama', onTap: () => context.push('/diger/metraj')),
-          _MenuTile(icon: Icons.people_outline, label: 'Müşteriler', onTap: () => context.push('/diger/musteriler')),
-          _MenuTile(icon: Icons.access_time_outlined, label: 'Mesai', onTap: () => context.push('/diger/mesai')),
+          if (canSee('calculations.read'))
+            _MenuTile(icon: Icons.straighten_outlined, label: 'Metraj Hesaplama', onTap: () => context.push('/diger/metraj')),
+          if (canSee('customers.read'))
+            _MenuTile(icon: Icons.people_outline, label: 'Müşteriler', onTap: () => context.push('/diger/musteriler')),
+          if (canSee('attendance.read'))
+            _MenuTile(icon: Icons.access_time_outlined, label: 'Mesai', onTap: () => context.push('/diger/mesai')),
           // Firma Ayarları backend'de requireAdmin arkasındadır (bkz.
           // router.go: /organization/settings/*) -- kullanici rolüne 403
           // ile sonuçlanacak bir ekranı göstermemek için yalnızca admin'e

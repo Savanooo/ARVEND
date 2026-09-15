@@ -35,6 +35,19 @@ class User {
   final bool onboardingCompleted;
   final String onboardingStep;
 
+  /// organizationRoleCode/-Name: RBAC/Project Membership sprint'inin
+  /// ince-taneli organizasyon rolüdür (role'den TAMAMEN AYRI eksen --
+  /// bkz. backend/internal/domain/authorization.go). super_admin'de her
+  /// zaman boştur.
+  final String organizationRoleCode;
+  final String organizationRoleName;
+
+  /// permissions: backend'in /auth/me (login/refresh/me) yanıtında dönen
+  /// TAM izin kodu kümesidir -- yalnızca UX'te menü/bölüm gizlemek İÇİNDİR,
+  /// gerçek güvenlik sınırı HER ZAMAN backend'dedir (her istek ayrıca
+  /// sunucuda doğrulanır). super_admin için boştur.
+  final Set<String> permissions;
+
   const User({
     required this.id,
     this.organizationId,
@@ -45,7 +58,12 @@ class User {
     required this.mustChangePassword,
     required this.onboardingCompleted,
     required this.onboardingStep,
+    this.organizationRoleCode = '',
+    this.organizationRoleName = '',
+    this.permissions = const {},
   });
+
+  bool hasPermission(String code) => permissions.contains(code);
 
   factory User.fromJson(Map<String, dynamic> json) => User(
         id: json['id'] as String,
@@ -57,5 +75,11 @@ class User {
         mustChangePassword: json['must_change_password'] as bool? ?? false,
         onboardingCompleted: json['onboarding_completed'] as bool? ?? true,
         onboardingStep: json['onboarding_step'] as String? ?? 'completed',
+        organizationRoleCode: json['organization_role_code'] as String? ?? '',
+        organizationRoleName: json['organization_role_name'] as String? ?? '',
+        permissions: (json['permissions'] as List<dynamic>?)
+                ?.cast<String>()
+                .toSet() ??
+            const {},
       );
 }

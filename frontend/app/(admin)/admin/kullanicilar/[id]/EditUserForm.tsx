@@ -1,15 +1,27 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { apiClient, ApiError } from "@/lib/api";
-import type { Role, User } from "@/lib/types";
+import type { OrganizationRole, Role, User, UserProjectAssignment } from "@/lib/types";
+import { PROJECT_ROLE_LABELS } from "@/lib/types";
 
-export function EditUserForm({ user }: { user: User }) {
+export function EditUserForm({
+  user,
+  roles,
+  projects,
+}: {
+  user: User;
+  roles: OrganizationRole[];
+  projects: UserProjectAssignment[];
+}) {
   const router = useRouter();
 
   const [fullName, setFullName] = useState(user.full_name);
@@ -18,9 +30,31 @@ export function EditUserForm({ user }: { user: User }) {
   const [savingInfo, setSavingInfo] = useState(false);
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
 
+  const [orgRoleCode, setOrgRoleCode] = useState(user.organization_role_code ?? "");
+  const [savingOrgRole, setSavingOrgRole] = useState(false);
+  const [orgRoleMsg, setOrgRoleMsg] = useState<string | null>(null);
+
   const [newPassword, setNewPassword] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
   const [passwordMsg, setPasswordMsg] = useState<string | null>(null);
+
+  async function handleOrgRoleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSavingOrgRole(true);
+    setOrgRoleMsg(null);
+    try {
+      await apiClient(`/api/v1/users/${user.id}/organization-role`, {
+        method: "PUT",
+        body: JSON.stringify({ role_code: orgRoleCode }),
+      });
+      setOrgRoleMsg("Kaydedildi.");
+      router.refresh();
+    } catch (err) {
+      setOrgRoleMsg(err instanceof ApiError ? err.message : "Bağlantı hatası");
+    } finally {
+      setSavingOrgRole(false);
+    }
+  }
 
   async function handleInfoSubmit(e: FormEvent) {
     e.preventDefault();
@@ -97,6 +131,75 @@ export function EditUserForm({ user }: { user: User }) {
               {savingInfo ? "Kaydediliyor…" : "Kaydet"}
             </Button>
           </form>
+        </CardBody>
+      </Card>
+
+      {/* Organizasyon Rolü — RBAC/Project Membership sprint'inin ince-taneli
+          eksenidir, yukarıdaki "Rol" (admin/kullanici) alanından TAMAMEN
+          AYRIDIR. roles listesi backend'de zaten legacy_user'ı ve
+          super_admin'i HİÇ İÇERMEZ (bkz. ListOrganizationRoles(includeLegacy
+          =false) ve organization_roles'ta super_admin satırının hiç
+          bulunmaması) -- bu seçici o ikisini asla gösteremez. */}
+      <Card>
+        <CardHeader>Organizasyon Rolü</CardHeader>
+        <CardBody>
+          <form onSubmit={handleOrgRoleSubmit} className="flex flex-col gap-4">
+            {/* Mevcut rol, "kullanici (eski sistem)" olabilir -- o kod
+                SEÇİCİDE bilinçli olarak YOKTUR (yeni atama hedefi değil),
+                bu yüzden değeri ayrı bir rozetle HER ZAMAN gösterilir;
+                aksi halde seçici boş görünüp "hiç rolü yok" izlenimi
+                verirdi. */}
+            {user.organization_role_name && (
+              <p className="text-xs text-text-muted">
+                Mevcut rol: <Badge tone="muted">{user.organization_role_name}</Badge>
+              </p>
+            )}
+            <Select
+              label="Yeni Rol"
+              value={orgRoleCode}
+              onChange={(e) => setOrgRoleCode(e.target.value)}
+              required
+            >
+              <option value="">Rol seçin</option>
+              {roles.map((r) => (
+                <option key={r.id} value={r.code}>
+                  {r.name}
+                </option>
+              ))}
+            </Select>
+            <p className="text-xs text-text-muted">
+              Sahip/Yönetici organizasyondaki tüm projeleri görür. Proje Yöneticisi/Finans/Saha
+              yalnızca kendilerine atanan projelere erişir (bkz. proje detayındaki
+              &quot;Proje Erişimi&quot; bölümü).
+            </p>
+            {orgRoleMsg && <p className="text-xs text-text-muted">{orgRoleMsg}</p>}
+            <Button type="submit" disabled={savingOrgRole || !orgRoleCode}>
+              {savingOrgRole ? "Kaydediliyor…" : "Kaydet"}
+            </Button>
+          </form>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>Atandığı Projeler</CardHeader>
+        <CardBody>
+          {projects.length === 0 ? (
+            <p className="text-sm text-text-muted">
+              Bu kullanıcı açıkça hiçbir projeye atanmamış. (Sahip/Yönetici/eski kullanıcı
+              rolündeyse zaten tüm projeleri koşulsuz görür.)
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-1.5 text-sm">
+              {projects.map((p) => (
+                <li key={p.project_id} className="flex items-center justify-between gap-2">
+                  <Link href={`/projeler/${p.project_id}`} className="hover:text-gold hover:underline">
+                    {p.project_no} — {p.project_name}
+                  </Link>
+                  <Badge tone="muted">{PROJECT_ROLE_LABELS[p.project_role]}</Badge>
+                </li>
+              ))}
+            </ul>
+          )}
         </CardBody>
       </Card>
 

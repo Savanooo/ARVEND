@@ -17,6 +17,13 @@ export interface User {
   must_change_password: boolean;
   onboarding_completed: boolean;
   onboarding_step: string;
+  // organization_role_*, RBAC/Project Membership sprint'inin ince-taneli
+  // rolüdür (role'den TAMAMEN AYRI eksen) -- Süper Admin'de her zaman
+  // boştur, önceki bir migration'ın henüz backfill etmediği nadir bir
+  // durumda da boş olabilir.
+  organization_role_code?: string;
+  organization_role_name?: string;
+  permissions?: string[];
 }
 
 export interface ApiErrorBody {
@@ -849,6 +856,78 @@ export interface OnboardingState {
   onboarding_step: OnboardingStep;
   profile: OrganizationProfile;
   commercial: OrganizationCommercialSettings;
+}
+
+// ---------------------------------------------------------------------------
+// RBAC + Proje Erişimi (Sprint 1)
+// ---------------------------------------------------------------------------
+
+// OrgRoleCode, backend'in migration 0034'te seed ettiği 6 sistem rolü --
+// "super_admin" ve "legacy_user" BİLİNÇLİ OLARAK burada bir seçenek
+// DEĞİLDİR (legacy_user backend listesinde zaten hiç dönmez, super_admin
+// organization_roles'ta hiç yoktur) -- web rol seçicisi bu union'ın
+// DIŞINA çıkamaz.
+export type OrgRoleCode = "owner" | "admin" | "project_manager" | "finance" | "field";
+
+export const ORG_ROLE_LABELS: Record<OrgRoleCode, string> = {
+  owner: "Sahip (Owner)",
+  admin: "Yönetici",
+  project_manager: "Proje Yöneticisi",
+  finance: "Finans",
+  field: "Saha",
+};
+
+export interface Permission {
+  code: string;
+  description: string;
+  category: string;
+}
+
+export interface OrganizationRole {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  is_system: boolean;
+  permissions: string[];
+}
+
+export type ProjectRole = "project_manager" | "member" | "viewer";
+
+export const PROJECT_ROLE_LABELS: Record<ProjectRole, string> = {
+  project_manager: "Proje Yöneticisi",
+  member: "Üye",
+  viewer: "Görüntüleyici",
+};
+
+// ProjectAccessUser, GET /projects/{id}/access'ten gelen tek bir satırdır
+// -- mevcut ProjectMember (İK/puantaj roster'ı, employee_id'ye bağlı) İLE
+// KARIŞTIRILMAMALI, bu bir UYGULAMA KULLANICISI erişim kaydıdır.
+export interface ProjectAccessUser {
+  user_id: string;
+  username: string;
+  full_name: string;
+  user_is_active: boolean;
+  project_role: ProjectRole;
+  organization_role_code: string;
+  organization_role_name: string;
+}
+
+// OrgUserOption, "Proje Erişimi" kullanıcı seçicisinin ihtiyaç duyduğu
+// minimum alan kümesidir (User'ın tamamını değil).
+export interface OrgUserOption {
+  id: string;
+  full_name: string;
+  username: string;
+  is_active?: boolean;
+  organization_role_code?: string;
+}
+
+export interface UserProjectAssignment {
+  project_id: string;
+  project_no: string;
+  project_name: string;
+  project_role: ProjectRole;
 }
 
 export interface AuditEvent {

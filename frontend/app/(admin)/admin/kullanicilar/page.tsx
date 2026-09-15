@@ -37,7 +37,7 @@ export default async function KullanicilarPage() {
               <tr>
                 <Th>Ad Soyad</Th>
                 <Th>Kullanıcı Adı</Th>
-                <Th>Rol</Th>
+                <Th>Organizasyon Rolü</Th>
                 <Th>Durum</Th>
                 <Th />
               </tr>
@@ -48,8 +48,13 @@ export default async function KullanicilarPage() {
                   <Td className="font-medium">{u.full_name}</Td>
                   <Td className="text-text-muted">{u.username}</Td>
                   <Td>
-                    <Badge tone={u.role === "admin" ? "gold" : "muted"}>
-                      {u.role === "admin" ? "Yönetici" : "Kullanıcı"}
+                    {/* organization_role_name — RBAC/Project Membership
+                        sprint'inin ince-taneli rolü (owner/admin/project_
+                        manager/finance/field). Boşsa (nadiren, henüz
+                        backfill edilmemiş bir kayıt) eski kaba rol (admin/
+                        kullanici) yedek olarak gösterilir. */}
+                    <Badge tone={u.organization_role_code === "owner" || u.organization_role_code === "admin" ? "gold" : "muted"}>
+                      {u.organization_role_name || (u.role === "admin" ? "Yönetici" : "Kullanıcı")}
                     </Badge>
                   </Td>
                   <Td>

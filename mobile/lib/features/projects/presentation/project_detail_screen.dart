@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../core/auth/auth_controller.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/utils/formatters.dart';
@@ -14,6 +15,26 @@ import '../data/projects_providers.dart';
 import '../domain/project.dart';
 import 'expense_form_sheet.dart';
 
+/// RBAC/Project Membership sprint'i: sekmeler kullanıcının izin kümesine
+/// göre GİZLENİR (spec: "no finance section shown without finance
+/// permission") -- bu YALNIZCA UX'tir, gerçek sınır zaten backend'de (bu
+/// sekme gösterilse bile ilgili uç 403 döner). owner/admin/legacy_user
+/// TÜM izinlere sahip olduğu için onlar için hiçbir sekme gizlenmez.
+class _TabDef {
+  const _TabDef(this.label, this.permission, this.builder);
+  final String label;
+  final String? permission; // null = her zaman görünür.
+  final Widget Function(String projectId, Project project) builder;
+}
+
+final _tabDefs = <_TabDef>[
+  _TabDef('Genel', null, (id, p) => _GeneralTab(project: p)),
+  _TabDef('Finans', 'projects.finance.read', (id, p) => _FinanceTab(projectId: id, project: p)),
+  _TabDef('Operasyon', 'projects.tasks.read', (id, p) => _OperationsTab(projectId: id)),
+  _TabDef('Dosyalar', 'projects.operations.read', (id, p) => _FilesTab(projectId: id)),
+  _TabDef('Aktivite', null, (id, p) => _ActivityTab(projectId: id)),
+];
+
 class ProjectDetailScreen extends ConsumerWidget {
   const ProjectDetailScreen({super.key, required this.projectId});
   final String projectId;
@@ -21,37 +42,32 @@ class ProjectDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final projectAsync = ref.watch(projectDetailProvider(projectId));
+    final user = ref.watch(authControllerProvider).valueOrNull;
+    // super_admin bu ekrana zaten hiç gelmez (mobil kapsamı yok); permissions
+    // boşsa (nadir, henüz yüklenmemiş) TÜM sekmeler gösterilir -- geçici bir
+    // "her şey gizli" yanılsaması yaratmamak için (backend zaten 403 üretir).
+    final visibleTabs = user == null || user.permissions.isEmpty
+        ? _tabDefs
+        : _tabDefs.where((t) => t.permission == null || user.hasPermission(t.permission!)).toList();
 
     return DefaultTabController(
-      length: 5,
+      length: visibleTabs.length,
       child: Scaffold(
         appBar: AppBar(
           title: projectAsync.maybeWhen(
             data: (p) => Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
             orElse: () => const Text('Proje'),
           ),
-          bottom: const TabBar(
+          bottom: TabBar(
             isScrollable: true,
-            tabs: [
-              Tab(text: 'Genel'),
-              Tab(text: 'Finans'),
-              Tab(text: 'Operasyon'),
-              Tab(text: 'Dosyalar'),
-              Tab(text: 'Aktivite'),
-            ],
+            tabs: [for (final t in visibleTabs) Tab(text: t.label)],
           ),
         ),
         body: AsyncStateView(
           value: projectAsync,
           onRetry: () async => ref.invalidate(projectDetailProvider(projectId)),
           data: (context, project) => TabBarView(
-            children: [
-              _GeneralTab(project: project),
-              _FinanceTab(projectId: projectId, project: project),
-              _OperationsTab(projectId: projectId),
-              _FilesTab(projectId: projectId),
-              _ActivityTab(projectId: projectId),
-            ],
+            children: [for (final t in visibleTabs) t.builder(projectId, project)],
           ),
         ),
       ),
