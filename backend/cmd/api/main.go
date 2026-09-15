@@ -61,12 +61,15 @@ func main() {
 	employeeSvc := service.NewEmployeeService(q)
 	attendanceSvc := service.NewAttendanceService(q)
 	calcSvc := service.NewCalcService(q)
+	platformSvc := service.NewPlatformService(pool, q, userSvc, calcSvc, productSvc)
+	onboardingSvc := service.NewOnboardingService(q, secretBox)
 
 	jwtIssuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL)
 	authSvc := service.NewAuthService(q, jwtIssuer, cfg.RefreshTTL)
 
 	router := httpapi.NewRouter(httpapi.Deps{
 		JWT:               jwtIssuer,
+		Queries:           q,
 		Auth:              handler.NewAuthHandler(authSvc, cfg.AccessTTL, cfg.RefreshTTL, cfg.CookieDomain, cfg.CookieSecure),
 		Users:             handler.NewUserHandler(userSvc),
 		Products:          handler.NewProductHandler(productSvc),
@@ -79,6 +82,8 @@ func main() {
 		PublicOffer:       handler.NewPublicOfferHandler(offerSvc),
 		PublicChangeOrder: handler.NewPublicChangeOrderHandler(projectSvc),
 		Calc:              handler.NewCalcHandler(calcSvc),
+		Platform:          handler.NewPlatformHandler(platformSvc),
+		Onboarding:        handler.NewOnboardingHandler(onboardingSvc),
 		CORSOrigins:       cfg.CORSOrigins,
 	})
 

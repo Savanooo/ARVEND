@@ -13,10 +13,12 @@ import (
 	"github.com/Savanooo/ARVEND/backend/internal/httpapi/handler"
 	appmw "github.com/Savanooo/ARVEND/backend/internal/httpapi/middleware"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/httpjson"
+	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
 )
 
 type Deps struct {
 	JWT               *auth.JWTIssuer
+	Queries           *sqlc.Queries
 	Auth              *handler.AuthHandler
 	Users             *handler.UserHandler
 	Products          *handler.ProductHandler
@@ -29,6 +31,8 @@ type Deps struct {
 	PublicOffer       *handler.PublicOfferHandler
 	PublicChangeOrder *handler.PublicChangeOrderHandler
 	Calc              *handler.CalcHandler
+	Platform          *handler.PlatformHandler
+	Onboarding        *handler.OnboardingHandler
 	CORSOrigins       []string
 }
 
@@ -45,8 +49,9 @@ func NewRouter(d Deps) http.Handler {
 		AllowCredentials: true, // httpOnly cookie'lerin cross-origin (frontend :3000 -> backend :8080) taşınabilmesi için
 	}))
 
-	requireAuth := appmw.RequireAuth(d.JWT)
+	requireAuth := appmw.RequireAuth(d.JWT, d.Queries)
 	requireAdmin := appmw.RequireRole(domain.RoleAdmin)
+	requireSuperAdmin := appmw.RequireRole(domain.RoleSuperAdmin)
 
 	// Kimlik doğrulamasız, bağımlılık kontrolü yapmayan liveness ucu
 	// (systemd/gateway sağlık kontrolü). /api/v1 dışında olduğu için
@@ -66,6 +71,11 @@ func NewRouter(d Deps) http.Handler {
 		r.Route("/users", func(r chi.Router) {
 			r.Use(requireAuth)
 			r.Patch("/me/password", d.Users.ChangeOwnPassword)
+			// "Şifre belirle" (must_change_password) akışı -- Super Admin'in
+			// provision ettiği bir Owner'ın ilk girişte YENİ bir şifre
+			// belirlemesi. requireAdmin YOK (her rol kullanabilmeli, mevcut
+			// şifre de istenmez -- kullanıcı zaten oturum açmış durumda).
+			r.Post("/me/set-initial-password", d.Users.SetInitialPassword)
 
 			r.Group(func(r chi.Router) {
 				r.Use(requireAdmin)
@@ -259,6 +269,51 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/smtp", d.Settings.GetSmtp)
 			r.Put("/smtp", d.Settings.UpdateSmtp)
 			r.Post("/smtp/test", d.Settings.TestSmtp)
+		})
+
+		// İlk-giriş onboarding sihirbazı (5 adım) -- server-authoritative,
+		// web/mobil AYNI state'i okur/yazar. requireAdmin: onboarding'i
+		// tamamlayacak olan Super Admin'in provision ettiği Owner'dır.
+		r.Route("/onboarding", func(r chi.Router) {
+			r.Use(requireAuth, requireAdmin)
+			r.Get("/", d.Onboarding.GetState)
+			r.Put("/company", d.Onboarding.SaveCompany)
+			r.Put("/billing", d.Onboarding.SaveBilling)
+			r.Put("/offers", d.Onboarding.SaveOffers)
+			r.Put("/finance", d.Onboarding.SaveFinance)
+			r.Put("/business", d.Onboarding.SaveBusiness)
+		})
+
+		// Onboarding SONRASI "Firma Ayarları" düzenleme -- AYNI handler/
+		// servis metodları (bkz. OnboardingHandler yorumu), farklı path.
+		r.Route("/organization/settings", func(r chi.Router) {
+			r.Use(requireAuth, requireAdmin)
+			r.Get("/", d.Onboarding.GetState)
+			r.Put("/company", d.Onboarding.SaveCompany)
+			r.Put("/billing", d.Onboarding.SaveBilling)
+			r.Put("/offers", d.Onboarding.SaveOffers)
+			r.Put("/finance", d.Onboarding.SaveFinance)
+			r.Put("/business", d.Onboarding.SaveBusiness)
+		})
+
+		// Super Admin platform yönetimi -- organizasyon izolasyonu YOK
+		// (bilinçli), YALNIZCA requireSuperAdmin arkasında. Normal
+		// organizasyon kullanıcıları (admin dahil) bu route'lara HİÇBİR
+		// şekilde erişemez -- requireRole eşitlik kontrolü tek bir rolü
+		// (super_admin) kabul eder, admin'i değil.
+		r.Route("/platform", func(r chi.Router) {
+			r.Use(requireAuth, requireSuperAdmin)
+			r.Get("/plans", d.Platform.ListPlans)
+			r.Route("/organizations", func(r chi.Router) {
+				r.Get("/", d.Platform.ListOrganizations)
+				r.Post("/", d.Platform.CreateOrganization)
+				r.Get("/{id}", d.Platform.GetOrganization)
+				r.Patch("/{id}/status", d.Platform.UpdateOrganizationStatus)
+				r.Patch("/{id}/plan", d.Platform.UpdateOrganizationPlan)
+				r.Get("/{id}/users", d.Platform.ListOrganizationUsers)
+				r.Post("/{id}/reprovision-calc-catalog", d.Platform.ReprovisionCalcCatalog)
+				r.Get("/{id}/audit-events", d.Platform.ListAuditEvents)
+			})
 		})
 
 		// Müşterinin auth gerektirmeden erişebildiği paylaşım linki --

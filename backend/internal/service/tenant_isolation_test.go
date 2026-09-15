@@ -80,6 +80,17 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM calc_recipe_items WHERE organization_id = $1",
 		"DELETE FROM calc_categories WHERE organization_id = $1",
 		"DELETE FROM calc_groups WHERE organization_id = $1",
+		// organization_profile/organization_commercial_settings, organization_id'yi
+		// doğrudan PRIMARY KEY olarak taşır (smtp_settings ile aynı desen) --
+		// CASCADE'siz FK, organizations satırından ÖNCE açıkça silinmeli.
+		"DELETE FROM organization_profile WHERE organization_id = $1",
+		"DELETE FROM organization_commercial_settings WHERE organization_id = $1",
+		// platform_audit_events.target_organization_id ON DELETE SET NULL'dır
+		// (bkz. migration 0033) -- satır kaybolmasın diye organizasyon
+		// silinirken otomatik NULL'a düşer, temizlik için ayrıca silmeye
+		// GEREK YOK (aksi halde bu testin ürettiği audit kayıtları organization_
+		// id=NULL ile sonsuza dek DB'de kalır; platform_service_test.go'daki
+		// cleanupPlatformOrg bunu Super Admin akışları için açıkça siler).
 		"DELETE FROM users WHERE organization_id = $1",
 		"DELETE FROM organizations WHERE id = $1",
 	}

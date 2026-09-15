@@ -23,8 +23,12 @@ func NewAuthService(q *sqlc.Queries, jwt *auth.JWTIssuer, refreshTTL time.Durati
 	return &AuthService{q: q, jwt: jwt, refreshTTL: refreshTTL}
 }
 
+// Organization, User.OrganizationID nil olan (Super Admin) oturumlar için
+// nil'dir -- web/mobil bunu "onboarding/must-change-password kontrolü
+// uygulanamaz" anlamında okur.
 type Session struct {
 	User         domain.User
+	Organization *domain.Organization
 	AccessToken  string
 	RefreshToken string
 }
@@ -47,7 +51,11 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (*Se
 	}
 
 	user := repository.ToDomainUser(row)
-	session, err := s.issueSession(ctx, user)
+	org, err := s.loadOrgForAccess(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	session, err := s.issueSession(ctx, user, org)
 	if err != nil {
 		return nil, err
 	}
@@ -76,18 +84,25 @@ func (s *AuthService) Refresh(ctx context.Context, rawRefreshToken string) (*Ses
 	if !user.IsActive {
 		return nil, domain.ErrInactiveUser
 	}
+	org, err := s.loadOrgForAccess(ctx, user)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := s.q.RevokeRefreshToken(ctx, hash); err != nil {
 		return nil, err
 	}
-	return s.issueSession(ctx, user)
+	return s.issueSession(ctx, user, org)
 }
 
 func (s *AuthService) Logout(ctx context.Context, rawRefreshToken string) error {
 	return s.q.RevokeRefreshToken(ctx, auth.HashRefreshToken(rawRefreshToken))
 }
 
-func (s *AuthService) Me(ctx context.Context, userID string) (*domain.User, error) {
+// Me, /auth/me için mevcut oturumun kullanıcısını VE (varsa) organizasyonunu
+// döner -- web/mobil, her sayfa yüklemesinde must_change_password/onboarding
+// durumunu buradan okur (ayrı bir round-trip yerine).
+func (s *AuthService) Me(ctx context.Context, userID string) (*Session, error) {
 	id, err := repository.StringToUUID(userID)
 	if err != nil {
 		return nil, domain.ErrInvalidToken
@@ -99,12 +114,62 @@ func (s *AuthService) Me(ctx context.Context, userID string) (*domain.User, erro
 		}
 		return nil, err
 	}
-	u := repository.ToDomainUser(row)
-	return &u, nil
+	user := repository.ToDomainUser(row)
+	var org *domain.Organization
+	if user.OrganizationID != nil {
+		orgUUID, err := repository.StringToUUID(*user.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		orgRow, err := s.q.GetOrganizationByID(ctx, orgUUID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, domain.ErrNotFound
+			}
+			return nil, err
+		}
+		o := repository.ToDomainOrganization(orgRow)
+		org = &o
+	}
+	return &Session{User: user, Organization: org}, nil
 }
 
-func (s *AuthService) issueSession(ctx context.Context, user domain.User) (*Session, error) {
-	access, err := s.jwt.IssueAccessToken(user.ID, user.Role, user.OrganizationID)
+// loadOrgForAccess, giriş/refresh anında kullanıcının organizasyonunu yükler
+// ve status'unün erişime izin verip vermediğini kontrol eder (Super Admin'in
+// organization_id'si nil olduğu için bu kontrolden muaftır ve nil, nil
+// döner). Mid-session (zaten geçerli access token'la gelen istekler) için
+// AYNI status kontrolü RequireAuth middleware'inde tekrarlanır -- burada
+// olması yalnızca "askıya alınmış firma yeniden login/refresh olamaz"
+// durumunu erken keser VE dönen Organization, issueSession'ın response'a
+// koyacağı onboarding/plan bilgisini taşır.
+func (s *AuthService) loadOrgForAccess(ctx context.Context, user domain.User) (*domain.Organization, error) {
+	if user.OrganizationID == nil {
+		return nil, nil
+	}
+	orgID, err := repository.StringToUUID(*user.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	row, err := s.q.GetOrganizationByID(ctx, orgID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrOrganizationSuspended
+		}
+		return nil, err
+	}
+	org := repository.ToDomainOrganization(row)
+	if !org.Status.AllowsAccess() {
+		return nil, domain.ErrOrganizationSuspended
+	}
+	return &org, nil
+}
+
+func (s *AuthService) issueSession(ctx context.Context, user domain.User, org *domain.Organization) (*Session, error) {
+	orgID := ""
+	if user.OrganizationID != nil {
+		orgID = *user.OrganizationID
+	}
+	access, err := s.jwt.IssueAccessToken(user.ID, user.Role, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -123,5 +188,5 @@ func (s *AuthService) issueSession(ctx context.Context, user domain.User) (*Sess
 	}); err != nil {
 		return nil, err
 	}
-	return &Session{User: user, AccessToken: access, RefreshToken: rawRefresh}, nil
+	return &Session{User: user, Organization: org, AccessToken: access, RefreshToken: rawRefresh}, nil
 }

@@ -39,27 +39,44 @@ func ToDomainCustomer(c sqlc.Customer) domain.Customer {
 }
 
 func ToDomainOrganization(o sqlc.Organization) domain.Organization {
-	return domain.Organization{
-		ID:        o.ID.String(),
-		Name:      o.Name,
-		Slug:      o.Slug,
-		IsActive:  o.IsActive,
-		CreatedAt: o.CreatedAt.Time,
-		UpdatedAt: o.UpdatedAt.Time,
+	do := domain.Organization{
+		ID:                  o.ID.String(),
+		Name:                o.Name,
+		Slug:                o.Slug,
+		IsActive:            o.IsActive,
+		Status:              domain.OrgStatus(o.Status),
+		PlanCode:            o.PlanCode,
+		OnboardingCompleted: o.OnboardingCompleted,
+		OnboardingStep:      domain.OnboardingStep(o.OnboardingStep),
+		CreatedAt:           o.CreatedAt.Time,
+		UpdatedAt:           o.UpdatedAt.Time,
 	}
+	if o.TrialEndsAt.Valid {
+		t := o.TrialEndsAt.Time
+		do.TrialEndsAt = &t
+	}
+	if o.OnboardingCompletedAt.Valid {
+		t := o.OnboardingCompletedAt.Time
+		do.OnboardingCompletedAt = &t
+	}
+	return do
 }
 
 func ToDomainUser(u sqlc.User) domain.User {
 	du := domain.User{
-		ID:             u.ID.String(),
-		OrganizationID: u.OrganizationID.String(),
-		Username:       u.Username,
-		PasswordHash:   u.PasswordHash,
-		FullName:       u.FullName,
-		Role:           domain.Role(u.Role),
-		IsActive:       u.IsActive,
-		CreatedAt:      u.CreatedAt.Time,
-		UpdatedAt:      u.UpdatedAt.Time,
+		ID:                 u.ID.String(),
+		Username:           u.Username,
+		PasswordHash:       u.PasswordHash,
+		FullName:           u.FullName,
+		Role:               domain.Role(u.Role),
+		IsActive:           u.IsActive,
+		MustChangePassword: u.MustChangePassword,
+		CreatedAt:          u.CreatedAt.Time,
+		UpdatedAt:          u.UpdatedAt.Time,
+	}
+	if u.OrganizationID.Valid {
+		orgID := u.OrganizationID.String()
+		du.OrganizationID = &orgID
 	}
 	if u.LastLoginAt.Valid {
 		t := u.LastLoginAt.Time
@@ -458,6 +475,101 @@ func ToDomainOfferEvent(e sqlc.OfferEvent) domain.OfferEvent {
 	if e.UserID.Valid {
 		s := e.UserID.String()
 		de.UserID = &s
+	}
+	if len(e.Metadata) > 0 {
+		var meta map[string]any
+		if err := json.Unmarshal(e.Metadata, &meta); err == nil {
+			de.Metadata = meta
+		}
+	}
+	return de
+}
+
+func ToDomainPlan(p sqlc.PlatformPlan) domain.Plan {
+	dp := domain.Plan{
+		Code:      p.Code,
+		Name:      p.Name,
+		IsActive:  p.IsActive,
+		SortOrder: int(p.SortOrder),
+		CreatedAt: p.CreatedAt.Time,
+		UpdatedAt: p.UpdatedAt.Time,
+	}
+	if p.MaxUsers != nil {
+		dp.MaxUsers = int(*p.MaxUsers)
+	}
+	if p.MaxProjects != nil {
+		dp.MaxProjects = int(*p.MaxProjects)
+	}
+	return dp
+}
+
+func ToDomainOrganizationProfile(p sqlc.OrganizationProfile) domain.OrganizationProfile {
+	return domain.OrganizationProfile{
+		OrganizationID:   p.OrganizationID.String(),
+		AuthorizedPerson: p.AuthorizedPerson,
+		Phone:            p.Phone,
+		Email:            p.Email,
+		Website:          p.Website,
+		LogoObjectKey:    p.LogoObjectKey,
+		LegalName:        p.LegalName,
+		TaxOffice:        p.TaxOffice,
+		TaxNumber:        p.TaxNumber,
+		InvoiceAddress:   p.InvoiceAddress,
+		City:             p.City,
+		District:         p.District,
+		Country:          p.Country,
+		BusinessType:     p.BusinessType,
+		CreatedAt:        p.CreatedAt.Time,
+		UpdatedAt:        p.UpdatedAt.Time,
+	}
+}
+
+// ToDomainOrganizationCommercialSettings, IBAN'ı ÇÖZMEZ (decrypt) -- bu
+// fazda çözülmüş IBAN'ı okuyan hiçbir akış yok (gerçek e-Fatura/ödeme
+// entegrasyonu kapsam dışı, bkz. final rapor). IBAN her zaman "" döner,
+// IBANSet şifreli alanın dolu olup olmadığını taşır -- SmtpSettings.
+// PasswordSet ile aynı desen. Çözme gerekirse (ileride) SettingsService.
+// GetSmtp'teki gibi servis katmanında box.Decrypt ile yapılmalı.
+func ToDomainOrganizationCommercialSettings(c sqlc.OrganizationCommercialSetting) domain.OrganizationCommercialSettings {
+	dc := domain.OrganizationCommercialSettings{
+		OrganizationID:       c.OrganizationID.String(),
+		DefaultCurrency:      c.DefaultCurrency,
+		DefaultVATRate:       NumericToFloat64(c.DefaultVatRate),
+		OfferPrefix:          c.OfferPrefix,
+		OfferValidityDays:    int(c.OfferValidityDays),
+		DefaultOfferFooter:   c.DefaultOfferFooter,
+		DefaultPaymentTerms:  c.DefaultPaymentTerms,
+		DefaultDeliveryTerms: c.DefaultDeliveryTerms,
+		BankName:             c.BankName,
+		AccountHolder:        c.AccountHolder,
+		IBANSet:              c.IbanEnc != "",
+		CreatedAt:            c.CreatedAt.Time,
+		UpdatedAt:            c.UpdatedAt.Time,
+	}
+	if c.PaymentDueDays != nil {
+		v := int(*c.PaymentDueDays)
+		dc.PaymentDueDays = &v
+	}
+	return dc
+}
+
+func ToDomainAuditEvent(e sqlc.PlatformAuditEvent) domain.AuditEvent {
+	de := domain.AuditEvent{
+		ID:        e.ID.String(),
+		Action:    e.Action,
+		CreatedAt: e.CreatedAt.Time,
+	}
+	if e.ActorUserID.Valid {
+		s := e.ActorUserID.String()
+		de.ActorUserID = &s
+	}
+	if e.TargetOrganizationID.Valid {
+		s := e.TargetOrganizationID.String()
+		de.TargetOrganizationID = &s
+	}
+	if e.TargetUserID.Valid {
+		s := e.TargetUserID.String()
+		de.TargetUserID = &s
 	}
 	if len(e.Metadata) > 0 {
 		var meta map[string]any

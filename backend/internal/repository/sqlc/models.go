@@ -208,12 +208,75 @@ type OfferShareLink struct {
 }
 
 type Organization struct {
-	ID        pgtype.UUID        `json:"id"`
-	Name      string             `json:"name"`
-	Slug      string             `json:"slug"`
-	IsActive  bool               `json:"is_active"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID                    pgtype.UUID        `json:"id"`
+	Name                  string             `json:"name"`
+	Slug                  string             `json:"slug"`
+	IsActive              bool               `json:"is_active"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	Status                string             `json:"status"`
+	TrialEndsAt           pgtype.Timestamptz `json:"trial_ends_at"`
+	OnboardingCompleted   bool               `json:"onboarding_completed"`
+	OnboardingCompletedAt pgtype.Timestamptz `json:"onboarding_completed_at"`
+	OnboardingStep        string             `json:"onboarding_step"`
+	PlanCode              string             `json:"plan_code"`
+}
+
+type OrganizationCommercialSetting struct {
+	OrganizationID       pgtype.UUID        `json:"organization_id"`
+	DefaultCurrency      string             `json:"default_currency"`
+	DefaultVatRate       pgtype.Numeric     `json:"default_vat_rate"`
+	OfferPrefix          string             `json:"offer_prefix"`
+	OfferValidityDays    int32              `json:"offer_validity_days"`
+	DefaultOfferFooter   string             `json:"default_offer_footer"`
+	DefaultPaymentTerms  string             `json:"default_payment_terms"`
+	DefaultDeliveryTerms string             `json:"default_delivery_terms"`
+	BankName             string             `json:"bank_name"`
+	AccountHolder        string             `json:"account_holder"`
+	IbanEnc              string             `json:"iban_enc"`
+	PaymentDueDays       *int32             `json:"payment_due_days"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
+
+type OrganizationProfile struct {
+	OrganizationID   pgtype.UUID        `json:"organization_id"`
+	AuthorizedPerson string             `json:"authorized_person"`
+	Phone            string             `json:"phone"`
+	Email            string             `json:"email"`
+	Website          string             `json:"website"`
+	LogoObjectKey    string             `json:"logo_object_key"`
+	LegalName        string             `json:"legal_name"`
+	TaxOffice        string             `json:"tax_office"`
+	TaxNumber        string             `json:"tax_number"`
+	InvoiceAddress   string             `json:"invoice_address"`
+	City             string             `json:"city"`
+	District         string             `json:"district"`
+	Country          string             `json:"country"`
+	BusinessType     string             `json:"business_type"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+type PlatformAuditEvent struct {
+	ID                   pgtype.UUID        `json:"id"`
+	ActorUserID          pgtype.UUID        `json:"actor_user_id"`
+	Action               string             `json:"action"`
+	TargetOrganizationID pgtype.UUID        `json:"target_organization_id"`
+	TargetUserID         pgtype.UUID        `json:"target_user_id"`
+	Metadata             []byte             `json:"metadata"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+}
+
+type PlatformPlan struct {
+	Code        string             `json:"code"`
+	Name        string             `json:"name"`
+	IsActive    bool               `json:"is_active"`
+	MaxUsers    *int32             `json:"max_users"`
+	MaxProjects *int32             `json:"max_projects"`
+	SortOrder   int32              `json:"sort_order"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Product struct {
@@ -581,14 +644,15 @@ type SmtpSetting struct {
 }
 
 type User struct {
-	ID             pgtype.UUID        `json:"id"`
-	Username       string             `json:"username"`
-	PasswordHash   string             `json:"password_hash"`
-	FullName       string             `json:"full_name"`
-	Role           string             `json:"role"`
-	IsActive       bool               `json:"is_active"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	LastLoginAt    pgtype.Timestamptz `json:"last_login_at"`
-	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ID                 pgtype.UUID        `json:"id"`
+	Username           string             `json:"username"`
+	PasswordHash       string             `json:"password_hash"`
+	FullName           string             `json:"full_name"`
+	Role               string             `json:"role"`
+	IsActive           bool               `json:"is_active"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	LastLoginAt        pgtype.Timestamptz `json:"last_login_at"`
+	OrganizationID     pgtype.UUID        `json:"organization_id"`
+	MustChangePassword bool               `json:"must_change_password"`
 }

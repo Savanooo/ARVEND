@@ -8,6 +8,8 @@ import (
 
 	"github.com/Savanooo/ARVEND/backend/internal/auth"
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
+	"github.com/Savanooo/ARVEND/backend/internal/repository"
+	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
 )
 
 type ctxKey int
@@ -19,11 +21,19 @@ const (
 )
 
 // RequireAuth, "access_token" cookie'sindeki JWT'yi doğrular; geçerliyse
-// kullanıcı kimliği ve rolünü context'e ekler. Yalnızca imza/süre kontrolü
-// yapar -- kullanıcı deaktive edilmişse bu, en geç bir sonraki refresh
-// denemesinde (AuthService.Refresh, is_active kontrolü yapar) düşer; 15
-// dakikalık access token ömrü bu gecikmeyi kabul edilebilir kılıyor.
-func RequireAuth(issuer *auth.JWTIssuer) func(http.Handler) http.Handler {
+// kullanıcı kimliği ve rolünü context'e ekler. İmza/süre kontrolünün ötesinde,
+// organization_id'si dolu olan (Super Admin olmayan) her istekte firmanın
+// status'unü de kontrol eder -- bu, AuthService.Login/Refresh'teki aynı
+// kontrolden FARKLI bir güvenlik sınırıdır: bir firma askıya alındığında,
+// halihazırda geçerli (süresi dolmamış) bir access token'la gelen mid-session
+// istekleri de reddetmek için (spec: "existing active sessions ile suspended
+// tenant'ın erişmeye devam etmesine izin verme"). Kullanıcı deaktive
+// edilmişse (is_active=false) bu, en geç bir sonraki refresh denemesinde
+// (AuthService.Refresh, is_active kontrolü yapar) düşer; 15 dakikalık access
+// token ömrü bu gecikmeyi kabul edilebilir kılıyor -- is_active BURADA
+// kontrol edilmiyor (organization status'ten farklı olarak her istekte bir
+// users satırı okumak istemiyoruz).
+func RequireAuth(issuer *auth.JWTIssuer, q *sqlc.Queries) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cookie, err := r.Cookie("access_token")
@@ -35,6 +45,18 @@ func RequireAuth(issuer *auth.JWTIssuer) func(http.Handler) http.Handler {
 			if err != nil {
 				http.Error(w, `{"error":"oturum geçersiz veya süresi dolmuş"}`, http.StatusUnauthorized)
 				return
+			}
+			if claims.OrganizationID != "" {
+				orgUUID, err := repository.StringToUUID(claims.OrganizationID)
+				if err != nil {
+					http.Error(w, `{"error":"oturum geçersiz veya süresi dolmuş"}`, http.StatusUnauthorized)
+					return
+				}
+				status, err := q.GetOrganizationStatus(r.Context(), orgUUID)
+				if err != nil || !domain.OrgStatus(status).AllowsAccess() {
+					http.Error(w, `{"error":"firma askıya alınmış veya erişilemiyor"}`, http.StatusForbidden)
+					return
+				}
 			}
 			ctx := context.WithValue(r.Context(), ctxUserID, claims.UserID)
 			ctx = context.WithValue(ctx, ctxRole, claims.Role)

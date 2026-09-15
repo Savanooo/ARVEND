@@ -372,7 +372,23 @@ func (s *OfferService) generateOfferNo(ctx context.Context, orgID pgtype.UUID) (
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("TKF-%d-%04d", year, seq), nil
+	prefix, err := s.q.GetOfferPrefix(ctx, orgID)
+	if err != nil {
+		// Satır yok (organization_commercial_settings henüz yapılandırılmamış
+		// -- ör. onboarding'in "Teklif" adımı henüz tamamlanmamış bir
+		// organizasyon) -- "TKF" varsayılanına düş. offer_counters zaten
+		// tamamen org-partitioned olduğu için bu, mevcut TKF-YYYY-NNNN
+		// numaralandırmasını hiçbir şekilde etkilemez (bkz. Arvend Yapı'nın
+		// migration 0032'de açıkça seed edilen offer_prefix='TKF' satırı).
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return "", err
+		}
+		prefix = "TKF"
+	}
+	if prefix == "" {
+		prefix = "TKF"
+	}
+	return fmt.Sprintf("%s-%d-%04d", prefix, year, seq), nil
 }
 
 type OfferListResult struct {

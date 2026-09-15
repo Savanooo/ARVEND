@@ -11,10 +11,77 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const advanceOnboardingStep = `-- name: AdvanceOnboardingStep :one
+UPDATE organizations SET onboarding_step = $2 WHERE id = $1 RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code
+`
+
+type AdvanceOnboardingStepParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OnboardingStep string      `json:"onboarding_step"`
+}
+
+func (q *Queries) AdvanceOnboardingStep(ctx context.Context, arg AdvanceOnboardingStepParams) (Organization, error) {
+	row := q.db.QueryRow(ctx, advanceOnboardingStep, arg.ID, arg.OnboardingStep)
+	var i Organization
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Slug,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Status,
+		&i.TrialEndsAt,
+		&i.OnboardingCompleted,
+		&i.OnboardingCompletedAt,
+		&i.OnboardingStep,
+		&i.PlanCode,
+	)
+	return i, err
+}
+
+const completeOnboarding = `-- name: CompleteOnboarding :one
+UPDATE organizations
+SET onboarding_step = 'completed', onboarding_completed = true, onboarding_completed_at = now()
+WHERE id = $1
+RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code
+`
+
+func (q *Queries) CompleteOnboarding(ctx context.Context, id pgtype.UUID) (Organization, error) {
+	row := q.db.QueryRow(ctx, completeOnboarding, id)
+	var i Organization
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Slug,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Status,
+		&i.TrialEndsAt,
+		&i.OnboardingCompleted,
+		&i.OnboardingCompletedAt,
+		&i.OnboardingStep,
+		&i.PlanCode,
+	)
+	return i, err
+}
+
+const countOrganizationsFiltered = `-- name: CountOrganizationsFiltered :one
+SELECT count(*) FROM organizations WHERE ($1::text = '' OR status = $1::text)
+`
+
+func (q *Queries) CountOrganizationsFiltered(ctx context.Context, dollar_1 string) (int64, error) {
+	row := q.db.QueryRow(ctx, countOrganizationsFiltered, dollar_1)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createOrganization = `-- name: CreateOrganization :one
 INSERT INTO organizations (name, slug)
 VALUES ($1, $2)
-RETURNING id, name, slug, is_active, created_at, updated_at
+RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code
 `
 
 type CreateOrganizationParams struct {
@@ -32,12 +99,61 @@ func (q *Queries) CreateOrganization(ctx context.Context, arg CreateOrganization
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Status,
+		&i.TrialEndsAt,
+		&i.OnboardingCompleted,
+		&i.OnboardingCompletedAt,
+		&i.OnboardingStep,
+		&i.PlanCode,
+	)
+	return i, err
+}
+
+const createOrganizationWithLifecycle = `-- name: CreateOrganizationWithLifecycle :one
+INSERT INTO organizations (name, slug, status, plan_code, trial_ends_at)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code
+`
+
+type CreateOrganizationWithLifecycleParams struct {
+	Name        string             `json:"name"`
+	Slug        string             `json:"slug"`
+	Status      string             `json:"status"`
+	PlanCode    string             `json:"plan_code"`
+	TrialEndsAt pgtype.Timestamptz `json:"trial_ends_at"`
+}
+
+// Super Admin'in yeni firma provisioning'inde kullandığı sürüm --
+// status/plan_code/trial_ends_at'i açıkça set eder (CreateOrganization'ın
+// aksine, o hâlâ mevcut kullanım noktaları için DEFAULT'lara güveniyor).
+func (q *Queries) CreateOrganizationWithLifecycle(ctx context.Context, arg CreateOrganizationWithLifecycleParams) (Organization, error) {
+	row := q.db.QueryRow(ctx, createOrganizationWithLifecycle,
+		arg.Name,
+		arg.Slug,
+		arg.Status,
+		arg.PlanCode,
+		arg.TrialEndsAt,
+	)
+	var i Organization
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Slug,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Status,
+		&i.TrialEndsAt,
+		&i.OnboardingCompleted,
+		&i.OnboardingCompletedAt,
+		&i.OnboardingStep,
+		&i.PlanCode,
 	)
 	return i, err
 }
 
 const getOrganizationByID = `-- name: GetOrganizationByID :one
-SELECT id, name, slug, is_active, created_at, updated_at FROM organizations WHERE id = $1
+SELECT id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code FROM organizations WHERE id = $1
 `
 
 func (q *Queries) GetOrganizationByID(ctx context.Context, id pgtype.UUID) (Organization, error) {
@@ -50,12 +166,18 @@ func (q *Queries) GetOrganizationByID(ctx context.Context, id pgtype.UUID) (Orga
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Status,
+		&i.TrialEndsAt,
+		&i.OnboardingCompleted,
+		&i.OnboardingCompletedAt,
+		&i.OnboardingStep,
+		&i.PlanCode,
 	)
 	return i, err
 }
 
 const getOrganizationBySlug = `-- name: GetOrganizationBySlug :one
-SELECT id, name, slug, is_active, created_at, updated_at FROM organizations WHERE slug = $1
+SELECT id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code FROM organizations WHERE slug = $1
 `
 
 func (q *Queries) GetOrganizationBySlug(ctx context.Context, slug string) (Organization, error) {
@@ -68,12 +190,32 @@ func (q *Queries) GetOrganizationBySlug(ctx context.Context, slug string) (Organ
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Status,
+		&i.TrialEndsAt,
+		&i.OnboardingCompleted,
+		&i.OnboardingCompletedAt,
+		&i.OnboardingStep,
+		&i.PlanCode,
 	)
 	return i, err
 }
 
+const getOrganizationStatus = `-- name: GetOrganizationStatus :one
+SELECT status FROM organizations WHERE id = $1
+`
+
+// RequireAuth middleware'inin her istekte çağırdığı hafif sorgu -- askıya
+// alınmış bir firmanın hâlâ geçerli bir access token'ı olan kullanıcısını
+// da mid-session engelleyebilmek için.
+func (q *Queries) GetOrganizationStatus(ctx context.Context, id pgtype.UUID) (string, error) {
+	row := q.db.QueryRow(ctx, getOrganizationStatus, id)
+	var status string
+	err := row.Scan(&status)
+	return status, err
+}
+
 const listOrganizations = `-- name: ListOrganizations :many
-SELECT id, name, slug, is_active, created_at, updated_at FROM organizations ORDER BY created_at DESC
+SELECT id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code FROM organizations ORDER BY created_at DESC
 `
 
 func (q *Queries) ListOrganizations(ctx context.Context) ([]Organization, error) {
@@ -92,6 +234,12 @@ func (q *Queries) ListOrganizations(ctx context.Context) ([]Organization, error)
 			&i.IsActive,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Status,
+			&i.TrialEndsAt,
+			&i.OnboardingCompleted,
+			&i.OnboardingCompletedAt,
+			&i.OnboardingStep,
+			&i.PlanCode,
 		); err != nil {
 			return nil, err
 		}
@@ -101,4 +249,109 @@ func (q *Queries) ListOrganizations(ctx context.Context) ([]Organization, error)
 		return nil, err
 	}
 	return items, nil
+}
+
+const listOrganizationsPaged = `-- name: ListOrganizationsPaged :many
+SELECT id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code FROM organizations
+WHERE ($1::text = '' OR status = $1::text)
+ORDER BY created_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListOrganizationsPagedParams struct {
+	Column1 string `json:"column_1"`
+	Limit   int32  `json:"limit"`
+	Offset  int32  `json:"offset"`
+}
+
+func (q *Queries) ListOrganizationsPaged(ctx context.Context, arg ListOrganizationsPagedParams) ([]Organization, error) {
+	rows, err := q.db.Query(ctx, listOrganizationsPaged, arg.Column1, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Organization
+	for rows.Next() {
+		var i Organization
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Slug,
+			&i.IsActive,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Status,
+			&i.TrialEndsAt,
+			&i.OnboardingCompleted,
+			&i.OnboardingCompletedAt,
+			&i.OnboardingStep,
+			&i.PlanCode,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateOrganizationPlan = `-- name: UpdateOrganizationPlan :one
+UPDATE organizations SET plan_code = $2 WHERE id = $1 RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code
+`
+
+type UpdateOrganizationPlanParams struct {
+	ID       pgtype.UUID `json:"id"`
+	PlanCode string      `json:"plan_code"`
+}
+
+func (q *Queries) UpdateOrganizationPlan(ctx context.Context, arg UpdateOrganizationPlanParams) (Organization, error) {
+	row := q.db.QueryRow(ctx, updateOrganizationPlan, arg.ID, arg.PlanCode)
+	var i Organization
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Slug,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Status,
+		&i.TrialEndsAt,
+		&i.OnboardingCompleted,
+		&i.OnboardingCompletedAt,
+		&i.OnboardingStep,
+		&i.PlanCode,
+	)
+	return i, err
+}
+
+const updateOrganizationStatus = `-- name: UpdateOrganizationStatus :one
+UPDATE organizations SET status = $2, is_active = $3 WHERE id = $1 RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code
+`
+
+type UpdateOrganizationStatusParams struct {
+	ID       pgtype.UUID `json:"id"`
+	Status   string      `json:"status"`
+	IsActive bool        `json:"is_active"`
+}
+
+func (q *Queries) UpdateOrganizationStatus(ctx context.Context, arg UpdateOrganizationStatusParams) (Organization, error) {
+	row := q.db.QueryRow(ctx, updateOrganizationStatus, arg.ID, arg.Status, arg.IsActive)
+	var i Organization
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Slug,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Status,
+		&i.TrialEndsAt,
+		&i.OnboardingCompleted,
+		&i.OnboardingCompletedAt,
+		&i.OnboardingStep,
+		&i.PlanCode,
+	)
+	return i, err
 }

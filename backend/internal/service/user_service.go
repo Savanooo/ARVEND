@@ -171,6 +171,40 @@ func (s *UserService) AdminResetPassword(ctx context.Context, id, organizationID
 	return s.setPassword(ctx, uid, organizationID, newPassword)
 }
 
+// SetInitialPassword, Super Admin'in provision ettiği bir Owner'ın (veya
+// başka bir must_change_password=true kullanıcının) ilk girişte YENİ bir
+// şifre belirlemesi içindir -- ChangeOwnPassword'ün aksine mevcut şifreyi
+// DOĞRULAMAZ (kullanıcı zaten geçici şifreyle kimlik doğrulamış durumda,
+// bu uç yalnızca requireAuth arkasındadır). must_change_password bayrağını
+// AYNI sorguda temizler (bkz. SetPasswordAndClearMustChange).
+func (s *UserService) SetInitialPassword(ctx context.Context, id, organizationID, newPassword string) error {
+	uid, err := repository.StringToUUID(id)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	if len(newPassword) < 8 {
+		return errors.New("yeni şifre en az 8 karakter olmalı")
+	}
+	hash, err := auth.HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	rows, err := s.q.SetPasswordAndClearMustChange(ctx, sqlc.SetPasswordAndClearMustChangeParams{
+		ID: uid, OrganizationID: orgID, PasswordHash: hash,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func (s *UserService) setPassword(ctx context.Context, uid pgtype.UUID, organizationID, newPassword string) error {
 	orgID, err := repository.StringToUUID(organizationID)
 	if err != nil {

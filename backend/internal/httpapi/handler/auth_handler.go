@@ -29,21 +29,56 @@ type loginRequest struct {
 }
 
 type userResponse struct {
-	ID       string      `json:"id"`
-	Username string      `json:"username"`
-	FullName string      `json:"full_name"`
-	Role     domain.Role `json:"role"`
-	IsActive bool        `json:"is_active"`
+	ID             string      `json:"id"`
+	OrganizationID *string     `json:"organization_id"`
+	Username       string      `json:"username"`
+	FullName       string      `json:"full_name"`
+	Role           domain.Role `json:"role"`
+	IsActive       bool        `json:"is_active"`
+	// OrganizationName, web/mobil'in sidebar/topbar'da HARDCODED "Arvend
+	// Yapı" göstermek yerine gerçek firma adını göstermesi içindir --
+	// birden fazla organizasyon var olduğu andan (bu faz) itibaren tek-
+	// kiracılı varsayım artık YANLIŞ. Super Admin oturumlarında (organizasyonu
+	// yok) boş string döner.
+	OrganizationName   string `json:"organization_name"`
+	MustChangePassword bool   `json:"must_change_password"`
+	// OnboardingCompleted/OnboardingStep, Super Admin oturumlarında
+	// (Organization nil) her zaman true/"completed" döner -- onboarding
+	// platform seviyesi hesaplara uygulanmaz, web/mobil route guard'ları bu
+	// varsayılanla sorgusuz çalışır.
+	OnboardingCompleted bool   `json:"onboarding_completed"`
+	OnboardingStep      string `json:"onboarding_step"`
 }
 
+// toUserResponse, organizasyon (onboarding) bağlamı olmayan çağrı
+// noktaları içindir (ör. UserHandler'ın org-içi kullanıcı CRUD'u) --
+// onboarding alanları bu bağlamda anlamsız olduğu için sabit "tamamlanmış"
+// değerine düşer (ekstra bir organizasyon sorgusu gerektirmez).
 func toUserResponse(u domain.User) userResponse {
 	return userResponse{
-		ID:       u.ID,
-		Username: u.Username,
-		FullName: u.FullName,
-		Role:     u.Role,
-		IsActive: u.IsActive,
+		ID:                  u.ID,
+		OrganizationID:      u.OrganizationID,
+		Username:            u.Username,
+		FullName:            u.FullName,
+		Role:                u.Role,
+		IsActive:            u.IsActive,
+		MustChangePassword:  u.MustChangePassword,
+		OnboardingCompleted: true,
+		OnboardingStep:      string(domain.OnboardingStepCompleted),
 	}
+}
+
+// toSessionResponse, giriş/refresh/me akışları içindir -- kullanıcının
+// GERÇEK organizasyon onboarding durumunu taşır (web/mobil route guard'ları
+// buna göre yönlendirir).
+func toSessionResponse(session service.Session) userResponse {
+	resp := toUserResponse(session.User)
+	if session.Organization != nil {
+		resp.OrganizationName = session.Organization.Name
+		resp.OnboardingCompleted = session.Organization.OnboardingCompleted
+		resp.OnboardingStep = string(session.Organization.OnboardingStep)
+	}
+	return resp
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +93,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.setSessionCookies(w, session.AccessToken, session.RefreshToken)
-	httpjson.Write(w, http.StatusOK, toUserResponse(session.User))
+	httpjson.Write(w, http.StatusOK, toSessionResponse(*session))
 }
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +109,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.setSessionCookies(w, session.AccessToken, session.RefreshToken)
-	httpjson.Write(w, http.StatusOK, toUserResponse(session.User))
+	httpjson.Write(w, http.StatusOK, toSessionResponse(*session))
 }
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
@@ -91,12 +126,12 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusUnauthorized, "oturum bulunamadı")
 		return
 	}
-	user, err := h.svc.Me(r.Context(), userID)
+	session, err := h.svc.Me(r.Context(), userID)
 	if err != nil {
 		httpjson.Error(w, http.StatusUnauthorized, "oturum geçersiz")
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toUserResponse(*user))
+	httpjson.Write(w, http.StatusOK, toSessionResponse(*session))
 }
 
 func (h *AuthHandler) writeAuthError(w http.ResponseWriter, err error) {
@@ -105,6 +140,8 @@ func (h *AuthHandler) writeAuthError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusUnauthorized, "kullanıcı adı veya şifre hatalı")
 	case errors.Is(err, domain.ErrInactiveUser):
 		httpjson.Error(w, http.StatusForbidden, "kullanıcı pasif durumda")
+	case errors.Is(err, domain.ErrOrganizationSuspended):
+		httpjson.Error(w, http.StatusForbidden, "firma askıya alınmış veya erişilemiyor")
 	case errors.Is(err, domain.ErrInvalidToken):
 		httpjson.Error(w, http.StatusUnauthorized, "oturum geçersiz veya süresi dolmuş")
 	default:

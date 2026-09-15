@@ -36,7 +36,7 @@ func (q *Queries) CountUsers(ctx context.Context, organizationID pgtype.UUID) (i
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (organization_id, username, password_hash, full_name, role)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id
+RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password
 `
 
 type CreateUserParams struct {
@@ -67,6 +67,52 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.UpdatedAt,
 		&i.LastLoginAt,
 		&i.OrganizationID,
+		&i.MustChangePassword,
+	)
+	return i, err
+}
+
+const createUserWithOptions = `-- name: CreateUserWithOptions :one
+INSERT INTO users (organization_id, username, password_hash, full_name, role, must_change_password)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password
+`
+
+type CreateUserWithOptionsParams struct {
+	OrganizationID     pgtype.UUID `json:"organization_id"`
+	Username           string      `json:"username"`
+	PasswordHash       string      `json:"password_hash"`
+	FullName           string      `json:"full_name"`
+	Role               string      `json:"role"`
+	MustChangePassword bool        `json:"must_change_password"`
+}
+
+// Platform seviyesi kullanıcı oluşturma (Super Admin CLI: organization_id
+// NULL, role='super_admin') VE Super Admin'in yeni firma için provision
+// ettiği ilk Owner (organization_id dolu, must_change_password=true) --
+// CreateUser'ın aksine her iki alan da parametreli.
+func (q *Queries) CreateUserWithOptions(ctx context.Context, arg CreateUserWithOptionsParams) (User, error) {
+	row := q.db.QueryRow(ctx, createUserWithOptions,
+		arg.OrganizationID,
+		arg.Username,
+		arg.PasswordHash,
+		arg.FullName,
+		arg.Role,
+		arg.MustChangePassword,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.FullName,
+		&i.Role,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastLoginAt,
+		&i.OrganizationID,
+		&i.MustChangePassword,
 	)
 	return i, err
 }
@@ -89,7 +135,7 @@ func (q *Queries) DeactivateUser(ctx context.Context, arg DeactivateUserParams) 
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id FROM users WHERE id = $1
+SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error) {
@@ -106,12 +152,13 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 		&i.UpdatedAt,
 		&i.LastLoginAt,
 		&i.OrganizationID,
+		&i.MustChangePassword,
 	)
 	return i, err
 }
 
 const getUserByIDInOrg = `-- name: GetUserByIDInOrg :one
-SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id FROM users WHERE id = $1 AND organization_id = $2
+SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password FROM users WHERE id = $1 AND organization_id = $2
 `
 
 type GetUserByIDInOrgParams struct {
@@ -133,12 +180,13 @@ func (q *Queries) GetUserByIDInOrg(ctx context.Context, arg GetUserByIDInOrgPara
 		&i.UpdatedAt,
 		&i.LastLoginAt,
 		&i.OrganizationID,
+		&i.MustChangePassword,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id FROM users WHERE username = $1
+SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password FROM users WHERE username = $1
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
@@ -155,12 +203,13 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.UpdatedAt,
 		&i.LastLoginAt,
 		&i.OrganizationID,
+		&i.MustChangePassword,
 	)
 	return i, err
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id FROM users
+SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password FROM users
 WHERE organization_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -192,6 +241,7 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 			&i.UpdatedAt,
 			&i.LastLoginAt,
 			&i.OrganizationID,
+			&i.MustChangePassword,
 		); err != nil {
 			return nil, err
 		}
@@ -201,6 +251,27 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 		return nil, err
 	}
 	return items, nil
+}
+
+const setPasswordAndClearMustChange = `-- name: SetPasswordAndClearMustChange :execrows
+UPDATE users SET password_hash = $3, must_change_password = false
+WHERE id = $1 AND organization_id = $2
+`
+
+type SetPasswordAndClearMustChangeParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	PasswordHash   string      `json:"password_hash"`
+}
+
+// İlk giriş "şifre belirle" akışı: parolayı değiştirir VE
+// must_change_password bayrağını temizler, tek sorguda.
+func (q *Queries) SetPasswordAndClearMustChange(ctx context.Context, arg SetPasswordAndClearMustChangeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setPasswordAndClearMustChange, arg.ID, arg.OrganizationID, arg.PasswordHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const touchLastLogin = `-- name: TouchLastLogin :exec
@@ -216,7 +287,7 @@ const updateUser = `-- name: UpdateUser :one
 UPDATE users
 SET full_name = $3, role = $4, is_active = $5
 WHERE id = $1 AND organization_id = $2
-RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id
+RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password
 `
 
 type UpdateUserParams struct {
@@ -247,6 +318,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.UpdatedAt,
 		&i.LastLoginAt,
 		&i.OrganizationID,
+		&i.MustChangePassword,
 	)
 	return i, err
 }

@@ -123,6 +123,33 @@ func (h *UserHandler) ChangeOwnPassword(w http.ResponseWriter, r *http.Request) 
 	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+type setInitialPasswordRequest struct {
+	NewPassword string `json:"new_password"`
+}
+
+// SetInitialPassword, "şifre belirle" (must_change_password) akışıdır --
+// mevcut şifre istemez (kullanıcı zaten oturum açmış durumda), yalnızca
+// requireAuth arkasındadır (requireAdmin YOK -- her rol kendi ilk şifresini
+// belirleyebilmeli).
+func (h *UserHandler) SetInitialPassword(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		httpjson.Error(w, http.StatusUnauthorized, "oturum bulunamadı")
+		return
+	}
+	var req setInitialPasswordRequest
+	if err := httpjson.Decode(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	if err := h.svc.SetInitialPassword(r.Context(), userID, orgID, req.NewPassword); err != nil {
+		h.writeUserError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 type resetPasswordRequest struct {
 	NewPassword string `json:"new_password"`
 }
