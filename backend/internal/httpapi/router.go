@@ -52,6 +52,11 @@ func NewRouter(d Deps) http.Handler {
 	requireAuth := appmw.RequireAuth(d.JWT, d.Queries)
 	requireAdmin := appmw.RequireRole(domain.RoleAdmin)
 	requireSuperAdmin := appmw.RequireRole(domain.RoleSuperAdmin)
+	// "Business" uçlarına (offers/projects/customers/products/calculations/
+	// employees/attendance/settings/kullanıcı yönetimi) eklenir -- auth/me,
+	// logout, refresh, set-initial-password, onboarding/*, organization/
+	// settings/* ve platform/* BİLİNÇLİ OLARAK almaz (bkz. require_onboarded.go).
+	requireOnboarded := appmw.RequireOnboarded(d.Queries)
 
 	// Kimlik doğrulamasız, bağımlılık kontrolü yapmayan liveness ucu
 	// (systemd/gateway sağlık kontrolü). /api/v1 dışında olduğu için
@@ -70,26 +75,31 @@ func NewRouter(d Deps) http.Handler {
 
 		r.Route("/users", func(r chi.Router) {
 			r.Use(requireAuth)
-			r.Patch("/me/password", d.Users.ChangeOwnPassword)
 			// "Şifre belirle" (must_change_password) akışı -- Super Admin'in
 			// provision ettiği bir Owner'ın ilk girişte YENİ bir şifre
-			// belirlemesi. requireAdmin YOK (her rol kullanabilmeli, mevcut
-			// şifre de istenmez -- kullanıcı zaten oturum açmış durumda).
+			// belirlemesi. requireAdmin VE requireOnboarded YOK -- bu
+			// kullanıcının onboarding gate'inden ÇIKMASINI sağlayan tek uç,
+			// gate'in kendisi burayı kilitleyemez.
 			r.Post("/me/set-initial-password", d.Users.SetInitialPassword)
 
 			r.Group(func(r chi.Router) {
-				r.Use(requireAdmin)
-				r.Get("/", d.Users.List)
-				r.Post("/", d.Users.Create)
-				r.Get("/{id}", d.Users.Get)
-				r.Put("/{id}", d.Users.Update)
-				r.Patch("/{id}/password", d.Users.AdminResetPassword)
-				r.Delete("/{id}", d.Users.Deactivate)
+				r.Use(requireOnboarded)
+				r.Patch("/me/password", d.Users.ChangeOwnPassword)
+
+				r.Group(func(r chi.Router) {
+					r.Use(requireAdmin)
+					r.Get("/", d.Users.List)
+					r.Post("/", d.Users.Create)
+					r.Get("/{id}", d.Users.Get)
+					r.Put("/{id}", d.Users.Update)
+					r.Patch("/{id}/password", d.Users.AdminResetPassword)
+					r.Delete("/{id}", d.Users.Deactivate)
+				})
 			})
 		})
 
 		r.Route("/products", func(r chi.Router) {
-			r.Use(requireAuth)
+			r.Use(requireAuth, requireOnboarded)
 			// Katalog herkes icin okunabilir (teklif olustururken herkes
 			// urun secebilmeli); yazma admin'e ozel.
 			r.Get("/", d.Products.List)
@@ -105,7 +115,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/calculations", func(r chi.Router) {
-			r.Use(requireAuth)
+			r.Use(requireAuth, requireOnboarded)
 			// Metraj Hesapla paneli teklif oluştururken herkese lazım
 			// (Products ile aynı ilke: katalog/reçete okuma serbest,
 			// reçete katsayılarını düzenlemek admin'e özel).
@@ -127,7 +137,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/offers", func(r chi.Router) {
-			r.Use(requireAuth)
+			r.Use(requireAuth, requireOnboarded)
 			// Teklif oluşturma/görme gerçek işte sıradan personel işidir --
 			// Users/Products'ın aksine admin şartı YOK.
 			r.Get("/", d.Offers.List)
@@ -153,7 +163,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/projects", func(r chi.Router) {
-			r.Use(requireAuth)
+			r.Use(requireAuth, requireOnboarded)
 			// Projeler de teklifler gibi sıradan personel işidir -- admin
 			// şartı YOK (ileride project.* izinleriyle inceltilecek).
 			r.Get("/", d.Projects.List)
@@ -229,7 +239,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/customers", func(r chi.Router) {
-			r.Use(requireAuth)
+			r.Use(requireAuth, requireOnboarded)
 			// Teklif oluşturan herkes müşteri seçebilmeli/ekleyebilmeli --
 			// Ürünler'in aksine (kontrollü katalog), müşteri kartı canlı bir
 			// CRM listesi gibi, admin şartı YOK.
@@ -241,7 +251,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/employees", func(r chi.Router) {
-			r.Use(requireAuth)
+			r.Use(requireAuth, requireOnboarded)
 			// Personel listesi mesai girişinde herkese lazım; hassas
 			// yönetim (ekleme/düzenleme/pasifleştirme) admin'e özel.
 			r.Get("/", d.Employees.List)
@@ -256,7 +266,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/attendance", func(r chi.Router) {
-			r.Use(requireAuth)
+			r.Use(requireAuth, requireOnboarded)
 			// Mesai girişi BYZ'de sıradan iş -- admin şartı YOK.
 			r.Get("/", d.Attendance.ListByMonth)
 			r.Post("/", d.Attendance.Create)
@@ -265,7 +275,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/settings", func(r chi.Router) {
-			r.Use(requireAuth, requireAdmin)
+			r.Use(requireAuth, requireOnboarded, requireAdmin)
 			r.Get("/smtp", d.Settings.GetSmtp)
 			r.Put("/smtp", d.Settings.UpdateSmtp)
 			r.Post("/smtp/test", d.Settings.TestSmtp)

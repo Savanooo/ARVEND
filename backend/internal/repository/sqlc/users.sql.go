@@ -134,6 +134,31 @@ func (q *Queries) DeactivateUser(ctx context.Context, arg DeactivateUserParams) 
 	return result.RowsAffected(), nil
 }
 
+const getOnboardingGateStatus = `-- name: GetOnboardingGateStatus :one
+SELECT u.must_change_password, o.onboarding_completed
+FROM users u
+JOIN organizations o ON o.id = u.organization_id
+WHERE u.id = $1
+`
+
+type GetOnboardingGateStatusRow struct {
+	MustChangePassword  bool `json:"must_change_password"`
+	OnboardingCompleted bool `json:"onboarding_completed"`
+}
+
+// middleware.RequireOnboarded'ın her "business" istekte çağırdığı hafif
+// sorgu -- must_change_password (users) VE onboarding_completed
+// (organizations) TEK JOIN'le, iki ayrı PK üzerinden (hızlı). Yalnızca
+// organization_id dolu (super_admin olmayan) kullanıcılar için çağrılır --
+// super_admin bu JOIN'e hiç girmeden, rol kontrolüyle daha önce muaf
+// tutulur.
+func (q *Queries) GetOnboardingGateStatus(ctx context.Context, id pgtype.UUID) (GetOnboardingGateStatusRow, error) {
+	row := q.db.QueryRow(ctx, getOnboardingGateStatus, id)
+	var i GetOnboardingGateStatusRow
+	err := row.Scan(&i.MustChangePassword, &i.OnboardingCompleted)
+	return i, err
+}
+
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password FROM users WHERE id = $1
 `

@@ -53,3 +53,15 @@ RETURNING *;
 -- must_change_password bayrağını temizler, tek sorguda.
 UPDATE users SET password_hash = $3, must_change_password = false
 WHERE id = $1 AND organization_id = $2;
+
+-- name: GetOnboardingGateStatus :one
+-- middleware.RequireOnboarded'ın her "business" istekte çağırdığı hafif
+-- sorgu -- must_change_password (users) VE onboarding_completed
+-- (organizations) TEK JOIN'le, iki ayrı PK üzerinden (hızlı). Yalnızca
+-- organization_id dolu (super_admin olmayan) kullanıcılar için çağrılır --
+-- super_admin bu JOIN'e hiç girmeden, rol kontrolüyle daha önce muaf
+-- tutulur.
+SELECT u.must_change_password, o.onboarding_completed
+FROM users u
+JOIN organizations o ON o.id = u.organization_id
+WHERE u.id = $1;
