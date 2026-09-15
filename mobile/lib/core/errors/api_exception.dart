@@ -1,0 +1,71 @@
+/// Backend HER hata durumunda `{"error": "mesaj"}` gövdesi döner (bkz.
+/// internal/platform/httpjson.Error ve middleware'lerdeki http.Error
+/// çağrıları) - Content-Type bazen text/plain olsa da gövde her zaman bu
+/// şekildedir; bkz. mobile/API_CONTRACT.md.
+class ApiException implements Exception {
+  final int? statusCode;
+  final String message;
+  final ApiErrorKind kind;
+
+  const ApiException({
+    required this.statusCode,
+    required this.message,
+    required this.kind,
+  });
+
+  bool get isAuthError => kind == ApiErrorKind.unauthorized;
+  bool get isForbidden => kind == ApiErrorKind.forbidden;
+
+  @override
+  String toString() => message;
+}
+
+enum ApiErrorKind {
+  badRequest,
+  unauthorized,
+  forbidden,
+  notFound,
+  conflict,
+  validation,
+  server,
+  network,
+  timeout,
+  unknown,
+}
+
+/// HTTP status -> Türkçe kullanıcı mesajı ve hata sınıfı.
+/// `serverMessage`, backend'in gerçek `error` alanıdır - varsa ONA öncelik
+/// verilir (backend zaten Türkçe, kullanıcıya en doğru bilgiyi o verir);
+/// yoksa generic Türkçe mesaja düşülür.
+ApiException mapHttpError(int? statusCode, String? serverMessage) {
+  final kind = switch (statusCode) {
+    400 => ApiErrorKind.badRequest,
+    401 => ApiErrorKind.unauthorized,
+    403 => ApiErrorKind.forbidden,
+    404 => ApiErrorKind.notFound,
+    409 => ApiErrorKind.conflict,
+    422 => ApiErrorKind.validation,
+    null => ApiErrorKind.network,
+    _ when statusCode >= 500 => ApiErrorKind.server,
+    _ => ApiErrorKind.unknown,
+  };
+
+  final fallback = switch (kind) {
+    ApiErrorKind.badRequest => 'Geçersiz istek. Girdiğiniz bilgileri kontrol edin.',
+    ApiErrorKind.unauthorized => 'Oturumunuz sona erdi. Lütfen tekrar giriş yapın.',
+    ApiErrorKind.forbidden => 'Bu işlem için yetkiniz yok.',
+    ApiErrorKind.notFound => 'Kayıt bulunamadı.',
+    ApiErrorKind.conflict => 'Bu işlem mevcut bir kayıtla çakışıyor.',
+    ApiErrorKind.validation => 'Girdiğiniz bilgiler geçersiz.',
+    ApiErrorKind.server => 'Sunucuda beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.',
+    ApiErrorKind.network => 'Bağlantı kurulamadı. İnternet bağlantınızı kontrol edin.',
+    ApiErrorKind.timeout => 'İstek zaman aşımına uğradı. Lütfen tekrar deneyin.',
+    ApiErrorKind.unknown => 'Beklenmeyen bir hata oluştu.',
+  };
+
+  return ApiException(
+    statusCode: statusCode,
+    message: (serverMessage != null && serverMessage.trim().isNotEmpty) ? serverMessage : fallback,
+    kind: kind,
+  );
+}

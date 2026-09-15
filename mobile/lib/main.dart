@@ -1,0 +1,33 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/date_symbol_data_local.dart';
+
+import 'app/app.dart';
+import 'core/api/api_client.dart';
+import 'core/api/api_providers.dart';
+import 'core/auth/auth_controller.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting('tr_TR');
+
+  final apiClient = await ApiClient.create();
+
+  final container = ProviderContainer(
+    overrides: [apiClientProvider.overrideWithValue(apiClient)],
+  );
+
+  // Tek uçuş refresh başarısız olduğunda (401/403) oturumu senkron biçimde
+  // temizle - go_router'ın redirect'i authControllerProvider'ı dinlediği
+  // için kullanıcı otomatik olarak /giris'e döner.
+  apiClient.onSessionExpired = () {
+    container.read(authControllerProvider.notifier).sessionExpired();
+  };
+
+  runApp(
+    UncontrolledProviderScope(
+      container: container,
+      child: const ArvendApp(),
+    ),
+  );
+}

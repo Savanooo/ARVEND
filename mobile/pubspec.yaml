@@ -1,0 +1,59 @@
+name: arvend
+description: "ARVEND Yapı - saha ekibi için proje/teklif/metraj mobil uygulaması."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.6.1
+
+  # Navigasyon
+  go_router: ^16.2.4
+
+  # Network
+  dio: ^5.9.0
+  cookie_jar: ^4.0.8
+  dio_cookie_manager: ^3.2.0
+
+  # Oturum dışı hassas değerler için (bkz. core/auth) - refresh/access token
+  # zaten HttpOnly cookie olarak backend'de kalır, burada JS/Dart tarafına
+  # çıkarılan bir token YOK; bu yalnızca cookie jar'ın disk kalıcılığı için.
+  path_provider: ^2.1.5
+
+  # Türkçe tarih/sayı formatlama
+  intl: ^0.20.2
+
+  # Dosya/fotoğraf
+  image_picker: ^1.2.0
+  file_picker: ^10.3.4
+  cached_network_image: ^3.4.1
+
+  # Basit local tercih (aktif sekme vb.) - hassas veri İÇİN DEĞİL
+  shared_preferences: ^2.5.5
+
+  # Müşteri detayında tel:/mailto: aksiyonları için (bkz. customer_detail_screen.dart)
+  url_launcher: ^6.3.1
+
+  # ApiClient.test factory'sindeki @visibleForTesting için (transitive olarak
+  # zaten mevcut, doğrudan bağımlılık olarak da bildiriliyor).
+  meta: ^1.16.0
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  mocktail: ^1.0.4
+
+flutter:
+  uses-material-design: true

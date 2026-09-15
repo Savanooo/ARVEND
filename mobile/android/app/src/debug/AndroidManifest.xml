@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Yalnızca debug build type'ta birleştirilir (release manifest'i ETKİLEMEZ).
+         Lokal geliştirme sırasında Android emulator'ün host makineye erişim
+         adresi olan 10.0.2.2 gibi HTTP hedeflere (dart-define ile verilen
+         API_BASE_URL) bağlanabilmek için; ana manifest'teki
+         android:usesCleartextTraffic="false" release'de aynen korunur. -->
+    <application android:usesCleartextTraffic="true" tools:replace="android:usesCleartextTraffic"/>
+</manifest>

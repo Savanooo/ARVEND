@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Kısa, sade açılış ekranı: koyu charcoal zemin + ARVEND monogramı.
+     Flutter ilk frame'i çizer çizmez otomatik kalkar. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/ic_launcher_background"/>
+    <item>
+        <bitmap
+            android:gravity="center"
+            android:src="@mipmap/ic_launcher_foreground"/>
+    </item>
+</layer-list>
