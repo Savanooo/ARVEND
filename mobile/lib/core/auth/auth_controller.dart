@@ -41,6 +41,18 @@ class AuthController extends AsyncNotifier<User?> {
   void sessionExpired() {
     state = const AsyncData(null);
   }
+
+  /// setInitialPassword/onboarding adımları User döndürmez (yalnızca
+  /// `{ok:true}` ya da onboarding state) -- bu yüzden bu akışlar
+  /// tamamlandığında elde tutulan User'ı (mustChangePassword/
+  /// onboardingCompleted alanları güncel olsun diye) GET /auth/me ile
+  /// tazeler. Oturum bu sırada geçersiz kalmışsa (401->refresh başarısız)
+  /// state zaten sessionExpired() ile null'a düşer, burada ayrıca ele
+  /// almaya gerek yok.
+  Future<void> refresh() async {
+    final user = await ref.read(authRepositoryProvider).me();
+    if (user != null) state = AsyncData(user);
+  }
 }
 
 final authControllerProvider = AsyncNotifierProvider<AuthController, User?>(

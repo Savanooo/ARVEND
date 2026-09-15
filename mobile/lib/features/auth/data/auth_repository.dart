@@ -39,4 +39,13 @@ class AuthRepository {
         '/users/me/password',
         data: {'current_password': currentPassword, 'new_password': newPassword},
       );
+
+  /// "Şifre belirle" (must_change_password) akışı -- mevcut şifreyi
+  /// İSTEMEZ (changePassword'ün aksine): kullanıcı Super Admin'in verdiği
+  /// geçici şifreyle zaten oturum açmış durumda, yalnızca requireAuth
+  /// arkasındadır.
+  Future<void> setInitialPassword(String newPassword) => _client.post<void>(
+        '/users/me/set-initial-password',
+        data: {'new_password': newPassword},
+      );
 }

@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/app_shell.dart';
+import '../../../core/auth/auth_controller.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../auth/domain/user.dart';
 
-class OtherMenuScreen extends StatelessWidget {
+class OtherMenuScreen extends ConsumerWidget {
   const OtherMenuScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(authControllerProvider).valueOrNull;
     return Scaffold(
       appBar: buildAppBar('Diğer'),
       body: ListView(
@@ -17,6 +21,17 @@ class OtherMenuScreen extends StatelessWidget {
           _MenuTile(icon: Icons.straighten_outlined, label: 'Metraj Hesaplama', onTap: () => context.push('/diger/metraj')),
           _MenuTile(icon: Icons.people_outline, label: 'Müşteriler', onTap: () => context.push('/diger/musteriler')),
           _MenuTile(icon: Icons.access_time_outlined, label: 'Mesai', onTap: () => context.push('/diger/mesai')),
+          // Firma Ayarları backend'de requireAdmin arkasındadır (bkz.
+          // router.go: /organization/settings/*) -- kullanici rolüne 403
+          // ile sonuçlanacak bir ekranı göstermemek için yalnızca admin'e
+          // gösterilir (Super Admin mobilde bu ekranı kullanmaz, bkz.
+          // MOBILE_BACKEND_GAPS.md - platform yönetimi web'e özeldir).
+          if (user?.role == UserRole.admin)
+            _MenuTile(
+              icon: Icons.apartment_outlined,
+              label: 'Firma Ayarları',
+              onTap: () => context.push('/diger/firma-ayarlari'),
+            ),
           _MenuTile(icon: Icons.person_outline, label: 'Profil', onTap: () => context.push('/diger/profil')),
         ],
       ),
