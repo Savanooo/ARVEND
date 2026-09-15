@@ -15,13 +15,19 @@ INSERT INTO project_change_orders (
 RETURNING *;
 
 -- name: GetChangeOrderByID :one
-SELECT * FROM project_change_orders WHERE id = $1 AND organization_id = $2;
+-- project_id EKLENDİ (bkz. project_operations.sql GetProjectMember notu --
+-- IDOR denetim bulgusu: loadChangeOrderRoute eskiden yalnızca org_id ile
+-- okuyup pid'yi KAYITTAN türetiyordu; URL'deki proje id'si hiç
+-- doğrulanmıyordu. Artık URL'nin proje id'si de eşleşmezse kayıt
+-- döndürülmez.)
+SELECT * FROM project_change_orders WHERE id = $1 AND organization_id = $2 AND project_id = $3;
 
 -- GetChangeOrderForUpdate, satırı KİLİT ALTINDA okur -- her durum
 -- geçişinde (send/revise/cancel/respond) proje kilidinden SONRA alınır,
 -- aynı sırayla, deadlock oluşmaması için (bkz. requireOpenProject).
+-- project_id EKLENDİ (bkz. GetChangeOrderByID notu).
 -- name: GetChangeOrderForUpdate :one
-SELECT * FROM project_change_orders WHERE id = $1 AND organization_id = $2 FOR UPDATE;
+SELECT * FROM project_change_orders WHERE id = $1 AND organization_id = $2 AND project_id = $3 FOR UPDATE;
 
 -- ListChangeOrders, her kaydın taşeron/masraf kayıtlarından GERÇEKLEŞEN
 -- ve TAAHHÜT maliyetini de (change_order_id ile etiketlenmiş kayıtlardan)
@@ -57,7 +63,13 @@ WHERE co.project_id = $1 AND co.organization_id = $2
 ORDER BY co.sequence_no ASC;
 
 -- name: ListChangeOrderItems :many
-SELECT * FROM project_change_order_items WHERE change_order_id = $1 ORDER BY sort_order ASC;
+-- organization_id + project_id EKLENDİ: change_order_id tek başına hiçbir
+-- kiracı/proje sınırı taşımıyordu (savunma derinliği -- bu sorgu çağıran
+-- taraflarda zaten doğrulanmış bir change_order_id ile kullanılıyor, ama
+-- tablo zaten bu sütunları taşıdığı için ekstra maliyetsiz bir katman).
+SELECT * FROM project_change_order_items
+WHERE change_order_id = $1 AND organization_id = $2 AND project_id = $3
+ORDER BY sort_order ASC;
 
 -- name: CreateChangeOrderItem :one
 -- line_total, quantity*unit_price'tan SQL'DE (Go float64 aritmetiği
@@ -77,13 +89,16 @@ INSERT INTO project_change_order_items (
 RETURNING *;
 
 -- name: DeleteChangeOrderItems :exec
-DELETE FROM project_change_order_items WHERE change_order_id = $1;
+-- organization_id + project_id EKLENDİ (bkz. ListChangeOrderItems notu).
+DELETE FROM project_change_order_items
+WHERE change_order_id = $1 AND organization_id = $2 AND project_id = $3;
 
 -- RecomputeChangeOrderTotals, kalemlerin GERÇEK toplamını (subtotal) ve
 -- ondan türetilen vat_amount/grand_total'ı TEK bir atomik UPDATE'te
 -- yeniden hesaplar. Her kalem ekleme/değiştirme/silme sonrasında
 -- çağrılır; toplamlar HİÇBİR ZAMAN Go tarafında toplanmaz.
 -- name: RecomputeChangeOrderTotals :one
+-- project_id EKLENDİ (bkz. GetChangeOrderByID notu -- savunma derinliği).
 UPDATE project_change_orders co
 SET subtotal = sub.total,
     vat_amount = round(sub.total * co.vat_rate / 100, 2),
@@ -92,29 +107,32 @@ FROM (
     SELECT COALESCE(sum(line_total), 0)::numeric(18,2) AS total
     FROM project_change_order_items WHERE change_order_id = $1
 ) sub
-WHERE co.id = $1 AND co.organization_id = $2
+WHERE co.id = $1 AND co.organization_id = $2 AND co.project_id = $3
 RETURNING co.*;
 
 -- name: UpdateChangeOrderDraft :one
 -- Yalnızca DRAFT durumdaki kayıt düzenlenebilir -- WHERE koşulundaki
 -- status='draft' servis katmanındaki kontrolün üzerine bir savunma
 -- katmanıdır (offer_revisions'daki UpdateOfferRevision ile aynı ilke).
+-- project_id EKLENDİ (bkz. GetChangeOrderByID notu).
 UPDATE project_change_orders
 SET change_type = $3, title = $4, description = $5, vat_rate = $6,
     customer_notes = $7, internal_notes = $8
-WHERE id = $1 AND organization_id = $2 AND status = 'draft'
+WHERE id = $1 AND organization_id = $2 AND status = 'draft' AND project_id = $9
 RETURNING *;
 
 -- name: SendChangeOrder :one
+-- project_id EKLENDİ (bkz. GetChangeOrderByID notu).
 UPDATE project_change_orders
 SET status = 'sent', sent_at = now()
-WHERE id = $1 AND organization_id = $2 AND status = 'draft'
+WHERE id = $1 AND organization_id = $2 AND status = 'draft' AND project_id = $3
 RETURNING *;
 
 -- name: CancelChangeOrder :one
+-- project_id EKLENDİ (bkz. GetChangeOrderByID notu).
 UPDATE project_change_orders
 SET status = 'cancelled', cancelled_at = now()
-WHERE id = $1 AND organization_id = $2 AND status IN ('draft', 'sent')
+WHERE id = $1 AND organization_id = $2 AND status IN ('draft', 'sent') AND project_id = $3
 RETURNING *;
 
 -- decision, 'approved' ya da 'rejected' olmalıdır (servis katmanında
@@ -130,9 +148,10 @@ WHERE id = $1 AND organization_id = $2 AND status = 'sent'
 RETURNING *;
 
 -- name: SupersedeChangeOrder :one
+-- project_id EKLENDİ (bkz. GetChangeOrderByID notu).
 UPDATE project_change_orders
 SET status = 'superseded'
-WHERE id = $1 AND organization_id = $2 AND status IN ('sent', 'rejected')
+WHERE id = $1 AND organization_id = $2 AND status IN ('sent', 'rejected') AND project_id = $3
 RETURNING *;
 
 -- GetChangeOrderEffectTotals, bir projenin ONAYLI ve BEKLEYEN ek iş/

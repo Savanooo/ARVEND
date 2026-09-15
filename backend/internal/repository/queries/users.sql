@@ -54,6 +54,24 @@ RETURNING *;
 UPDATE users SET password_hash = $3, must_change_password = false
 WHERE id = $1 AND organization_id = $2;
 
+-- name: ListUsersWithOrganizationRole :many
+-- "Kullanıcılar" ekranının RBAC/Project Membership sprint'iyle
+-- genişletilmiş listesi -- her kullanıcının organizasyon rol kodu/adı da
+-- AYNI sorguda (N+1 yok). super_admin bu listede HİÇ görünmez zaten
+-- (organization_id filtresiyle doğal olarak dışarıda kalır).
+SELECT u.*, orole.code AS organization_role_code, orole.name AS organization_role_name
+FROM users u
+LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
+WHERE u.organization_id = $1
+ORDER BY u.created_at DESC
+LIMIT $2 OFFSET $3;
+
+-- name: GetUserWithOrganizationRole :one
+SELECT u.*, orole.code AS organization_role_code, orole.name AS organization_role_name
+FROM users u
+LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
+WHERE u.id = $1 AND u.organization_id = $2;
+
 -- name: GetOnboardingGateStatus :one
 -- middleware.RequireOnboarded'ın her "business" istekte çağırdığı hafif
 -- sorgu -- must_change_password (users) VE onboarding_completed

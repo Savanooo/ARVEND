@@ -258,6 +258,24 @@ type OrganizationProfile struct {
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
+type OrganizationRole struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	Code           string             `json:"code"`
+	Name           string             `json:"name"`
+	Description    string             `json:"description"`
+	IsSystem       bool               `json:"is_system"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type Permission struct {
+	Code        string             `json:"code"`
+	Description string             `json:"description"`
+	Category    string             `json:"category"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type PlatformAuditEvent struct {
 	ID                   pgtype.UUID        `json:"id"`
 	ActorUserID          pgtype.UUID        `json:"actor_user_id"`
@@ -622,6 +640,16 @@ type ProjectTask struct {
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ProjectUser struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	ProjectRole    string             `json:"project_role"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+}
+
 type RefreshToken struct {
 	ID        pgtype.UUID        `json:"id"`
 	UserID    pgtype.UUID        `json:"user_id"`
@@ -629,6 +657,11 @@ type RefreshToken struct {
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type RolePermission struct {
+	OrganizationRoleID pgtype.UUID `json:"organization_role_id"`
+	PermissionCode     string      `json:"permission_code"`
 }
 
 type SmtpSetting struct {
@@ -655,4 +688,5 @@ type User struct {
 	LastLoginAt        pgtype.Timestamptz `json:"last_login_at"`
 	OrganizationID     pgtype.UUID        `json:"organization_id"`
 	MustChangePassword bool               `json:"must_change_password"`
+	OrganizationRoleID pgtype.UUID        `json:"organization_role_id"`
 }

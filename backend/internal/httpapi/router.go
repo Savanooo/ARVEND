@@ -14,6 +14,7 @@ import (
 	appmw "github.com/Savanooo/ARVEND/backend/internal/httpapi/middleware"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/httpjson"
 	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
+	"github.com/Savanooo/ARVEND/backend/internal/service"
 )
 
 type Deps struct {
@@ -33,6 +34,8 @@ type Deps struct {
 	Calc              *handler.CalcHandler
 	Platform          *handler.PlatformHandler
 	Onboarding        *handler.OnboardingHandler
+	Authorization     *handler.AuthorizationHandler
+	AuthorizationSvc  *service.AuthorizationService
 	CORSOrigins       []string
 }
 
@@ -57,6 +60,16 @@ func NewRouter(d Deps) http.Handler {
 	// logout, refresh, set-initial-password, onboarding/*, organization/
 	// settings/* ve platform/* BİLİNÇLİ OLARAK almaz (bkz. require_onboarded.go).
 	requireOnboarded := appmw.RequireOnboarded(d.Queries)
+	// RBAC/Project Membership sprint'i: loadAuthorization, requireOnboarded'dan
+	// SONRA -- ve HER permission/projectPermission kontrolünden ÖNCE --
+	// zincirlenmeli. Rol/izin bilgisini istek başına BİR KEZ yükler; perm/
+	// projPerm çağrıları onu okur, tekrar sorgu atmaz (bkz.
+	// middleware/require_permission.go).
+	loadAuthorization := appmw.LoadAuthorization(d.AuthorizationSvc)
+	perm := func(code string) func(http.Handler) http.Handler { return appmw.RequirePermission(code) }
+	projPerm := func(code string) func(http.Handler) http.Handler {
+		return appmw.RequireProjectPermission(d.AuthorizationSvc, code)
+	}
 
 	// Kimlik doğrulamasız, bağımlılık kontrolü yapmayan liveness ucu
 	// (systemd/gateway sağlık kontrolü). /api/v1 dışında olduğu için
@@ -87,27 +100,34 @@ func NewRouter(d Deps) http.Handler {
 				r.Patch("/me/password", d.Users.ChangeOwnPassword)
 
 				r.Group(func(r chi.Router) {
-					r.Use(requireAdmin)
-					r.Get("/", d.Users.List)
-					r.Post("/", d.Users.Create)
-					r.Get("/{id}", d.Users.Get)
-					r.Put("/{id}", d.Users.Update)
-					r.Patch("/{id}/password", d.Users.AdminResetPassword)
-					r.Delete("/{id}", d.Users.Deactivate)
+					// requireAdmin KORUNUR (super_admin'in tenant kullanıcı
+					// yönetimine bulaşmaması ve legacy davranışla tutarlılık
+					// için ek bir kapı) -- YENİ katman loadAuthorization +
+					// organization.users.* izni ÜSTÜNE eklenir, requireAdmin'in
+					// YERİNE geçmez.
+					r.Use(requireAdmin, loadAuthorization)
+					r.With(perm(domain.PermOrganizationUsersRead)).Get("/", d.Users.List)
+					r.With(perm(domain.PermOrganizationUsersManage)).Post("/", d.Users.Create)
+					r.With(perm(domain.PermOrganizationUsersRead)).Get("/{id}", d.Users.Get)
+					r.With(perm(domain.PermOrganizationUsersManage)).Put("/{id}", d.Users.Update)
+					r.With(perm(domain.PermOrganizationUsersManage)).Patch("/{id}/password", d.Users.AdminResetPassword)
+					r.With(perm(domain.PermOrganizationUsersManage)).Delete("/{id}", d.Users.Deactivate)
+					r.With(perm(domain.PermOrganizationRolesManage)).Put("/{id}/organization-role", d.Users.SetOrganizationRole)
+					r.With(perm(domain.PermOrganizationUsersRead)).Get("/{id}/projects", d.Authorization.ListUserProjects)
 				})
 			})
 		})
 
 		r.Route("/products", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded)
+			r.Use(requireAuth, requireOnboarded, loadAuthorization)
 			// Katalog herkes icin okunabilir (teklif olustururken herkes
-			// urun secebilmeli); yazma admin'e ozel.
-			r.Get("/", d.Products.List)
-			r.Get("/{id}", d.Products.Get)
-			r.Get("/{id}/price-history", d.Products.PriceHistory)
+			// urun secebilmeli); yazma products.manage iznine ozel.
+			r.With(perm(domain.PermProductsRead)).Get("/", d.Products.List)
+			r.With(perm(domain.PermProductsRead)).Get("/{id}", d.Products.Get)
+			r.With(perm(domain.PermProductsRead)).Get("/{id}/price-history", d.Products.PriceHistory)
 
 			r.Group(func(r chi.Router) {
-				r.Use(requireAdmin)
+				r.Use(perm(domain.PermProductsManage))
 				r.Post("/", d.Products.Create)
 				r.Put("/{id}", d.Products.Update)
 				r.Delete("/{id}", d.Products.Delete)
@@ -115,17 +135,20 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/calculations", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded)
+			r.Use(requireAuth, requireOnboarded, loadAuthorization)
 			// Metraj Hesapla paneli teklif oluştururken herkese lazım
 			// (Products ile aynı ilke: katalog/reçete okuma serbest,
-			// reçete katsayılarını düzenlemek admin'e özel).
-			r.Get("/groups", d.Calc.ListGroups)
-			r.Get("/categories", d.Calc.ListCategories)
-			r.Post("/run", d.Calc.Run)
-			r.Get("/recipe-items", d.Calc.ListRecipeItems)
+			// reçete katsayılarını düzenlemek calculations.manage iznine özel).
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermCalculationsRead))
+				r.Get("/groups", d.Calc.ListGroups)
+				r.Get("/categories", d.Calc.ListCategories)
+				r.Post("/run", d.Calc.Run)
+				r.Get("/recipe-items", d.Calc.ListRecipeItems)
+			})
 
 			r.Group(func(r chi.Router) {
-				r.Use(requireAdmin)
+				r.Use(perm(domain.PermCalculationsManage))
 				r.Post("/groups", d.Calc.CreateGroup)
 				r.Put("/groups/{id}", d.Calc.UpdateGroup)
 				r.Post("/categories", d.Calc.CreateCategory)
@@ -137,128 +160,171 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/offers", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded)
+			r.Use(requireAuth, requireOnboarded, loadAuthorization)
 			// Teklif oluşturma/görme gerçek işte sıradan personel işidir --
-			// Users/Products'ın aksine admin şartı YOK.
-			r.Get("/", d.Offers.List)
-			r.Post("/", d.Offers.Create)
-			r.Get("/{id}", d.Offers.Get)
-			r.Put("/{id}", d.Offers.Update)
-			r.Post("/{id}/revise", d.Offers.Revise)
-			r.Get("/{id}/revisions", d.Offers.ListRevisions)
-			r.Get("/{id}/revisions/{revisionId}", d.Offers.GetRevision)
-			r.Put("/{id}/status", d.Offers.UpdateStatus)
-			r.Post("/{id}/toggle-passive", d.Offers.TogglePassive)
-			r.Post("/{id}/send-email", d.Offers.SendEmail)
-			r.Post("/{id}/share-links", d.Offers.CreateShareLink)
-			r.Get("/{id}/share-links", d.Offers.ListShareLinks)
-			r.Delete("/{id}/share-links/{linkId}", d.Offers.RevokeShareLink)
-			r.Get("/{id}/events", d.Offers.ListEvents)
-			r.Get("/{id}/email-logs", d.Offers.ListEmailLogs)
-			// Teklifin projeye dönüşüp dönüşmediği (dönüşmediyse 404) --
-			// teklif detayındaki "Projeye Dönüştür"/"Projeyi Görüntüle"
-			// ayrımı buna bakar.
-			r.Get("/{id}/project", d.Projects.GetByOffer)
-			r.Delete("/{id}", d.Offers.Delete)
+			// Users/Products'ın aksine tek bir admin şartı YOK, offers.*
+			// izinleri org-wide (proje-üyeliği ekseni yok, bkz. spec §2).
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermOffersRead))
+				r.Get("/", d.Offers.List)
+				r.Get("/{id}", d.Offers.Get)
+				r.Get("/{id}/revisions", d.Offers.ListRevisions)
+				r.Get("/{id}/revisions/{revisionId}", d.Offers.GetRevision)
+				r.Get("/{id}/share-links", d.Offers.ListShareLinks)
+				r.Get("/{id}/events", d.Offers.ListEvents)
+				r.Get("/{id}/email-logs", d.Offers.ListEmailLogs)
+				// Teklifin projeye dönüşüp dönüşmediği (dönüşmediyse 404) --
+				// teklif detayındaki "Projeye Dönüştür"/"Projeyi Görüntüle"
+				// ayrımı buna bakar.
+				r.Get("/{id}/project", d.Projects.GetByOffer)
+			})
+			r.With(perm(domain.PermOffersCreate)).Post("/", d.Offers.Create)
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermOffersUpdate))
+				r.Put("/{id}", d.Offers.Update)
+				r.Post("/{id}/revise", d.Offers.Revise)
+				r.Post("/{id}/send-email", d.Offers.SendEmail)
+				r.Post("/{id}/share-links", d.Offers.CreateShareLink)
+				r.Delete("/{id}/share-links/{linkId}", d.Offers.RevokeShareLink)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermOffersApprove))
+				r.Put("/{id}/status", d.Offers.UpdateStatus)
+				r.Post("/{id}/toggle-passive", d.Offers.TogglePassive)
+			})
+			r.With(perm(domain.PermOffersDelete)).Delete("/{id}", d.Offers.Delete)
 		})
 
 		r.Route("/projects", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded)
-			// Projeler de teklifler gibi sıradan personel işidir -- admin
-			// şartı YOK (ileride project.* izinleriyle inceltilecek).
-			r.Get("/", d.Projects.List)
-			r.Post("/from-offer/{offerId}", d.Projects.CreateFromOffer)
-			r.Get("/{id}", d.Projects.Get)
-			r.Put("/{id}", d.Projects.Update)
-			r.Get("/{id}/financial-summary", d.Projects.FinancialSummary)
-			r.Get("/{id}/events", d.Projects.ListEvents)
+			r.Use(requireAuth, requireOnboarded, loadAuthorization)
+			// GET / ve POST /from-offer henüz TEK bir projeye bağlı DEĞİL --
+			// listede üyelik filtresi ProjectService.List İÇİNDE
+			// (restrict_to_user_id, SQL seviyesinde) uygulanır; oluşturma
+			// org-wide bir izindir (proje henüz yok). Bunların ALTINDAKİ
+			// TÜM /{id}/... rotaları projPerm (izin + proje üyeliği) kullanır.
+			r.With(perm(domain.PermProjectsRead)).Get("/", d.Projects.List)
+			r.With(perm(domain.PermProjectsCreate)).Post("/from-offer/{offerId}", d.Projects.CreateFromOffer)
 
-			r.Get("/{id}/payment-plan", d.Projects.ListPaymentPlan)
-			r.Post("/{id}/payment-plan", d.Projects.CreatePaymentPlanItem)
-			r.Put("/{id}/payment-plan/{itemId}", d.Projects.UpdatePaymentPlanItem)
-			r.Delete("/{id}/payment-plan/{itemId}", d.Projects.CancelPaymentPlanItem)
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsRead))
+				r.Get("/{id}", d.Projects.Get)
+				r.Get("/{id}/events", d.Projects.ListEvents)
+			})
+			r.With(projPerm(domain.PermProjectsUpdate)).Put("/{id}", d.Projects.Update)
 
-			r.Get("/{id}/collections", d.Projects.ListCollections)
-			r.Post("/{id}/collections", d.Projects.CreateCollection)
-			r.Post("/{id}/collections/{collectionId}/void", d.Projects.VoidCollection)
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsFinanceRead))
+				r.Get("/{id}/financial-summary", d.Projects.FinancialSummary)
+				r.Get("/{id}/payment-plan", d.Projects.ListPaymentPlan)
+				r.Get("/{id}/collections", d.Projects.ListCollections)
+				r.Get("/{id}/expenses", d.Projects.ListExpenses)
+				r.Get("/{id}/invoices", d.Projects.ListInvoices)
+				r.Get("/{id}/subcontractors", d.Projects.ListSubcontractors)
+				r.Get("/{id}/subcontractor-payments", d.Projects.ListSubcontractorPayments)
+				r.Get("/{id}/change-orders", d.Projects.ListChangeOrders)
+				r.Get("/{id}/change-orders/{changeOrderId}", d.Projects.GetChangeOrder)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsFinanceManage))
+				r.Post("/{id}/payment-plan", d.Projects.CreatePaymentPlanItem)
+				r.Put("/{id}/payment-plan/{itemId}", d.Projects.UpdatePaymentPlanItem)
+				r.Delete("/{id}/payment-plan/{itemId}", d.Projects.CancelPaymentPlanItem)
+				r.Post("/{id}/collections", d.Projects.CreateCollection)
+				r.Post("/{id}/collections/{collectionId}/void", d.Projects.VoidCollection)
+				r.Post("/{id}/expenses", d.Projects.CreateExpense)
+				r.Put("/{id}/expenses/{expenseId}", d.Projects.UpdateExpense)
+				r.Post("/{id}/expenses/{expenseId}/void", d.Projects.VoidExpense)
+				r.Post("/{id}/invoices", d.Projects.CreateInvoice)
+				r.Put("/{id}/invoices/{invoiceId}/status", d.Projects.UpdateInvoiceStatus)
+				r.Post("/{id}/subcontractors", d.Projects.CreateSubcontractor)
+				r.Put("/{id}/subcontractors/{subcontractorId}", d.Projects.UpdateSubcontractor)
+				r.Post("/{id}/subcontractors/{subcontractorId}/payments", d.Projects.CreateSubcontractorPayment)
+				r.Post("/{id}/subcontractor-payments/{paymentId}/void", d.Projects.VoidSubcontractorPayment)
+				r.Post("/{id}/change-orders", d.Projects.CreateChangeOrder)
+				r.Put("/{id}/change-orders/{changeOrderId}", d.Projects.UpdateChangeOrder)
+				r.Post("/{id}/change-orders/{changeOrderId}/send", d.Projects.SendChangeOrder)
+				r.Post("/{id}/change-orders/{changeOrderId}/send-email", d.Projects.SendChangeOrderEmail)
+				r.Post("/{id}/change-orders/{changeOrderId}/revise", d.Projects.ReviseChangeOrder)
+				r.Post("/{id}/change-orders/{changeOrderId}/cancel", d.Projects.CancelChangeOrder)
+			})
 
-			r.Get("/{id}/expenses", d.Projects.ListExpenses)
-			r.Post("/{id}/expenses", d.Projects.CreateExpense)
-			r.Put("/{id}/expenses/{expenseId}", d.Projects.UpdateExpense)
-			r.Post("/{id}/expenses/{expenseId}/void", d.Projects.VoidExpense)
+			// --- Faz 7: operasyon (ekip/planlama/dosya/fotoğraf/not) ---
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsOperationsRead))
+				r.Get("/{id}/operations-summary", d.Projects.OperationsSummary)
+				r.Get("/{id}/members", d.Projects.ListMembers)
+				r.Get("/{id}/schedule", d.Projects.ListScheduleItems)
+				r.Get("/{id}/files", d.Projects.ListFiles)
+				r.Get("/{id}/files/{fileId}/download", d.Projects.DownloadFile)
+				r.Get("/{id}/photos", d.Projects.ListPhotos)
+				r.Get("/{id}/photos/{photoId}/content", d.Projects.DownloadPhoto)
+				r.Get("/{id}/notes", d.Projects.ListNotes)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsOperationsManage))
+				r.Post("/{id}/members", d.Projects.AssignMember)
+				r.Delete("/{id}/members/{memberId}", d.Projects.EndMembership)
+				r.Post("/{id}/schedule", d.Projects.CreateScheduleItem)
+				r.Put("/{id}/schedule/{itemId}", d.Projects.UpdateScheduleItem)
+				r.Post("/{id}/files", d.Projects.UploadFile)
+				r.Delete("/{id}/files/{fileId}", d.Projects.DeleteFile)
+				r.Post("/{id}/photos", d.Projects.UploadPhoto)
+				r.Delete("/{id}/photos/{photoId}", d.Projects.DeletePhoto)
+				r.Post("/{id}/notes", d.Projects.CreateNote)
+			})
 
-			r.Get("/{id}/invoices", d.Projects.ListInvoices)
-			r.Post("/{id}/invoices", d.Projects.CreateInvoice)
-			r.Put("/{id}/invoices/{invoiceId}/status", d.Projects.UpdateInvoiceStatus)
+			// --- Görevler ---
+			r.With(projPerm(domain.PermProjectsTasksRead)).Get("/{id}/tasks", d.Projects.ListTasks)
+			r.With(projPerm(domain.PermProjectsTasksCreate)).Post("/{id}/tasks", d.Projects.CreateTask)
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsTasksUpdate))
+				r.Put("/{id}/tasks/{taskId}", d.Projects.UpdateTask)
+				r.Post("/{id}/tasks/{taskId}/complete", d.Projects.CompleteTask)
+			})
 
-			r.Get("/{id}/subcontractors", d.Projects.ListSubcontractors)
-			r.Post("/{id}/subcontractors", d.Projects.CreateSubcontractor)
-			r.Put("/{id}/subcontractors/{subcontractorId}", d.Projects.UpdateSubcontractor)
-			r.Post("/{id}/subcontractors/{subcontractorId}/payments", d.Projects.CreateSubcontractorPayment)
-			r.Get("/{id}/subcontractor-payments", d.Projects.ListSubcontractorPayments)
-			r.Post("/{id}/subcontractor-payments/{paymentId}/void", d.Projects.VoidSubcontractorPayment)
-
-			// --- Faz 7: operasyon ---
-			r.Get("/{id}/operations-summary", d.Projects.OperationsSummary)
-
-			r.Get("/{id}/members", d.Projects.ListMembers)
-			r.Post("/{id}/members", d.Projects.AssignMember)
-			r.Delete("/{id}/members/{memberId}", d.Projects.EndMembership)
-
-			r.Get("/{id}/schedule", d.Projects.ListScheduleItems)
-			r.Post("/{id}/schedule", d.Projects.CreateScheduleItem)
-			r.Put("/{id}/schedule/{itemId}", d.Projects.UpdateScheduleItem)
-
-			r.Get("/{id}/tasks", d.Projects.ListTasks)
-			r.Post("/{id}/tasks", d.Projects.CreateTask)
-			r.Put("/{id}/tasks/{taskId}", d.Projects.UpdateTask)
-			r.Post("/{id}/tasks/{taskId}/complete", d.Projects.CompleteTask)
-
-			r.Get("/{id}/files", d.Projects.ListFiles)
-			r.Post("/{id}/files", d.Projects.UploadFile)
-			r.Get("/{id}/files/{fileId}/download", d.Projects.DownloadFile)
-			r.Delete("/{id}/files/{fileId}", d.Projects.DeleteFile)
-
-			r.Get("/{id}/photos", d.Projects.ListPhotos)
-			r.Post("/{id}/photos", d.Projects.UploadPhoto)
-			r.Get("/{id}/photos/{photoId}/content", d.Projects.DownloadPhoto)
-			r.Delete("/{id}/photos/{photoId}", d.Projects.DeletePhoto)
-
-			r.Get("/{id}/notes", d.Projects.ListNotes)
-			r.Post("/{id}/notes", d.Projects.CreateNote)
-
-			// --- Faz 8: ek işler / değişiklik emirleri ---
-			r.Get("/{id}/change-orders", d.Projects.ListChangeOrders)
-			r.Post("/{id}/change-orders", d.Projects.CreateChangeOrder)
-			r.Get("/{id}/change-orders/{changeOrderId}", d.Projects.GetChangeOrder)
-			r.Put("/{id}/change-orders/{changeOrderId}", d.Projects.UpdateChangeOrder)
-			r.Post("/{id}/change-orders/{changeOrderId}/send", d.Projects.SendChangeOrder)
-			r.Post("/{id}/change-orders/{changeOrderId}/send-email", d.Projects.SendChangeOrderEmail)
-			r.Post("/{id}/change-orders/{changeOrderId}/revise", d.Projects.ReviseChangeOrder)
-			r.Post("/{id}/change-orders/{changeOrderId}/cancel", d.Projects.CancelChangeOrder)
+			// --- Proje Erişimi (project_users -- RBAC/Project Membership
+			// sprint'i; mevcut /{id}/members -- İK/puantaj ekip roster'ı --
+			// İLE KARIŞTIRILMAMALI, bkz. migration 0034 başlık notu) ---
+			r.With(projPerm(domain.PermProjectsAccessRead)).Get("/{id}/access", d.Authorization.ListProjectUsers)
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsAccessManage))
+				r.Post("/{id}/access", d.Authorization.AddProjectUser)
+				r.Put("/{id}/access/{userId}", d.Authorization.UpdateProjectUserRole)
+				r.Delete("/{id}/access/{userId}", d.Authorization.RemoveProjectUser)
+			})
 		})
 
 		r.Route("/customers", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded)
+			r.Use(requireAuth, requireOnboarded, loadAuthorization)
 			// Teklif oluşturan herkes müşteri seçebilmeli/ekleyebilmeli --
 			// Ürünler'in aksine (kontrollü katalog), müşteri kartı canlı bir
-			// CRM listesi gibi, admin şartı YOK.
-			r.Get("/", d.Customers.List)
-			r.Post("/", d.Customers.Create)
-			r.Get("/{id}", d.Customers.Get)
-			r.Put("/{id}", d.Customers.Update)
-			r.Delete("/{id}", d.Customers.Archive)
+			// CRM listesi gibi, tek bir admin şartı YOK.
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermCustomersRead))
+				r.Get("/", d.Customers.List)
+				r.Get("/{id}", d.Customers.Get)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermCustomersManage))
+				r.Post("/", d.Customers.Create)
+				r.Put("/{id}", d.Customers.Update)
+				r.Delete("/{id}", d.Customers.Archive)
+			})
 		})
 
 		r.Route("/employees", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded)
+			r.Use(requireAuth, requireOnboarded, loadAuthorization)
 			// Personel listesi mesai girişinde herkese lazım; hassas
-			// yönetim (ekleme/düzenleme/pasifleştirme) admin'e özel.
-			r.Get("/", d.Employees.List)
-			r.Get("/{id}", d.Employees.Get)
+			// yönetim (ekleme/düzenleme/pasifleştirme) employees.manage
+			// iznine özel.
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermEmployeesRead))
+				r.Get("/", d.Employees.List)
+				r.Get("/{id}", d.Employees.Get)
+			})
 
 			r.Group(func(r chi.Router) {
-				r.Use(requireAdmin)
+				r.Use(perm(domain.PermEmployeesManage))
 				r.Post("/", d.Employees.Create)
 				r.Put("/{id}", d.Employees.Update)
 				r.Delete("/{id}", d.Employees.Archive)
@@ -266,19 +332,40 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/attendance", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded)
-			// Mesai girişi BYZ'de sıradan iş -- admin şartı YOK.
-			r.Get("/", d.Attendance.ListByMonth)
-			r.Post("/", d.Attendance.Create)
-			r.Put("/{id}", d.Attendance.Update)
-			r.Delete("/{id}", d.Attendance.Delete)
+			r.Use(requireAuth, requireOnboarded, loadAuthorization)
+			// Mesai girişi BYZ'de sıradan iş -- tek bir admin şartı YOK.
+			r.With(perm(domain.PermAttendanceRead)).Get("/", d.Attendance.ListByMonth)
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermAttendanceManage))
+				r.Post("/", d.Attendance.Create)
+				r.Put("/{id}", d.Attendance.Update)
+				r.Delete("/{id}", d.Attendance.Delete)
+			})
 		})
 
 		r.Route("/settings", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded, requireAdmin)
-			r.Get("/smtp", d.Settings.GetSmtp)
-			r.Put("/smtp", d.Settings.UpdateSmtp)
-			r.Post("/smtp/test", d.Settings.TestSmtp)
+			r.Use(requireAuth, requireOnboarded, requireAdmin, loadAuthorization)
+			r.With(perm(domain.PermOrganizationSettingsRead)).Get("/smtp", d.Settings.GetSmtp)
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermOrganizationSettingsManage))
+				r.Put("/smtp", d.Settings.UpdateSmtp)
+				r.Post("/smtp/test", d.Settings.TestSmtp)
+			})
+		})
+
+		// Roller & Yetkiler ekranı -- RBAC/Project Membership sprint'i.
+		// requireAdmin KORUNUR (Users grubuyla AYNI ilke: ek bir kapı,
+		// organization.roles.* izninin YERİNE değil ÜSTÜNE).
+		r.Route("/organization/roles", func(r chi.Router) {
+			r.Use(requireAuth, requireOnboarded, requireAdmin, loadAuthorization)
+			r.With(perm(domain.PermOrganizationRolesRead)).Get("/", d.Authorization.ListOrganizationRoles)
+			r.With(perm(domain.PermOrganizationRolesRead)).Get("/{id}", d.Authorization.GetOrganizationRole)
+			r.With(perm(domain.PermOrganizationRolesManage)).Put("/{id}/permissions", d.Authorization.SetRolePermissions)
+		})
+
+		r.Route("/organization/permissions", func(r chi.Router) {
+			r.Use(requireAuth, requireOnboarded, requireAdmin, loadAuthorization, perm(domain.PermOrganizationRolesRead))
+			r.Get("/", d.Authorization.ListPermissions)
 		})
 
 		// İlk-giriş onboarding sihirbazı (5 adım) -- server-authoritative,

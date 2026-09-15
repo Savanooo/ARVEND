@@ -129,7 +129,7 @@ func (h *ProjectHandler) UpdatePaymentPlanItem(w http.ResponseWriter, r *http.Re
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	item, err := h.svc.UpdatePaymentPlanItem(r.Context(), chi.URLParam(r, "itemId"), orgID, req.toInput(userID))
+	item, err := h.svc.UpdatePaymentPlanItem(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "itemId"), orgID, req.toInput(userID))
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -140,7 +140,7 @@ func (h *ProjectHandler) UpdatePaymentPlanItem(w http.ResponseWriter, r *http.Re
 func (h *ProjectHandler) CancelPaymentPlanItem(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	if err := h.svc.CancelPaymentPlanItem(r.Context(), chi.URLParam(r, "itemId"), orgID, userID); err != nil {
+	if err := h.svc.CancelPaymentPlanItem(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "itemId"), orgID, userID); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -232,7 +232,7 @@ func (h *ProjectHandler) VoidCollection(w http.ResponseWriter, r *http.Request) 
 	_ = httpjson.Decode(r, &req)
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	c, err := h.svc.VoidCollection(r.Context(), chi.URLParam(r, "collectionId"), orgID, userID, req.Reason)
+	c, err := h.svc.VoidCollection(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "collectionId"), orgID, userID, req.Reason)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -328,7 +328,7 @@ func (h *ProjectHandler) UpdateExpense(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	e, err := h.svc.UpdateExpense(r.Context(), chi.URLParam(r, "expenseId"), orgID, req.toInput(userID))
+	e, err := h.svc.UpdateExpense(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "expenseId"), orgID, req.toInput(userID))
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -341,7 +341,7 @@ func (h *ProjectHandler) VoidExpense(w http.ResponseWriter, r *http.Request) {
 	_ = httpjson.Decode(r, &req)
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	e, err := h.svc.VoidExpense(r.Context(), chi.URLParam(r, "expenseId"), orgID, userID, req.Reason)
+	e, err := h.svc.VoidExpense(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "expenseId"), orgID, userID, req.Reason)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -433,7 +433,7 @@ func (h *ProjectHandler) UpdateInvoiceStatus(w http.ResponseWriter, r *http.Requ
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	inv, err := h.svc.UpdateInvoiceStatus(r.Context(), chi.URLParam(r, "invoiceId"), orgID, req.Status, userID)
+	inv, err := h.svc.UpdateInvoiceStatus(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "invoiceId"), orgID, req.Status, userID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -533,7 +533,7 @@ func (h *ProjectHandler) UpdateSubcontractor(w http.ResponseWriter, r *http.Requ
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	s, err := h.svc.UpdateSubcontractor(r.Context(), chi.URLParam(r, "subcontractorId"), orgID, req.toInput(userID))
+	s, err := h.svc.UpdateSubcontractor(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "subcontractorId"), orgID, req.toInput(userID))
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -591,7 +591,7 @@ func (h *ProjectHandler) CreateSubcontractorPayment(w http.ResponseWriter, r *ht
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	p, err := h.svc.CreateSubcontractorPayment(r.Context(), chi.URLParam(r, "subcontractorId"), orgID, service.SubcontractorPaymentInput{
+	p, err := h.svc.CreateSubcontractorPayment(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "subcontractorId"), orgID, service.SubcontractorPaymentInput{
 		Amount: req.Amount, Currency: req.Currency, PaidDate: parseDateOrToday(req.PaidDate),
 		Description: req.Description, IdempotencyKey: req.IdempotencyKey, UserID: userID,
 	})
@@ -607,7 +607,7 @@ func (h *ProjectHandler) VoidSubcontractorPayment(w http.ResponseWriter, r *http
 	_ = httpjson.Decode(r, &req)
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	p, err := h.svc.VoidSubcontractorPayment(r.Context(), chi.URLParam(r, "paymentId"), orgID, userID, req.Reason)
+	p, err := h.svc.VoidSubcontractorPayment(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "paymentId"), orgID, userID, req.Reason)
 	if err != nil {
 		h.writeError(w, err)
 		return

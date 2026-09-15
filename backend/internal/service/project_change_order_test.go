@@ -82,7 +82,7 @@ func TestProjectChangeOrders(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ek iş oluşturulamadı: %v", err)
 		}
-		sent, err := projectSvc.SendChangeOrder(ctx, co.ID, orgID, "")
+		sent, err := projectSvc.SendChangeOrder(ctx, projectID, co.ID, orgID, "")
 		if err != nil {
 			t.Fatalf("ek iş gönderilemedi: %v", err)
 		}
@@ -150,7 +150,7 @@ func TestProjectChangeOrders(t *testing.T) {
 	t.Run("4_draft_editable", func(t *testing.T) {
 		p := newProject(t, orgA.ID, 100000)
 		co, _ := projectSvc.CreateChangeOrder(ctx, p.ID, orgA.ID, basicInput(domain.ChangeOrderAddition, 5000))
-		updated, err := projectSvc.UpdateChangeOrderDraft(ctx, co.ID, orgA.ID, basicInput(domain.ChangeOrderAddition, 7500))
+		updated, err := projectSvc.UpdateChangeOrderDraft(ctx, p.ID, co.ID, orgA.ID, basicInput(domain.ChangeOrderAddition, 7500))
 		if err != nil {
 			t.Fatalf("taslak düzenlenemedi: %v", err)
 		}
@@ -162,7 +162,7 @@ func TestProjectChangeOrders(t *testing.T) {
 	t.Run("5_sent_not_editable", func(t *testing.T) {
 		p := newProject(t, orgA.ID, 100000)
 		co := newSentChangeOrder(t, orgA.ID, p.ID, domain.ChangeOrderAddition, 5000)
-		if _, err := projectSvc.UpdateChangeOrderDraft(ctx, co.ID, orgA.ID, basicInput(domain.ChangeOrderAddition, 1)); !errors.Is(err, service.ErrChangeOrderNotEditable) {
+		if _, err := projectSvc.UpdateChangeOrderDraft(ctx, p.ID, co.ID, orgA.ID, basicInput(domain.ChangeOrderAddition, 1)); !errors.Is(err, service.ErrChangeOrderNotEditable) {
 			t.Errorf("beklenen ErrChangeOrderNotEditable, geldi: %v", err)
 		}
 	})
@@ -174,7 +174,7 @@ func TestProjectChangeOrders(t *testing.T) {
 		if _, err := projectSvc.RespondChangeOrderByShareLinkToken(ctx, token, domain.ChangeOrderApproved, "", ""); err != nil {
 			t.Fatalf("onaylanamadı: %v", err)
 		}
-		if _, err := projectSvc.UpdateChangeOrderDraft(ctx, co.ID, orgA.ID, basicInput(domain.ChangeOrderAddition, 1)); !errors.Is(err, service.ErrChangeOrderNotEditable) {
+		if _, err := projectSvc.UpdateChangeOrderDraft(ctx, p.ID, co.ID, orgA.ID, basicInput(domain.ChangeOrderAddition, 1)); !errors.Is(err, service.ErrChangeOrderNotEditable) {
 			t.Errorf("approved da düzenlenemez olmalı, geldi: %v", err)
 		}
 	})
@@ -288,7 +288,7 @@ func TestProjectChangeOrders(t *testing.T) {
 		p := newProject(t, orgA.ID, 100000)
 		co := newSentChangeOrder(t, orgA.ID, p.ID, domain.ChangeOrderAddition, 5000)
 		token := activeLinkToken(t, orgA.ID, co.ID)
-		projectSvc.CancelChangeOrder(ctx, co.ID, orgA.ID, "") // iptal, aktif linki revoke eder
+		projectSvc.CancelChangeOrder(ctx, p.ID, co.ID, orgA.ID, "") // iptal, aktif linki revoke eder
 		if _, err := projectSvc.RespondChangeOrderByShareLinkToken(ctx, token, domain.ChangeOrderApproved, "", ""); !errors.Is(err, service.ErrChangeOrderShareLinkRevoked) {
 			t.Errorf("beklenen ErrChangeOrderShareLinkRevoked, geldi: %v", err)
 		}
@@ -310,7 +310,7 @@ func TestProjectChangeOrders(t *testing.T) {
 		p := newProject(t, orgA.ID, 100000)
 		co := newSentChangeOrder(t, orgA.ID, p.ID, domain.ChangeOrderAddition, 5000)
 		token := activeLinkToken(t, orgA.ID, co.ID)
-		if _, err := projectSvc.ReviseChangeOrder(ctx, co.ID, orgA.ID, ""); err != nil {
+		if _, err := projectSvc.ReviseChangeOrder(ctx, p.ID, co.ID, orgA.ID, ""); err != nil {
 			t.Fatalf("revize edilemedi: %v", err)
 		}
 		if _, err := projectSvc.RespondChangeOrderByShareLinkToken(ctx, token, domain.ChangeOrderApproved, "", ""); !errors.Is(err, service.ErrChangeOrderShareLinkRevoked) {
@@ -323,11 +323,11 @@ func TestProjectChangeOrders(t *testing.T) {
 		// Müşteri eski sekmeden Kabul Et dedi." -- eski kayıt approved OLMAMALI.
 		p := newProject(t, orgA.ID, 100000)
 		co := newSentChangeOrder(t, orgA.ID, p.ID, domain.ChangeOrderAddition, 5000)
-		newCO, err := projectSvc.ReviseChangeOrder(ctx, co.ID, orgA.ID, "")
+		newCO, err := projectSvc.ReviseChangeOrder(ctx, p.ID, co.ID, orgA.ID, "")
 		if err != nil {
 			t.Fatalf("revize edilemedi: %v", err)
 		}
-		old, err := projectSvc.GetChangeOrder(ctx, co.ID, orgA.ID)
+		old, err := projectSvc.GetChangeOrder(ctx, p.ID, co.ID, orgA.ID)
 		if err != nil {
 			t.Fatalf("eski kayıt okunamadı: %v", err)
 		}
@@ -355,11 +355,11 @@ func TestProjectChangeOrders(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			_, cancelErr = projectSvc.CancelChangeOrder(ctx, co.ID, orgA.ID, "")
+			_, cancelErr = projectSvc.CancelChangeOrder(ctx, p.ID, co.ID, orgA.ID, "")
 		}()
 		wg.Wait()
 
-		final, err := projectSvc.GetChangeOrder(ctx, co.ID, orgA.ID)
+		final, err := projectSvc.GetChangeOrder(ctx, p.ID, co.ID, orgA.ID)
 		if err != nil {
 			t.Fatalf("okunamadı: %v", err)
 		}
@@ -387,14 +387,14 @@ func TestProjectChangeOrders(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			_, reviseErr = projectSvc.ReviseChangeOrder(ctx, co.ID, orgA.ID, "")
+			_, reviseErr = projectSvc.ReviseChangeOrder(ctx, p.ID, co.ID, orgA.ID, "")
 		}()
 		wg.Wait()
 
 		if approveErr == nil && reviseErr == nil {
 			t.Fatalf("hem onay hem revize başarılı olamaz (yarış korunmadı)")
 		}
-		final, _ := projectSvc.GetChangeOrder(ctx, co.ID, orgA.ID)
+		final, _ := projectSvc.GetChangeOrder(ctx, p.ID, co.ID, orgA.ID)
 		if final.Status != domain.ChangeOrderApproved && final.Status != domain.ChangeOrderSuperseded {
 			t.Errorf("beklenmeyen nihai durum: %s", final.Status)
 		}
@@ -439,7 +439,7 @@ func TestProjectChangeOrders(t *testing.T) {
 	t.Run("20_cross_tenant_change_order_not_accessible", func(t *testing.T) {
 		p := newProject(t, orgA.ID, 100000)
 		co, _ := projectSvc.CreateChangeOrder(ctx, p.ID, orgA.ID, basicInput(domain.ChangeOrderAddition, 5000))
-		if _, err := projectSvc.GetChangeOrder(ctx, co.ID, orgB.ID); !errors.Is(err, domain.ErrNotFound) {
+		if _, err := projectSvc.GetChangeOrder(ctx, p.ID, co.ID, orgB.ID); !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("cross-tenant erişim engellenemedi: %v", err)
 		}
 	})
@@ -479,7 +479,7 @@ func TestProjectChangeOrders(t *testing.T) {
 			InternalNotes: "GİZLİ: maliyeti 2000, kâr marjı yüksek",
 			Items:         []service.ChangeOrderItemInput{{Description: "Kalem", Quantity: 1, UnitPrice: 5000}},
 		})
-		sent, _ := projectSvc.SendChangeOrder(ctx, co.ID, orgA.ID, "")
+		sent, _ := projectSvc.SendChangeOrder(ctx, p.ID, co.ID, orgA.ID, "")
 		token := activeLinkToken(t, orgA.ID, sent.ID)
 		view, err := projectSvc.GetChangeOrderByShareLinkToken(ctx, token, "", "")
 		if err != nil {
@@ -501,7 +501,7 @@ func TestProjectChangeOrders(t *testing.T) {
 	t.Run("24_change_order_cost_not_double_counted", func(t *testing.T) {
 		p := newProject(t, orgA.ID, 200000)
 		co, _ := projectSvc.CreateChangeOrder(ctx, p.ID, orgA.ID, basicInput(domain.ChangeOrderAddition, 30000))
-		sent, _ := projectSvc.SendChangeOrder(ctx, co.ID, orgA.ID, "")
+		sent, _ := projectSvc.SendChangeOrder(ctx, p.ID, co.ID, orgA.ID, "")
 		token := activeLinkToken(t, orgA.ID, sent.ID)
 		projectSvc.RespondChangeOrderByShareLinkToken(ctx, token, domain.ChangeOrderApproved, "", "")
 
@@ -707,7 +707,7 @@ func TestProjectChangeOrders(t *testing.T) {
 		for i := 0; i < 2; i++ {
 			go func() {
 				defer wg.Done()
-				_ = projectSvc.SendChangeOrderEmail(ctx, co.ID, orgA.ID, service.ChangeOrderEmailInput{To: "musteri@example.com"})
+				_ = projectSvc.SendChangeOrderEmail(ctx, p.ID, co.ID, orgA.ID, service.ChangeOrderEmailInput{To: "musteri@example.com"})
 			}()
 		}
 		wg.Wait()
@@ -728,7 +728,7 @@ func TestProjectChangeOrders(t *testing.T) {
 		p := newProject(t, orgA.ID, 100000)
 		co := newSentChangeOrder(t, orgA.ID, p.ID, domain.ChangeOrderAddition, 5000)
 		oldToken := activeLinkToken(t, orgA.ID, co.ID)
-		if _, err := projectSvc.CancelChangeOrder(ctx, co.ID, orgA.ID, ""); err != nil {
+		if _, err := projectSvc.CancelChangeOrder(ctx, p.ID, co.ID, orgA.ID, ""); err != nil {
 			t.Fatalf("iptal edilemedi: %v", err)
 		}
 		// Eski link revoke edilmiş olmalı.
@@ -740,7 +740,7 @@ func TestProjectChangeOrders(t *testing.T) {
 		// SendChangeOrderEmail, iptal edilmiş bir kayıt için YENİ bir aktif
 		// link üretmemeli -- ürettiği anda Cancel'ın revoke'unu etkisiz
 		// kılardı (bkz. denetim bulgusu).
-		err := projectSvc.SendChangeOrderEmail(ctx, co.ID, orgA.ID, service.ChangeOrderEmailInput{To: "musteri@example.com"})
+		err := projectSvc.SendChangeOrderEmail(ctx, p.ID, co.ID, orgA.ID, service.ChangeOrderEmailInput{To: "musteri@example.com"})
 		if !errors.Is(err, service.ErrChangeOrderNotSendable) {
 			t.Errorf("iptal edilmiş ek işe mail: beklenen ErrChangeOrderNotSendable, geldi: %v", err)
 		}
@@ -772,7 +772,7 @@ func TestProjectChangeOrders(t *testing.T) {
 		if err != nil {
 			t.Fatalf("oluşturulamadı: %v", err)
 		}
-		full, err := projectSvc.GetChangeOrder(ctx, co.ID, orgA.ID)
+		full, err := projectSvc.GetChangeOrder(ctx, p.ID, co.ID, orgA.ID)
 		if err != nil {
 			t.Fatalf("okunamadı: %v", err)
 		}
@@ -901,7 +901,7 @@ func TestProjectChangeOrders(t *testing.T) {
 
 		emailDone := make(chan error, 1)
 		go func() {
-			emailDone <- projectSvc.SendChangeOrderEmail(ctx, co.ID, orgA.ID, service.ChangeOrderEmailInput{To: "musteri@example.com"})
+			emailDone <- projectSvc.SendChangeOrderEmail(ctx, p.ID, co.ID, orgA.ID, service.ChangeOrderEmailInput{To: "musteri@example.com"})
 		}()
 
 		// SendChangeOrderEmail'in Aşama 1'i (kilitleme+link çözümü) commit
@@ -926,6 +926,43 @@ func TestProjectChangeOrders(t *testing.T) {
 		close(release)
 		if err := <-emailDone; err != nil {
 			t.Errorf("mail gönderimi başarısız olmamalıydı: %v", err)
+		}
+	})
+
+	// RBAC/Project Membership sprint'inin child-resource IDOR sıkılaştırması:
+	// eskiden loadChangeOrderRoute yalnızca ek iş kaydından proje id'sini
+	// TÜRETİYORDU, URL'deki proje id'si hiç doğrulanmıyordu. AYNI
+	// organizasyon içinde bile, Proje A'ya yetkili biri Proje B'nin ek iş
+	// UUID'sini bilerek /projects/A/change-orders/{B'nin id'si} üzerinden
+	// erişemez/değiştiremez olmalı.
+	t.Run("23_cross_project_change_order_idor_blocked", func(t *testing.T) {
+		pA := newProject(t, orgA.ID, 100000)
+		pB := newProject(t, orgA.ID, 100000) // AYNI organizasyon, FARKLI proje.
+		coB, err := projectSvc.CreateChangeOrder(ctx, pB.ID, orgA.ID, basicInput(domain.ChangeOrderAddition, 5000))
+		if err != nil {
+			t.Fatalf("B ek işi oluşturulamadı: %v", err)
+		}
+
+		if _, err := projectSvc.GetChangeOrder(ctx, pA.ID, coB.ID, orgA.ID); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin ek işi görüntülenebildi: err=%v", err)
+		}
+		if _, err := projectSvc.UpdateChangeOrderDraft(ctx, pA.ID, coB.ID, orgA.ID, basicInput(domain.ChangeOrderAddition, 1)); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin ek işi güncellenebildi: err=%v", err)
+		}
+		if _, err := projectSvc.SendChangeOrder(ctx, pA.ID, coB.ID, orgA.ID, ""); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin ek işi gönderilebildi: err=%v", err)
+		}
+		if _, err := projectSvc.CancelChangeOrder(ctx, pA.ID, coB.ID, orgA.ID, ""); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin ek işi iptal edilebildi: err=%v", err)
+		}
+		if err := projectSvc.SendChangeOrderEmail(ctx, pA.ID, coB.ID, orgA.ID, service.ChangeOrderEmailInput{To: "musteri@example.com"}); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin ek işi için mail gönderilebildi: err=%v", err)
+		}
+
+		// Doğru proje id'siyle (pB) görüntüleme başarılı olmalı (false
+		// positive üretmediğini doğrular).
+		if _, err := projectSvc.GetChangeOrder(ctx, pB.ID, coB.ID, orgA.ID); err != nil {
+			t.Errorf("doğru proje id'siyle ek iş görüntülenemedi: %v", err)
 		}
 	})
 

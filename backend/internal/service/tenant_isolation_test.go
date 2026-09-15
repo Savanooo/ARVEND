@@ -63,6 +63,10 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 	ctx := context.Background()
 	stmts := []string{
 		"DELETE FROM attendance_logs WHERE organization_id = $1",
+		// project_users (RBAC/Project Membership sprint'i, migration 0034),
+		// projects'e CASCADE FK taşır ama organization_id'ye taşımaz --
+		// yine de açıkça, projects'ten ÖNCE temizlenir (tutarlılık).
+		"DELETE FROM project_users WHERE organization_id = $1",
 		// projects, teklife/revizyona CASCADE'siz FK ile bağlıdır (kasıtlı:
 		// bir projeye dayanak olan teklif silinememeli), bu yüzden
 		// tekliflerden ÖNCE temizlenmeli.
@@ -91,7 +95,15 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		// GEREK YOK (aksi halde bu testin ürettiği audit kayıtları organization_
 		// id=NULL ile sonsuza dek DB'de kalır; platform_service_test.go'daki
 		// cleanupPlatformOrg bunu Super Admin akışları için açıkça siler).
+		// role_permissions, organization_roles'a CASCADE FK taşır -- yine de
+		// açıkça (tutarlılık) önce silinir. organization_roles'un KENDİSİ
+		// users.organization_role_id tarafından REFERANS ALINDIĞI için
+		// (CASCADE'siz), yalnızca kullanıcılar silindikten SONRA silinebilir
+		// -- bu yüzden "DELETE FROM users" satırından SONRA gelir (RBAC/
+		// Project Membership sprint'i, migration 0034).
+		"DELETE FROM role_permissions WHERE organization_role_id IN (SELECT id FROM organization_roles WHERE organization_id = $1)",
 		"DELETE FROM users WHERE organization_id = $1",
+		"DELETE FROM organization_roles WHERE organization_id = $1",
 		"DELETE FROM organizations WHERE id = $1",
 	}
 	for _, stmt := range stmts {

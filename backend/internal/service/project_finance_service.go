@@ -224,12 +224,14 @@ func (s *ProjectService) GetPaymentPlanTotal(ctx context.Context, projectID, org
 	return repository.NumericToFloat64(total), nil
 }
 
-func (s *ProjectService) UpdatePaymentPlanItem(ctx context.Context, itemID, organizationID string, in PaymentPlanItemInput) (*domain.PaymentPlanItem, error) {
-	iid, err := repository.StringToUUID(itemID)
+// projectID, URL'deki proje kimliğidir -- itemID'nin GERÇEKTEN bu projeye
+// ait olduğunu sorgu seviyesinde doğrular (bkz. IDOR denetim bulgusu).
+func (s *ProjectService) UpdatePaymentPlanItem(ctx context.Context, projectID, itemID, organizationID string, in PaymentPlanItemInput) (*domain.PaymentPlanItem, error) {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, err
 	}
-	orgID, err := repository.StringToUUID(organizationID)
+	iid, err := repository.StringToUUID(itemID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -241,7 +243,7 @@ func (s *ProjectService) UpdatePaymentPlanItem(ctx context.Context, itemID, orga
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	current, err := txq.GetPaymentPlanItem(ctx, sqlc.GetPaymentPlanItemParams{ID: iid, OrganizationID: orgID})
+	current, err := txq.GetPaymentPlanItem(ctx, sqlc.GetPaymentPlanItemParams{ID: iid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -285,6 +287,7 @@ func (s *ProjectService) UpdatePaymentPlanItem(ctx context.Context, itemID, orga
 		PlannedAmount:  repository.Float64ToNumeric(amount),
 		DueDate:        repository.TimePtrToDate(in.DueDate),
 		Notes:          strings.TrimSpace(in.Notes),
+		ProjectID:      pid,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -303,12 +306,14 @@ func (s *ProjectService) UpdatePaymentPlanItem(ctx context.Context, itemID, orga
 	return &out, nil
 }
 
-func (s *ProjectService) CancelPaymentPlanItem(ctx context.Context, itemID, organizationID, userID string) error {
-	iid, err := repository.StringToUUID(itemID)
+// projectID, URL'deki proje kimliğidir -- itemID'nin GERÇEKTEN bu projeye
+// ait olduğunu sorgu seviyesinde doğrular (bkz. IDOR denetim bulgusu).
+func (s *ProjectService) CancelPaymentPlanItem(ctx context.Context, projectID, itemID, organizationID, userID string) error {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
-		return domain.ErrNotFound
+		return err
 	}
-	orgID, err := repository.StringToUUID(organizationID)
+	iid, err := repository.StringToUUID(itemID)
 	if err != nil {
 		return domain.ErrNotFound
 	}
@@ -320,7 +325,7 @@ func (s *ProjectService) CancelPaymentPlanItem(ctx context.Context, itemID, orga
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	item, err := txq.CancelPaymentPlanItem(ctx, sqlc.CancelPaymentPlanItemParams{ID: iid, OrganizationID: orgID})
+	item, err := txq.CancelPaymentPlanItem(ctx, sqlc.CancelPaymentPlanItemParams{ID: iid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ErrNotFound
@@ -397,8 +402,7 @@ func (s *ProjectService) CreateCollection(ctx context.Context, projectID, organi
 		if err != nil {
 			return nil, errors.New("geçersiz ödeme planı kalemi")
 		}
-		item, err := txq.GetPaymentPlanItem(ctx, sqlc.GetPaymentPlanItemParams{ID: iid, OrganizationID: orgID})
-		if err != nil || item.ProjectID.String() != pid.String() {
+		if _, err := txq.GetPaymentPlanItem(ctx, sqlc.GetPaymentPlanItemParams{ID: iid, OrganizationID: orgID, ProjectID: pid}); err != nil {
 			return nil, errors.New("geçersiz ödeme planı kalemi")
 		}
 		planItemID = iid
@@ -470,12 +474,15 @@ func (s *ProjectService) ListCollections(ctx context.Context, projectID, organiz
 
 // VoidCollection, tahsilatı SİLMEZ -- muhasebesel iz korunur, kayıt
 // yalnızca aggregate'lerden düşer.
-func (s *ProjectService) VoidCollection(ctx context.Context, collectionID, organizationID, userID, reason string) (*domain.Collection, error) {
-	cid, err := repository.StringToUUID(collectionID)
+// projectID, URL'deki proje kimliğidir -- collectionID'nin GERÇEKTEN bu
+// projeye ait olduğunu sorgu seviyesinde doğrular (bkz. IDOR denetim
+// bulgusu).
+func (s *ProjectService) VoidCollection(ctx context.Context, projectID, collectionID, organizationID, userID, reason string) (*domain.Collection, error) {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, err
 	}
-	orgID, err := repository.StringToUUID(organizationID)
+	cid, err := repository.StringToUUID(collectionID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -488,14 +495,14 @@ func (s *ProjectService) VoidCollection(ctx context.Context, collectionID, organ
 	txq := s.q.WithTx(tx)
 
 	row, err := txq.VoidCollection(ctx, sqlc.VoidCollectionParams{
-		ID: cid, OrganizationID: orgID, VoidedBy: actorUUID(userID), VoidReason: strings.TrimSpace(reason),
+		ID: cid, OrganizationID: orgID, VoidedBy: actorUUID(userID), VoidReason: strings.TrimSpace(reason), ProjectID: pid,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// Yok/başka firmaya ait ile ZATEN iptal edilmiş ayrı hatalardır
-			// (biri 404, diğeri 409 olmalı) -- ayrım için voided_at
-			// filtresi OLMADAN tekrar okunur.
-			if existing, gerr := txq.GetCollection(ctx, sqlc.GetCollectionParams{ID: cid, OrganizationID: orgID}); gerr == nil && existing.VoidedAt.Valid {
+			// Yok/başka firmaya ya da başka projeye ait ile ZATEN iptal
+			// edilmiş ayrı hatalardır (biri 404, diğeri 409 olmalı) --
+			// ayrım için voided_at filtresi OLMADAN tekrar okunur.
+			if existing, gerr := txq.GetCollection(ctx, sqlc.GetCollectionParams{ID: cid, OrganizationID: orgID, ProjectID: pid}); gerr == nil && existing.VoidedAt.Valid {
 				return nil, ErrAlreadyVoided
 			}
 			return nil, domain.ErrNotFound
@@ -644,12 +651,15 @@ func (s *ProjectService) ListExpenses(ctx context.Context, projectID, organizati
 	return out, nil
 }
 
-func (s *ProjectService) UpdateExpense(ctx context.Context, expenseID, organizationID string, in ExpenseInput) (*domain.Expense, error) {
-	eid, err := repository.StringToUUID(expenseID)
+// projectID, URL'deki proje kimliğidir -- expenseID'nin GERÇEKTEN bu
+// projeye ait olduğunu sorgu seviyesinde doğrular (bkz. IDOR denetim
+// bulgusu).
+func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID, organizationID string, in ExpenseInput) (*domain.Expense, error) {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, err
 	}
-	orgID, err := repository.StringToUUID(organizationID)
+	eid, err := repository.StringToUUID(expenseID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -677,6 +687,7 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, expenseID, organizat
 		SupplierName:   strings.TrimSpace(in.SupplierName),
 		InvoiceNo:      strings.TrimSpace(in.InvoiceNo),
 		Notes:          strings.TrimSpace(in.Notes),
+		ProjectID:      pid,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -695,12 +706,15 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, expenseID, organizat
 	return &out, nil
 }
 
-func (s *ProjectService) VoidExpense(ctx context.Context, expenseID, organizationID, userID, reason string) (*domain.Expense, error) {
-	eid, err := repository.StringToUUID(expenseID)
+// projectID, URL'deki proje kimliğidir -- expenseID'nin GERÇEKTEN bu
+// projeye ait olduğunu sorgu seviyesinde doğrular (bkz. IDOR denetim
+// bulgusu).
+func (s *ProjectService) VoidExpense(ctx context.Context, projectID, expenseID, organizationID, userID, reason string) (*domain.Expense, error) {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, err
 	}
-	orgID, err := repository.StringToUUID(organizationID)
+	eid, err := repository.StringToUUID(expenseID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -713,11 +727,11 @@ func (s *ProjectService) VoidExpense(ctx context.Context, expenseID, organizatio
 	txq := s.q.WithTx(tx)
 
 	row, err := txq.VoidExpense(ctx, sqlc.VoidExpenseParams{
-		ID: eid, OrganizationID: orgID, VoidedBy: actorUUID(userID), VoidReason: strings.TrimSpace(reason),
+		ID: eid, OrganizationID: orgID, VoidedBy: actorUUID(userID), VoidReason: strings.TrimSpace(reason), ProjectID: pid,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			if existing, gerr := txq.GetExpense(ctx, sqlc.GetExpenseParams{ID: eid, OrganizationID: orgID}); gerr == nil && existing.VoidedAt.Valid {
+			if existing, gerr := txq.GetExpense(ctx, sqlc.GetExpenseParams{ID: eid, OrganizationID: orgID, ProjectID: pid}); gerr == nil && existing.VoidedAt.Valid {
 				return nil, ErrAlreadyVoided
 			}
 			return nil, domain.ErrNotFound
@@ -841,12 +855,15 @@ func (s *ProjectService) ListInvoices(ctx context.Context, projectID, organizati
 	return out, nil
 }
 
-func (s *ProjectService) UpdateInvoiceStatus(ctx context.Context, invoiceID, organizationID, status, userID string) (*domain.ProjectInvoice, error) {
-	iid, err := repository.StringToUUID(invoiceID)
+// projectID, URL'deki proje kimliğidir -- invoiceID'nin GERÇEKTEN bu
+// projeye ait olduğunu sorgu seviyesinde doğrular (bkz. IDOR denetim
+// bulgusu).
+func (s *ProjectService) UpdateInvoiceStatus(ctx context.Context, projectID, invoiceID, organizationID, status, userID string) (*domain.ProjectInvoice, error) {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, err
 	}
-	orgID, err := repository.StringToUUID(organizationID)
+	iid, err := repository.StringToUUID(invoiceID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -862,7 +879,7 @@ func (s *ProjectService) UpdateInvoiceStatus(ctx context.Context, invoiceID, org
 	txq := s.q.WithTx(tx)
 
 	row, err := txq.UpdateInvoiceStatus(ctx, sqlc.UpdateInvoiceStatusParams{
-		ID: iid, OrganizationID: orgID, Status: status,
+		ID: iid, OrganizationID: orgID, Status: status, ProjectID: pid,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -993,12 +1010,15 @@ func (s *ProjectService) ListSubcontractors(ctx context.Context, projectID, orga
 	return out, nil
 }
 
-func (s *ProjectService) UpdateSubcontractor(ctx context.Context, subcontractorID, organizationID string, in SubcontractorInput) (*domain.Subcontractor, error) {
-	sid, err := repository.StringToUUID(subcontractorID)
+// projectID, URL'deki proje kimliğidir -- subcontractorID'nin GERÇEKTEN
+// bu projeye ait olduğunu sorgu seviyesinde doğrular (bkz. IDOR denetim
+// bulgusu).
+func (s *ProjectService) UpdateSubcontractor(ctx context.Context, projectID, subcontractorID, organizationID string, in SubcontractorInput) (*domain.Subcontractor, error) {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, err
 	}
-	orgID, err := repository.StringToUUID(organizationID)
+	sid, err := repository.StringToUUID(subcontractorID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -1033,6 +1053,7 @@ func (s *ProjectService) UpdateSubcontractor(ctx context.Context, subcontractorI
 		EndDate:         repository.TimePtrToDate(in.EndDate),
 		Status:          status,
 		Notes:           strings.TrimSpace(in.Notes),
+		ProjectID:       pid,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1062,12 +1083,16 @@ type SubcontractorPaymentInput struct {
 	UserID         string
 }
 
-func (s *ProjectService) CreateSubcontractorPayment(ctx context.Context, subcontractorID, organizationID string, in SubcontractorPaymentInput) (*domain.SubcontractorPayment, error) {
-	sid, err := repository.StringToUUID(subcontractorID)
+// projectID, URL'deki proje kimliğidir -- subcontractorID'nin GERÇEKTEN
+// bu projeye ait olduğunu sorgu seviyesinde doğrular: aksi halde Proje
+// A'ya yetkili biri, Proje B'nin taşeron UUID'sini bilerek Proje A
+// URL'si üzerinden ona ödeme kaydedebilirdi (bkz. IDOR denetim bulgusu).
+func (s *ProjectService) CreateSubcontractorPayment(ctx context.Context, projectID, subcontractorID, organizationID string, in SubcontractorPaymentInput) (*domain.SubcontractorPayment, error) {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, err
 	}
-	orgID, err := repository.StringToUUID(organizationID)
+	sid, err := repository.StringToUUID(subcontractorID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -1079,8 +1104,9 @@ func (s *ProjectService) CreateSubcontractorPayment(ctx context.Context, subcont
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	// Taşeron org-scope'lu okunur; projesi de aynı org'a ait olmalı.
-	sub, err := txq.GetSubcontractor(ctx, sqlc.GetSubcontractorParams{ID: sid, OrganizationID: orgID})
+	// Taşeron org-scope'lu VE project-scope'lu okunur: URL'deki projeye
+	// gerçekten ait olduğu doğrulanmadan hiçbir ödeme kaydedilmez.
+	sub, err := txq.GetSubcontractor(ctx, sqlc.GetSubcontractorParams{ID: sid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -1169,12 +1195,15 @@ func (s *ProjectService) ListSubcontractorPayments(ctx context.Context, projectI
 	return out, nil
 }
 
-func (s *ProjectService) VoidSubcontractorPayment(ctx context.Context, paymentID, organizationID, userID, reason string) (*domain.SubcontractorPayment, error) {
-	pid, err := repository.StringToUUID(paymentID)
+// projectID, URL'deki proje kimliğidir -- paymentID'nin GERÇEKTEN bu
+// projeye ait olduğunu sorgu seviyesinde doğrular (bkz. IDOR denetim
+// bulgusu).
+func (s *ProjectService) VoidSubcontractorPayment(ctx context.Context, projectID, paymentID, organizationID, userID, reason string) (*domain.SubcontractorPayment, error) {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, err
 	}
-	orgID, err := repository.StringToUUID(organizationID)
+	payID, err := repository.StringToUUID(paymentID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -1187,11 +1216,11 @@ func (s *ProjectService) VoidSubcontractorPayment(ctx context.Context, paymentID
 	txq := s.q.WithTx(tx)
 
 	row, err := txq.VoidSubcontractorPayment(ctx, sqlc.VoidSubcontractorPaymentParams{
-		ID: pid, OrganizationID: orgID, VoidedBy: actorUUID(userID), VoidReason: strings.TrimSpace(reason),
+		ID: payID, OrganizationID: orgID, VoidedBy: actorUUID(userID), VoidReason: strings.TrimSpace(reason), ProjectID: pid,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			if existing, gerr := txq.GetSubcontractorPayment(ctx, sqlc.GetSubcontractorPaymentParams{ID: pid, OrganizationID: orgID}); gerr == nil && existing.VoidedAt.Valid {
+			if existing, gerr := txq.GetSubcontractorPayment(ctx, sqlc.GetSubcontractorPaymentParams{ID: payID, OrganizationID: orgID, ProjectID: pid}); gerr == nil && existing.VoidedAt.Valid {
 				return nil, ErrAlreadyVoided
 			}
 			return nil, domain.ErrNotFound

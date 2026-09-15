@@ -293,6 +293,13 @@ type ProjectListFilter struct {
 	Search      string
 	Page        int
 	Limit       int
+	// RestrictToUserID, RBAC/Project Membership sprint'i: dolu ise (yalnızca
+	// project_manager/finance/field -- owner/admin/legacy_user için handler
+	// katmanında HER ZAMAN boş bırakılır, bkz. domain.RoleBypassesProject
+	// Membership), yalnızca bu kullanıcının project_users'ta üye olduğu
+	// projeler döner. Sorgu/repository seviyesinde (EXISTS alt sorgusu)
+	// uygulanır -- N+1/fetch-all-then-filter YOKTUR.
+	RestrictToUserID string
 }
 
 type ProjectListResult struct {
@@ -336,29 +343,37 @@ func (s *ProjectService) List(ctx context.Context, organizationID string, f Proj
 			customerID = cid
 		}
 	}
+	var restrictToUserID pgtype.UUID
+	if f.RestrictToUserID != "" {
+		if uid, err := repository.StringToUUID(f.RestrictToUserID); err == nil {
+			restrictToUserID = uid
+		}
+	}
 
 	rows, err := s.q.ListProjects(ctx, sqlc.ListProjectsParams{
-		OrganizationID: orgID,
-		Status:         status,
-		CustomerID:     customerID,
-		ProjectType:    projectType,
-		Currency:       currency,
-		StartFrom:      repository.TimePtrToDate(f.StartFrom),
-		Search:         search,
-		Limit:          int32(limit),
-		Offset:         int32((page - 1) * limit),
+		OrganizationID:   orgID,
+		Status:           status,
+		CustomerID:       customerID,
+		ProjectType:      projectType,
+		Currency:         currency,
+		StartFrom:        repository.TimePtrToDate(f.StartFrom),
+		Search:           search,
+		Limit:            int32(limit),
+		Offset:           int32((page - 1) * limit),
+		RestrictToUserID: restrictToUserID,
 	})
 	if err != nil {
 		return nil, err
 	}
 	total, err := s.q.CountProjects(ctx, sqlc.CountProjectsParams{
-		OrganizationID: orgID,
-		Status:         status,
-		CustomerID:     customerID,
-		ProjectType:    projectType,
-		Currency:       currency,
-		StartFrom:      repository.TimePtrToDate(f.StartFrom),
-		Search:         search,
+		OrganizationID:   orgID,
+		Status:           status,
+		CustomerID:       customerID,
+		ProjectType:      projectType,
+		Currency:         currency,
+		StartFrom:        repository.TimePtrToDate(f.StartFrom),
+		Search:           search,
+		RestrictToUserID: restrictToUserID,
 	})
 	if err != nil {
 		return nil, err

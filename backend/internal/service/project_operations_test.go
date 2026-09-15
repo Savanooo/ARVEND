@@ -164,7 +164,7 @@ func TestProjectOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("atama: %v", err)
 		}
-		if _, err := projectSvc.EndMembership(ctx, m1.ID, orgA.ID, "", nil); err != nil {
+		if _, err := projectSvc.EndMembership(ctx, p.ID, m1.ID, orgA.ID, "", nil); err != nil {
 			t.Fatalf("çıkarma: %v", err)
 		}
 		// Çıkarıldıktan sonra yeniden atanabilmeli (kısmi unique indeks
@@ -212,7 +212,7 @@ func TestProjectOperations(t *testing.T) {
 			t.Errorf("yeni görevde completed_at dolu")
 		}
 
-		done, err := projectSvc.CompleteTask(ctx, task.ID, orgA.ID, "")
+		done, err := projectSvc.CompleteTask(ctx, p.ID, task.ID, orgA.ID, "")
 		if err != nil {
 			t.Fatalf("tamamlama: %v", err)
 		}
@@ -239,7 +239,7 @@ func TestProjectOperations(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				results[i], _ = projectSvc.CompleteTask(ctx, task.ID, orgA.ID, "")
+				results[i], _ = projectSvc.CompleteTask(ctx, p.ID, task.ID, orgA.ID, "")
 			}(i)
 		}
 		wg.Wait()
@@ -312,7 +312,7 @@ func TestProjectOperations(t *testing.T) {
 			t.Errorf("nesne anahtarı kullanıcı girdisinden türetilmiş: %q", f.ObjectKey)
 		}
 
-		_, rc, err := projectSvc.OpenFile(ctx, f.ID, orgA.ID)
+		_, rc, err := projectSvc.OpenFile(ctx, p.ID, f.ID, orgA.ID)
 		if err != nil {
 			t.Fatalf("indirme: %v", err)
 		}
@@ -340,7 +340,7 @@ func TestProjectOperations(t *testing.T) {
 			t.Fatalf("yükleme: %v", err)
 		}
 		// Firma B dosya UUID'sini bilse bile TEK BAYT okuyamamalı.
-		if _, _, err := projectSvc.OpenFile(ctx, f.ID, orgB.ID); !errors.Is(err, domain.ErrNotFound) {
+		if _, _, err := projectSvc.OpenFile(ctx, p.ID, f.ID, orgB.ID); !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("başka firmanın dosyası indirilebildi: err=%v", err)
 		}
 		if rows, _ := projectSvc.ListFiles(ctx, p.ID, orgB.ID); len(rows) != 0 {
@@ -420,7 +420,7 @@ func TestProjectOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("görev: %v", err)
 		}
-		if _, err := projectSvc.CompleteTask(ctx, done.ID, orgA.ID, ""); err != nil {
+		if _, err := projectSvc.CompleteTask(ctx, p.ID, done.ID, orgA.ID, ""); err != nil {
 			t.Fatalf("tamamlama: %v", err)
 		}
 
@@ -468,7 +468,7 @@ func TestProjectOperations(t *testing.T) {
 		task, _ := projectSvc.CreateTask(ctx, p.ID, orgA.ID, service.TaskInput{
 			Title: "Görev", ScheduleItemID: &item.ID, AssignedEmployeeID: &emp.ID,
 		})
-		if _, err := projectSvc.CompleteTask(ctx, task.ID, orgA.ID, ""); err != nil {
+		if _, err := projectSvc.CompleteTask(ctx, p.ID, task.ID, orgA.ID, ""); err != nil {
 			t.Fatalf("tamamlama: %v", err)
 		}
 		if _, err := projectSvc.UploadFile(ctx, p.ID, orgA.ID, service.UploadInput{
@@ -557,6 +557,78 @@ func TestProjectOperations(t *testing.T) {
 		sB, _ := projectSvc.OperationsSummary(ctx, p.ID, orgB.ID)
 		if sB.ActiveMemberCount != 0 || sB.TotalTaskCount != 0 {
 			t.Errorf("özet başka firmaya veri sızdırdı: %+v", sB)
+		}
+	})
+
+	// RBAC/Project Membership sprint'inin child-resource IDOR sıkılaştırması
+	// (bkz. migration 0034 öncesi denetim): AYNI organizasyon içinde bile,
+	// Proje A'nın URL'si üzerinden Proje B'ye ait bir görev/dosya/fotoğraf/
+	// ekip üyesi/aşama UUID'si verilse, işlem BAŞARISIZ olmalı (404) --
+	// yalnızca organization_id eşleşmesi yeterli DEĞİLDİR, project_id de
+	// eşleşmelidir.
+	t.Run("18_cross_project_child_resource_idor_blocked", func(t *testing.T) {
+		pA := newProject(t, orgA.ID)
+		pB := newProject(t, orgA.ID) // AYNI organizasyon, FARKLI proje.
+		emp := newEmployee(t, orgA.ID, "IDOR Testi")
+
+		mB, err := projectSvc.AssignMember(ctx, pB.ID, orgA.ID, service.ProjectMemberInput{EmployeeID: emp.ID})
+		if err != nil {
+			t.Fatalf("B'ye atama: %v", err)
+		}
+		itemB, err := projectSvc.CreateScheduleItem(ctx, pB.ID, orgA.ID, service.ScheduleItemInput{Name: "B Aşaması"})
+		if err != nil {
+			t.Fatalf("B aşaması: %v", err)
+		}
+		taskB, err := projectSvc.CreateTask(ctx, pB.ID, orgA.ID, service.TaskInput{Title: "B Görevi"})
+		if err != nil {
+			t.Fatalf("B görevi: %v", err)
+		}
+		fileB, err := projectSvc.UploadFile(ctx, pB.ID, orgA.ID, service.UploadInput{
+			OriginalName: "b-dosyasi.pdf", Reader: strings.NewReader("%PDF-1.4\nB\n"),
+		})
+		if err != nil {
+			t.Fatalf("B dosyası: %v", err)
+		}
+		png := append([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}, make([]byte, 32)...)
+		photoB, err := projectSvc.UploadPhoto(ctx, pB.ID, orgA.ID, service.UploadInput{
+			OriginalName: "b-foto.png", Reader: strings.NewReader(string(png)),
+		})
+		if err != nil {
+			t.Fatalf("B fotoğrafı: %v", err)
+		}
+
+		// Proje A'ya yetkili biri, Proje A URL'si üzerinden Proje B'nin
+		// kayıtlarına ASLA ulaşamamalı -- ne okuma ne yazma.
+		if _, err := projectSvc.EndMembership(ctx, pA.ID, mB.ID, orgA.ID, "", nil); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin ekip üyesi sonlandırılabildi: err=%v", err)
+		}
+		if _, err := projectSvc.UpdateScheduleItem(ctx, pA.ID, itemB.ID, orgA.ID, service.ScheduleItemInput{Name: "X", Status: domain.ScheduleStatusPlanned}); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin aşaması güncellenebildi: err=%v", err)
+		}
+		if _, err := projectSvc.UpdateTask(ctx, pA.ID, taskB.ID, orgA.ID, service.TaskInput{Title: "X", Status: domain.TaskStatusTodo, Priority: domain.TaskPriorityNormal}); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin görevi güncellenebildi: err=%v", err)
+		}
+		if _, err := projectSvc.CompleteTask(ctx, pA.ID, taskB.ID, orgA.ID, ""); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin görevi tamamlanabildi: err=%v", err)
+		}
+		if _, _, err := projectSvc.OpenFile(ctx, pA.ID, fileB.ID, orgA.ID); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin dosyası indirilebildi: err=%v", err)
+		}
+		if err := projectSvc.DeleteFile(ctx, pA.ID, fileB.ID, orgA.ID, ""); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin dosyası silinebildi: err=%v", err)
+		}
+		if _, _, err := projectSvc.OpenPhoto(ctx, pA.ID, photoB.ID, orgA.ID); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin fotoğrafı indirilebildi: err=%v", err)
+		}
+		if err := projectSvc.DeletePhoto(ctx, pA.ID, photoB.ID, orgA.ID, ""); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin fotoğrafı silinebildi: err=%v", err)
+		}
+
+		// Doğru proje id'siyle (pB) AYNI işlemler başarılı olmalı --
+		// düzeltmenin aşırı-kısıtlayıcı olmadığını (false positive
+		// üretmediğini) doğrular.
+		if _, err := projectSvc.UpdateTask(ctx, pB.ID, taskB.ID, orgA.ID, service.TaskInput{Title: "Y", Status: domain.TaskStatusTodo, Priority: domain.TaskPriorityNormal}); err != nil {
+			t.Errorf("doğru proje id'siyle görev güncellenemedi: %v", err)
 		}
 	})
 }

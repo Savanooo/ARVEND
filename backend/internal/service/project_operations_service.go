@@ -179,12 +179,15 @@ func (s *ProjectService) ListMembers(ctx context.Context, projectID, organizatio
 }
 
 // EndMembership, üyeyi ekipten çıkarır (kaydı silmez, bitiş tarihi yazar).
-func (s *ProjectService) EndMembership(ctx context.Context, memberID, organizationID, userID string, endDate *time.Time) (*domain.ProjectMember, error) {
-	mid, err := repository.StringToUUID(memberID)
+// projectID, URL'deki proje kimliğidir -- memberID'nin GERÇEKTEN bu
+// projeye ait olduğunu sorgu seviyesinde doğrular (bkz. IDOR denetim
+// bulgusu, project_operations.sql GetProjectMember notu).
+func (s *ProjectService) EndMembership(ctx context.Context, projectID, memberID, organizationID, userID string, endDate *time.Time) (*domain.ProjectMember, error) {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, err
 	}
-	orgID, err := repository.StringToUUID(organizationID)
+	mid, err := repository.StringToUUID(memberID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -201,7 +204,7 @@ func (s *ProjectService) EndMembership(ctx context.Context, memberID, organizati
 	txq := s.q.WithTx(tx)
 
 	row, err := txq.EndProjectMembership(ctx, sqlc.EndProjectMembershipParams{
-		ID: mid, OrganizationID: orgID, EndDate: repository.TimeToDate(end),
+		ID: mid, OrganizationID: orgID, EndDate: repository.TimeToDate(end), ProjectID: pid,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -315,12 +318,14 @@ func (s *ProjectService) ListScheduleItems(ctx context.Context, projectID, organ
 	return out, nil
 }
 
-func (s *ProjectService) UpdateScheduleItem(ctx context.Context, itemID, organizationID string, in ScheduleItemInput) (*domain.ScheduleItem, error) {
-	iid, err := repository.StringToUUID(itemID)
+// projectID, URL'deki proje kimliğidir -- itemID'nin GERÇEKTEN bu projeye
+// ait olduğunu sorgu seviyesinde doğrular (bkz. IDOR denetim bulgusu).
+func (s *ProjectService) UpdateScheduleItem(ctx context.Context, projectID, itemID, organizationID string, in ScheduleItemInput) (*domain.ScheduleItem, error) {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, err
 	}
-	orgID, err := repository.StringToUUID(organizationID)
+	iid, err := repository.StringToUUID(itemID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -339,7 +344,7 @@ func (s *ProjectService) UpdateScheduleItem(ctx context.Context, itemID, organiz
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	current, err := txq.GetScheduleItem(ctx, sqlc.GetScheduleItemParams{ID: iid, OrganizationID: orgID})
+	current, err := txq.GetScheduleItem(ctx, sqlc.GetScheduleItemParams{ID: iid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -356,6 +361,7 @@ func (s *ProjectService) UpdateScheduleItem(ctx context.Context, itemID, organiz
 		EndDate:        repository.TimePtrToDate(in.EndDate),
 		Status:         in.Status,
 		SortOrder:      int32(in.SortOrder),
+		ProjectID:      pid,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -404,8 +410,7 @@ func (s *ProjectService) resolveTaskRelations(ctx context.Context, txq *sqlc.Que
 		if err != nil {
 			return scheduleID, employeeID, "", ErrInvalidSchedule
 		}
-		item, err := txq.GetScheduleItem(ctx, sqlc.GetScheduleItemParams{ID: sid, OrganizationID: orgID})
-		if err != nil || item.ProjectID.String() != pid.String() {
+		if _, err := txq.GetScheduleItem(ctx, sqlc.GetScheduleItemParams{ID: sid, OrganizationID: orgID, ProjectID: pid}); err != nil {
 			return scheduleID, employeeID, "", ErrInvalidSchedule
 		}
 		scheduleID = sid
@@ -519,12 +524,14 @@ func (s *ProjectService) ListTasks(ctx context.Context, projectID, organizationI
 	return out, nil
 }
 
-func (s *ProjectService) UpdateTask(ctx context.Context, taskID, organizationID string, in TaskInput) (*domain.ProjectTask, error) {
-	tid, err := repository.StringToUUID(taskID)
+// projectID, URL'deki proje kimliğidir -- taskID'nin GERÇEKTEN bu projeye
+// ait olduğunu sorgu seviyesinde doğrular (bkz. IDOR denetim bulgusu).
+func (s *ProjectService) UpdateTask(ctx context.Context, projectID, taskID, organizationID string, in TaskInput) (*domain.ProjectTask, error) {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, err
 	}
-	orgID, err := repository.StringToUUID(organizationID)
+	tid, err := repository.StringToUUID(taskID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -549,7 +556,7 @@ func (s *ProjectService) UpdateTask(ctx context.Context, taskID, organizationID 
 	// KİLİT ALTINDA okunur: aksi halde iki eşzamanlı "durumu completed
 	// yap" isteği ikisi de aynı eski (completed öncesi) satırı görüp İKİ
 	// kez task_completed olayı yazabilirdi (bkz. denetim bulgusu).
-	current, err := txq.GetTaskForUpdate(ctx, sqlc.GetTaskForUpdateParams{ID: tid, OrganizationID: orgID})
+	current, err := txq.GetTaskForUpdate(ctx, sqlc.GetTaskForUpdateParams{ID: tid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -572,6 +579,7 @@ func (s *ProjectService) UpdateTask(ctx context.Context, taskID, organizationID 
 		Priority:           in.Priority,
 		Status:             in.Status,
 		DueDate:            repository.TimePtrToDate(in.DueDate),
+		ProjectID:          pid,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -605,12 +613,14 @@ func (s *ProjectService) UpdateTask(ctx context.Context, taskID, organizationID 
 // CompleteTask, görevi tamamlar. Eşzamanlı iki "tamamla" isteğinde
 // yalnızca biri satır döndürür (SQL'deki status <> 'completed' koşulu);
 // diğeri mevcut kaydı döner, ikinci bir completed olayı YAZILMAZ.
-func (s *ProjectService) CompleteTask(ctx context.Context, taskID, organizationID, userID string) (*domain.ProjectTask, error) {
-	tid, err := repository.StringToUUID(taskID)
+// projectID, URL'deki proje kimliğidir -- taskID'nin GERÇEKTEN bu projeye
+// ait olduğunu sorgu seviyesinde doğrular (bkz. IDOR denetim bulgusu).
+func (s *ProjectService) CompleteTask(ctx context.Context, projectID, taskID, organizationID, userID string) (*domain.ProjectTask, error) {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, err
 	}
-	orgID, err := repository.StringToUUID(organizationID)
+	tid, err := repository.StringToUUID(taskID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -622,19 +632,19 @@ func (s *ProjectService) CompleteTask(ctx context.Context, taskID, organizationI
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	row, err := txq.CompleteTask(ctx, sqlc.CompleteTaskParams{ID: tid, OrganizationID: orgID})
+	row, err := txq.CompleteTask(ctx, sqlc.CompleteTaskParams{ID: tid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// Ya yok/başka firmaya ait ya da zaten tamamlanmış: ikinci
-			// durumda mevcut kaydı döndürüp idempotent davranıyoruz. AYNI
-			// transaction/bağlantı (txq) üzerinden okunur -- s.q (havuz)
-			// kullanmak her tekrarlı "tamamla" isteğinde FAZLADAN bir
-			// havuz bağlantısı tüketip yüksek eşzamanlılıkta havuzu
-			// tüketebilirdi (bkz. denetim bulgusu). Buradaki
-			// CompleteTask'ın kendisi bir hata DÖNDÜRMEDİĞİ (yalnızca 0
-			// satır etkilediği) için transaction "aborted" durumda
-			// DEĞİLDİR; aynı tx üzerinden okumak güvenlidir.
-			existing, gerr := txq.GetTask(ctx, sqlc.GetTaskParams{ID: tid, OrganizationID: orgID})
+			// Ya yok/başka firmaya ait/başka projeye ait ya da zaten
+			// tamamlanmış: ikinci durumda mevcut kaydı döndürüp idempotent
+			// davranıyoruz. AYNI transaction/bağlantı (txq) üzerinden
+			// okunur -- s.q (havuz) kullanmak her tekrarlı "tamamla"
+			// isteğinde FAZLADAN bir havuz bağlantısı tüketip yüksek
+			// eşzamanlılıkta havuzu tüketebilirdi (bkz. denetim bulgusu).
+			// Buradaki CompleteTask'ın kendisi bir hata DÖNDÜRMEDİĞİ
+			// (yalnızca 0 satır etkilediği) için transaction "aborted"
+			// durumda DEĞİLDİR; aynı tx üzerinden okumak güvenlidir.
+			existing, gerr := txq.GetTask(ctx, sqlc.GetTaskParams{ID: tid, OrganizationID: orgID, ProjectID: pid})
 			if gerr != nil {
 				return nil, domain.ErrNotFound
 			}
@@ -805,19 +815,20 @@ func (s *ProjectService) ListFiles(ctx context.Context, projectID, organizationI
 	return out, nil
 }
 
-// OpenFile, indirme için dosyayı açar. Kayıt YALNIZCA organization_id
-// eşleşirse bulunur; başka bir firmanın dosya UUID'si bilinse bile
-// buradan tek bayt okunamaz.
-func (s *ProjectService) OpenFile(ctx context.Context, fileID, organizationID string) (*domain.ProjectFile, io.ReadCloser, error) {
+// OpenFile, indirme için dosyayı açar. Kayıt YALNIZCA organization_id VE
+// project_id eşleşirse bulunur; başka bir firmanın ya da AYNI
+// organizasyondaki başka bir projenin dosya UUID'si bilinse bile buradan
+// tek bayt okunamaz (bkz. IDOR denetim bulgusu).
+func (s *ProjectService) OpenFile(ctx context.Context, projectID, fileID, organizationID string) (*domain.ProjectFile, io.ReadCloser, error) {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
+	if err != nil {
+		return nil, nil, err
+	}
 	fid, err := repository.StringToUUID(fileID)
 	if err != nil {
 		return nil, nil, domain.ErrNotFound
 	}
-	orgID, err := repository.StringToUUID(organizationID)
-	if err != nil {
-		return nil, nil, domain.ErrNotFound
-	}
-	row, err := s.q.GetProjectFile(ctx, sqlc.GetProjectFileParams{ID: fid, OrganizationID: orgID})
+	row, err := s.q.GetProjectFile(ctx, sqlc.GetProjectFileParams{ID: fid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil, domain.ErrNotFound
@@ -832,12 +843,12 @@ func (s *ProjectService) OpenFile(ctx context.Context, fileID, organizationID st
 	return &out, rc, nil
 }
 
-func (s *ProjectService) DeleteFile(ctx context.Context, fileID, organizationID, userID string) error {
-	fid, err := repository.StringToUUID(fileID)
+func (s *ProjectService) DeleteFile(ctx context.Context, projectID, fileID, organizationID, userID string) error {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
-		return domain.ErrNotFound
+		return err
 	}
-	orgID, err := repository.StringToUUID(organizationID)
+	fid, err := repository.StringToUUID(fileID)
 	if err != nil {
 		return domain.ErrNotFound
 	}
@@ -850,7 +861,7 @@ func (s *ProjectService) DeleteFile(ctx context.Context, fileID, organizationID,
 	txq := s.q.WithTx(tx)
 
 	row, err := txq.SoftDeleteProjectFile(ctx, sqlc.SoftDeleteProjectFileParams{
-		ID: fid, OrganizationID: orgID, DeletedBy: actorUUID(userID),
+		ID: fid, OrganizationID: orgID, DeletedBy: actorUUID(userID), ProjectID: pid,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -960,16 +971,18 @@ func (s *ProjectService) ListPhotos(ctx context.Context, projectID, organization
 	return out, nil
 }
 
-func (s *ProjectService) OpenPhoto(ctx context.Context, photoID, organizationID string) (*domain.ProjectPhoto, io.ReadCloser, error) {
-	pid, err := repository.StringToUUID(photoID)
+// projectID, URL'deki proje kimliğidir -- photoID'nin GERÇEKTEN bu
+// projeye ait olduğunu sorgu seviyesinde doğrular (bkz. OpenFile notu).
+func (s *ProjectService) OpenPhoto(ctx context.Context, projectID, photoID, organizationID string) (*domain.ProjectPhoto, io.ReadCloser, error) {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
+	if err != nil {
+		return nil, nil, err
+	}
+	phid, err := repository.StringToUUID(photoID)
 	if err != nil {
 		return nil, nil, domain.ErrNotFound
 	}
-	orgID, err := repository.StringToUUID(organizationID)
-	if err != nil {
-		return nil, nil, domain.ErrNotFound
-	}
-	row, err := s.q.GetProjectPhoto(ctx, sqlc.GetProjectPhotoParams{ID: pid, OrganizationID: orgID})
+	row, err := s.q.GetProjectPhoto(ctx, sqlc.GetProjectPhotoParams{ID: phid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil, domain.ErrNotFound
@@ -984,12 +997,12 @@ func (s *ProjectService) OpenPhoto(ctx context.Context, photoID, organizationID 
 	return &out, rc, nil
 }
 
-func (s *ProjectService) DeletePhoto(ctx context.Context, photoID, organizationID, userID string) error {
-	pid, err := repository.StringToUUID(photoID)
+func (s *ProjectService) DeletePhoto(ctx context.Context, projectID, photoID, organizationID, userID string) error {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
-		return domain.ErrNotFound
+		return err
 	}
-	orgID, err := repository.StringToUUID(organizationID)
+	phid, err := repository.StringToUUID(photoID)
 	if err != nil {
 		return domain.ErrNotFound
 	}
@@ -1002,7 +1015,7 @@ func (s *ProjectService) DeletePhoto(ctx context.Context, photoID, organizationI
 	txq := s.q.WithTx(tx)
 
 	row, err := txq.SoftDeleteProjectPhoto(ctx, sqlc.SoftDeleteProjectPhotoParams{
-		ID: pid, OrganizationID: orgID, DeletedBy: actorUUID(userID),
+		ID: phid, OrganizationID: orgID, DeletedBy: actorUUID(userID), ProjectID: pid,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

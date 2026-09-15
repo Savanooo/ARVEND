@@ -13,17 +13,19 @@ import (
 
 const cancelPaymentPlanItem = `-- name: CancelPaymentPlanItem :one
 UPDATE project_payment_plan_items SET status = 'cancelled'
-WHERE id = $1 AND organization_id = $2 AND status <> 'cancelled'
+WHERE id = $1 AND organization_id = $2 AND status <> 'cancelled' AND project_id = $3
 RETURNING id, organization_id, project_id, sort_order, name, percentage, planned_amount, due_date, status, notes, created_by, created_at, updated_at
 `
 
 type CancelPaymentPlanItemParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 func (q *Queries) CancelPaymentPlanItem(ctx context.Context, arg CancelPaymentPlanItemParams) (ProjectPaymentPlanItem, error) {
-	row := q.db.QueryRow(ctx, cancelPaymentPlanItem, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, cancelPaymentPlanItem, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectPaymentPlanItem
 	err := row.Scan(
 		&i.ID,
@@ -452,19 +454,21 @@ func (q *Queries) CreateSubcontractorPayment(ctx context.Context, arg CreateSubc
 }
 
 const getCollection = `-- name: GetCollection :one
-SELECT id, organization_id, project_id, payment_plan_item_id, amount, currency, received_date, payment_method, description, reference_no, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason FROM project_collections WHERE id = $1 AND organization_id = $2
+SELECT id, organization_id, project_id, payment_plan_item_id, amount, currency, received_date, payment_method, description, reference_no, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason FROM project_collections WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type GetCollectionParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
 // GetCollection, void durumundan BAĞIMSIZ okur. VoidCollection'ın
 // "bulunamadı" ile "zaten iptal edilmiş" durumlarını ayırt etmesi için
 // kullanılır (bkz. denetim bulgusu: ikisi de yanlışlıkla 404 dönüyordu).
+// project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 func (q *Queries) GetCollection(ctx context.Context, arg GetCollectionParams) (ProjectCollection, error) {
-	row := q.db.QueryRow(ctx, getCollection, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, getCollection, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectCollection
 	err := row.Scan(
 		&i.ID,
@@ -524,17 +528,19 @@ func (q *Queries) GetCollectionByIdempotencyKey(ctx context.Context, arg GetColl
 }
 
 const getExpense = `-- name: GetExpense :one
-SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id FROM project_expenses WHERE id = $1 AND organization_id = $2
+SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id FROM project_expenses WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type GetExpenseParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
 // GetExpense, void durumundan BAĞIMSIZ okur (bkz. GetCollection notu).
+// project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 func (q *Queries) GetExpense(ctx context.Context, arg GetExpenseParams) (ProjectExpense, error) {
-	row := q.db.QueryRow(ctx, getExpense, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, getExpense, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectExpense
 	err := row.Scan(
 		&i.ID,
@@ -598,16 +604,18 @@ func (q *Queries) GetExpenseByIdempotencyKey(ctx context.Context, arg GetExpense
 }
 
 const getInvoice = `-- name: GetInvoice :one
-SELECT id, organization_id, project_id, invoice_no, invoice_type, invoice_date, due_date, amount, currency, status, customer_name, notes, created_by, created_at, updated_at FROM project_invoices WHERE id = $1 AND organization_id = $2
+SELECT id, organization_id, project_id, invoice_no, invoice_type, invoice_date, due_date, amount, currency, status, customer_name, notes, created_by, created_at, updated_at FROM project_invoices WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type GetInvoiceParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 func (q *Queries) GetInvoice(ctx context.Context, arg GetInvoiceParams) (ProjectInvoice, error) {
-	row := q.db.QueryRow(ctx, getInvoice, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, getInvoice, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectInvoice
 	err := row.Scan(
 		&i.ID,
@@ -630,16 +638,21 @@ func (q *Queries) GetInvoice(ctx context.Context, arg GetInvoiceParams) (Project
 }
 
 const getPaymentPlanItem = `-- name: GetPaymentPlanItem :one
-SELECT id, organization_id, project_id, sort_order, name, percentage, planned_amount, due_date, status, notes, created_by, created_at, updated_at FROM project_payment_plan_items WHERE id = $1 AND organization_id = $2
+SELECT id, organization_id, project_id, sort_order, name, percentage, planned_amount, due_date, status, notes, created_by, created_at, updated_at FROM project_payment_plan_items WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type GetPaymentPlanItemParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ: başka bir projenin kalem UUID'si, aynı organizasyon
+// içinde bile olsa buradan görüntülenemez (bkz. IDOR denetim bulgusu --
+// child-resource sorguları yalnızca organization_id ile değil, ebeveyn
+// project_id ile de sınırlanmalı).
 func (q *Queries) GetPaymentPlanItem(ctx context.Context, arg GetPaymentPlanItemParams) (ProjectPaymentPlanItem, error) {
-	row := q.db.QueryRow(ctx, getPaymentPlanItem, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, getPaymentPlanItem, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectPaymentPlanItem
 	err := row.Scan(
 		&i.ID,
@@ -866,16 +879,21 @@ func (q *Queries) GetProjectFinancialSummary(ctx context.Context, arg GetProject
 }
 
 const getSubcontractor = `-- name: GetSubcontractor :one
-SELECT id, organization_id, project_id, name, company_name, phone, email, work_description, contract_amount, currency, start_date, end_date, status, notes, created_by, created_at, updated_at, change_order_id FROM project_subcontractors WHERE id = $1 AND organization_id = $2
+SELECT id, organization_id, project_id, name, company_name, phone, email, work_description, contract_amount, currency, start_date, end_date, status, notes, created_by, created_at, updated_at, change_order_id FROM project_subcontractors WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type GetSubcontractorParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ: CreateSubcontractorPayment'ın taşeronu URL'deki
+// projeye ait olduğunu doğrulaması için (bkz. GetPaymentPlanItem notu --
+// aksi halde Proje A'ya yetkili biri, Proje B'nin taşeron UUID'sini
+// bilerek Proje A URL'si üzerinden ona ödeme kaydedebilirdi).
 func (q *Queries) GetSubcontractor(ctx context.Context, arg GetSubcontractorParams) (ProjectSubcontractor, error) {
-	row := q.db.QueryRow(ctx, getSubcontractor, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, getSubcontractor, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectSubcontractor
 	err := row.Scan(
 		&i.ID,
@@ -901,18 +919,19 @@ func (q *Queries) GetSubcontractor(ctx context.Context, arg GetSubcontractorPara
 }
 
 const getSubcontractorPayment = `-- name: GetSubcontractorPayment :one
-SELECT id, organization_id, project_id, subcontractor_id, amount, currency, paid_date, description, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason FROM project_subcontractor_payments WHERE id = $1 AND organization_id = $2
+SELECT id, organization_id, project_id, subcontractor_id, amount, currency, paid_date, description, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason FROM project_subcontractor_payments WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type GetSubcontractorPaymentParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
 // GetSubcontractorPayment, void durumundan BAĞIMSIZ okur (bkz.
-// GetCollection notu).
+// GetCollection notu). project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 func (q *Queries) GetSubcontractorPayment(ctx context.Context, arg GetSubcontractorPaymentParams) (ProjectSubcontractorPayment, error) {
-	row := q.db.QueryRow(ctx, getSubcontractorPayment, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, getSubcontractorPayment, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectSubcontractorPayment
 	err := row.Scan(
 		&i.ID,
@@ -1356,7 +1375,7 @@ const updateExpense = `-- name: UpdateExpense :one
 UPDATE project_expenses
 SET category = $3, description = $4, amount = $5, expense_date = $6,
     supplier_name = $7, invoice_no = $8, notes = $9
-WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL
+WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL AND project_id = $10
 RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id
 `
 
@@ -1370,8 +1389,10 @@ type UpdateExpenseParams struct {
 	SupplierName   string         `json:"supplier_name"`
 	InvoiceNo      string         `json:"invoice_no"`
 	Notes          string         `json:"notes"`
+	ProjectID      pgtype.UUID    `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 func (q *Queries) UpdateExpense(ctx context.Context, arg UpdateExpenseParams) (ProjectExpense, error) {
 	row := q.db.QueryRow(ctx, updateExpense,
 		arg.ID,
@@ -1383,6 +1404,7 @@ func (q *Queries) UpdateExpense(ctx context.Context, arg UpdateExpenseParams) (P
 		arg.SupplierName,
 		arg.InvoiceNo,
 		arg.Notes,
+		arg.ProjectID,
 	)
 	var i ProjectExpense
 	err := row.Scan(
@@ -1411,7 +1433,7 @@ func (q *Queries) UpdateExpense(ctx context.Context, arg UpdateExpenseParams) (P
 
 const updateInvoiceStatus = `-- name: UpdateInvoiceStatus :one
 UPDATE project_invoices SET status = $3
-WHERE id = $1 AND organization_id = $2
+WHERE id = $1 AND organization_id = $2 AND project_id = $4
 RETURNING id, organization_id, project_id, invoice_no, invoice_type, invoice_date, due_date, amount, currency, status, customer_name, notes, created_by, created_at, updated_at
 `
 
@@ -1419,10 +1441,17 @@ type UpdateInvoiceStatusParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
 	Status         string      `json:"status"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 func (q *Queries) UpdateInvoiceStatus(ctx context.Context, arg UpdateInvoiceStatusParams) (ProjectInvoice, error) {
-	row := q.db.QueryRow(ctx, updateInvoiceStatus, arg.ID, arg.OrganizationID, arg.Status)
+	row := q.db.QueryRow(ctx, updateInvoiceStatus,
+		arg.ID,
+		arg.OrganizationID,
+		arg.Status,
+		arg.ProjectID,
+	)
 	var i ProjectInvoice
 	err := row.Scan(
 		&i.ID,
@@ -1447,7 +1476,7 @@ func (q *Queries) UpdateInvoiceStatus(ctx context.Context, arg UpdateInvoiceStat
 const updatePaymentPlanItem = `-- name: UpdatePaymentPlanItem :one
 UPDATE project_payment_plan_items
 SET sort_order = $3, name = $4, percentage = $5, planned_amount = $6, due_date = $7, notes = $8
-WHERE id = $1 AND organization_id = $2 AND status <> 'cancelled'
+WHERE id = $1 AND organization_id = $2 AND status <> 'cancelled' AND project_id = $9
 RETURNING id, organization_id, project_id, sort_order, name, percentage, planned_amount, due_date, status, notes, created_by, created_at, updated_at
 `
 
@@ -1460,8 +1489,10 @@ type UpdatePaymentPlanItemParams struct {
 	PlannedAmount  pgtype.Numeric `json:"planned_amount"`
 	DueDate        pgtype.Date    `json:"due_date"`
 	Notes          string         `json:"notes"`
+	ProjectID      pgtype.UUID    `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 func (q *Queries) UpdatePaymentPlanItem(ctx context.Context, arg UpdatePaymentPlanItemParams) (ProjectPaymentPlanItem, error) {
 	row := q.db.QueryRow(ctx, updatePaymentPlanItem,
 		arg.ID,
@@ -1472,6 +1503,7 @@ func (q *Queries) UpdatePaymentPlanItem(ctx context.Context, arg UpdatePaymentPl
 		arg.PlannedAmount,
 		arg.DueDate,
 		arg.Notes,
+		arg.ProjectID,
 	)
 	var i ProjectPaymentPlanItem
 	err := row.Scan(
@@ -1496,7 +1528,7 @@ const updateSubcontractor = `-- name: UpdateSubcontractor :one
 UPDATE project_subcontractors
 SET name = $3, company_name = $4, phone = $5, email = $6, work_description = $7,
     contract_amount = $8, start_date = $9, end_date = $10, status = $11, notes = $12
-WHERE id = $1 AND organization_id = $2
+WHERE id = $1 AND organization_id = $2 AND project_id = $13
 RETURNING id, organization_id, project_id, name, company_name, phone, email, work_description, contract_amount, currency, start_date, end_date, status, notes, created_by, created_at, updated_at, change_order_id
 `
 
@@ -1513,8 +1545,10 @@ type UpdateSubcontractorParams struct {
 	EndDate         pgtype.Date    `json:"end_date"`
 	Status          string         `json:"status"`
 	Notes           string         `json:"notes"`
+	ProjectID       pgtype.UUID    `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetSubcontractor notu).
 func (q *Queries) UpdateSubcontractor(ctx context.Context, arg UpdateSubcontractorParams) (ProjectSubcontractor, error) {
 	row := q.db.QueryRow(ctx, updateSubcontractor,
 		arg.ID,
@@ -1529,6 +1563,7 @@ func (q *Queries) UpdateSubcontractor(ctx context.Context, arg UpdateSubcontract
 		arg.EndDate,
 		arg.Status,
 		arg.Notes,
+		arg.ProjectID,
 	)
 	var i ProjectSubcontractor
 	err := row.Scan(
@@ -1557,7 +1592,7 @@ func (q *Queries) UpdateSubcontractor(ctx context.Context, arg UpdateSubcontract
 const voidCollection = `-- name: VoidCollection :one
 UPDATE project_collections
 SET voided_at = now(), voided_by = $3, void_reason = $4
-WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL
+WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL AND project_id = $5
 RETURNING id, organization_id, project_id, payment_plan_item_id, amount, currency, received_date, payment_method, description, reference_no, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason
 `
 
@@ -1566,14 +1601,17 @@ type VoidCollectionParams struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
 	VoidedBy       pgtype.UUID `json:"voided_by"`
 	VoidReason     string      `json:"void_reason"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 func (q *Queries) VoidCollection(ctx context.Context, arg VoidCollectionParams) (ProjectCollection, error) {
 	row := q.db.QueryRow(ctx, voidCollection,
 		arg.ID,
 		arg.OrganizationID,
 		arg.VoidedBy,
 		arg.VoidReason,
+		arg.ProjectID,
 	)
 	var i ProjectCollection
 	err := row.Scan(
@@ -1601,7 +1639,7 @@ func (q *Queries) VoidCollection(ctx context.Context, arg VoidCollectionParams) 
 const voidExpense = `-- name: VoidExpense :one
 UPDATE project_expenses
 SET voided_at = now(), voided_by = $3, void_reason = $4
-WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL
+WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL AND project_id = $5
 RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id
 `
 
@@ -1610,14 +1648,17 @@ type VoidExpenseParams struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
 	VoidedBy       pgtype.UUID `json:"voided_by"`
 	VoidReason     string      `json:"void_reason"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 func (q *Queries) VoidExpense(ctx context.Context, arg VoidExpenseParams) (ProjectExpense, error) {
 	row := q.db.QueryRow(ctx, voidExpense,
 		arg.ID,
 		arg.OrganizationID,
 		arg.VoidedBy,
 		arg.VoidReason,
+		arg.ProjectID,
 	)
 	var i ProjectExpense
 	err := row.Scan(
@@ -1647,7 +1688,7 @@ func (q *Queries) VoidExpense(ctx context.Context, arg VoidExpenseParams) (Proje
 const voidSubcontractorPayment = `-- name: VoidSubcontractorPayment :one
 UPDATE project_subcontractor_payments
 SET voided_at = now(), voided_by = $3, void_reason = $4
-WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL
+WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL AND project_id = $5
 RETURNING id, organization_id, project_id, subcontractor_id, amount, currency, paid_date, description, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason
 `
 
@@ -1656,14 +1697,17 @@ type VoidSubcontractorPaymentParams struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
 	VoidedBy       pgtype.UUID `json:"voided_by"`
 	VoidReason     string      `json:"void_reason"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 func (q *Queries) VoidSubcontractorPayment(ctx context.Context, arg VoidSubcontractorPaymentParams) (ProjectSubcontractorPayment, error) {
 	row := q.db.QueryRow(ctx, voidSubcontractorPayment,
 		arg.ID,
 		arg.OrganizationID,
 		arg.VoidedBy,
 		arg.VoidReason,
+		arg.ProjectID,
 	)
 	var i ProjectSubcontractorPayment
 	err := row.Scan(

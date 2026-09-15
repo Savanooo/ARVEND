@@ -141,6 +141,32 @@ func (s *PlatformService) CreateOrganizationWithOwner(ctx context.Context, in Cr
 		return nil, err
 	}
 
+	// RBAC/Project Membership sprint'i: YENİ organizasyon için AYNI 6 sistem
+	// rolünü (migration 0034'ün mevcut organizasyonlar için yaptığı
+	// backfill'in TEK kaynağı, seed_system_roles_for_org DB fonksiyonu ile)
+	// seed eder, ardından ilk kullanıcıyı (Owner) 'owner' rolüne bağlar.
+	// Bu adım ATLANIRSA yeni firmanın Owner'ı user.organization_role_id=NULL
+	// kalır ve AuthorizationService.LoadAuthzContext deny-by-default boş
+	// izin kümesi döner -- firma HİÇBİR business uca erişemez (bkz.
+	// GetUserRoleCode: pgx.ErrNoRows -> boş yetki). Bu yüzden AYNI
+	// transaction içinde, kullanıcı/organizasyon satırlarıyla ATOMIK olarak
+	// yapılır.
+	if err := txq.SeedSystemRolesForOrg(ctx, orgRow.ID); err != nil {
+		return nil, err
+	}
+	ownerRole, err := txq.GetOrganizationRoleByCode(ctx, sqlc.GetOrganizationRoleByCodeParams{
+		OrganizationID: orgRow.ID, Code: domain.OrgRoleOwner,
+	})
+	if err != nil {
+		return nil, err
+	}
+	userRow, err = txq.UpdateUserOrganizationRole(ctx, sqlc.UpdateUserOrganizationRoleParams{
+		ID: userRow.ID, OrganizationID: orgRow.ID, OrganizationRoleID: ownerRole.ID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	if err := s.writeAuditEvent(ctx, txq, in.ActorUserID, domain.AuditActionOrganizationCreated, &orgRow.ID, nil, map[string]any{
 		"organization_name": name,
 		"slug":              slug,

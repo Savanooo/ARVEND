@@ -150,7 +150,7 @@ func (h *ProjectHandler) ListChangeOrders(w http.ResponseWriter, r *http.Request
 
 func (h *ProjectHandler) GetChangeOrder(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	co, err := h.svc.GetChangeOrder(r.Context(), chi.URLParam(r, "changeOrderId"), orgID)
+	co, err := h.svc.GetChangeOrder(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "changeOrderId"), orgID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -182,7 +182,7 @@ func (h *ProjectHandler) UpdateChangeOrder(w http.ResponseWriter, r *http.Reques
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	co, err := h.svc.UpdateChangeOrderDraft(r.Context(), chi.URLParam(r, "changeOrderId"), orgID, req.toInput(userID))
+	co, err := h.svc.UpdateChangeOrderDraft(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "changeOrderId"), orgID, req.toInput(userID))
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -193,7 +193,7 @@ func (h *ProjectHandler) UpdateChangeOrder(w http.ResponseWriter, r *http.Reques
 func (h *ProjectHandler) SendChangeOrder(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	co, err := h.svc.SendChangeOrder(r.Context(), chi.URLParam(r, "changeOrderId"), orgID, userID)
+	co, err := h.svc.SendChangeOrder(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "changeOrderId"), orgID, userID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -215,7 +215,7 @@ func (h *ProjectHandler) SendChangeOrderEmail(w http.ResponseWriter, r *http.Req
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	err := h.svc.SendChangeOrderEmail(r.Context(), chi.URLParam(r, "changeOrderId"), orgID, service.ChangeOrderEmailInput{
+	err := h.svc.SendChangeOrderEmail(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "changeOrderId"), orgID, service.ChangeOrderEmailInput{
 		To: req.To, Subject: req.Subject, Message: req.Message, UserID: userID,
 	})
 	if err != nil {
@@ -228,7 +228,7 @@ func (h *ProjectHandler) SendChangeOrderEmail(w http.ResponseWriter, r *http.Req
 func (h *ProjectHandler) CancelChangeOrder(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	co, err := h.svc.CancelChangeOrder(r.Context(), chi.URLParam(r, "changeOrderId"), orgID, userID)
+	co, err := h.svc.CancelChangeOrder(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "changeOrderId"), orgID, userID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -239,7 +239,7 @@ func (h *ProjectHandler) CancelChangeOrder(w http.ResponseWriter, r *http.Reques
 func (h *ProjectHandler) ReviseChangeOrder(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	co, err := h.svc.ReviseChangeOrder(r.Context(), chi.URLParam(r, "changeOrderId"), orgID, userID)
+	co, err := h.svc.ReviseChangeOrder(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "changeOrderId"), orgID, userID)
 	if err != nil {
 		h.writeError(w, err)
 		return

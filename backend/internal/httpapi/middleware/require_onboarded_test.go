@@ -62,6 +62,13 @@ func cleanupOnboardedTestOrg(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM organization_profile WHERE organization_id = $1",
 		"DELETE FROM organization_commercial_settings WHERE organization_id = $1",
 		"DELETE FROM platform_audit_events WHERE target_organization_id = $1",
+		// RBAC/Project Membership sprint'i (migration 0034):
+		// CreateOrganizationWithOwner artık organization_roles'u seed edip
+		// Owner'ı bağlıyor -- organizations SİLİNMEDEN ÖNCE bu satırlar
+		// (ve onlara referans veren users.organization_role_id) temizlenmeli.
+		"DELETE FROM role_permissions WHERE organization_role_id IN (SELECT id FROM organization_roles WHERE organization_id = $1)",
+		"UPDATE users SET organization_role_id = NULL WHERE organization_id = $1",
+		"DELETE FROM organization_roles WHERE organization_id = $1",
 	} {
 		if _, err := pool.Exec(ctx, stmt, orgID); err != nil {
 			t.Logf("temizlik uyarısı (%s): %v", stmt, err)

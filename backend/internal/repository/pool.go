@@ -85,6 +85,36 @@ func ToDomainUser(u sqlc.User) domain.User {
 	return du
 }
 
+func ToDomainUserWithRole(u sqlc.ListUsersWithOrganizationRoleRow) domain.User {
+	du := ToDomainUser(sqlc.User{
+		ID: u.ID, Username: u.Username, PasswordHash: u.PasswordHash, FullName: u.FullName,
+		Role: u.Role, IsActive: u.IsActive, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
+		LastLoginAt: u.LastLoginAt, OrganizationID: u.OrganizationID, MustChangePassword: u.MustChangePassword,
+	})
+	if u.OrganizationRoleCode != nil {
+		du.OrganizationRoleCode = *u.OrganizationRoleCode
+	}
+	if u.OrganizationRoleName != nil {
+		du.OrganizationRoleName = *u.OrganizationRoleName
+	}
+	return du
+}
+
+func ToDomainSingleUserWithRole(u sqlc.GetUserWithOrganizationRoleRow) domain.User {
+	du := ToDomainUser(sqlc.User{
+		ID: u.ID, Username: u.Username, PasswordHash: u.PasswordHash, FullName: u.FullName,
+		Role: u.Role, IsActive: u.IsActive, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
+		LastLoginAt: u.LastLoginAt, OrganizationID: u.OrganizationID, MustChangePassword: u.MustChangePassword,
+	})
+	if u.OrganizationRoleCode != nil {
+		du.OrganizationRoleCode = *u.OrganizationRoleCode
+	}
+	if u.OrganizationRoleName != nil {
+		du.OrganizationRoleName = *u.OrganizationRoleName
+	}
+	return du
+}
+
 func StringToUUID(s string) (pgtype.UUID, error) {
 	var id pgtype.UUID
 	err := id.Scan(s)

@@ -33,4 +33,11 @@ type User struct {
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	LastLoginAt        *time.Time
+	// OrganizationRoleCode/-Name, RBAC/Project Membership sprint'inin
+	// ince-taneli organizasyon rolüdür (users.role'den TAMAMEN AYRI --
+	// bkz. domain/authorization.go). YALNIZCA bunları JOIN'le dolduran
+	// sorgularla (ör. AuthorizationService.ListUsersWithRoles) gelir;
+	// temel UserService.List/Get/Create/Update boş bırakır.
+	OrganizationRoleCode string
+	OrganizationRoleName string
 }

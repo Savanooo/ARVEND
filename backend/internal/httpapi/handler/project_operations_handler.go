@@ -79,7 +79,7 @@ func (h *ProjectHandler) AssignMember(w http.ResponseWriter, r *http.Request) {
 func (h *ProjectHandler) EndMembership(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	m, err := h.svc.EndMembership(r.Context(), chi.URLParam(r, "memberId"), orgID, userID, nil)
+	m, err := h.svc.EndMembership(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "memberId"), orgID, userID, nil)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -165,7 +165,7 @@ func (h *ProjectHandler) UpdateScheduleItem(w http.ResponseWriter, r *http.Reque
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	s, err := h.svc.UpdateScheduleItem(r.Context(), chi.URLParam(r, "itemId"), orgID, req.toInput(userID))
+	s, err := h.svc.UpdateScheduleItem(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "itemId"), orgID, req.toInput(userID))
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -254,7 +254,7 @@ func (h *ProjectHandler) UpdateTask(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	t, err := h.svc.UpdateTask(r.Context(), chi.URLParam(r, "taskId"), orgID, req.toInput(userID))
+	t, err := h.svc.UpdateTask(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "taskId"), orgID, req.toInput(userID))
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -265,7 +265,7 @@ func (h *ProjectHandler) UpdateTask(w http.ResponseWriter, r *http.Request) {
 func (h *ProjectHandler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	t, err := h.svc.CompleteTask(r.Context(), chi.URLParam(r, "taskId"), orgID, userID)
+	t, err := h.svc.CompleteTask(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "taskId"), orgID, userID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -351,7 +351,7 @@ func (h *ProjectHandler) UploadFile(w http.ResponseWriter, r *http.Request) {
 // bile buradan tek bayt okunamaz.
 func (h *ProjectHandler) DownloadFile(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	f, rc, err := h.svc.OpenFile(r.Context(), chi.URLParam(r, "fileId"), orgID)
+	f, rc, err := h.svc.OpenFile(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "fileId"), orgID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -363,7 +363,7 @@ func (h *ProjectHandler) DownloadFile(w http.ResponseWriter, r *http.Request) {
 func (h *ProjectHandler) DeleteFile(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	if err := h.svc.DeleteFile(r.Context(), chi.URLParam(r, "fileId"), orgID, userID); err != nil {
+	if err := h.svc.DeleteFile(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "fileId"), orgID, userID); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -452,7 +452,7 @@ func (h *ProjectHandler) UploadPhoto(w http.ResponseWriter, r *http.Request) {
 
 func (h *ProjectHandler) DownloadPhoto(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	p, rc, err := h.svc.OpenPhoto(r.Context(), chi.URLParam(r, "photoId"), orgID)
+	p, rc, err := h.svc.OpenPhoto(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "photoId"), orgID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -470,7 +470,7 @@ func (h *ProjectHandler) DownloadPhoto(w http.ResponseWriter, r *http.Request) {
 func (h *ProjectHandler) DeletePhoto(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	if err := h.svc.DeletePhoto(r.Context(), chi.URLParam(r, "photoId"), orgID, userID); err != nil {
+	if err := h.svc.DeletePhoto(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "photoId"), orgID, userID); err != nil {
 		h.writeError(w, err)
 		return
 	}

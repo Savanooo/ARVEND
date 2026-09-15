@@ -108,6 +108,33 @@ func (s *UserService) Create(ctx context.Context, organizationID, username, pass
 		}
 		return nil, err
 	}
+
+	// RBAC/Project Membership sprint'i: YENİ kullanıcı organization_role_id
+	// NULL bırakılırsa AuthorizationService.LoadAuthzContext deny-by-default
+	// boş izin kümesi döner -- kullanıcı HİÇBİR business uca erişemez (bkz.
+	// PlatformService.CreateOrganizationWithOwner'daki AYNI gerekçe).
+	// Eski (role: admin/kullanici) sözleşmesiyle GERİYE DÖNÜK UYUMLU
+	// varsayılan: admin -> 'admin' sistem rolü (tam yetki), kullanici ->
+	// 'legacy_user' (migration backfill'iyle AYNI eşleme) -- bir admin
+	// isterse PUT /users/{id}/organization-role ile SONRADAN inceltebilir
+	// (project_manager/finance/field). En iyi çaba: rol satırı her zaman
+	// seed edilmiş olmalıdır (migration backfill veya CreateOrganizationWithOwner
+	// ile), ama bulunamazsa kullanıcı yine de OLUŞTURULUR -- yalnızca
+	// organization_role_id boş kalır, sonradan atanabilir.
+	orgRoleCode := domain.OrgRoleLegacyUser
+	if role == domain.RoleAdmin {
+		orgRoleCode = domain.OrgRoleAdmin
+	}
+	if orgRole, rerr := s.q.GetOrganizationRoleByCode(ctx, sqlc.GetOrganizationRoleByCodeParams{
+		OrganizationID: orgID, Code: orgRoleCode,
+	}); rerr == nil {
+		if updated, uerr := s.q.UpdateUserOrganizationRole(ctx, sqlc.UpdateUserOrganizationRoleParams{
+			ID: row.ID, OrganizationID: orgID, OrganizationRoleID: orgRole.ID,
+		}); uerr == nil {
+			row = updated
+		}
+	}
+
 	u := repository.ToDomainUser(row)
 	return &u, nil
 }

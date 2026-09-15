@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -13,14 +14,15 @@ import (
 
 type AuthHandler struct {
 	svc          *service.AuthService
+	authzSvc     *service.AuthorizationService
 	accessTTL    time.Duration
 	refreshTTL   time.Duration
 	cookieDomain string
 	cookieSecure bool
 }
 
-func NewAuthHandler(svc *service.AuthService, accessTTL, refreshTTL time.Duration, cookieDomain string, cookieSecure bool) *AuthHandler {
-	return &AuthHandler{svc: svc, accessTTL: accessTTL, refreshTTL: refreshTTL, cookieDomain: cookieDomain, cookieSecure: cookieSecure}
+func NewAuthHandler(svc *service.AuthService, authzSvc *service.AuthorizationService, accessTTL, refreshTTL time.Duration, cookieDomain string, cookieSecure bool) *AuthHandler {
+	return &AuthHandler{svc: svc, authzSvc: authzSvc, accessTTL: accessTTL, refreshTTL: refreshTTL, cookieDomain: cookieDomain, cookieSecure: cookieSecure}
 }
 
 type loginRequest struct {
@@ -48,6 +50,16 @@ type userResponse struct {
 	// varsayılanla sorgusuz çalışır.
 	OnboardingCompleted bool   `json:"onboarding_completed"`
 	OnboardingStep      string `json:"onboarding_step"`
+	// OrganizationRoleCode/-Name, RBAC/Project Membership sprint'inin ince-
+	// taneli organizasyon rolüdür -- Super Admin'de her zaman boştur (bu,
+	// bilinçli olarak platform rolünü net biçimde ayırt eder: tenant
+	// izinlerine ASLA köprülenmez, spec §3). Permissions, YALNIZCA
+	// toSessionResponse (login/refresh/me) tarafından doldurulur -- salt
+	// UX gösterimi/gizleme içindir, güvenlik sınırı DEĞİLDİR (backend her
+	// zaman yeniden doğrular).
+	OrganizationRoleCode string   `json:"organization_role_code,omitempty"`
+	OrganizationRoleName string   `json:"organization_role_name,omitempty"`
+	Permissions          []string `json:"permissions,omitempty"`
 }
 
 // toUserResponse, organizasyon (onboarding) bağlamı olmayan çağrı
@@ -56,27 +68,45 @@ type userResponse struct {
 // değerine düşer (ekstra bir organizasyon sorgusu gerektirmez).
 func toUserResponse(u domain.User) userResponse {
 	return userResponse{
-		ID:                  u.ID,
-		OrganizationID:      u.OrganizationID,
-		Username:            u.Username,
-		FullName:            u.FullName,
-		Role:                u.Role,
-		IsActive:            u.IsActive,
-		MustChangePassword:  u.MustChangePassword,
-		OnboardingCompleted: true,
-		OnboardingStep:      string(domain.OnboardingStepCompleted),
+		ID:                   u.ID,
+		OrganizationID:       u.OrganizationID,
+		Username:             u.Username,
+		FullName:             u.FullName,
+		Role:                 u.Role,
+		IsActive:             u.IsActive,
+		MustChangePassword:   u.MustChangePassword,
+		OnboardingCompleted:  true,
+		OnboardingStep:       string(domain.OnboardingStepCompleted),
+		OrganizationRoleCode: u.OrganizationRoleCode,
+		OrganizationRoleName: u.OrganizationRoleName,
 	}
 }
 
 // toSessionResponse, giriş/refresh/me akışları içindir -- kullanıcının
-// GERÇEK organizasyon onboarding durumunu taşır (web/mobil route guard'ları
-// buna göre yönlendirir).
-func toSessionResponse(session service.Session) userResponse {
+// GERÇEK organizasyon onboarding durumunu VE (super_admin hariç) ince-
+// taneli izin listesini taşır. authzSvc nil GEÇİLEBİLİR (ör. gelecekte
+// authzSvc'siz bir test/araç çağrısı) -- o durumda izin/rol alanları
+// sessizce boş kalır, çağıran KIRILMAZ.
+func toSessionResponse(ctx context.Context, authzSvc *service.AuthorizationService, session service.Session) userResponse {
 	resp := toUserResponse(session.User)
 	if session.Organization != nil {
 		resp.OrganizationName = session.Organization.Name
 		resp.OnboardingCompleted = session.Organization.OnboardingCompleted
 		resp.OnboardingStep = string(session.Organization.OnboardingStep)
+	}
+	// super_admin'in organization_id'si YOKTUR -- tenant izin sorgusuna
+	// hiç girmez, permissions/organization_role alanları BOŞ kalır (spec
+	// §3: platform rolü tenant izinlerine ASLA köprülenmez).
+	if authzSvc != nil && session.User.Role != domain.RoleSuperAdmin && session.User.OrganizationID != nil {
+		if authz, err := authzSvc.LoadAuthzContext(ctx, session.User.ID, *session.User.OrganizationID); err == nil {
+			resp.OrganizationRoleCode = authz.RoleCode
+			resp.OrganizationRoleName = authz.RoleName
+			perms := make([]string, 0, len(authz.Permissions))
+			for code := range authz.Permissions {
+				perms = append(perms, code)
+			}
+			resp.Permissions = perms
+		}
 	}
 	return resp
 }
@@ -93,7 +123,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.setSessionCookies(w, session.AccessToken, session.RefreshToken)
-	httpjson.Write(w, http.StatusOK, toSessionResponse(*session))
+	httpjson.Write(w, http.StatusOK, toSessionResponse(r.Context(), h.authzSvc, *session))
 }
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
@@ -109,7 +139,7 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.setSessionCookies(w, session.AccessToken, session.RefreshToken)
-	httpjson.Write(w, http.StatusOK, toSessionResponse(*session))
+	httpjson.Write(w, http.StatusOK, toSessionResponse(r.Context(), h.authzSvc, *session))
 }
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +161,7 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusUnauthorized, "oturum geçersiz")
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toSessionResponse(*session))
+	httpjson.Write(w, http.StatusOK, toSessionResponse(r.Context(), h.authzSvc, *session))
 }
 
 func (h *AuthHandler) writeAuthError(w http.ResponseWriter, err error) {

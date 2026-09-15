@@ -70,6 +70,16 @@ WHERE p.organization_id = $1
        OR p.name ILIKE '%' || sqlc.narg('search')::varchar || '%'
        OR p.project_no ILIKE '%' || sqlc.narg('search')::varchar || '%'
        OR p.customer_name ILIKE '%' || sqlc.narg('search')::varchar || '%')
+  -- restrict_to_user_id: RBAC/Project Membership sprint'i. NULL ise (owner/
+  -- admin/legacy_user -- proje üyeliğinden MUAF roller) hiçbir filtre
+  -- uygulanmaz; dolu ise (project_manager/finance/field) yalnızca
+  -- kullanıcının project_users'ta üye olduğu projeler döner. EXISTS alt
+  -- sorgusu SQL/repository seviyesinde çalışır -- Go'da fetch-all-then-
+  -- filter YOKTUR (N+1'siz, spec §11 gereği).
+  AND (sqlc.narg('restrict_to_user_id')::uuid IS NULL OR EXISTS (
+      SELECT 1 FROM project_users pu
+      WHERE pu.project_id = p.id AND pu.user_id = sqlc.narg('restrict_to_user_id')::uuid
+  ))
 ORDER BY p.created_at DESC
 LIMIT $2 OFFSET $3;
 
@@ -84,7 +94,11 @@ WHERE p.organization_id = $1
   AND (sqlc.narg('search')::varchar IS NULL
        OR p.name ILIKE '%' || sqlc.narg('search')::varchar || '%'
        OR p.project_no ILIKE '%' || sqlc.narg('search')::varchar || '%'
-       OR p.customer_name ILIKE '%' || sqlc.narg('search')::varchar || '%');
+       OR p.customer_name ILIKE '%' || sqlc.narg('search')::varchar || '%')
+  AND (sqlc.narg('restrict_to_user_id')::uuid IS NULL OR EXISTS (
+      SELECT 1 FROM project_users pu
+      WHERE pu.project_id = p.id AND pu.user_id = sqlc.narg('restrict_to_user_id')::uuid
+  ));
 
 -- UpdateProject, YALNIZCA kullanıcı tarafından değiştirilebilen alanları
 -- günceller. project_no, source_offer_id, source_revision_id,

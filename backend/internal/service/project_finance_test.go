@@ -164,7 +164,7 @@ func TestProjectFinance(t *testing.T) {
 		if before.CollectedAmount != 25000 {
 			t.Fatalf("tahsilat toplamı yanlış: %v", before.CollectedAmount)
 		}
-		if _, err := projectSvc.VoidCollection(ctx, c.ID, orgA.ID, "", "yanlış giriş"); err != nil {
+		if _, err := projectSvc.VoidCollection(ctx, p.ID, c.ID, orgA.ID, "", "yanlış giriş"); err != nil {
 			t.Fatalf("iptal edilemedi: %v", err)
 		}
 		after, _ := projectSvc.FinancialSummary(ctx, p.ID, orgA.ID)
@@ -226,7 +226,7 @@ func TestProjectFinance(t *testing.T) {
 		if s.TotalExpenses != 6500 {
 			t.Errorf("masraf toplamı yanlış: %v want 6500", s.TotalExpenses)
 		}
-		if _, err := projectSvc.VoidExpense(ctx, e1.ID, orgA.ID, "", "iptal"); err != nil {
+		if _, err := projectSvc.VoidExpense(ctx, p.ID, e1.ID, orgA.ID, "", "iptal"); err != nil {
 			t.Fatalf("masraf iptal edilemedi: %v", err)
 		}
 		s, _ = projectSvc.FinancialSummary(ctx, p.ID, orgA.ID)
@@ -253,7 +253,7 @@ func TestProjectFinance(t *testing.T) {
 			t.Errorf("taşeron taahhüt toplamı yanlış: %v want 30000", s.TotalSubcontractorCommitment)
 		}
 
-		if _, err := projectSvc.CreateSubcontractorPayment(ctx, sub.ID, orgA.ID, service.SubcontractorPaymentInput{
+		if _, err := projectSvc.CreateSubcontractorPayment(ctx, p.ID, sub.ID, orgA.ID, service.SubcontractorPaymentInput{
 			Amount: 8000, Currency: "TRY", PaidDate: today,
 		}); err != nil {
 			t.Fatalf("taşeron ödemesi eklenemedi: %v", err)
@@ -296,7 +296,7 @@ func TestProjectFinance(t *testing.T) {
 			t.Errorf("cross-tenant masraf engellenmedi: err=%v", err)
 		}
 		// 13: taşeron ödemesi
-		if _, err := projectSvc.CreateSubcontractorPayment(ctx, sub.ID, orgB.ID, service.SubcontractorPaymentInput{
+		if _, err := projectSvc.CreateSubcontractorPayment(ctx, p.ID, sub.ID, orgB.ID, service.SubcontractorPaymentInput{
 			Amount: 100, Currency: "TRY", PaidDate: today,
 		}); !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("cross-tenant taşeron ödemesi engellenmedi: err=%v", err)
@@ -356,7 +356,7 @@ func TestProjectFinance(t *testing.T) {
 		if err != nil {
 			t.Fatalf("taşeron eklenemedi: %v", err)
 		}
-		if _, err := projectSvc.CreateSubcontractorPayment(ctx, sub.ID, orgA.ID, service.SubcontractorPaymentInput{
+		if _, err := projectSvc.CreateSubcontractorPayment(ctx, p.ID, sub.ID, orgA.ID, service.SubcontractorPaymentInput{
 			Amount: 50000, Currency: "TRY", PaidDate: today,
 		}); err != nil {
 			t.Fatalf("ödeme eklenemedi: %v", err)
@@ -401,7 +401,7 @@ func TestProjectFinance(t *testing.T) {
 		sub, _ := projectSvc.CreateSubcontractor(ctx, p.ID, orgA.ID, service.SubcontractorInput{
 			Name: "T", ContractAmount: 30000, Currency: "TRY",
 		})
-		if _, err := projectSvc.CreateSubcontractorPayment(ctx, sub.ID, orgA.ID, service.SubcontractorPaymentInput{
+		if _, err := projectSvc.CreateSubcontractorPayment(ctx, p.ID, sub.ID, orgA.ID, service.SubcontractorPaymentInput{
 			Amount: 12000, Currency: "TRY", PaidDate: today,
 		}); err != nil {
 			t.Fatalf("ödeme eklenemedi: %v", err)
@@ -492,7 +492,7 @@ func TestProjectFinance(t *testing.T) {
 		sub, _ := projectSvc.CreateSubcontractor(ctx, p.ID, orgA.ID, service.SubcontractorInput{
 			Name: "T", ContractAmount: 1000, Currency: "TRY",
 		})
-		if _, err := projectSvc.CreateSubcontractorPayment(ctx, sub.ID, orgA.ID, service.SubcontractorPaymentInput{
+		if _, err := projectSvc.CreateSubcontractorPayment(ctx, p.ID, sub.ID, orgA.ID, service.SubcontractorPaymentInput{
 			Amount: 400, Currency: "TRY", PaidDate: today,
 		}); err != nil {
 			t.Fatalf("ödeme eklenemedi: %v", err)
@@ -592,6 +592,70 @@ func TestProjectFinance(t *testing.T) {
 		s, _ := projectSvc.FinancialSummary(ctx, p.ID, orgA.ID)
 		if s.CollectedAmount != 5000 {
 			t.Errorf("çift tıklama tahsilatı iki kez yazdı: toplam=%v want 5000", s.CollectedAmount)
+		}
+	})
+
+	// RBAC/Project Membership sprint'inin child-resource IDOR sıkılaştırması
+	// (bkz. project_operations_test.go 18_cross_project_child_resource_idor_
+	// blocked ile aynı ilke, finans uçları için): AYNI organizasyon
+	// içindeki BAŞKA bir projenin finans kaydı, doğru projenin URL'si
+	// üzerinden ASLA erişilemez/değiştirilemez olmalı.
+	t.Run("22_cross_project_finance_idor_blocked", func(t *testing.T) {
+		pA := newProject(t, orgA.ID, 100000)
+		pB := newProject(t, orgA.ID, 100000) // AYNI organizasyon, FARKLI proje.
+
+		itemB, err := projectSvc.CreatePaymentPlanItem(ctx, pB.ID, orgA.ID, service.PaymentPlanItemInput{
+			Name: "B Kalemi", PlannedAmount: 1000,
+		})
+		if err != nil {
+			t.Fatalf("B ödeme kalemi: %v", err)
+		}
+		collB, err := projectSvc.CreateCollection(ctx, pB.ID, orgA.ID, service.CollectionInput{
+			Amount: 1000, Currency: "TRY", ReceivedDate: today,
+		})
+		if err != nil {
+			t.Fatalf("B tahsilatı: %v", err)
+		}
+		expB, err := projectSvc.CreateExpense(ctx, pB.ID, orgA.ID, service.ExpenseInput{
+			Category: domain.ExpenseMaterial, Description: "B masrafı", Amount: 500,
+			Currency: "TRY", ExpenseDate: today,
+		})
+		if err != nil {
+			t.Fatalf("B masrafı: %v", err)
+		}
+		subB, err := projectSvc.CreateSubcontractor(ctx, pB.ID, orgA.ID, service.SubcontractorInput{
+			Name: "B Taşeronu", ContractAmount: 5000, Currency: "TRY",
+		})
+		if err != nil {
+			t.Fatalf("B taşeronu: %v", err)
+		}
+
+		if _, err := projectSvc.UpdatePaymentPlanItem(ctx, pA.ID, itemB.ID, orgA.ID, service.PaymentPlanItemInput{Name: "X", PlannedAmount: 1}); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin ödeme kalemi güncellenebildi: err=%v", err)
+		}
+		if err := projectSvc.CancelPaymentPlanItem(ctx, pA.ID, itemB.ID, orgA.ID, ""); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin ödeme kalemi iptal edilebildi: err=%v", err)
+		}
+		if _, err := projectSvc.VoidCollection(ctx, pA.ID, collB.ID, orgA.ID, "", ""); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin tahsilatı iptal edilebildi: err=%v", err)
+		}
+		if _, err := projectSvc.UpdateExpense(ctx, pA.ID, expB.ID, orgA.ID, service.ExpenseInput{Category: domain.ExpenseMaterial, Description: "X", Amount: 1, ExpenseDate: today}); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin masrafı güncellenebildi: err=%v", err)
+		}
+		if _, err := projectSvc.VoidExpense(ctx, pA.ID, expB.ID, orgA.ID, "", ""); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin masrafı iptal edilebildi: err=%v", err)
+		}
+		if _, err := projectSvc.UpdateSubcontractor(ctx, pA.ID, subB.ID, orgA.ID, service.SubcontractorInput{Name: "X", ContractAmount: 1, Status: domain.SubcontractorPlanned}); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin taşeronu güncellenebildi: err=%v", err)
+		}
+		if _, err := projectSvc.CreateSubcontractorPayment(ctx, pA.ID, subB.ID, orgA.ID, service.SubcontractorPaymentInput{Amount: 1, Currency: "TRY", PaidDate: today}); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("A projesi üzerinden B'nin taşeronuna ödeme kaydedilebildi: err=%v", err)
+		}
+
+		// Doğru proje id'siyle (pB) aynı işlem başarılı olmalı (false
+		// positive üretmediğini doğrular).
+		if _, err := projectSvc.UpdateExpense(ctx, pB.ID, expB.ID, orgA.ID, service.ExpenseInput{Category: domain.ExpenseMaterial, Description: "Y", Amount: 1, ExpenseDate: today}); err != nil {
+			t.Errorf("doğru proje id'siyle masraf güncellenemedi: %v", err)
 		}
 	})
 }

@@ -23,16 +23,21 @@ WHERE p.organization_id = $1
        OR p.name ILIKE '%' || $7::varchar || '%'
        OR p.project_no ILIKE '%' || $7::varchar || '%'
        OR p.customer_name ILIKE '%' || $7::varchar || '%')
+  AND ($8::uuid IS NULL OR EXISTS (
+      SELECT 1 FROM project_users pu
+      WHERE pu.project_id = p.id AND pu.user_id = $8::uuid
+  ))
 `
 
 type CountProjectsParams struct {
-	OrganizationID pgtype.UUID `json:"organization_id"`
-	Status         *string     `json:"status"`
-	CustomerID     pgtype.UUID `json:"customer_id"`
-	ProjectType    *string     `json:"project_type"`
-	Currency       *string     `json:"currency"`
-	StartFrom      pgtype.Date `json:"start_from"`
-	Search         *string     `json:"search"`
+	OrganizationID   pgtype.UUID `json:"organization_id"`
+	Status           *string     `json:"status"`
+	CustomerID       pgtype.UUID `json:"customer_id"`
+	ProjectType      *string     `json:"project_type"`
+	Currency         *string     `json:"currency"`
+	StartFrom        pgtype.Date `json:"start_from"`
+	Search           *string     `json:"search"`
+	RestrictToUserID pgtype.UUID `json:"restrict_to_user_id"`
 }
 
 func (q *Queries) CountProjects(ctx context.Context, arg CountProjectsParams) (int64, error) {
@@ -44,6 +49,7 @@ func (q *Queries) CountProjects(ctx context.Context, arg CountProjectsParams) (i
 		arg.Currency,
 		arg.StartFrom,
 		arg.Search,
+		arg.RestrictToUserID,
 	)
 	var count int64
 	err := row.Scan(&count)
@@ -330,20 +336,31 @@ WHERE p.organization_id = $1
        OR p.name ILIKE '%' || $9::varchar || '%'
        OR p.project_no ILIKE '%' || $9::varchar || '%'
        OR p.customer_name ILIKE '%' || $9::varchar || '%')
+  -- restrict_to_user_id: RBAC/Project Membership sprint'i. NULL ise (owner/
+  -- admin/legacy_user -- proje üyeliğinden MUAF roller) hiçbir filtre
+  -- uygulanmaz; dolu ise (project_manager/finance/field) yalnızca
+  -- kullanıcının project_users'ta üye olduğu projeler döner. EXISTS alt
+  -- sorgusu SQL/repository seviyesinde çalışır -- Go'da fetch-all-then-
+  -- filter YOKTUR (N+1'siz, spec §11 gereği).
+  AND ($10::uuid IS NULL OR EXISTS (
+      SELECT 1 FROM project_users pu
+      WHERE pu.project_id = p.id AND pu.user_id = $10::uuid
+  ))
 ORDER BY p.created_at DESC
 LIMIT $2 OFFSET $3
 `
 
 type ListProjectsParams struct {
-	OrganizationID pgtype.UUID `json:"organization_id"`
-	Limit          int32       `json:"limit"`
-	Offset         int32       `json:"offset"`
-	Status         *string     `json:"status"`
-	CustomerID     pgtype.UUID `json:"customer_id"`
-	ProjectType    *string     `json:"project_type"`
-	Currency       *string     `json:"currency"`
-	StartFrom      pgtype.Date `json:"start_from"`
-	Search         *string     `json:"search"`
+	OrganizationID   pgtype.UUID `json:"organization_id"`
+	Limit            int32       `json:"limit"`
+	Offset           int32       `json:"offset"`
+	Status           *string     `json:"status"`
+	CustomerID       pgtype.UUID `json:"customer_id"`
+	ProjectType      *string     `json:"project_type"`
+	Currency         *string     `json:"currency"`
+	StartFrom        pgtype.Date `json:"start_from"`
+	Search           *string     `json:"search"`
+	RestrictToUserID pgtype.UUID `json:"restrict_to_user_id"`
 }
 
 type ListProjectsRow struct {
@@ -395,6 +412,7 @@ func (q *Queries) ListProjects(ctx context.Context, arg ListProjectsParams) ([]L
 		arg.Currency,
 		arg.StartFrom,
 		arg.Search,
+		arg.RestrictToUserID,
 	)
 	if err != nil {
 		return nil, err

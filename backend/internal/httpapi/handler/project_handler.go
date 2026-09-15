@@ -173,15 +173,25 @@ func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
 	startFrom := q.Get("start_from")
 
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	// RBAC/Project Membership sprint'i: owner/admin/legacy_user organizasyon
+	// içindeki TÜM projeleri görür (RestrictToUserID boş); project_manager/
+	// finance/field yalnızca ATANDIĞI projeleri görür (bkz.
+	// domain.RoleBypassesProjectMembership -- TEK kaynak, burada TEKRAR
+	// karar VERİLMEZ, yalnızca okunur).
+	var restrictToUserID string
+	if authz, ok := middleware.AuthzContextFromRequest(r.Context()); ok && !authz.BypassesProjectMembership() {
+		restrictToUserID = authz.UserID
+	}
 	result, err := h.svc.List(r.Context(), orgID, service.ProjectListFilter{
-		Status:      q.Get("status"),
-		CustomerID:  q.Get("customer_id"),
-		ProjectType: q.Get("project_type"),
-		Currency:    q.Get("currency"),
-		StartFrom:   parseDateParam(&startFrom),
-		Search:      q.Get("q"),
-		Page:        page,
-		Limit:       limit,
+		Status:           q.Get("status"),
+		CustomerID:       q.Get("customer_id"),
+		ProjectType:      q.Get("project_type"),
+		Currency:         q.Get("currency"),
+		StartFrom:        parseDateParam(&startFrom),
+		Search:           q.Get("q"),
+		Page:             page,
+		Limit:            limit,
+		RestrictToUserID: restrictToUserID,
 	})
 	if err != nil {
 		h.writeError(w, err)

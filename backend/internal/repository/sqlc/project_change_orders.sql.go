@@ -14,17 +14,19 @@ import (
 const cancelChangeOrder = `-- name: CancelChangeOrder :one
 UPDATE project_change_orders
 SET status = 'cancelled', cancelled_at = now()
-WHERE id = $1 AND organization_id = $2 AND status IN ('draft', 'sent')
+WHERE id = $1 AND organization_id = $2 AND status IN ('draft', 'sent') AND project_id = $3
 RETURNING id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id
 `
 
 type CancelChangeOrderParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetChangeOrderByID notu).
 func (q *Queries) CancelChangeOrder(ctx context.Context, arg CancelChangeOrderParams) (ProjectChangeOrder, error) {
-	row := q.db.QueryRow(ctx, cancelChangeOrder, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, cancelChangeOrder, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectChangeOrder
 	err := row.Scan(
 		&i.ID,
@@ -315,11 +317,19 @@ func (q *Queries) CreateChangeOrderShareLink(ctx context.Context, arg CreateChan
 }
 
 const deleteChangeOrderItems = `-- name: DeleteChangeOrderItems :exec
-DELETE FROM project_change_order_items WHERE change_order_id = $1
+DELETE FROM project_change_order_items
+WHERE change_order_id = $1 AND organization_id = $2 AND project_id = $3
 `
 
-func (q *Queries) DeleteChangeOrderItems(ctx context.Context, changeOrderID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteChangeOrderItems, changeOrderID)
+type DeleteChangeOrderItemsParams struct {
+	ChangeOrderID  pgtype.UUID `json:"change_order_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+}
+
+// organization_id + project_id EKLENDİ (bkz. ListChangeOrderItems notu).
+func (q *Queries) DeleteChangeOrderItems(ctx context.Context, arg DeleteChangeOrderItemsParams) error {
+	_, err := q.db.Exec(ctx, deleteChangeOrderItems, arg.ChangeOrderID, arg.OrganizationID, arg.ProjectID)
 	return err
 }
 
@@ -350,16 +360,22 @@ func (q *Queries) GetActiveChangeOrderShareLink(ctx context.Context, changeOrder
 }
 
 const getChangeOrderByID = `-- name: GetChangeOrderByID :one
-SELECT id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id FROM project_change_orders WHERE id = $1 AND organization_id = $2
+SELECT id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id FROM project_change_orders WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type GetChangeOrderByIDParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. project_operations.sql GetProjectMember notu --
+// IDOR denetim bulgusu: loadChangeOrderRoute eskiden yalnızca org_id ile
+// okuyup pid'yi KAYITTAN türetiyordu; URL'deki proje id'si hiç
+// doğrulanmıyordu. Artık URL'nin proje id'si de eşleşmezse kayıt
+// döndürülmez.)
 func (q *Queries) GetChangeOrderByID(ctx context.Context, arg GetChangeOrderByIDParams) (ProjectChangeOrder, error) {
-	row := q.db.QueryRow(ctx, getChangeOrderByID, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, getChangeOrderByID, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectChangeOrder
 	err := row.Scan(
 		&i.ID,
@@ -436,19 +452,21 @@ func (q *Queries) GetChangeOrderEffectTotals(ctx context.Context, arg GetChangeO
 }
 
 const getChangeOrderForUpdate = `-- name: GetChangeOrderForUpdate :one
-SELECT id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id FROM project_change_orders WHERE id = $1 AND organization_id = $2 FOR UPDATE
+SELECT id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id FROM project_change_orders WHERE id = $1 AND organization_id = $2 AND project_id = $3 FOR UPDATE
 `
 
 type GetChangeOrderForUpdateParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
 // GetChangeOrderForUpdate, satırı KİLİT ALTINDA okur -- her durum
 // geçişinde (send/revise/cancel/respond) proje kilidinden SONRA alınır,
 // aynı sırayla, deadlock oluşmaması için (bkz. requireOpenProject).
+// project_id EKLENDİ (bkz. GetChangeOrderByID notu).
 func (q *Queries) GetChangeOrderForUpdate(ctx context.Context, arg GetChangeOrderForUpdateParams) (ProjectChangeOrder, error) {
-	row := q.db.QueryRow(ctx, getChangeOrderForUpdate, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, getChangeOrderForUpdate, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectChangeOrder
 	err := row.Scan(
 		&i.ID,
@@ -544,11 +562,23 @@ func (q *Queries) ListChangeOrderEmailLogs(ctx context.Context, arg ListChangeOr
 }
 
 const listChangeOrderItems = `-- name: ListChangeOrderItems :many
-SELECT id, organization_id, project_id, change_order_id, product_id, description, quantity, unit, unit_price, line_total, sort_order, estimated_unit_cost, estimated_cost FROM project_change_order_items WHERE change_order_id = $1 ORDER BY sort_order ASC
+SELECT id, organization_id, project_id, change_order_id, product_id, description, quantity, unit, unit_price, line_total, sort_order, estimated_unit_cost, estimated_cost FROM project_change_order_items
+WHERE change_order_id = $1 AND organization_id = $2 AND project_id = $3
+ORDER BY sort_order ASC
 `
 
-func (q *Queries) ListChangeOrderItems(ctx context.Context, changeOrderID pgtype.UUID) ([]ProjectChangeOrderItem, error) {
-	rows, err := q.db.Query(ctx, listChangeOrderItems, changeOrderID)
+type ListChangeOrderItemsParams struct {
+	ChangeOrderID  pgtype.UUID `json:"change_order_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+}
+
+// organization_id + project_id EKLENDİ: change_order_id tek başına hiçbir
+// kiracı/proje sınırı taşımıyordu (savunma derinliği -- bu sorgu çağıran
+// taraflarda zaten doğrulanmış bir change_order_id ile kullanılıyor, ama
+// tablo zaten bu sütunları taşıdığı için ekstra maliyetsiz bir katman).
+func (q *Queries) ListChangeOrderItems(ctx context.Context, arg ListChangeOrderItemsParams) ([]ProjectChangeOrderItem, error) {
+	rows, err := q.db.Query(ctx, listChangeOrderItems, arg.ChangeOrderID, arg.OrganizationID, arg.ProjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -724,21 +754,23 @@ FROM (
     SELECT COALESCE(sum(line_total), 0)::numeric(18,2) AS total
     FROM project_change_order_items WHERE change_order_id = $1
 ) sub
-WHERE co.id = $1 AND co.organization_id = $2
+WHERE co.id = $1 AND co.organization_id = $2 AND co.project_id = $3
 RETURNING co.id, co.organization_id, co.project_id, co.sequence_no, co.change_type, co.title, co.description, co.status, co.subtotal, co.vat_rate, co.vat_amount, co.grand_total, co.currency, co.internal_notes, co.customer_notes, co.created_by, co.created_at, co.updated_at, co.sent_at, co.responded_at, co.approved_at, co.rejected_at, co.cancelled_at, co.supersedes_change_order_id
 `
 
 type RecomputeChangeOrderTotalsParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
 // RecomputeChangeOrderTotals, kalemlerin GERÇEK toplamını (subtotal) ve
 // ondan türetilen vat_amount/grand_total'ı TEK bir atomik UPDATE'te
 // yeniden hesaplar. Her kalem ekleme/değiştirme/silme sonrasında
 // çağrılır; toplamlar HİÇBİR ZAMAN Go tarafında toplanmaz.
+// project_id EKLENDİ (bkz. GetChangeOrderByID notu -- savunma derinliği).
 func (q *Queries) RecomputeChangeOrderTotals(ctx context.Context, arg RecomputeChangeOrderTotalsParams) (ProjectChangeOrder, error) {
-	row := q.db.QueryRow(ctx, recomputeChangeOrderTotals, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, recomputeChangeOrderTotals, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectChangeOrder
 	err := row.Scan(
 		&i.ID,
@@ -834,17 +866,19 @@ func (q *Queries) RevokeChangeOrderShareLinks(ctx context.Context, changeOrderID
 const sendChangeOrder = `-- name: SendChangeOrder :one
 UPDATE project_change_orders
 SET status = 'sent', sent_at = now()
-WHERE id = $1 AND organization_id = $2 AND status = 'draft'
+WHERE id = $1 AND organization_id = $2 AND status = 'draft' AND project_id = $3
 RETURNING id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id
 `
 
 type SendChangeOrderParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetChangeOrderByID notu).
 func (q *Queries) SendChangeOrder(ctx context.Context, arg SendChangeOrderParams) (ProjectChangeOrder, error) {
-	row := q.db.QueryRow(ctx, sendChangeOrder, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, sendChangeOrder, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectChangeOrder
 	err := row.Scan(
 		&i.ID,
@@ -878,17 +912,19 @@ func (q *Queries) SendChangeOrder(ctx context.Context, arg SendChangeOrderParams
 const supersedeChangeOrder = `-- name: SupersedeChangeOrder :one
 UPDATE project_change_orders
 SET status = 'superseded'
-WHERE id = $1 AND organization_id = $2 AND status IN ('sent', 'rejected')
+WHERE id = $1 AND organization_id = $2 AND status IN ('sent', 'rejected') AND project_id = $3
 RETURNING id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id
 `
 
 type SupersedeChangeOrderParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetChangeOrderByID notu).
 func (q *Queries) SupersedeChangeOrder(ctx context.Context, arg SupersedeChangeOrderParams) (ProjectChangeOrder, error) {
-	row := q.db.QueryRow(ctx, supersedeChangeOrder, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, supersedeChangeOrder, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectChangeOrder
 	err := row.Scan(
 		&i.ID,
@@ -923,7 +959,7 @@ const updateChangeOrderDraft = `-- name: UpdateChangeOrderDraft :one
 UPDATE project_change_orders
 SET change_type = $3, title = $4, description = $5, vat_rate = $6,
     customer_notes = $7, internal_notes = $8
-WHERE id = $1 AND organization_id = $2 AND status = 'draft'
+WHERE id = $1 AND organization_id = $2 AND status = 'draft' AND project_id = $9
 RETURNING id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id
 `
 
@@ -936,11 +972,13 @@ type UpdateChangeOrderDraftParams struct {
 	VatRate        pgtype.Numeric `json:"vat_rate"`
 	CustomerNotes  string         `json:"customer_notes"`
 	InternalNotes  string         `json:"internal_notes"`
+	ProjectID      pgtype.UUID    `json:"project_id"`
 }
 
 // Yalnızca DRAFT durumdaki kayıt düzenlenebilir -- WHERE koşulundaki
 // status='draft' servis katmanındaki kontrolün üzerine bir savunma
 // katmanıdır (offer_revisions'daki UpdateOfferRevision ile aynı ilke).
+// project_id EKLENDİ (bkz. GetChangeOrderByID notu).
 func (q *Queries) UpdateChangeOrderDraft(ctx context.Context, arg UpdateChangeOrderDraftParams) (ProjectChangeOrder, error) {
 	row := q.db.QueryRow(ctx, updateChangeOrderDraft,
 		arg.ID,
@@ -951,6 +989,7 @@ func (q *Queries) UpdateChangeOrderDraft(ctx context.Context, arg UpdateChangeOr
 		arg.VatRate,
 		arg.CustomerNotes,
 		arg.InternalNotes,
+		arg.ProjectID,
 	)
 	var i ProjectChangeOrder
 	err := row.Scan(

@@ -14,37 +14,67 @@ import (
 )
 
 type UserHandler struct {
-	svc *service.UserService
+	svc      *service.UserService
+	authzSvc *service.AuthorizationService
 }
 
-func NewUserHandler(svc *service.UserService) *UserHandler {
-	return &UserHandler{svc: svc}
+func NewUserHandler(svc *service.UserService, authzSvc *service.AuthorizationService) *UserHandler {
+	return &UserHandler{svc: svc, authzSvc: authzSvc}
 }
 
+// List/Get, RBAC/Project Membership sprint'inden itibaren AuthorizationService'in
+// organizasyon-rolüyle zenginleştirilmiş sorgusunu kullanır (N+1'siz TEK
+// JOIN) -- UserService'in kendi CRUD metodları (Create/Update/Deactivate)
+// BUNDAN ETKİLENMEZ.
 func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	result, err := h.svc.List(r.Context(), orgID, page, limit)
+	rows, total, err := h.authzSvc.ListUsersWithRoles(r.Context(), orgID, page, limit)
 	if err != nil {
 		httpjson.Error(w, http.StatusInternalServerError, "kullanıcılar alınamadı")
 		return
 	}
-	users := make([]userResponse, len(result.Users))
-	for i, u := range result.Users {
+	users := make([]userResponse, len(rows))
+	for i, u := range rows {
 		users[i] = toUserResponse(u)
 	}
-	httpjson.Write(w, http.StatusOK, map[string]any{"users": users, "total": result.Total})
+	httpjson.Write(w, http.StatusOK, map[string]any{"users": users, "total": total})
 }
 
 func (h *UserHandler) Get(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	user, err := h.svc.Get(r.Context(), chi.URLParam(r, "id"), orgID)
+	user, err := h.authzSvc.GetUserWithRole(r.Context(), chi.URLParam(r, "id"), orgID)
 	if err != nil {
 		h.writeUserError(w, err)
 		return
 	}
 	httpjson.Write(w, http.StatusOK, toUserResponse(*user))
+}
+
+type setUserOrganizationRoleRequest struct {
+	RoleCode string `json:"role_code"`
+}
+
+// SetOrganizationRole, kullanıcının RBAC/Project Membership sprint'indeki
+// ince-taneli organizasyon rolünü değiştirir (users.role -- admin/kullanici
+// -- İLE KARIŞTIRILMAMALI, o alan bu uçtan HİÇ değişmez). "super_admin"
+// kodu asla kabul EDİLMEZ çünkü organization_roles tablosunda böyle bir
+// satır hiç yoktur (yalnızca migration'ın seed ettiği 6 tenant rolü) --
+// GetOrganizationRoleByCode bulamaz, domain.ErrNotFound döner.
+func (h *UserHandler) SetOrganizationRole(w http.ResponseWriter, r *http.Request) {
+	var req setUserOrganizationRoleRequest
+	if err := httpjson.Decode(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	role, err := h.authzSvc.SetUserOrganizationRole(r.Context(), chi.URLParam(r, "id"), orgID, req.RoleCode)
+	if err != nil {
+		h.writeUserError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, map[string]any{"organization_role_code": role.Code, "organization_role_name": role.Name})
 }
 
 type createUserRequest struct {
@@ -176,6 +206,10 @@ func (h *UserHandler) writeUserError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusConflict, "bu kullanıcı adı zaten kullanılıyor")
 	case errors.Is(err, domain.ErrInvalidCredentials):
 		httpjson.Error(w, http.StatusBadRequest, "mevcut şifre hatalı")
+	case errors.Is(err, domain.ErrLastOwner):
+		httpjson.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, domain.ErrCannotAssignSuperAdmin), errors.Is(err, domain.ErrCrossOrgMembership):
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}

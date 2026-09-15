@@ -14,20 +14,22 @@ import (
 const completeTask = `-- name: CompleteTask :one
 UPDATE project_tasks
 SET status = 'completed', completed_at = now()
-WHERE id = $1 AND organization_id = $2 AND status <> 'completed'
+WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status <> 'completed'
 RETURNING id, organization_id, project_id, schedule_item_id, title, description, assigned_employee_id, assigned_name, priority, status, due_date, completed_at, created_by, created_at, updated_at
 `
 
 type CompleteTaskParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
 // CompleteTask, görevi yalnızca HENÜZ tamamlanmamışsa tamamlar. Eşzamanlı
 // iki "tamamla" isteğinden yalnızca biri satır döndürür; ikincisi sessizce
 // ikinci kez tamamlamak yerine hiçbir şey yapmaz (idempotent davranış).
+// project_id EKLENDİ (bkz. GetTask notu).
 func (q *Queries) CompleteTask(ctx context.Context, arg CompleteTaskParams) (ProjectTask, error) {
-	row := q.db.QueryRow(ctx, completeTask, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, completeTask, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectTask
 	err := row.Scan(
 		&i.ID,
@@ -416,16 +418,18 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Project
 }
 
 const deleteProjectNote = `-- name: DeleteProjectNote :execrows
-DELETE FROM project_notes WHERE id = $1 AND organization_id = $2
+DELETE FROM project_notes WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type DeleteProjectNoteParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetProjectMember notu).
 func (q *Queries) DeleteProjectNote(ctx context.Context, arg DeleteProjectNoteParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteProjectNote, arg.ID, arg.OrganizationID)
+	result, err := q.db.Exec(ctx, deleteProjectNote, arg.ID, arg.OrganizationID, arg.ProjectID)
 	if err != nil {
 		return 0, err
 	}
@@ -434,7 +438,7 @@ func (q *Queries) DeleteProjectNote(ctx context.Context, arg DeleteProjectNotePa
 
 const endProjectMembership = `-- name: EndProjectMembership :one
 UPDATE project_members SET end_date = $3
-WHERE id = $1 AND organization_id = $2 AND end_date IS NULL
+WHERE id = $1 AND organization_id = $2 AND end_date IS NULL AND project_id = $4
 RETURNING id, organization_id, project_id, employee_id, employee_name, role_title, start_date, end_date, notes, created_by, created_at, updated_at
 `
 
@@ -442,12 +446,19 @@ type EndProjectMembershipParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
 	EndDate        pgtype.Date `json:"end_date"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
 // EndProjectMembership, üyeyi SİLMEZ: bitiş tarihi yazılır, geçmiş kayıt
-// korunur (aynı kişi sonra yeniden atanabilir).
+// korunur (aynı kişi sonra yeniden atanabilir). project_id EKLENDİ (bkz.
+// GetProjectMember notu).
 func (q *Queries) EndProjectMembership(ctx context.Context, arg EndProjectMembershipParams) (ProjectMember, error) {
-	row := q.db.QueryRow(ctx, endProjectMembership, arg.ID, arg.OrganizationID, arg.EndDate)
+	row := q.db.QueryRow(ctx, endProjectMembership,
+		arg.ID,
+		arg.OrganizationID,
+		arg.EndDate,
+		arg.ProjectID,
+	)
 	var i ProjectMember
 	err := row.Scan(
 		&i.ID,
@@ -468,18 +479,21 @@ func (q *Queries) EndProjectMembership(ctx context.Context, arg EndProjectMember
 
 const getProjectFile = `-- name: GetProjectFile :one
 SELECT id, organization_id, project_id, original_name, object_key, mime_type, size_bytes, sha256, category, description, uploaded_by, created_at, deleted_at, deleted_by FROM project_files
-WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
+WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND deleted_at IS NULL
 `
 
 type GetProjectFileParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
-// GetProjectFile, indirme ucunun tek yetki kapısıdır: organization_id
-// eşleşmeden hiçbir dosya döndürülmez.
+// GetProjectFile, indirme ucunun tek yetki kapısıdır: organization_id VE
+// project_id eşleşmeden hiçbir dosya döndürülmez (project_id EKLENDİ --
+// bkz. GetProjectMember notu: aksi halde AYNI organizasyondaki başka bir
+// projenin dosya UUID'si, yetkili olunan bir proje URL'siyle indirilebilirdi).
 func (q *Queries) GetProjectFile(ctx context.Context, arg GetProjectFileParams) (ProjectFile, error) {
-	row := q.db.QueryRow(ctx, getProjectFile, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, getProjectFile, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectFile
 	err := row.Scan(
 		&i.ID,
@@ -533,16 +547,21 @@ func (q *Queries) GetProjectFileBySHA(ctx context.Context, arg GetProjectFileByS
 }
 
 const getProjectMember = `-- name: GetProjectMember :one
-SELECT id, organization_id, project_id, employee_id, employee_name, role_title, start_date, end_date, notes, created_by, created_at, updated_at FROM project_members WHERE id = $1 AND organization_id = $2
+SELECT id, organization_id, project_id, employee_id, employee_name, role_title, start_date, end_date, notes, created_by, created_at, updated_at FROM project_members WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type GetProjectMemberParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ: başka bir projenin üye UUID'si, aynı organizasyon
+// içinde bile olsa buradan görüntülenemez (bkz. IDOR denetim bulgusu --
+// child-resource sorguları yalnızca organization_id ile değil, ebeveyn
+// project_id ile de sınırlanmalı).
 func (q *Queries) GetProjectMember(ctx context.Context, arg GetProjectMemberParams) (ProjectMember, error) {
-	row := q.db.QueryRow(ctx, getProjectMember, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, getProjectMember, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectMember
 	err := row.Scan(
 		&i.ID,
@@ -563,16 +582,18 @@ func (q *Queries) GetProjectMember(ctx context.Context, arg GetProjectMemberPara
 
 const getProjectPhoto = `-- name: GetProjectPhoto :one
 SELECT id, organization_id, project_id, original_name, object_key, mime_type, size_bytes, sha256, stage, description, taken_at, uploaded_by, created_at, deleted_at, deleted_by FROM project_photos
-WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
+WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND deleted_at IS NULL
 `
 
 type GetProjectPhotoParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetProjectFile notu).
 func (q *Queries) GetProjectPhoto(ctx context.Context, arg GetProjectPhotoParams) (ProjectPhoto, error) {
-	row := q.db.QueryRow(ctx, getProjectPhoto, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, getProjectPhoto, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectPhoto
 	err := row.Scan(
 		&i.ID,
@@ -628,16 +649,20 @@ func (q *Queries) GetProjectPhotoBySHA(ctx context.Context, arg GetProjectPhotoB
 }
 
 const getScheduleItem = `-- name: GetScheduleItem :one
-SELECT id, organization_id, project_id, name, description, start_date, end_date, status, sort_order, created_by, created_at, updated_at FROM project_schedule_items WHERE id = $1 AND organization_id = $2
+SELECT id, organization_id, project_id, name, description, start_date, end_date, status, sort_order, created_by, created_at, updated_at FROM project_schedule_items WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type GetScheduleItemParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetProjectMember notu). resolveTaskRelations'ın
+// kendi çapraz-doğrulaması (item.ProjectID == pid) korunur; bu sorgu
+// seviyesindeki ek katman savunma derinliğidir.
 func (q *Queries) GetScheduleItem(ctx context.Context, arg GetScheduleItemParams) (ProjectScheduleItem, error) {
-	row := q.db.QueryRow(ctx, getScheduleItem, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, getScheduleItem, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectScheduleItem
 	err := row.Scan(
 		&i.ID,
@@ -657,16 +682,20 @@ func (q *Queries) GetScheduleItem(ctx context.Context, arg GetScheduleItemParams
 }
 
 const getTask = `-- name: GetTask :one
-SELECT id, organization_id, project_id, schedule_item_id, title, description, assigned_employee_id, assigned_name, priority, status, due_date, completed_at, created_by, created_at, updated_at FROM project_tasks WHERE id = $1 AND organization_id = $2
+SELECT id, organization_id, project_id, schedule_item_id, title, description, assigned_employee_id, assigned_name, priority, status, due_date, completed_at, created_by, created_at, updated_at FROM project_tasks WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type GetTaskParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetProjectMember notu -- IDOR denetim bulgusu:
+// taskId + BAŞKA projenin id'si ile GetTask öncesi org_id eşleşse bile
+// kayıt dönerdi).
 func (q *Queries) GetTask(ctx context.Context, arg GetTaskParams) (ProjectTask, error) {
-	row := q.db.QueryRow(ctx, getTask, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, getTask, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectTask
 	err := row.Scan(
 		&i.ID,
@@ -689,20 +718,21 @@ func (q *Queries) GetTask(ctx context.Context, arg GetTaskParams) (ProjectTask, 
 }
 
 const getTaskForUpdate = `-- name: GetTaskForUpdate :one
-SELECT id, organization_id, project_id, schedule_item_id, title, description, assigned_employee_id, assigned_name, priority, status, due_date, completed_at, created_by, created_at, updated_at FROM project_tasks WHERE id = $1 AND organization_id = $2 FOR UPDATE
+SELECT id, organization_id, project_id, schedule_item_id, title, description, assigned_employee_id, assigned_name, priority, status, due_date, completed_at, created_by, created_at, updated_at FROM project_tasks WHERE id = $1 AND organization_id = $2 AND project_id = $3 FOR UPDATE
 `
 
 type GetTaskForUpdateParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
 // GetTaskForUpdate, satırı KİLİT ALTINDA okur. UpdateTask bunu kullanır:
 // aksi halde iki eşzamanlı "durumu completed yap" isteği ikisi de eski
 // (completed öncesi) durumu görüp İKİ kez task_completed olayı
-// yazabilirdi (bkz. denetim bulgusu).
+// yazabilirdi (bkz. denetim bulgusu). project_id EKLENDİ (bkz. GetTask notu).
 func (q *Queries) GetTaskForUpdate(ctx context.Context, arg GetTaskForUpdateParams) (ProjectTask, error) {
-	row := q.db.QueryRow(ctx, getTaskForUpdate, arg.ID, arg.OrganizationID)
+	row := q.db.QueryRow(ctx, getTaskForUpdate, arg.ID, arg.OrganizationID, arg.ProjectID)
 	var i ProjectTask
 	err := row.Scan(
 		&i.ID,
@@ -1021,7 +1051,7 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]Project
 
 const softDeleteProjectFile = `-- name: SoftDeleteProjectFile :one
 UPDATE project_files SET deleted_at = now(), deleted_by = $3
-WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
+WHERE id = $1 AND organization_id = $2 AND project_id = $4 AND deleted_at IS NULL
 RETURNING id, organization_id, project_id, original_name, object_key, mime_type, size_bytes, sha256, category, description, uploaded_by, created_at, deleted_at, deleted_by
 `
 
@@ -1029,10 +1059,17 @@ type SoftDeleteProjectFileParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
 	DeletedBy      pgtype.UUID `json:"deleted_by"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetProjectFile notu).
 func (q *Queries) SoftDeleteProjectFile(ctx context.Context, arg SoftDeleteProjectFileParams) (ProjectFile, error) {
-	row := q.db.QueryRow(ctx, softDeleteProjectFile, arg.ID, arg.OrganizationID, arg.DeletedBy)
+	row := q.db.QueryRow(ctx, softDeleteProjectFile,
+		arg.ID,
+		arg.OrganizationID,
+		arg.DeletedBy,
+		arg.ProjectID,
+	)
 	var i ProjectFile
 	err := row.Scan(
 		&i.ID,
@@ -1055,7 +1092,7 @@ func (q *Queries) SoftDeleteProjectFile(ctx context.Context, arg SoftDeleteProje
 
 const softDeleteProjectPhoto = `-- name: SoftDeleteProjectPhoto :one
 UPDATE project_photos SET deleted_at = now(), deleted_by = $3
-WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
+WHERE id = $1 AND organization_id = $2 AND project_id = $4 AND deleted_at IS NULL
 RETURNING id, organization_id, project_id, original_name, object_key, mime_type, size_bytes, sha256, stage, description, taken_at, uploaded_by, created_at, deleted_at, deleted_by
 `
 
@@ -1063,10 +1100,17 @@ type SoftDeleteProjectPhotoParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
 	DeletedBy      pgtype.UUID `json:"deleted_by"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetProjectFile notu).
 func (q *Queries) SoftDeleteProjectPhoto(ctx context.Context, arg SoftDeleteProjectPhotoParams) (ProjectPhoto, error) {
-	row := q.db.QueryRow(ctx, softDeleteProjectPhoto, arg.ID, arg.OrganizationID, arg.DeletedBy)
+	row := q.db.QueryRow(ctx, softDeleteProjectPhoto,
+		arg.ID,
+		arg.OrganizationID,
+		arg.DeletedBy,
+		arg.ProjectID,
+	)
 	var i ProjectPhoto
 	err := row.Scan(
 		&i.ID,
@@ -1090,7 +1134,7 @@ func (q *Queries) SoftDeleteProjectPhoto(ctx context.Context, arg SoftDeleteProj
 
 const updateProjectNote = `-- name: UpdateProjectNote :one
 UPDATE project_notes SET content = $3
-WHERE id = $1 AND organization_id = $2
+WHERE id = $1 AND organization_id = $2 AND project_id = $4
 RETURNING id, organization_id, project_id, content, created_by, created_by_name, created_at, updated_at
 `
 
@@ -1098,10 +1142,17 @@ type UpdateProjectNoteParams struct {
 	ID             pgtype.UUID `json:"id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
 	Content        string      `json:"content"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
+// project_id EKLENDİ (bkz. GetProjectMember notu).
 func (q *Queries) UpdateProjectNote(ctx context.Context, arg UpdateProjectNoteParams) (ProjectNote, error) {
-	row := q.db.QueryRow(ctx, updateProjectNote, arg.ID, arg.OrganizationID, arg.Content)
+	row := q.db.QueryRow(ctx, updateProjectNote,
+		arg.ID,
+		arg.OrganizationID,
+		arg.Content,
+		arg.ProjectID,
+	)
 	var i ProjectNote
 	err := row.Scan(
 		&i.ID,
@@ -1119,7 +1170,7 @@ func (q *Queries) UpdateProjectNote(ctx context.Context, arg UpdateProjectNotePa
 const updateScheduleItem = `-- name: UpdateScheduleItem :one
 UPDATE project_schedule_items
 SET name = $3, description = $4, start_date = $5, end_date = $6, status = $7, sort_order = $8
-WHERE id = $1 AND organization_id = $2
+WHERE id = $1 AND organization_id = $2 AND project_id = $9
 RETURNING id, organization_id, project_id, name, description, start_date, end_date, status, sort_order, created_by, created_at, updated_at
 `
 
@@ -1132,6 +1183,7 @@ type UpdateScheduleItemParams struct {
 	EndDate        pgtype.Date `json:"end_date"`
 	Status         string      `json:"status"`
 	SortOrder      int32       `json:"sort_order"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
 func (q *Queries) UpdateScheduleItem(ctx context.Context, arg UpdateScheduleItemParams) (ProjectScheduleItem, error) {
@@ -1144,6 +1196,7 @@ func (q *Queries) UpdateScheduleItem(ctx context.Context, arg UpdateScheduleItem
 		arg.EndDate,
 		arg.Status,
 		arg.SortOrder,
+		arg.ProjectID,
 	)
 	var i ProjectScheduleItem
 	err := row.Scan(
@@ -1170,7 +1223,7 @@ SET title = $3, description = $4, schedule_item_id = $5, assigned_employee_id = 
     completed_at = CASE WHEN $9::varchar = 'completed'
                         THEN COALESCE(completed_at, now())
                         ELSE NULL END
-WHERE id = $1 AND organization_id = $2
+WHERE id = $1 AND organization_id = $2 AND project_id = $11
 RETURNING id, organization_id, project_id, schedule_item_id, title, description, assigned_employee_id, assigned_name, priority, status, due_date, completed_at, created_by, created_at, updated_at
 `
 
@@ -1185,10 +1238,12 @@ type UpdateTaskParams struct {
 	Priority           string      `json:"priority"`
 	Status             string      `json:"status"`
 	DueDate            pgtype.Date `json:"due_date"`
+	ProjectID          pgtype.UUID `json:"project_id"`
 }
 
 // UpdateTask, completed_at'i durumla TUTARLI yazar: tamamlandıysa o anki
 // zaman, değilse NULL (DB'deki CHECK kısıtı da bunu zorunlu kılar).
+// project_id EKLENDİ (bkz. GetTask notu).
 func (q *Queries) UpdateTask(ctx context.Context, arg UpdateTaskParams) (ProjectTask, error) {
 	row := q.db.QueryRow(ctx, updateTask,
 		arg.ID,
@@ -1201,6 +1256,7 @@ func (q *Queries) UpdateTask(ctx context.Context, arg UpdateTaskParams) (Project
 		arg.Priority,
 		arg.Status,
 		arg.DueDate,
+		arg.ProjectID,
 	)
 	var i ProjectTask
 	err := row.Scan(

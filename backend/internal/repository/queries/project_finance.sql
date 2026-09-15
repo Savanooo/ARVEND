@@ -7,7 +7,11 @@ INSERT INTO project_payment_plan_items (
 RETURNING *;
 
 -- name: GetPaymentPlanItem :one
-SELECT * FROM project_payment_plan_items WHERE id = $1 AND organization_id = $2;
+-- project_id EKLENDİ: başka bir projenin kalem UUID'si, aynı organizasyon
+-- içinde bile olsa buradan görüntülenemez (bkz. IDOR denetim bulgusu --
+-- child-resource sorguları yalnızca organization_id ile değil, ebeveyn
+-- project_id ile de sınırlanmalı).
+SELECT * FROM project_payment_plan_items WHERE id = $1 AND organization_id = $2 AND project_id = $3;
 
 -- ListPaymentPlanItems, her kalemin o kaleme bağlı GEÇERLİ (void
 -- edilmemiş) tahsilat toplamını da getirir -- böylece partial/paid
@@ -22,14 +26,16 @@ WHERE p.project_id = $1 AND p.organization_id = $2
 ORDER BY p.sort_order ASC, p.created_at ASC;
 
 -- name: UpdatePaymentPlanItem :one
+-- project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 UPDATE project_payment_plan_items
 SET sort_order = $3, name = $4, percentage = $5, planned_amount = $6, due_date = $7, notes = $8
-WHERE id = $1 AND organization_id = $2 AND status <> 'cancelled'
+WHERE id = $1 AND organization_id = $2 AND status <> 'cancelled' AND project_id = $9
 RETURNING *;
 
 -- name: CancelPaymentPlanItem :one
+-- project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 UPDATE project_payment_plan_items SET status = 'cancelled'
-WHERE id = $1 AND organization_id = $2 AND status <> 'cancelled'
+WHERE id = $1 AND organization_id = $2 AND status <> 'cancelled' AND project_id = $3
 RETURNING *;
 
 -- GetPaymentPlanTotal, planlanan toplamı SQL/numeric üzerinde hesaplar.
@@ -54,8 +60,9 @@ RETURNING *;
 -- GetCollection, void durumundan BAĞIMSIZ okur. VoidCollection'ın
 -- "bulunamadı" ile "zaten iptal edilmiş" durumlarını ayırt etmesi için
 -- kullanılır (bkz. denetim bulgusu: ikisi de yanlışlıkla 404 dönüyordu).
+-- project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 -- name: GetCollection :one
-SELECT * FROM project_collections WHERE id = $1 AND organization_id = $2;
+SELECT * FROM project_collections WHERE id = $1 AND organization_id = $2 AND project_id = $3;
 
 -- name: GetCollectionByIdempotencyKey :one
 SELECT * FROM project_collections
@@ -67,9 +74,10 @@ WHERE project_id = $1 AND organization_id = $2
 ORDER BY received_date DESC, created_at DESC;
 
 -- name: VoidCollection :one
+-- project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 UPDATE project_collections
 SET voided_at = now(), voided_by = $3, void_reason = $4
-WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL
+WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL AND project_id = $5
 RETURNING *;
 
 -- ============ Masraflar ============
@@ -86,8 +94,9 @@ INSERT INTO project_expenses (
 RETURNING *;
 
 -- GetExpense, void durumundan BAĞIMSIZ okur (bkz. GetCollection notu).
+-- project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 -- name: GetExpense :one
-SELECT * FROM project_expenses WHERE id = $1 AND organization_id = $2;
+SELECT * FROM project_expenses WHERE id = $1 AND organization_id = $2 AND project_id = $3;
 
 -- name: GetExpenseByIdempotencyKey :one
 SELECT * FROM project_expenses
@@ -99,16 +108,18 @@ WHERE project_id = $1 AND organization_id = $2
 ORDER BY expense_date DESC, created_at DESC;
 
 -- name: UpdateExpense :one
+-- project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 UPDATE project_expenses
 SET category = $3, description = $4, amount = $5, expense_date = $6,
     supplier_name = $7, invoice_no = $8, notes = $9
-WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL
+WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL AND project_id = $10
 RETURNING *;
 
 -- name: VoidExpense :one
+-- project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 UPDATE project_expenses
 SET voided_at = now(), voided_by = $3, void_reason = $4
-WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL
+WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL AND project_id = $5
 RETURNING *;
 
 -- ============ Faturalar ============
@@ -126,11 +137,13 @@ WHERE project_id = $1 AND organization_id = $2
 ORDER BY invoice_date DESC, created_at DESC;
 
 -- name: GetInvoice :one
-SELECT * FROM project_invoices WHERE id = $1 AND organization_id = $2;
+-- project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
+SELECT * FROM project_invoices WHERE id = $1 AND organization_id = $2 AND project_id = $3;
 
 -- name: UpdateInvoiceStatus :one
+-- project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 UPDATE project_invoices SET status = $3
-WHERE id = $1 AND organization_id = $2
+WHERE id = $1 AND organization_id = $2 AND project_id = $4
 RETURNING *;
 
 -- ============ Taşeronlar ============
@@ -144,7 +157,11 @@ INSERT INTO project_subcontractors (
 RETURNING *;
 
 -- name: GetSubcontractor :one
-SELECT * FROM project_subcontractors WHERE id = $1 AND organization_id = $2;
+-- project_id EKLENDİ: CreateSubcontractorPayment'ın taşeronu URL'deki
+-- projeye ait olduğunu doğrulaması için (bkz. GetPaymentPlanItem notu --
+-- aksi halde Proje A'ya yetkili biri, Proje B'nin taşeron UUID'sini
+-- bilerek Proje A URL'si üzerinden ona ödeme kaydedebilirdi).
+SELECT * FROM project_subcontractors WHERE id = $1 AND organization_id = $2 AND project_id = $3;
 
 -- ListSubcontractors, her taşeronun GEÇERLİ ödeme toplamını da getirir
 -- (kalan = contract_amount - paid, kart başına ayrı sorgu yok).
@@ -157,10 +174,11 @@ WHERE s.project_id = $1 AND s.organization_id = $2
 ORDER BY s.created_at ASC;
 
 -- name: UpdateSubcontractor :one
+-- project_id EKLENDİ (bkz. GetSubcontractor notu).
 UPDATE project_subcontractors
 SET name = $3, company_name = $4, phone = $5, email = $6, work_description = $7,
     contract_amount = $8, start_date = $9, end_date = $10, status = $11, notes = $12
-WHERE id = $1 AND organization_id = $2
+WHERE id = $1 AND organization_id = $2 AND project_id = $13
 RETURNING *;
 
 -- ============ Taşeron Ödemeleri ============
@@ -173,9 +191,9 @@ INSERT INTO project_subcontractor_payments (
 RETURNING *;
 
 -- GetSubcontractorPayment, void durumundan BAĞIMSIZ okur (bkz.
--- GetCollection notu).
+-- GetCollection notu). project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 -- name: GetSubcontractorPayment :one
-SELECT * FROM project_subcontractor_payments WHERE id = $1 AND organization_id = $2;
+SELECT * FROM project_subcontractor_payments WHERE id = $1 AND organization_id = $2 AND project_id = $3;
 
 -- GetSubcontractorPaymentByIdempotencyKey, anahtarı TAŞERON bazında
 -- arar (proje bazında DEĞİL) -- aksi halde aynı projede iki farklı
@@ -191,9 +209,10 @@ WHERE project_id = $1 AND organization_id = $2
 ORDER BY paid_date DESC, created_at DESC;
 
 -- name: VoidSubcontractorPayment :one
+-- project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 UPDATE project_subcontractor_payments
 SET voided_at = now(), voided_by = $3, void_reason = $4
-WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL
+WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL AND project_id = $5
 RETURNING *;
 
 -- ============ Finans Özeti ============

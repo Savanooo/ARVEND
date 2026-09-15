@@ -86,41 +86,46 @@ func resolveChangeOrderRef(ctx context.Context, q *sqlc.Queries, changeOrderID s
 	if err != nil {
 		return pgtype.UUID{}, ErrInvalidChangeOrderRef
 	}
-	co, err := q.GetChangeOrderByID(ctx, sqlc.GetChangeOrderByIDParams{ID: cid, OrganizationID: orgID})
-	if err != nil {
+	if _, err := q.GetChangeOrderByID(ctx, sqlc.GetChangeOrderByIDParams{ID: cid, OrganizationID: orgID, ProjectID: projectID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return pgtype.UUID{}, ErrInvalidChangeOrderRef
 		}
 		return pgtype.UUID{}, err
 	}
-	if co.ProjectID != projectID {
-		return pgtype.UUID{}, ErrInvalidChangeOrderRef
-	}
 	return cid, nil
 }
 
-// loadChangeOrderRoute, bir ek işin id'sinden proje id'sini öğrenir --
+// loadChangeOrderRoute, URL'deki proje ve ek iş kimliklerini ayrıştırır ve
+// ek işin GERÇEKTEN bu projeye ait olduğunu sorgu seviyesinde doğrular --
 // KİLİTSİZ bir okumadır, yalnızca hangi projenin kilitleneceğini
 // belirlemek içindir (bkz. offer'daki resolveActiveShareLink'in ilk
 // çağrısı). Karar bu okumaya DAYANMAZ; her mutasyon fonksiyonu proje ve
 // ek iş satırlarını KİLİT ALTINDA yeniden okur.
-func (s *ProjectService) loadChangeOrderRoute(ctx context.Context, q *sqlc.Queries, changeOrderID, organizationID string) (cid, pid, orgID pgtype.UUID, err error) {
+//
+// ÖNEMLİ (IDOR denetim bulgusu): eskiden pid, YALNIZCA ek iş kaydından
+// (co.ProjectID) türetiliyordu -- URL'deki proje id'si hiç
+// doğrulanmıyordu. Böylece Proje A'ya yetkili biri, Proje B'ye ait bir
+// ek iş UUID'sini bilerek /projects/A/change-orders/{B'nin id'si}
+// üzerinden Proje B'nin ek işini görüntüleyebilir/değiştirebilirdi.
+// Artık pid URL'den alınır ve GetChangeOrderByID'ye üçüncü bir sınır
+// olarak geçirilir; eşleşmezse (aynı organizasyon içinde bile) kayıt
+// bulunamaz.
+func (s *ProjectService) loadChangeOrderRoute(ctx context.Context, q *sqlc.Queries, projectID, changeOrderID, organizationID string) (cid, pid, orgID pgtype.UUID, err error) {
 	cid, err = repository.StringToUUID(changeOrderID)
 	if err != nil {
 		return cid, pid, orgID, domain.ErrNotFound
 	}
-	orgID, err = repository.StringToUUID(organizationID)
+	pid, orgID, err = s.scopedIDs(projectID, organizationID)
 	if err != nil {
-		return cid, pid, orgID, domain.ErrNotFound
+		return cid, pid, orgID, err
 	}
-	co, err := q.GetChangeOrderByID(ctx, sqlc.GetChangeOrderByIDParams{ID: cid, OrganizationID: orgID})
-	if err != nil {
+	if _, err = q.GetChangeOrderByID(ctx, sqlc.GetChangeOrderByIDParams{ID: cid, OrganizationID: orgID, ProjectID: pid}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return cid, pid, orgID, domain.ErrNotFound
 		}
 		return cid, pid, orgID, err
 	}
-	return cid, co.ProjectID, orgID, nil
+	return cid, pid, orgID, nil
 }
 
 func validateChangeOrderInput(in ChangeOrderInput) error {
@@ -182,7 +187,7 @@ func (s *ProjectService) insertChangeOrderWithItems(
 	if err := s.replaceChangeOrderItems(ctx, txq, orgID, pid, row.ID, in.Items); err != nil {
 		return sqlc.ProjectChangeOrder{}, err
 	}
-	final, err := txq.RecomputeChangeOrderTotals(ctx, sqlc.RecomputeChangeOrderTotalsParams{ID: row.ID, OrganizationID: orgID})
+	final, err := txq.RecomputeChangeOrderTotals(ctx, sqlc.RecomputeChangeOrderTotalsParams{ID: row.ID, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		return sqlc.ProjectChangeOrder{}, err
 	}
@@ -197,7 +202,7 @@ func (s *ProjectService) insertChangeOrderWithItems(
 // kalem CRUD'u yerine, her create/draft-update tüm kalem listesini
 // bütün olarak taşır. line_total HER ZAMAN SQL'de hesaplanır.
 func (s *ProjectService) replaceChangeOrderItems(ctx context.Context, txq *sqlc.Queries, orgID, pid, changeOrderID pgtype.UUID, items []ChangeOrderItemInput) error {
-	if err := txq.DeleteChangeOrderItems(ctx, changeOrderID); err != nil {
+	if err := txq.DeleteChangeOrderItems(ctx, sqlc.DeleteChangeOrderItemsParams{ChangeOrderID: changeOrderID, OrganizationID: orgID, ProjectID: pid}); err != nil {
 		return err
 	}
 	for i, it := range items {
@@ -251,16 +256,19 @@ func (s *ProjectService) ListChangeOrders(ctx context.Context, projectID, organi
 	return out, nil
 }
 
-func (s *ProjectService) GetChangeOrder(ctx context.Context, changeOrderID, organizationID string) (*domain.ChangeOrder, error) {
+// projectID, URL'deki proje kimliğidir -- changeOrderID'nin GERÇEKTEN bu
+// projeye ait olduğunu sorgu seviyesinde doğrular (bkz.
+// loadChangeOrderRoute notu -- IDOR denetim bulgusu).
+func (s *ProjectService) GetChangeOrder(ctx context.Context, projectID, changeOrderID, organizationID string) (*domain.ChangeOrder, error) {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
+	if err != nil {
+		return nil, err
+	}
 	cid, err := repository.StringToUUID(changeOrderID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	orgID, err := repository.StringToUUID(organizationID)
-	if err != nil {
-		return nil, domain.ErrNotFound
-	}
-	row, err := s.q.GetChangeOrderByID(ctx, sqlc.GetChangeOrderByIDParams{ID: cid, OrganizationID: orgID})
+	row, err := s.q.GetChangeOrderByID(ctx, sqlc.GetChangeOrderByIDParams{ID: cid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -268,7 +276,7 @@ func (s *ProjectService) GetChangeOrder(ctx context.Context, changeOrderID, orga
 		return nil, err
 	}
 	co := repository.ToDomainChangeOrder(row)
-	items, err := s.q.ListChangeOrderItems(ctx, cid)
+	items, err := s.q.ListChangeOrderItems(ctx, sqlc.ListChangeOrderItemsParams{ChangeOrderID: cid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +336,8 @@ func (s *ProjectService) CreateChangeOrder(ctx context.Context, projectID, organ
 	return &out, nil
 }
 
-func (s *ProjectService) UpdateChangeOrderDraft(ctx context.Context, changeOrderID, organizationID string, in ChangeOrderInput) (*domain.ChangeOrder, error) {
+// projectID, URL'deki proje kimliğidir (bkz. loadChangeOrderRoute notu).
+func (s *ProjectService) UpdateChangeOrderDraft(ctx context.Context, projectID, changeOrderID, organizationID string, in ChangeOrderInput) (*domain.ChangeOrder, error) {
 	if err := validateChangeOrderInput(in); err != nil {
 		return nil, err
 	}
@@ -339,14 +348,14 @@ func (s *ProjectService) UpdateChangeOrderDraft(ctx context.Context, changeOrder
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	cid, pid, orgID, err := s.loadChangeOrderRoute(ctx, txq, changeOrderID, organizationID)
+	cid, pid, orgID, err := s.loadChangeOrderRoute(ctx, txq, projectID, changeOrderID, organizationID)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
 		return nil, err
 	}
-	current, err := txq.GetChangeOrderForUpdate(ctx, sqlc.GetChangeOrderForUpdateParams{ID: cid, OrganizationID: orgID})
+	current, err := txq.GetChangeOrderForUpdate(ctx, sqlc.GetChangeOrderForUpdateParams{ID: cid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -361,6 +370,7 @@ func (s *ProjectService) UpdateChangeOrderDraft(ctx context.Context, changeOrder
 		ID: cid, OrganizationID: orgID, ChangeType: in.ChangeType, Title: strings.TrimSpace(in.Title),
 		Description: strings.TrimSpace(in.Description), VatRate: repository.Float64ToNumeric(in.VatRate),
 		CustomerNotes: strings.TrimSpace(in.CustomerNotes), InternalNotes: strings.TrimSpace(in.InternalNotes),
+		ProjectID: pid,
 	}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrChangeOrderNotEditable
@@ -370,7 +380,7 @@ func (s *ProjectService) UpdateChangeOrderDraft(ctx context.Context, changeOrder
 	if err := s.replaceChangeOrderItems(ctx, txq, orgID, pid, cid, in.Items); err != nil {
 		return nil, err
 	}
-	final, err := txq.RecomputeChangeOrderTotals(ctx, sqlc.RecomputeChangeOrderTotalsParams{ID: cid, OrganizationID: orgID})
+	final, err := txq.RecomputeChangeOrderTotals(ctx, sqlc.RecomputeChangeOrderTotalsParams{ID: cid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		return nil, err
 	}
@@ -390,7 +400,8 @@ func (s *ProjectService) UpdateChangeOrderDraft(ctx context.Context, changeOrder
 
 // ---------- Durum Geçişleri ----------
 
-func (s *ProjectService) SendChangeOrder(ctx context.Context, changeOrderID, organizationID, userID string) (*domain.ChangeOrder, error) {
+// projectID, URL'deki proje kimliğidir (bkz. loadChangeOrderRoute notu).
+func (s *ProjectService) SendChangeOrder(ctx context.Context, projectID, changeOrderID, organizationID, userID string) (*domain.ChangeOrder, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -398,14 +409,14 @@ func (s *ProjectService) SendChangeOrder(ctx context.Context, changeOrderID, org
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	cid, pid, orgID, err := s.loadChangeOrderRoute(ctx, txq, changeOrderID, organizationID)
+	cid, pid, orgID, err := s.loadChangeOrderRoute(ctx, txq, projectID, changeOrderID, organizationID)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
 		return nil, err
 	}
-	current, err := txq.GetChangeOrderForUpdate(ctx, sqlc.GetChangeOrderForUpdateParams{ID: cid, OrganizationID: orgID})
+	current, err := txq.GetChangeOrderForUpdate(ctx, sqlc.GetChangeOrderForUpdateParams{ID: cid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -415,7 +426,7 @@ func (s *ProjectService) SendChangeOrder(ctx context.Context, changeOrderID, org
 	if current.Status != domain.ChangeOrderDraft {
 		return nil, ErrChangeOrderNotSendable
 	}
-	row, err := txq.SendChangeOrder(ctx, sqlc.SendChangeOrderParams{ID: cid, OrganizationID: orgID})
+	row, err := txq.SendChangeOrder(ctx, sqlc.SendChangeOrderParams{ID: cid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrChangeOrderNotSendable
@@ -438,7 +449,8 @@ func (s *ProjectService) SendChangeOrder(ctx context.Context, changeOrderID, org
 	return &out, nil
 }
 
-func (s *ProjectService) CancelChangeOrder(ctx context.Context, changeOrderID, organizationID, userID string) (*domain.ChangeOrder, error) {
+// projectID, URL'deki proje kimliğidir (bkz. loadChangeOrderRoute notu).
+func (s *ProjectService) CancelChangeOrder(ctx context.Context, projectID, changeOrderID, organizationID, userID string) (*domain.ChangeOrder, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -446,14 +458,14 @@ func (s *ProjectService) CancelChangeOrder(ctx context.Context, changeOrderID, o
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	cid, pid, orgID, err := s.loadChangeOrderRoute(ctx, txq, changeOrderID, organizationID)
+	cid, pid, orgID, err := s.loadChangeOrderRoute(ctx, txq, projectID, changeOrderID, organizationID)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
 		return nil, err
 	}
-	current, err := txq.GetChangeOrderForUpdate(ctx, sqlc.GetChangeOrderForUpdateParams{ID: cid, OrganizationID: orgID})
+	current, err := txq.GetChangeOrderForUpdate(ctx, sqlc.GetChangeOrderForUpdateParams{ID: cid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -463,7 +475,7 @@ func (s *ProjectService) CancelChangeOrder(ctx context.Context, changeOrderID, o
 	if current.Status != domain.ChangeOrderDraft && current.Status != domain.ChangeOrderSent {
 		return nil, ErrChangeOrderNotCancellable
 	}
-	row, err := txq.CancelChangeOrder(ctx, sqlc.CancelChangeOrderParams{ID: cid, OrganizationID: orgID})
+	row, err := txq.CancelChangeOrder(ctx, sqlc.CancelChangeOrderParams{ID: cid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrChangeOrderNotCancellable
@@ -490,7 +502,8 @@ func (s *ProjectService) CancelChangeOrder(ctx context.Context, changeOrderID, o
 // 'superseded' yapar ve aktif paylaşım linkini iptal eder (offer'ın
 // Revise deseniyle birebir aynı ilke: gönderilmiş ticari belge
 // sonradan mutate edilmez).
-func (s *ProjectService) ReviseChangeOrder(ctx context.Context, changeOrderID, organizationID, userID string) (*domain.ChangeOrder, error) {
+// projectID, URL'deki proje kimliğidir (bkz. loadChangeOrderRoute notu).
+func (s *ProjectService) ReviseChangeOrder(ctx context.Context, projectID, changeOrderID, organizationID, userID string) (*domain.ChangeOrder, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -498,7 +511,7 @@ func (s *ProjectService) ReviseChangeOrder(ctx context.Context, changeOrderID, o
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	cid, pid, orgID, err := s.loadChangeOrderRoute(ctx, txq, changeOrderID, organizationID)
+	cid, pid, orgID, err := s.loadChangeOrderRoute(ctx, txq, projectID, changeOrderID, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -506,7 +519,7 @@ func (s *ProjectService) ReviseChangeOrder(ctx context.Context, changeOrderID, o
 	if err != nil {
 		return nil, err
 	}
-	current, err := txq.GetChangeOrderForUpdate(ctx, sqlc.GetChangeOrderForUpdateParams{ID: cid, OrganizationID: orgID})
+	current, err := txq.GetChangeOrderForUpdate(ctx, sqlc.GetChangeOrderForUpdateParams{ID: cid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -517,7 +530,7 @@ func (s *ProjectService) ReviseChangeOrder(ctx context.Context, changeOrderID, o
 		return nil, ErrChangeOrderNotRevisable
 	}
 
-	items, err := txq.ListChangeOrderItems(ctx, cid)
+	items, err := txq.ListChangeOrderItems(ctx, sqlc.ListChangeOrderItemsParams{ChangeOrderID: cid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		return nil, err
 	}
@@ -545,7 +558,7 @@ func (s *ProjectService) ReviseChangeOrder(ctx context.Context, changeOrderID, o
 		return nil, err
 	}
 
-	if _, err := txq.SupersedeChangeOrder(ctx, sqlc.SupersedeChangeOrderParams{ID: cid, OrganizationID: orgID}); err != nil {
+	if _, err := txq.SupersedeChangeOrder(ctx, sqlc.SupersedeChangeOrderParams{ID: cid, OrganizationID: orgID, ProjectID: pid}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrChangeOrderNotRevisable
 		}
@@ -580,7 +593,8 @@ func (s *ProjectService) ReviseChangeOrder(ctx context.Context, changeOrderID, o
 // tutuyordu -- bir SMTP zaman aşımı/gecikmesi, o süre boyunca AYNI
 // projedeki tüm finans mutasyonlarını (müşterinin public linkten
 // onay/red kararı DAHİL) bloke ederdi (bkz. denetim bulgusu).
-func (s *ProjectService) SendChangeOrderEmail(ctx context.Context, changeOrderID, organizationID string, in ChangeOrderEmailInput) error {
+// projectID, URL'deki proje kimliğidir (bkz. loadChangeOrderRoute notu).
+func (s *ProjectService) SendChangeOrderEmail(ctx context.Context, projectID, changeOrderID, organizationID string, in ChangeOrderEmailInput) error {
 	to := strings.TrimSpace(in.To)
 	if to == "" {
 		return errors.New("alıcı e-posta adresi zorunludur")
@@ -597,14 +611,14 @@ func (s *ProjectService) SendChangeOrderEmail(ctx context.Context, changeOrderID
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	cid, pid, orgID, err := s.loadChangeOrderRoute(ctx, txq, changeOrderID, organizationID)
+	cid, pid, orgID, err := s.loadChangeOrderRoute(ctx, txq, projectID, changeOrderID, organizationID)
 	if err != nil {
 		return err
 	}
 	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
 		return err
 	}
-	co, err := txq.GetChangeOrderForUpdate(ctx, sqlc.GetChangeOrderForUpdateParams{ID: cid, OrganizationID: orgID})
+	co, err := txq.GetChangeOrderForUpdate(ctx, sqlc.GetChangeOrderForUpdateParams{ID: cid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ErrNotFound
@@ -725,7 +739,7 @@ func (s *ProjectService) GetChangeOrderByShareLinkToken(ctx context.Context, tok
 	if err != nil {
 		return nil, err
 	}
-	coRow, err := s.q.GetChangeOrderByID(ctx, sqlc.GetChangeOrderByIDParams{ID: link.ChangeOrderID, OrganizationID: link.OrganizationID})
+	coRow, err := s.q.GetChangeOrderByID(ctx, sqlc.GetChangeOrderByIDParams{ID: link.ChangeOrderID, OrganizationID: link.OrganizationID, ProjectID: link.ProjectID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -739,7 +753,7 @@ func (s *ProjectService) GetChangeOrderByShareLinkToken(ctx context.Context, tok
 		}
 		return nil, err
 	}
-	items, err := s.q.ListChangeOrderItems(ctx, link.ChangeOrderID)
+	items, err := s.q.ListChangeOrderItems(ctx, sqlc.ListChangeOrderItemsParams{ChangeOrderID: link.ChangeOrderID, OrganizationID: link.OrganizationID, ProjectID: link.ProjectID})
 	if err != nil {
 		return nil, err
 	}
@@ -832,7 +846,7 @@ func (s *ProjectService) RespondChangeOrderByShareLinkToken(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	co, err := txq.GetChangeOrderForUpdate(ctx, sqlc.GetChangeOrderForUpdateParams{ID: link.ChangeOrderID, OrganizationID: link.OrganizationID})
+	co, err := txq.GetChangeOrderForUpdate(ctx, sqlc.GetChangeOrderForUpdateParams{ID: link.ChangeOrderID, OrganizationID: link.OrganizationID, ProjectID: link.ProjectID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
