@@ -11,6 +11,14 @@ import type { Role } from "./types";
 // NavLinks'e prop olarak GEÇİRİLEMEZ (React Server Components ham
 // fonksiyon referanslarının sınırı geçmesine izin vermez).
 export function getNavItems(role: Role): NavItem[] {
+  // super_admin, organization Admin/Owner'dan ayrı bir platform rolüdür --
+  // herhangi bir organizasyona ait iş sayfasına (Teklifler/Projeler/...)
+  // erişimi YOK, yalnızca platform yönetim konsoluna sahip. Plan
+  // CRUD'u bu fazda yok (bkz. PlatformService.ListPlans yorumu) -- ayrı
+  // bir "Planlar" nav öğesi bilinçli olarak eklenmedi.
+  if (role === "super_admin") {
+    return [{ href: "/super-admin", label: "Firmalar" }];
+  }
   if (role === "admin") {
     return [
       { href: "/admin", label: "Ana Sayfa" },
@@ -22,6 +30,7 @@ export function getNavItems(role: Role): NavItem[] {
       { href: "/admin/metraj-hesaplama", label: "Metraj Hesaplama" },
       { href: "/admin/personel", label: "Personel" },
       { href: "/admin/kullanicilar", label: "Kullanıcılar" },
+      { href: "/admin/firma-ayarlari", label: "Firma Ayarları" },
       { href: "/admin/ayarlar", label: "Ayarlar" },
     ];
   }

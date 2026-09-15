@@ -1,4 +1,4 @@
-import type { User } from "@/lib/types";
+import { ROLE_LABELS, type User } from "@/lib/types";
 
 import { LogoutButton } from "./LogoutButton";
 import { Logo } from "./Logo";
@@ -40,7 +40,7 @@ export function Sidebar({
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold">{user.full_name}</div>
               <div className="text-[11px] uppercase tracking-widest text-sidebar-text-muted">
-                {user.role === "admin" ? "Yönetici" : "Kullanıcı"}
+                {ROLE_LABELS[user.role]}
               </div>
             </div>
           )}

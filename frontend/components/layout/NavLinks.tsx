@@ -28,6 +28,7 @@ export interface NavItem {
 const ICONS: Record<string, LucideIcon> = {
   "/admin": LayoutDashboard,
   "/panel": LayoutDashboard,
+  "/super-admin": Building2,
   "/teklifler": FileText,
   "/projeler": Building2,
   "/mesai": Clock,
@@ -36,6 +37,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/admin/metraj-hesaplama": Ruler,
   "/admin/personel": HardHat,
   "/admin/kullanicilar": UserCog,
+  "/admin/firma-ayarlari": Building2,
   "/admin/ayarlar": Settings,
   "/panel/profil": CircleUserRound,
 };

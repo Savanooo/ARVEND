@@ -1,11 +1,22 @@
-export type Role = "admin" | "kullanici";
+export type Role = "admin" | "kullanici" | "super_admin";
+
+export const ROLE_LABELS: Record<Role, string> = {
+  admin: "Yönetici",
+  kullanici: "Kullanıcı",
+  super_admin: "Süper Admin",
+};
 
 export interface User {
   id: string;
+  organization_id: string | null;
+  organization_name: string;
   username: string;
   full_name: string;
   role: Role;
   is_active?: boolean;
+  must_change_password: boolean;
+  onboarding_completed: boolean;
+  onboarding_step: string;
 }
 
 export interface ApiErrorBody {
@@ -742,4 +753,110 @@ export interface PublicChangeOrder {
   current_contract_value: number;
   projected_contract_value: number;
   can_respond: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// ARVEND — Super Admin + Firma/Mağaza Yönetimi + Onboarding
+// ---------------------------------------------------------------------------
+
+export type OrgStatus = "active" | "trial" | "suspended" | "cancelled";
+
+export const ORG_STATUS_LABELS: Record<OrgStatus, string> = {
+  active: "Aktif",
+  trial: "Deneme",
+  suspended: "Askıya Alınmış",
+  cancelled: "İptal Edilmiş",
+};
+
+export type OnboardingStep = "company" | "billing" | "offers" | "finance" | "business" | "completed";
+
+export const ONBOARDING_STEP_LABELS: Record<OnboardingStep, string> = {
+  company: "Firma",
+  billing: "Resmi / Fatura",
+  offers: "Teklif",
+  finance: "Finans",
+  business: "İşletme",
+  completed: "Tamamlandı",
+};
+
+// backend/internal/domain/onboarding.go: BusinessTypeWhitelist.
+export const BUSINESS_TYPE_OPTIONS: Record<string, string> = {
+  insaat_taahhut: "İnşaat / Taahhüt",
+  tasarim_mimarlik: "Tasarım / Mimarlık",
+  muhendislik_danismanlik: "Mühendislik / Danışmanlık",
+  tedarik_montaj: "Tedarik / Montaj",
+  diger: "Diğer",
+};
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  is_active: boolean;
+  status: OrgStatus;
+  plan_code: string;
+  trial_ends_at?: string | null;
+  onboarding_completed: boolean;
+  onboarding_completed_at?: string | null;
+  onboarding_step: OnboardingStep;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Plan {
+  code: string;
+  name: string;
+  is_active: boolean;
+  max_users: number;
+  max_projects: number;
+  sort_order: number;
+}
+
+export interface OrganizationProfile {
+  authorized_person: string;
+  phone: string;
+  email: string;
+  website: string;
+  logo_object_key: string;
+  legal_name: string;
+  tax_office: string;
+  tax_number: string;
+  invoice_address: string;
+  city: string;
+  district: string;
+  country: string;
+  business_type: string;
+}
+
+// iban_set: IBAN'ın kayıtlı olup olmadığı -- backend plaintext IBAN'ı ASLA
+// döndürmez (bkz. internal/repository/pool.go ToDomainOrganizationCommercialSettings).
+export interface OrganizationCommercialSettings {
+  default_currency: string;
+  default_vat_rate: number;
+  offer_prefix: string;
+  offer_validity_days: number;
+  default_offer_footer: string;
+  default_payment_terms: string;
+  default_delivery_terms: string;
+  bank_name: string;
+  account_holder: string;
+  iban_set: boolean;
+  payment_due_days: number | null;
+}
+
+export interface OnboardingState {
+  onboarding_completed: boolean;
+  onboarding_step: OnboardingStep;
+  profile: OrganizationProfile;
+  commercial: OrganizationCommercialSettings;
+}
+
+export interface AuditEvent {
+  id: string;
+  actor_user_id: string | null;
+  action: string;
+  target_organization_id: string | null;
+  target_user_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
 }

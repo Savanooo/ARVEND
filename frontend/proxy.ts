@@ -13,7 +13,7 @@ import type { NextRequest } from "next/server";
  */
 
 interface AccessClaims {
-  role?: "admin" | "kullanici";
+  role?: "admin" | "kullanici" | "super_admin";
 }
 
 function decodeRole(token: string): AccessClaims["role"] {
@@ -37,13 +37,20 @@ export function proxy(request: NextRequest) {
   }
 
   const role = decodeRole(token);
+  // SUPER ADMIN ile organization Admin KESİNLİKLE aynı şey değildir --
+  // biri diğerinin sayfasına yanlışlıkla düşerse (rol claim'i tamperlanmış
+  // olsa bile, gerçek sınır her zaman backend'deki RequireRole'dür) en
+  // azından kendi platformuna geri yönlendirilir.
   if (pathname.startsWith("/admin") && role !== "admin") {
-    return NextResponse.redirect(new URL("/panel", request.url));
+    return NextResponse.redirect(new URL(role === "super_admin" ? "/super-admin" : "/panel", request.url));
+  }
+  if (pathname.startsWith("/super-admin") && role !== "super_admin") {
+    return NextResponse.redirect(new URL(role === "admin" ? "/admin" : "/panel", request.url));
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/panel/:path*"],
+  matcher: ["/admin/:path*", "/panel/:path*", "/super-admin/:path*"],
 };

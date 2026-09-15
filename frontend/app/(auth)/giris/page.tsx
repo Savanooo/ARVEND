@@ -8,6 +8,7 @@ import { Card, CardBody } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Logo } from "@/components/layout/Logo";
 import { apiClient, ApiError } from "@/lib/api";
+import { nextDestination } from "@/lib/auth-guards";
 import type { User } from "@/lib/types";
 
 export default function GirisPage() {
@@ -26,7 +27,7 @@ export default function GirisPage() {
         method: "POST",
         body: JSON.stringify({ username, password }),
       });
-      router.push(user.role === "admin" ? "/admin" : "/panel");
+      router.push(nextDestination(user));
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bağlantı hatası");

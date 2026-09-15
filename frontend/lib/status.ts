@@ -2,6 +2,7 @@ import type { Tone } from "@/components/ui/Badge";
 import {
   CHANGE_ORDER_STATUS_LABELS,
   INVOICE_STATUS_LABELS,
+  ORG_STATUS_LABELS,
   PLAN_ITEM_STATUS_LABELS,
   PROJECT_STATUS_LABELS,
   SCHEDULE_STATUS_LABELS,
@@ -11,6 +12,7 @@ import {
   type ChangeOrderStatus,
   type InvoiceStatus,
   type OfferStatus,
+  type OrgStatus,
   type PlanItemStatus,
   type ProjectStatus,
   type ScheduleStatus,
@@ -107,4 +109,11 @@ export const ATTENDANCE_STATUS: Record<AttendanceStatus, StatusMeta> = {
   "yarım gün": { label: "Yarım Gün", tone: "gold" },
   gelmedi: { label: "Gelmedi", tone: "danger" },
   izinli: { label: "İzinli", tone: "muted" },
+};
+
+export const ORG_STATUS: Record<OrgStatus, StatusMeta> = {
+  active: { label: ORG_STATUS_LABELS.active, tone: "success" },
+  trial: { label: ORG_STATUS_LABELS.trial, tone: "info" },
+  suspended: { label: ORG_STATUS_LABELS.suspended, tone: "danger" },
+  cancelled: { label: ORG_STATUS_LABELS.cancelled, tone: "muted" },
 };
