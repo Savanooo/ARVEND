@@ -289,6 +289,42 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrContractReasonRequired):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, service.ErrDuplicateSupplierCode):
+		httpjson.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrSupplierFieldsRequired):
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, service.ErrPurchaseRequestNotEditable),
+		errors.Is(err, service.ErrPurchaseRequestNotSubmittable),
+		errors.Is(err, service.ErrPurchaseRequestNotWithdrawable),
+		errors.Is(err, service.ErrPurchaseRequestNotApprovable),
+		errors.Is(err, service.ErrPurchaseRequestNotRejectable),
+		errors.Is(err, service.ErrPurchaseRequestNotCancellable),
+		errors.Is(err, service.ErrPurchaseRequestItemsRequired):
+		httpjson.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrPurchaseRequestReasonRequired):
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, service.ErrRFQNotEditable),
+		errors.Is(err, service.ErrRFQNotIssuable),
+		errors.Is(err, service.ErrRFQNotCloseable),
+		errors.Is(err, service.ErrRFQNotCancellable),
+		errors.Is(err, service.ErrRFQNotAwardable),
+		errors.Is(err, service.ErrRFQItemsRequired),
+		errors.Is(err, service.ErrRFQSuppliersRequired),
+		errors.Is(err, service.ErrPurchaseRequestNotApprovedForRFQ),
+		errors.Is(err, service.ErrQuotationSupplierNotInvited),
+		errors.Is(err, service.ErrQuotationRFQNotOpen),
+		errors.Is(err, service.ErrQuotationItemsRequired),
+		errors.Is(err, service.ErrAwardQuotationMismatch):
+		httpjson.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrPurchaseOrderNotEditable),
+		errors.Is(err, service.ErrPurchaseOrderNotApprovable),
+		errors.Is(err, service.ErrPurchaseOrderNotCancellable),
+		errors.Is(err, service.ErrPurchaseOrderNotCloseable),
+		errors.Is(err, service.ErrPurchaseOrderItemsRequired),
+		errors.Is(err, service.ErrPurchaseOrderSupplierInactive):
+		httpjson.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrPurchaseOrderReasonRequired):
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, service.ErrOfferNotAccepted),
 		errors.Is(err, service.ErrInvalidProjectState),
 		errors.Is(err, service.ErrProjectLocked),

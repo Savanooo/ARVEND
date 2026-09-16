@@ -299,6 +299,73 @@ func (q *Queries) CreateCommitment(ctx context.Context, arg CreateCommitmentPara
 	return i, err
 }
 
+const createCommitmentFromSource = `-- name: CreateCommitmentFromSource :one
+
+INSERT INTO project_commitments (
+    organization_id, project_id, budget_line_id, cost_code_id, source_type, source_id,
+    description, committed_amount, currency, committed_at, created_by
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+RETURNING id, organization_id, project_id, budget_line_id, cost_code_id, source_type, source_id, description, committed_amount, currency, status, committed_at, idempotency_key, created_by, voided_at, voided_by, void_reason, created_at, updated_at
+`
+
+type CreateCommitmentFromSourceParams struct {
+	OrganizationID  pgtype.UUID    `json:"organization_id"`
+	ProjectID       pgtype.UUID    `json:"project_id"`
+	BudgetLineID    pgtype.UUID    `json:"budget_line_id"`
+	CostCodeID      pgtype.UUID    `json:"cost_code_id"`
+	SourceType      string         `json:"source_type"`
+	SourceID        pgtype.UUID    `json:"source_id"`
+	Description     string         `json:"description"`
+	CommittedAmount pgtype.Numeric `json:"committed_amount"`
+	Currency        string         `json:"currency"`
+	CommittedAt     pgtype.Date    `json:"committed_at"`
+	CreatedBy       pgtype.UUID    `json:"created_by"`
+}
+
+// Sprint 4 -- Procurement entegrasyonu. CreateCommitment (yukarı,
+// MANUEL taahhütler için) İLE KARIŞTIRILMAMALI: bu sorgu source_type/
+// source_id'yi AÇIKÇA kabul eder, yalnızca approved PO onay akışından
+// (bkz. project_purchase_order_service.go) çağrılır -- hiçbir HTTP
+// ucu bunu doğrudan istemciye AÇMAZ.
+func (q *Queries) CreateCommitmentFromSource(ctx context.Context, arg CreateCommitmentFromSourceParams) (ProjectCommitment, error) {
+	row := q.db.QueryRow(ctx, createCommitmentFromSource,
+		arg.OrganizationID,
+		arg.ProjectID,
+		arg.BudgetLineID,
+		arg.CostCodeID,
+		arg.SourceType,
+		arg.SourceID,
+		arg.Description,
+		arg.CommittedAmount,
+		arg.Currency,
+		arg.CommittedAt,
+		arg.CreatedBy,
+	)
+	var i ProjectCommitment
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ProjectID,
+		&i.BudgetLineID,
+		&i.CostCodeID,
+		&i.SourceType,
+		&i.SourceID,
+		&i.Description,
+		&i.CommittedAmount,
+		&i.Currency,
+		&i.Status,
+		&i.CommittedAt,
+		&i.IdempotencyKey,
+		&i.CreatedBy,
+		&i.VoidedAt,
+		&i.VoidedBy,
+		&i.VoidReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createOrganizationCostCode = `-- name: CreateOrganizationCostCode :one
 
 INSERT INTO organization_cost_codes (organization_id, code, name, description, category)
@@ -1017,6 +1084,59 @@ func (q *Queries) ListBudgetLinesDetailed(ctx context.Context, arg ListBudgetLin
 	return items, nil
 }
 
+const listCommitmentsBySourcePOItems = `-- name: ListCommitmentsBySourcePOItems :many
+SELECT pc.id, pc.organization_id, pc.project_id, pc.budget_line_id, pc.cost_code_id, pc.source_type, pc.source_id, pc.description, pc.committed_amount, pc.currency, pc.status, pc.committed_at, pc.idempotency_key, pc.created_by, pc.voided_at, pc.voided_by, pc.void_reason, pc.created_at, pc.updated_at FROM project_commitments pc
+WHERE pc.organization_id = $1 AND pc.project_id = $2
+  AND pc.source_type = 'purchase_order'
+  AND pc.source_id IN (SELECT poi.id FROM purchase_order_items poi WHERE poi.purchase_order_id = $3)
+`
+
+type ListCommitmentsBySourcePOItemsParams struct {
+	OrganizationID  pgtype.UUID `json:"organization_id"`
+	ProjectID       pgtype.UUID `json:"project_id"`
+	PurchaseOrderID pgtype.UUID `json:"purchase_order_id"`
+}
+
+func (q *Queries) ListCommitmentsBySourcePOItems(ctx context.Context, arg ListCommitmentsBySourcePOItemsParams) ([]ProjectCommitment, error) {
+	rows, err := q.db.Query(ctx, listCommitmentsBySourcePOItems, arg.OrganizationID, arg.ProjectID, arg.PurchaseOrderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProjectCommitment
+	for rows.Next() {
+		var i ProjectCommitment
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.ProjectID,
+			&i.BudgetLineID,
+			&i.CostCodeID,
+			&i.SourceType,
+			&i.SourceID,
+			&i.Description,
+			&i.CommittedAmount,
+			&i.Currency,
+			&i.Status,
+			&i.CommittedAt,
+			&i.IdempotencyKey,
+			&i.CreatedBy,
+			&i.VoidedAt,
+			&i.VoidedBy,
+			&i.VoidReason,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCommitmentsDetailed = `-- name: ListCommitmentsDetailed :many
 SELECT c.id, c.organization_id, c.project_id, c.budget_line_id, c.cost_code_id, c.source_type, c.source_id, c.description, c.committed_amount, c.currency, c.status, c.committed_at, c.idempotency_key, c.created_by, c.voided_at, c.voided_by, c.void_reason, c.created_at, c.updated_at, cc.code AS cost_code_code, cc.name AS cost_code_name
 FROM project_commitments c
@@ -1689,4 +1809,71 @@ func (q *Queries) VoidCommitment(ctx context.Context, arg VoidCommitmentParams) 
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const voidCommitmentsBySourcePOItems = `-- name: VoidCommitmentsBySourcePOItems :many
+UPDATE project_commitments pc
+SET status = 'voided', voided_at = now(), voided_by = $4, void_reason = $5
+WHERE pc.organization_id = $1 AND pc.project_id = $2
+  AND pc.source_type = 'purchase_order'
+  AND pc.source_id IN (SELECT poi.id FROM purchase_order_items poi WHERE poi.purchase_order_id = $3)
+  AND pc.status = 'active'
+RETURNING pc.id, pc.organization_id, pc.project_id, pc.budget_line_id, pc.cost_code_id, pc.source_type, pc.source_id, pc.description, pc.committed_amount, pc.currency, pc.status, pc.committed_at, pc.idempotency_key, pc.created_by, pc.voided_at, pc.voided_by, pc.void_reason, pc.created_at, pc.updated_at
+`
+
+type VoidCommitmentsBySourcePOItemsParams struct {
+	OrganizationID  pgtype.UUID `json:"organization_id"`
+	ProjectID       pgtype.UUID `json:"project_id"`
+	PurchaseOrderID pgtype.UUID `json:"purchase_order_id"`
+	VoidedBy        pgtype.UUID `json:"voided_by"`
+	VoidReason      string      `json:"void_reason"`
+}
+
+// PO iptalinde, o PO'nun kalemlerinden doğan TÜM aktif taahhütleri TEK
+// sorguda voider (status='voided' koşulu idempotenttir -- zaten voided
+// olanlar sonuçtan dışlanır, ikinci bir çağrı zararsızdır).
+func (q *Queries) VoidCommitmentsBySourcePOItems(ctx context.Context, arg VoidCommitmentsBySourcePOItemsParams) ([]ProjectCommitment, error) {
+	rows, err := q.db.Query(ctx, voidCommitmentsBySourcePOItems,
+		arg.OrganizationID,
+		arg.ProjectID,
+		arg.PurchaseOrderID,
+		arg.VoidedBy,
+		arg.VoidReason,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProjectCommitment
+	for rows.Next() {
+		var i ProjectCommitment
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.ProjectID,
+			&i.BudgetLineID,
+			&i.CostCodeID,
+			&i.SourceType,
+			&i.SourceID,
+			&i.Description,
+			&i.CommittedAmount,
+			&i.Currency,
+			&i.Status,
+			&i.CommittedAt,
+			&i.IdempotencyKey,
+			&i.CreatedBy,
+			&i.VoidedAt,
+			&i.VoidedBy,
+			&i.VoidReason,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

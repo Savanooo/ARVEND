@@ -98,11 +98,32 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		// project_contracts (Sprint 3), projects'e CASCADE'siz FK taşır --
 		// AYNI gerekçeyle projects'ten ÖNCE temizlenmeli.
 		"DELETE FROM project_contracts WHERE organization_id = $1",
+		// Procurement (Sprint 4, migration 0037) -- purchase_orders/rfqs/
+		// supplier_quotations/purchase_requests HEPSİ projects'e CASCADE'siz
+		// FK taşır. Sıra ÖNEMLİ: purchase_orders ÖNCE (suppliers/rfqs/
+		// supplier_quotations'a CASCADE'siz referans taşır); rfqs.awarded_
+		// quotation_id, supplier_quotations'a CASCADE'siz FK taşıdığı için
+		// (dairesel bağımlılık, bkz. migration §6 notu) supplier_quotations
+		// silinmeden ÖNCE NULL'a çekilmeli; ardından supplier_quotations
+		// (quotation_items'ı CASCADE ile alır); ardından rfqs (rfq_items/
+		// rfq_suppliers'ı CASCADE ile alır); ardından purchase_requests
+		// (purchase_request_items'ı CASCADE ile alır, ve artık hiçbir rfq
+		// buna referans vermiyor); son olarak suppliers (organizasyon-
+		// seviyeli, artık hiçbir PO/RFQ/teklif buna referans vermiyor).
+		"DELETE FROM purchase_orders WHERE organization_id = $1",
+		"UPDATE rfqs SET awarded_quotation_id = NULL WHERE organization_id = $1",
+		"DELETE FROM supplier_quotations WHERE organization_id = $1",
+		"DELETE FROM rfqs WHERE organization_id = $1",
+		"DELETE FROM purchase_requests WHERE organization_id = $1",
+		"DELETE FROM suppliers WHERE organization_id = $1",
 		// projects, teklife/revizyona CASCADE'siz FK ile bağlıdır (kasıtlı:
 		// bir projeye dayanak olan teklif silinememeli), bu yüzden
 		// tekliflerden ÖNCE temizlenmeli.
 		"DELETE FROM projects WHERE organization_id = $1",
 		"DELETE FROM project_counters WHERE organization_id = $1",
+		"DELETE FROM purchase_request_counters WHERE organization_id = $1",
+		"DELETE FROM rfq_counters WHERE organization_id = $1",
+		"DELETE FROM purchase_order_counters WHERE organization_id = $1",
 		"DELETE FROM offers WHERE organization_id = $1",
 		"DELETE FROM offer_counters WHERE organization_id = $1",
 		"DELETE FROM customers WHERE organization_id = $1",

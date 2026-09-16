@@ -73,6 +73,16 @@ func rbacCleanupOrg(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		// project_contracts (Sprint 3), projects'e CASCADE'siz FK taşır --
 		// AYNI gerekçeyle projects'ten ÖNCE temizlenmeli.
 		"DELETE FROM project_contracts WHERE organization_id = $1",
+		// Procurement (Sprint 4, migration 0037) -- tenant_isolation_test.go
+		// cleanupOrganization İLE AYNI sıra/gerekçe (bkz. o dosyadaki yorum):
+		// purchase_orders -> rfqs.awarded_quotation_id NULL'a çek ->
+		// supplier_quotations -> rfqs -> purchase_requests -> suppliers.
+		"DELETE FROM purchase_orders WHERE organization_id = $1",
+		"UPDATE rfqs SET awarded_quotation_id = NULL WHERE organization_id = $1",
+		"DELETE FROM supplier_quotations WHERE organization_id = $1",
+		"DELETE FROM rfqs WHERE organization_id = $1",
+		"DELETE FROM purchase_requests WHERE organization_id = $1",
+		"DELETE FROM suppliers WHERE organization_id = $1",
 		"DELETE FROM projects WHERE organization_id = $1",
 		// current_revision_id, offer_revisions'a FK taşır -- satırı
 		// SİLMEDEN ÖNCE NULL'lanmalı (offers_current_revision_id_fkey).
@@ -83,6 +93,9 @@ func rbacCleanupOrg(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM offers WHERE organization_id = $1",
 		"DELETE FROM offer_counters WHERE organization_id = $1",
 		"DELETE FROM project_counters WHERE organization_id = $1",
+		"DELETE FROM purchase_request_counters WHERE organization_id = $1",
+		"DELETE FROM rfq_counters WHERE organization_id = $1",
+		"DELETE FROM purchase_order_counters WHERE organization_id = $1",
 		"DELETE FROM role_permissions WHERE organization_role_id IN (SELECT id FROM organization_roles WHERE organization_id = $1)",
 		"UPDATE users SET organization_role_id = NULL WHERE organization_id = $1",
 		"DELETE FROM organization_roles WHERE organization_id = $1",
@@ -119,6 +132,7 @@ type rbacTestDeps struct {
 	offerSvc    *service.OfferService
 	projectSvc  *service.ProjectService
 	costCodeSvc *service.CostCodeService
+	supplierSvc *service.SupplierService
 }
 
 func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
@@ -155,6 +169,7 @@ func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
 	onboardingSvc := service.NewOnboardingService(q, secretBox)
 	authzSvc := service.NewAuthorizationService(q)
 	costCodeSvc := service.NewCostCodeService(pool, q)
+	supplierSvc := service.NewSupplierService(pool, q, secretBox)
 
 	issuer := auth.NewJWTIssuer("test-secret-rbac-matrix", 15*time.Minute)
 	authSvc := service.NewAuthService(q, issuer, 24*time.Hour)
@@ -179,13 +194,14 @@ func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
 		Authorization:     handler.NewAuthorizationHandler(authzSvc),
 		AuthorizationSvc:  authzSvc,
 		CostCodes:         handler.NewCostCodeHandler(costCodeSvc),
+		Suppliers:         handler.NewSupplierHandler(supplierSvc),
 		CORSOrigins:       []string{"*"},
 	})
 
 	return &rbacTestDeps{
 		pool: pool, q: q, router: router, issuer: issuer,
 		userSvc: userSvc, platform: platformSvc, authzSvc: authzSvc,
-		offerSvc: offerSvc, projectSvc: projectSvc, costCodeSvc: costCodeSvc,
+		offerSvc: offerSvc, projectSvc: projectSvc, costCodeSvc: costCodeSvc, supplierSvc: supplierSvc,
 	}
 }
 

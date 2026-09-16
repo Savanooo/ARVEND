@@ -187,6 +187,37 @@ UPDATE project_commitments SET status = 'voided', voided_at = now(), voided_by =
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'active'
 RETURNING *;
 
+-- Sprint 4 -- Procurement entegrasyonu. CreateCommitment (yukarı,
+-- MANUEL taahhütler için) İLE KARIŞTIRILMAMALI: bu sorgu source_type/
+-- source_id'yi AÇIKÇA kabul eder, yalnızca approved PO onay akışından
+-- (bkz. project_purchase_order_service.go) çağrılır -- hiçbir HTTP
+-- ucu bunu doğrudan istemciye AÇMAZ.
+
+-- name: CreateCommitmentFromSource :one
+INSERT INTO project_commitments (
+    organization_id, project_id, budget_line_id, cost_code_id, source_type, source_id,
+    description, committed_amount, currency, committed_at, created_by
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+RETURNING *;
+
+-- name: VoidCommitmentsBySourcePOItems :many
+-- PO iptalinde, o PO'nun kalemlerinden doğan TÜM aktif taahhütleri TEK
+-- sorguda voider (status='voided' koşulu idempotenttir -- zaten voided
+-- olanlar sonuçtan dışlanır, ikinci bir çağrı zararsızdır).
+UPDATE project_commitments pc
+SET status = 'voided', voided_at = now(), voided_by = $4, void_reason = $5
+WHERE pc.organization_id = $1 AND pc.project_id = $2
+  AND pc.source_type = 'purchase_order'
+  AND pc.source_id IN (SELECT poi.id FROM purchase_order_items poi WHERE poi.purchase_order_id = $3)
+  AND pc.status = 'active'
+RETURNING pc.*;
+
+-- name: ListCommitmentsBySourcePOItems :many
+SELECT pc.* FROM project_commitments pc
+WHERE pc.organization_id = $1 AND pc.project_id = $2
+  AND pc.source_type = 'purchase_order'
+  AND pc.source_id IN (SELECT poi.id FROM purchase_order_items poi WHERE poi.purchase_order_id = $3);
+
 -- ============ Tahmin (Forecast / ETC) ============
 
 -- name: UpsertForecast :one

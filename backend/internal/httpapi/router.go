@@ -37,6 +37,7 @@ type Deps struct {
 	Authorization     *handler.AuthorizationHandler
 	AuthorizationSvc  *service.AuthorizationService
 	CostCodes         *handler.CostCodeHandler
+	Suppliers         *handler.SupplierHandler
 	CORSOrigins       []string
 }
 
@@ -319,6 +320,56 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/contract/terminate", d.Projects.TerminateProjectContract)
 			})
 
+			// --- Sprint 4: Procurement Foundation -- Purchase Request + RFQ +
+			// Supplier Quotation + Purchase Order. Cost Control'ün MALİYET
+			// tarafına akar (PO onayında commitment oluşur, yukarıdaki Sprint
+			// 2 grubuyla AYNI project_commitments tablosu) ama Contract/Change
+			// Order (gelir tarafı, yukarıda) İLE KARIŞTIRILMAMALI. ÜÇ ayrı
+			// izin: read/manage/approve -- "approve", Contract'ın lifecycle
+			// izniyle AYNI ilkeyi izler (sensitive karar anları: PR onay/red,
+			// RFQ award, PO onay/iptal/kapatma) ama manage'den BİLİNÇLİ OLARAK
+			// AYRIDIR (PM manage alır -- taslak oluşturabilir/gönderebilir --
+			// ama approve ALMAZ, bkz. migration 0037 rol matrisi gerekçesi).
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsProcurementRead))
+				r.Get("/{id}/purchase-requests", d.Projects.ListPurchaseRequests)
+				r.Get("/{id}/purchase-requests/{prId}", d.Projects.GetPurchaseRequest)
+				r.Get("/{id}/rfqs", d.Projects.ListRFQs)
+				r.Get("/{id}/rfqs/{rfqId}", d.Projects.GetRFQ)
+				r.Get("/{id}/rfqs/{rfqId}/quotations", d.Projects.ListQuotations)
+				r.Get("/{id}/rfqs/{rfqId}/quotations/{quotationId}", d.Projects.GetQuotation)
+				r.Get("/{id}/rfqs/{rfqId}/comparison", d.Projects.GetBidComparison)
+				r.Get("/{id}/purchase-orders", d.Projects.ListPurchaseOrders)
+				r.Get("/{id}/purchase-orders/{poId}", d.Projects.GetPurchaseOrder)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsProcurementManage))
+				r.Post("/{id}/purchase-requests", d.Projects.CreatePurchaseRequest)
+				r.Put("/{id}/purchase-requests/{prId}", d.Projects.UpdatePurchaseRequest)
+				r.Post("/{id}/purchase-requests/{prId}/submit", d.Projects.SubmitPurchaseRequest)
+				r.Post("/{id}/purchase-requests/{prId}/withdraw", d.Projects.WithdrawPurchaseRequest)
+				r.Post("/{id}/purchase-requests/{prId}/cancel", d.Projects.CancelPurchaseRequest)
+				r.Post("/{id}/rfqs", d.Projects.CreateRFQ)
+				r.Put("/{id}/rfqs/{rfqId}", d.Projects.UpdateRFQ)
+				r.Post("/{id}/rfqs/{rfqId}/issue", d.Projects.IssueRFQ)
+				r.Post("/{id}/rfqs/{rfqId}/close", d.Projects.CloseRFQ)
+				r.Post("/{id}/rfqs/{rfqId}/cancel", d.Projects.CancelRFQ)
+				r.Post("/{id}/rfqs/{rfqId}/quotations", d.Projects.CreateQuotation)
+				r.Put("/{id}/rfqs/{rfqId}/quotations/{quotationId}", d.Projects.UpdateQuotation)
+				r.Delete("/{id}/rfqs/{rfqId}/quotations/{quotationId}", d.Projects.DeleteQuotation)
+				r.Post("/{id}/purchase-orders", d.Projects.CreatePurchaseOrder)
+				r.Put("/{id}/purchase-orders/{poId}", d.Projects.UpdatePurchaseOrder)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsProcurementApprove))
+				r.Post("/{id}/purchase-requests/{prId}/approve", d.Projects.ApprovePurchaseRequest)
+				r.Post("/{id}/purchase-requests/{prId}/reject", d.Projects.RejectPurchaseRequest)
+				r.Post("/{id}/rfqs/{rfqId}/award", d.Projects.AwardRFQ)
+				r.Post("/{id}/purchase-orders/{poId}/approve", d.Projects.ApprovePurchaseOrder)
+				r.Post("/{id}/purchase-orders/{poId}/cancel", d.Projects.CancelPurchaseOrder)
+				r.Post("/{id}/purchase-orders/{poId}/close", d.Projects.ClosePurchaseOrder)
+			})
+
 			// --- Faz 7: operasyon (ekip/planlama/dosya/fotoğraf/not) ---
 			r.Group(func(r chi.Router) {
 				r.Use(projPerm(domain.PermProjectsOperationsRead))
@@ -449,6 +500,22 @@ func NewRouter(d Deps) http.Handler {
 				r.Put("/{id}", d.CostCodes.Update)
 				r.Delete("/{id}", d.CostCodes.Archive)
 				r.Post("/{id}/reactivate", d.CostCodes.Reactivate)
+			})
+		})
+
+		// Tedarikçiler (Sprint 4) -- organizasyon-seviyeli, PAYLAŞILAN katalog.
+		// Maliyet Kodları İLE AYNI desen: requireAdmin YOK, yetki TAMAMEN
+		// organization.suppliers.* iznine bırakılır.
+		r.Route("/organization/suppliers", func(r chi.Router) {
+			r.Use(requireAuth, requireOnboarded, loadAuthorization)
+			r.With(perm(domain.PermOrganizationSuppliersRead)).Get("/", d.Suppliers.List)
+			r.With(perm(domain.PermOrganizationSuppliersRead)).Get("/{id}", d.Suppliers.Get)
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermOrganizationSuppliersManage))
+				r.Post("/", d.Suppliers.Create)
+				r.Put("/{id}", d.Suppliers.Update)
+				r.Delete("/{id}", d.Suppliers.Archive)
+				r.Post("/{id}/reactivate", d.Suppliers.Reactivate)
 			})
 		})
 

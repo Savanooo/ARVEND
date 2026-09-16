@@ -795,6 +795,118 @@ type ProjectWbsNode struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type PurchaseOrder struct {
+	ID                   pgtype.UUID        `json:"id"`
+	OrganizationID       pgtype.UUID        `json:"organization_id"`
+	ProjectID            pgtype.UUID        `json:"project_id"`
+	PoNo                 string             `json:"po_no"`
+	SupplierID           pgtype.UUID        `json:"supplier_id"`
+	SourceRfqID          pgtype.UUID        `json:"source_rfq_id"`
+	SourceQuotationID    pgtype.UUID        `json:"source_quotation_id"`
+	Currency             string             `json:"currency"`
+	Status               string             `json:"status"`
+	IssueDate            pgtype.Date        `json:"issue_date"`
+	ExpectedDeliveryDate pgtype.Date        `json:"expected_delivery_date"`
+	PaymentTerms         string             `json:"payment_terms"`
+	DeliveryAddress      string             `json:"delivery_address"`
+	Notes                string             `json:"notes"`
+	Subtotal             pgtype.Numeric     `json:"subtotal"`
+	TaxRate              pgtype.Numeric     `json:"tax_rate"`
+	Tax                  pgtype.Numeric     `json:"tax"`
+	Total                pgtype.Numeric     `json:"total"`
+	CreatedBy            pgtype.UUID        `json:"created_by"`
+	ApprovedBy           pgtype.UUID        `json:"approved_by"`
+	ApprovedAt           pgtype.Timestamptz `json:"approved_at"`
+	CancelledBy          pgtype.UUID        `json:"cancelled_by"`
+	CancelledAt          pgtype.Timestamptz `json:"cancelled_at"`
+	CancelReason         string             `json:"cancel_reason"`
+	ClosedBy             pgtype.UUID        `json:"closed_by"`
+	ClosedAt             pgtype.Timestamptz `json:"closed_at"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
+
+type PurchaseOrderCounter struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Year           int32       `json:"year"`
+	Seq            int32       `json:"seq"`
+}
+
+type PurchaseOrderItem struct {
+	ID              pgtype.UUID    `json:"id"`
+	OrganizationID  pgtype.UUID    `json:"organization_id"`
+	ProjectID       pgtype.UUID    `json:"project_id"`
+	PurchaseOrderID pgtype.UUID    `json:"purchase_order_id"`
+	WbsNodeID       pgtype.UUID    `json:"wbs_node_id"`
+	CostCodeID      pgtype.UUID    `json:"cost_code_id"`
+	BudgetLineID    pgtype.UUID    `json:"budget_line_id"`
+	Description     string         `json:"description"`
+	Quantity        pgtype.Numeric `json:"quantity"`
+	Unit            string         `json:"unit"`
+	UnitPrice       pgtype.Numeric `json:"unit_price"`
+	LineTotal       pgtype.Numeric `json:"line_total"`
+	SortOrder       int32          `json:"sort_order"`
+}
+
+type PurchaseRequest struct {
+	ID              pgtype.UUID        `json:"id"`
+	OrganizationID  pgtype.UUID        `json:"organization_id"`
+	ProjectID       pgtype.UUID        `json:"project_id"`
+	PrNo            string             `json:"pr_no"`
+	Title           string             `json:"title"`
+	Description     string             `json:"description"`
+	NeededBy        pgtype.Date        `json:"needed_by"`
+	Status          string             `json:"status"`
+	EstimatedTotal  pgtype.Numeric     `json:"estimated_total"`
+	RequestedBy     pgtype.UUID        `json:"requested_by"`
+	SubmittedAt     pgtype.Timestamptz `json:"submitted_at"`
+	ApprovedAt      pgtype.Timestamptz `json:"approved_at"`
+	ApprovedBy      pgtype.UUID        `json:"approved_by"`
+	RejectedAt      pgtype.Timestamptz `json:"rejected_at"`
+	RejectedBy      pgtype.UUID        `json:"rejected_by"`
+	RejectionReason string             `json:"rejection_reason"`
+	CancelledAt     pgtype.Timestamptz `json:"cancelled_at"`
+	CancelledBy     pgtype.UUID        `json:"cancelled_by"`
+	CancelReason    string             `json:"cancel_reason"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type PurchaseRequestCounter struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Year           int32       `json:"year"`
+	Seq            int32       `json:"seq"`
+}
+
+type PurchaseRequestItem struct {
+	ID                pgtype.UUID    `json:"id"`
+	OrganizationID    pgtype.UUID    `json:"organization_id"`
+	ProjectID         pgtype.UUID    `json:"project_id"`
+	PurchaseRequestID pgtype.UUID    `json:"purchase_request_id"`
+	WbsNodeID         pgtype.UUID    `json:"wbs_node_id"`
+	CostCodeID        pgtype.UUID    `json:"cost_code_id"`
+	BudgetLineID      pgtype.UUID    `json:"budget_line_id"`
+	Description       string         `json:"description"`
+	Quantity          pgtype.Numeric `json:"quantity"`
+	Unit              string         `json:"unit"`
+	EstimatedUnitCost pgtype.Numeric `json:"estimated_unit_cost"`
+	EstimatedTotal    pgtype.Numeric `json:"estimated_total"`
+	Notes             string         `json:"notes"`
+	SortOrder         int32          `json:"sort_order"`
+}
+
+type QuotationItem struct {
+	ID             pgtype.UUID    `json:"id"`
+	OrganizationID pgtype.UUID    `json:"organization_id"`
+	ProjectID      pgtype.UUID    `json:"project_id"`
+	QuotationID    pgtype.UUID    `json:"quotation_id"`
+	RfqItemID      pgtype.UUID    `json:"rfq_item_id"`
+	Quantity       pgtype.Numeric `json:"quantity"`
+	UnitPrice      pgtype.Numeric `json:"unit_price"`
+	LineTotal      pgtype.Numeric `json:"line_total"`
+	Notes          string         `json:"notes"`
+}
+
 type RefreshToken struct {
 	ID        pgtype.UUID        `json:"id"`
 	UserID    pgtype.UUID        `json:"user_id"`
@@ -802,6 +914,56 @@ type RefreshToken struct {
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type Rfq struct {
+	ID                 pgtype.UUID        `json:"id"`
+	OrganizationID     pgtype.UUID        `json:"organization_id"`
+	ProjectID          pgtype.UUID        `json:"project_id"`
+	RfqNo              string             `json:"rfq_no"`
+	PurchaseRequestID  pgtype.UUID        `json:"purchase_request_id"`
+	Title              string             `json:"title"`
+	IssueDate          pgtype.Date        `json:"issue_date"`
+	DueDate            pgtype.Date        `json:"due_date"`
+	Status             string             `json:"status"`
+	Notes              string             `json:"notes"`
+	CreatedBy          pgtype.UUID        `json:"created_by"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	AwardedQuotationID pgtype.UUID        `json:"awarded_quotation_id"`
+	AwardedAt          pgtype.Timestamptz `json:"awarded_at"`
+	AwardedBy          pgtype.UUID        `json:"awarded_by"`
+	AwardNotes         string             `json:"award_notes"`
+}
+
+type RfqCounter struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Year           int32       `json:"year"`
+	Seq            int32       `json:"seq"`
+}
+
+type RfqItem struct {
+	ID             pgtype.UUID    `json:"id"`
+	OrganizationID pgtype.UUID    `json:"organization_id"`
+	ProjectID      pgtype.UUID    `json:"project_id"`
+	RfqID          pgtype.UUID    `json:"rfq_id"`
+	SourcePrItemID pgtype.UUID    `json:"source_pr_item_id"`
+	WbsNodeID      pgtype.UUID    `json:"wbs_node_id"`
+	CostCodeID     pgtype.UUID    `json:"cost_code_id"`
+	BudgetLineID   pgtype.UUID    `json:"budget_line_id"`
+	Description    string         `json:"description"`
+	Quantity       pgtype.Numeric `json:"quantity"`
+	Unit           string         `json:"unit"`
+	SortOrder      int32          `json:"sort_order"`
+}
+
+type RfqSupplier struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	RfqID          pgtype.UUID        `json:"rfq_id"`
+	SupplierID     pgtype.UUID        `json:"supplier_id"`
+	InvitedAt      pgtype.Timestamptz `json:"invited_at"`
+	ResponseStatus string             `json:"response_status"`
 }
 
 type RolePermission struct {
@@ -819,6 +981,51 @@ type SmtpSetting struct {
 	UseTls         bool               `json:"use_tls"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`
+}
+
+type Supplier struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	Code           string             `json:"code"`
+	LegalName      string             `json:"legal_name"`
+	TradeName      string             `json:"trade_name"`
+	TaxNumber      string             `json:"tax_number"`
+	TaxOffice      string             `json:"tax_office"`
+	ContactName    string             `json:"contact_name"`
+	Email          string             `json:"email"`
+	Phone          string             `json:"phone"`
+	Address        string             `json:"address"`
+	City           string             `json:"city"`
+	Country        string             `json:"country"`
+	IbanEnc        string             `json:"iban_enc"`
+	IsActive       bool               `json:"is_active"`
+	Notes          string             `json:"notes"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type SupplierQuotation struct {
+	ID              pgtype.UUID        `json:"id"`
+	OrganizationID  pgtype.UUID        `json:"organization_id"`
+	ProjectID       pgtype.UUID        `json:"project_id"`
+	RfqID           pgtype.UUID        `json:"rfq_id"`
+	SupplierID      pgtype.UUID        `json:"supplier_id"`
+	QuotationNumber string             `json:"quotation_number"`
+	QuotationDate   pgtype.Date        `json:"quotation_date"`
+	ValidUntil      pgtype.Date        `json:"valid_until"`
+	Currency        string             `json:"currency"`
+	Subtotal        pgtype.Numeric     `json:"subtotal"`
+	Discount        pgtype.Numeric     `json:"discount"`
+	TaxRate         pgtype.Numeric     `json:"tax_rate"`
+	Tax             pgtype.Numeric     `json:"tax"`
+	Total           pgtype.Numeric     `json:"total"`
+	DeliveryDays    *int32             `json:"delivery_days"`
+	PaymentTerms    string             `json:"payment_terms"`
+	Notes           string             `json:"notes"`
+	CreatedBy       pgtype.UUID        `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
 type User struct {

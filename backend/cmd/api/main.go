@@ -65,6 +65,7 @@ func main() {
 	onboardingSvc := service.NewOnboardingService(q, secretBox)
 	authzSvc := service.NewAuthorizationService(q)
 	costCodeSvc := service.NewCostCodeService(pool, q)
+	supplierSvc := service.NewSupplierService(pool, q, secretBox)
 
 	jwtIssuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL)
 	authSvc := service.NewAuthService(q, jwtIssuer, cfg.RefreshTTL)
@@ -89,6 +90,7 @@ func main() {
 		Authorization:     handler.NewAuthorizationHandler(authzSvc),
 		AuthorizationSvc:  authzSvc,
 		CostCodes:         handler.NewCostCodeHandler(costCodeSvc),
+		Suppliers:         handler.NewSupplierHandler(supplierSvc),
 		CORSOrigins:       cfg.CORSOrigins,
 	})
 

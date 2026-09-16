@@ -124,6 +124,22 @@ const (
 	PermProjectsContractsRead      = "projects.contracts.read"
 	PermProjectsContractsManage    = "projects.contracts.manage"
 	PermProjectsContractsLifecycle = "projects.contracts.lifecycle"
+
+	// Sprint 4 -- Procurement Foundation (Suppliers, Purchase Request,
+	// RFQ, Supplier Quotations, Purchase Order). suppliers.* organizasyon-
+	// seviyelidir (organization_cost_codes İLE AYNI kardinalite). procurement.*
+	// proje-seviyelidir ve Contract'ın read/manage/lifecycle üçlüsünden
+	// ESİNLENEREK üç parçaya ayrılır, ama "approve" fiiliyle (bkz. migration
+	// 0037 rol matrisi gerekçesi -- "lifecycle" tüm gelecekteki üçüncü
+	// fiiller için evrensel bir isim DEĞİLDİR): approve, PR onayı/reddi, RFQ
+	// award'ı, PO onayı/iptali/kapatmayı kapsar; manage'den BİLİNÇLİ OLARAK
+	// AYRIDIR (Project Manager manage alır ama approve almaz -- Contract'taki
+	// AYNI desen).
+	PermOrganizationSuppliersRead   = "organization.suppliers.read"
+	PermOrganizationSuppliersManage = "organization.suppliers.manage"
+	PermProjectsProcurementRead     = "projects.procurement.read"
+	PermProjectsProcurementManage   = "projects.procurement.manage"
+	PermProjectsProcurementApprove  = "projects.procurement.approve"
 )
 
 // ---------- Domain tipleri ----------
