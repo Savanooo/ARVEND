@@ -325,6 +325,34 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrPurchaseOrderReasonRequired):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, service.ErrSubcontractNotEditable),
+		errors.Is(err, service.ErrSubcontractNotActivatable),
+		errors.Is(err, service.ErrSubcontractNotCompletable),
+		errors.Is(err, service.ErrSubcontractNotCancellable),
+		errors.Is(err, service.ErrSubcontractNotTerminable),
+		errors.Is(err, service.ErrSubcontractItemsRequired),
+		errors.Is(err, service.ErrSubcontractSupplierInactive),
+		errors.Is(err, service.ErrSubcontractChangeOrderNotEditable),
+		errors.Is(err, service.ErrSubcontractChangeOrderNotSubmittable),
+		errors.Is(err, service.ErrSubcontractChangeOrderNotApprovable),
+		errors.Is(err, service.ErrSubcontractChangeOrderNotRejectable),
+		errors.Is(err, service.ErrSubcontractChangeOrderNotCancellable),
+		errors.Is(err, service.ErrSubcontractChangeOrderItemsRequired),
+		errors.Is(err, service.ErrSubcontractNotActiveForChange),
+		errors.Is(err, service.ErrProgressClaimNotEditable),
+		errors.Is(err, service.ErrProgressClaimNotSubmittable),
+		errors.Is(err, service.ErrProgressClaimNotCertifiable),
+		errors.Is(err, service.ErrProgressClaimNotRejectable),
+		errors.Is(err, service.ErrProgressClaimNotCancellable),
+		errors.Is(err, service.ErrProgressClaimItemsRequired),
+		errors.Is(err, service.ErrProgressClaimOverrun),
+		errors.Is(err, service.ErrProgressClaimStale),
+		errors.Is(err, service.ErrSubcontractNotActiveForClaim):
+		httpjson.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrSubcontractReasonRequired),
+		errors.Is(err, service.ErrSubcontractChangeOrderReasonRequired),
+		errors.Is(err, service.ErrProgressClaimReasonRequired):
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, service.ErrOfferNotAccepted),
 		errors.Is(err, service.ErrInvalidProjectState),
 		errors.Is(err, service.ErrProjectLocked),

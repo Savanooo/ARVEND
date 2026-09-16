@@ -218,6 +218,28 @@ WHERE pc.organization_id = $1 AND pc.project_id = $2
   AND pc.source_type = 'purchase_order'
   AND pc.source_id IN (SELECT poi.id FROM purchase_order_items poi WHERE poi.purchase_order_id = $3);
 
+-- Sprint 5 -- Subcontract entegrasyonu. PO'nun İTEM-seviyesi (source_id =
+-- purchase_order_items.id, kalıcı/tek seferlik) modelinden BİLİNÇLİ SAPMA:
+-- bir Subcontract'ın taahhüdü değişiklik emirleri/fesihle YAŞAM BOYU
+-- DEĞİŞEBİLİR, bu yüzden source_id = project_subcontracts.id (SÖZLEŞME
+-- seviyesinde) kullanılır ve syncSubcontractCommitments HER ticari olayda
+-- (aktivasyon/değişiklik onayı/fesih) BÜTÜN aktif taahhütleri voidleyip
+-- maliyet-kodu bazında NETLENMİŞ satırlarla YENİDEN OLUŞTURUR -- bkz.
+-- docs/subcontracts.md §Commitment Entegrasyonu.
+
+-- name: VoidCommitmentsBySourceSubcontract :many
+UPDATE project_commitments pc
+SET status = 'voided', voided_at = now(), voided_by = $4, void_reason = $5
+WHERE pc.organization_id = $1 AND pc.project_id = $2
+  AND pc.source_type = 'subcontract' AND pc.source_id = $3
+  AND pc.status = 'active'
+RETURNING pc.*;
+
+-- name: ListCommitmentsBySourceSubcontract :many
+SELECT pc.* FROM project_commitments pc
+WHERE pc.organization_id = $1 AND pc.project_id = $2
+  AND pc.source_type = 'subcontract' AND pc.source_id = $3;
+
 -- ============ Tahmin (Forecast / ETC) ============
 
 -- name: UpsertForecast :one

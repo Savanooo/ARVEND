@@ -356,7 +356,7 @@ Sözleşme değeri:         DEĞİŞMEDİ
 Bu senaryo, backend'de gerçek veritabanına karşı BİREBİR bu sayılarla
 test edilmiştir — yaklaşık/toleranslı bir karşılaştırma DEĞİL.
 
-### 5.5 Bilinen Dokümantasyon Düzeltmesi
+### 5.5 Bilinen Dokümantasyon Düzeltmesi (Sprint 5'te uygulandı)
 
 Bu sprintin denetim aşamasında, `docs/cost-control.md`'nin "Committed
 Cost = commitments ∪ taşeron sözleşmeleri (subcontractor contracts)"
@@ -364,10 +364,20 @@ Cost = commitments ∪ taşeron sözleşmeleri (subcontractor contracts)"
 davranış YALNIZCA `project_commitments` toplamını kullanır, taşeron
 sözleşmeleri birleşime dahil EDİLMEZ. Sprint 4'ün altın regresyon testi
 (§5.4), bu DOĞRULANMIŞ gerçek davranışa karşı yazılmıştır (yanlış
-dokümante edilmiş davranışa karşı DEĞİL). `docs/cost-control.md`'nin
-ilgili bölümünün ayrı bir düzeltme geçişinde güncellenmesi önerilir —
-bu düzeltme Sprint 4'ün kapsamı dışında bırakılmıştır (yalnızca burada
-not edilmiştir).
+dokümante edilmiş davranışa karşı DEĞİL). Bu sprintte (Sprint 4) düzeltme
+kapsam dışı bırakılmış, yalnızca burada not edilmişti.
+
+**Güncelleme — Sprint 5:** `docs/cost-control.md` §5/§9 artık düzeltilmiş
+haldedir (tek kaynak: `Σ(project_commitments WHERE status='active')`).
+Sprint 5 ayrıca `project_commitments.source_type='subcontract'`'ı
+(Sprint 2'den beri rezerve edilmiş ama hiç kullanılmamış bir değer)
+gerçekten yazan ilk kod yolunu ekledi — bkz. [docs/subcontracts.md](subcontracts.md).
+Detay: `docs/cost-control.md` bu düzeltmenin yanında, proje genel bakış
+sayfasının kullandığı TAMAMEN AYRI ve BAĞIMSIZ `GetProjectFinancialSummary`
+hesaplamasını (ki bu HÂLÂ `project_subcontractors`/
+`project_subcontractor_payments`'ı toplar) da netleştirir — bu iki
+sistem kasıtlı olarak birleştirilmemiştir, bkz. `docs/subcontracts.md`
+"Legacy Taşeron Sistemi" bölümü.
 
 ## 6. Para Testi (doğrulandı, ondalık hatasız)
 

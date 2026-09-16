@@ -370,6 +370,62 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/purchase-orders/{poId}/close", d.Projects.ClosePurchaseOrder)
 			})
 
+			// --- Sprint 5: Taşeron Yönetimi -- Subcontract + SOV + Subcontract
+			// Change Order + Progress Claim (Hakediş). Cost Control'ün MALİYET
+			// tarafına akar (aktivasyon/değişiklik-onayı/fesih commitment
+			// senkronize eder, YUKARIDAKİ Sprint 2 grubuyla AYNI
+			// project_commitments tablosu) ama Customer Contract/Change Order
+			// (gelir tarafı) İLE ve mevcut legacy /subcontractors uçlarıyla
+			// (aşağıda, Faz 8'den kalma basit taşeron+ödeme defteri) KESİNLİKLE
+			// KARIŞTIRILMAMALI -- bu sprint o legacy sisteme DOKUNMAZ, AYRI ve
+			// paralel bir zincir kurar (bkz. docs/subcontracts.md). İKİ ayrı
+			// üçlü izin (subcontracts.*, subcontract_claims.*) -- Procurement'ın
+			// read/manage/approve deseniyle AYNI ilke, hakediş sertifikasyonu
+			// sözleşme onayından ayrı bir karar anı olabileceği için ayrı
+			// izinlerle modellendi (spec §28).
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsSubcontractsRead))
+				r.Get("/{id}/subcontracts", d.Projects.ListSubcontracts)
+				r.Get("/{id}/subcontracts/{subcontractId}", d.Projects.GetSubcontract)
+				r.Get("/{id}/subcontracts/{subcontractId}/change-orders", d.Projects.ListSubcontractChangeOrders)
+				r.Get("/{id}/subcontract-change-orders/{changeOrderId}", d.Projects.GetSubcontractChangeOrder)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsSubcontractsManage))
+				r.Post("/{id}/subcontracts", d.Projects.CreateSubcontract)
+				r.Put("/{id}/subcontracts/{subcontractId}", d.Projects.UpdateSubcontract)
+				r.Post("/{id}/subcontracts/{subcontractId}/change-orders", d.Projects.CreateSubcontractChangeOrder)
+				r.Put("/{id}/subcontract-change-orders/{changeOrderId}", d.Projects.UpdateSubcontractChangeOrder)
+				r.Post("/{id}/subcontract-change-orders/{changeOrderId}/submit", d.Projects.SubmitSubcontractChangeOrder)
+				r.Post("/{id}/subcontract-change-orders/{changeOrderId}/cancel", d.Projects.CancelSubcontractChangeOrder)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsSubcontractsApprove))
+				r.Post("/{id}/subcontracts/{subcontractId}/activate", d.Projects.ActivateSubcontract)
+				r.Post("/{id}/subcontracts/{subcontractId}/complete", d.Projects.CompleteSubcontract)
+				r.Post("/{id}/subcontracts/{subcontractId}/cancel", d.Projects.CancelSubcontract)
+				r.Post("/{id}/subcontracts/{subcontractId}/terminate", d.Projects.TerminateSubcontract)
+				r.Post("/{id}/subcontract-change-orders/{changeOrderId}/approve", d.Projects.ApproveSubcontractChangeOrder)
+				r.Post("/{id}/subcontract-change-orders/{changeOrderId}/reject", d.Projects.RejectSubcontractChangeOrder)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsSubcontractClaimsRead))
+				r.Get("/{id}/subcontracts/{subcontractId}/progress-claims", d.Projects.ListSubcontractProgressClaims)
+				r.Get("/{id}/subcontract-progress-claims/{claimId}", d.Projects.GetSubcontractProgressClaim)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsSubcontractClaimsManage))
+				r.Post("/{id}/subcontracts/{subcontractId}/progress-claims", d.Projects.CreateSubcontractProgressClaim)
+				r.Put("/{id}/subcontract-progress-claims/{claimId}", d.Projects.UpdateSubcontractProgressClaim)
+				r.Post("/{id}/subcontract-progress-claims/{claimId}/submit", d.Projects.SubmitSubcontractProgressClaim)
+				r.Post("/{id}/subcontract-progress-claims/{claimId}/cancel", d.Projects.CancelSubcontractProgressClaim)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsSubcontractClaimsCertify))
+				r.Post("/{id}/subcontract-progress-claims/{claimId}/certify", d.Projects.CertifySubcontractProgressClaim)
+				r.Post("/{id}/subcontract-progress-claims/{claimId}/reject", d.Projects.RejectSubcontractProgressClaim)
+			})
+
 			// --- Faz 7: operasyon (ekip/planlama/dosya/fotoğraf/not) ---
 			r.Group(func(r chi.Router) {
 				r.Use(projPerm(domain.PermProjectsOperationsRead))

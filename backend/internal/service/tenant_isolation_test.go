@@ -115,6 +115,21 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM supplier_quotations WHERE organization_id = $1",
 		"DELETE FROM rfqs WHERE organization_id = $1",
 		"DELETE FROM purchase_requests WHERE organization_id = $1",
+		// Sprint 5 (Taşeron Yönetimi, migration 0038) -- subcontract_
+		// progress_claim_items HEM subcontract_progress_claims'e (CASCADE)
+		// HEM subcontract_items'e (CASCADE'SİZ) referans taşıdığı için
+		// İKİSİNDEN de ÖNCE açıkça silinmeli. subcontract_change_orders/
+		// subcontract_progress_claims, project_subcontracts'a CASCADE'siz FK
+		// taşır (purchase_orders/rfqs'in projects'e taşıdığı İLE AYNI ilke)
+		// -- bu yüzden project_subcontracts'tan ÖNCE, o da suppliers'tan
+		// ÖNCE (supplier_id CASCADE'siz) VE projects'ten ÖNCE (project_id
+		// CASCADE'siz) temizlenmeli.
+		"DELETE FROM subcontract_progress_claim_items WHERE organization_id = $1",
+		"DELETE FROM subcontract_progress_claims WHERE organization_id = $1",
+		"DELETE FROM subcontract_change_order_items WHERE organization_id = $1",
+		"DELETE FROM subcontract_change_orders WHERE organization_id = $1",
+		"DELETE FROM subcontract_items WHERE organization_id = $1",
+		"DELETE FROM project_subcontracts WHERE organization_id = $1",
 		"DELETE FROM suppliers WHERE organization_id = $1",
 		// projects, teklife/revizyona CASCADE'siz FK ile bağlıdır (kasıtlı:
 		// bir projeye dayanak olan teklif silinememeli), bu yüzden
@@ -124,6 +139,9 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM purchase_request_counters WHERE organization_id = $1",
 		"DELETE FROM rfq_counters WHERE organization_id = $1",
 		"DELETE FROM purchase_order_counters WHERE organization_id = $1",
+		"DELETE FROM subcontract_counters WHERE organization_id = $1",
+		"DELETE FROM subcontract_change_order_counters WHERE organization_id = $1",
+		"DELETE FROM subcontract_progress_claim_counters WHERE organization_id = $1",
 		"DELETE FROM offers WHERE organization_id = $1",
 		"DELETE FROM offer_counters WHERE organization_id = $1",
 		"DELETE FROM customers WHERE organization_id = $1",

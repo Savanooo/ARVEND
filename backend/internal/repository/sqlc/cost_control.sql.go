@@ -1137,6 +1137,58 @@ func (q *Queries) ListCommitmentsBySourcePOItems(ctx context.Context, arg ListCo
 	return items, nil
 }
 
+const listCommitmentsBySourceSubcontract = `-- name: ListCommitmentsBySourceSubcontract :many
+SELECT pc.id, pc.organization_id, pc.project_id, pc.budget_line_id, pc.cost_code_id, pc.source_type, pc.source_id, pc.description, pc.committed_amount, pc.currency, pc.status, pc.committed_at, pc.idempotency_key, pc.created_by, pc.voided_at, pc.voided_by, pc.void_reason, pc.created_at, pc.updated_at FROM project_commitments pc
+WHERE pc.organization_id = $1 AND pc.project_id = $2
+  AND pc.source_type = 'subcontract' AND pc.source_id = $3
+`
+
+type ListCommitmentsBySourceSubcontractParams struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+	SourceID       pgtype.UUID `json:"source_id"`
+}
+
+func (q *Queries) ListCommitmentsBySourceSubcontract(ctx context.Context, arg ListCommitmentsBySourceSubcontractParams) ([]ProjectCommitment, error) {
+	rows, err := q.db.Query(ctx, listCommitmentsBySourceSubcontract, arg.OrganizationID, arg.ProjectID, arg.SourceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProjectCommitment
+	for rows.Next() {
+		var i ProjectCommitment
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.ProjectID,
+			&i.BudgetLineID,
+			&i.CostCodeID,
+			&i.SourceType,
+			&i.SourceID,
+			&i.Description,
+			&i.CommittedAmount,
+			&i.Currency,
+			&i.Status,
+			&i.CommittedAt,
+			&i.IdempotencyKey,
+			&i.CreatedBy,
+			&i.VoidedAt,
+			&i.VoidedBy,
+			&i.VoidReason,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCommitmentsDetailed = `-- name: ListCommitmentsDetailed :many
 SELECT c.id, c.organization_id, c.project_id, c.budget_line_id, c.cost_code_id, c.source_type, c.source_id, c.description, c.committed_amount, c.currency, c.status, c.committed_at, c.idempotency_key, c.created_by, c.voided_at, c.voided_by, c.void_reason, c.created_at, c.updated_at, cc.code AS cost_code_code, cc.name AS cost_code_name
 FROM project_commitments c
@@ -1837,6 +1889,78 @@ func (q *Queries) VoidCommitmentsBySourcePOItems(ctx context.Context, arg VoidCo
 		arg.OrganizationID,
 		arg.ProjectID,
 		arg.PurchaseOrderID,
+		arg.VoidedBy,
+		arg.VoidReason,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProjectCommitment
+	for rows.Next() {
+		var i ProjectCommitment
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.ProjectID,
+			&i.BudgetLineID,
+			&i.CostCodeID,
+			&i.SourceType,
+			&i.SourceID,
+			&i.Description,
+			&i.CommittedAmount,
+			&i.Currency,
+			&i.Status,
+			&i.CommittedAt,
+			&i.IdempotencyKey,
+			&i.CreatedBy,
+			&i.VoidedAt,
+			&i.VoidedBy,
+			&i.VoidReason,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const voidCommitmentsBySourceSubcontract = `-- name: VoidCommitmentsBySourceSubcontract :many
+
+UPDATE project_commitments pc
+SET status = 'voided', voided_at = now(), voided_by = $4, void_reason = $5
+WHERE pc.organization_id = $1 AND pc.project_id = $2
+  AND pc.source_type = 'subcontract' AND pc.source_id = $3
+  AND pc.status = 'active'
+RETURNING pc.id, pc.organization_id, pc.project_id, pc.budget_line_id, pc.cost_code_id, pc.source_type, pc.source_id, pc.description, pc.committed_amount, pc.currency, pc.status, pc.committed_at, pc.idempotency_key, pc.created_by, pc.voided_at, pc.voided_by, pc.void_reason, pc.created_at, pc.updated_at
+`
+
+type VoidCommitmentsBySourceSubcontractParams struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+	SourceID       pgtype.UUID `json:"source_id"`
+	VoidedBy       pgtype.UUID `json:"voided_by"`
+	VoidReason     string      `json:"void_reason"`
+}
+
+// Sprint 5 -- Subcontract entegrasyonu. PO'nun İTEM-seviyesi (source_id =
+// purchase_order_items.id, kalıcı/tek seferlik) modelinden BİLİNÇLİ SAPMA:
+// bir Subcontract'ın taahhüdü değişiklik emirleri/fesihle YAŞAM BOYU
+// DEĞİŞEBİLİR, bu yüzden source_id = project_subcontracts.id (SÖZLEŞME
+// seviyesinde) kullanılır ve syncSubcontractCommitments HER ticari olayda
+// (aktivasyon/değişiklik onayı/fesih) BÜTÜN aktif taahhütleri voidleyip
+// maliyet-kodu bazında NETLENMİŞ satırlarla YENİDEN OLUŞTURUR -- bkz.
+// docs/subcontracts.md §Commitment Entegrasyonu.
+func (q *Queries) VoidCommitmentsBySourceSubcontract(ctx context.Context, arg VoidCommitmentsBySourceSubcontractParams) ([]ProjectCommitment, error) {
+	rows, err := q.db.Query(ctx, voidCommitmentsBySourceSubcontract,
+		arg.OrganizationID,
+		arg.ProjectID,
+		arg.SourceID,
 		arg.VoidedBy,
 		arg.VoidReason,
 	)

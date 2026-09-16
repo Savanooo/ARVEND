@@ -140,6 +140,14 @@ const (
 	PermProjectsProcurementRead     = "projects.procurement.read"
 	PermProjectsProcurementManage   = "projects.procurement.manage"
 	PermProjectsProcurementApprove  = "projects.procurement.approve"
+
+	// Sprint 5 -- Taşeron Yönetimi (Subcontractor Management)
+	PermProjectsSubcontractsRead         = "projects.subcontracts.read"
+	PermProjectsSubcontractsManage       = "projects.subcontracts.manage"
+	PermProjectsSubcontractsApprove      = "projects.subcontracts.approve"
+	PermProjectsSubcontractClaimsRead    = "projects.subcontract_claims.read"
+	PermProjectsSubcontractClaimsManage  = "projects.subcontract_claims.manage"
+	PermProjectsSubcontractClaimsCertify = "projects.subcontract_claims.certify"
 )
 
 // ---------- Domain tipleri ----------

@@ -185,22 +185,52 @@ Admin/platform-özel) zorlanmadı.
 
 ---
 
-## 5. Committed Cost — Çift Kaynak Riski Nasıl Çözüldü
+## 5. Committed Cost — Tek Kaynak (Sprint 5 Düzeltmesi)
 
-"Taahhüt" tek bir tabloda YAŞAMAZ: `project_commitments` (manuel) VE
-mevcut `project_subcontractors.contract_amount` (iptal edilmemiş
-olanlar) **İKİSİ BİRLİKTE** agregatlanır (bkz.
-`ListCostControlLines`/`GetProjectCostControlSummary` SQL'i). Bu, iki
-amacı AYNI ANDA karşılar:
+**Düzeltme notu (Sprint 5):** Bu bölüm daha önce "Committed, `project_commitments`
+İLE `project_subcontractors.contract_amount`'ın BİRLEŞİMİDİR (UNION)"
+şeklinde yazılıydı. Bu, gerçek SQL'le HİÇBİR ZAMAN uyuşmadı — Sprint 4'ün
+denetim aşamasında (migration `0037_create_procurement_foundation.up.sql`
+başlık yorumu) tespit edildi ve Sprint 5'te resmi olarak düzeltildi (bkz.
+[docs/procurement.md](procurement.md) §5.5, [docs/subcontracts.md](subcontracts.md)).
 
-1. Taşeron sözleşmeleri (mevcut, Faz 8'den beri var olan veri) tekrar
-   girilmeye ZORLANMAZ.
-2. Yeni manuel taahhütler AYRI bir tabloda, gelecekteki Satınalma/
-   Taşeron modülleri için genişletilebilir bir şemada tutulur.
+Doğru ve tek model:
 
-Taşeron sözleşmesi verisi `project_commitments`'e KOPYALANMAZ/MİGRATE
-EDİLMEZ — yalnızca okuma anında birleştirilir (UNION), tek bir kaynak
-korunur.
+```
+COST CONTROL COMMITTED COST = Σ(project_commitments WHERE status='active')
+```
+
+`ListCostControlLines`/`GetProjectCostControlSummary` SQL'i **yalnızca**
+`project_commitments` tablosunu toplar — başka HİÇBİR tabloyla union/join
+YAPILMAZ. Farklı taahhüt KAYNAKLARI (`project_commitments.source_type`)
+bu TEK tabloya yazar:
+
+- `manual` — Sprint 2, kullanıcının elle girdiği taahhüt.
+- `purchase_order` — Sprint 4, bir Satın Alma Siparişi onaylandığında
+  (bkz. [docs/procurement.md](procurement.md) §5).
+- `subcontract` — Sprint 5, bir Taşeron Sözleşmesi aktifleştiğinde/
+  değişiklik onaylandığında/feshedildiğinde (bkz.
+  [docs/subcontracts.md](subcontracts.md) §Commitment Entegrasyonu).
+
+Yani Cost Control farklı iş nesnelerini (PO, Subcontract) DOĞRUDAN
+union etmez — her biri KENDİ business entity'sidir, ama hepsi AYNI
+finansal taahhüt defterine (`project_commitments`) yazar. Yeni bir
+taahhüt kaynağı eklemek, bu tabloya YENİ BİR SATIR YAZMAK demektir,
+Cost Control'ün agregasyon sorgusuna yeni bir UNION/JOIN eklemek DEĞİL.
+
+**ÖNEMLİ — bununla KARIŞTIRILMAMASI gereken, tamamen AYRI bir sistem:**
+Proje genel bakış sayfasının ("Genel"/"Finans" sekmeleri üstündeki özet
+kartları) kullandığı `GetProjectFinancialSummary` sorgusu (proje finans
+zincirinin bir parçası, Cost Control'den ÖNCE var olan, Faz 8'den kalma
+bir fonksiyon) **kendi bağımsız `committed_cost`/`realized_cost`
+hesaplamasına sahiptir** ve bu hesaplama BUGÜN HÂLÂ gerçekten
+`project_subcontractors`/`project_subcontractor_payments` tablolarını
+toplar (taşerona GERÇEKTEN ödenen tutar dahil). Bu, Cost Control
+modülünün BİR PARÇASI DEĞİLDİR — iki ayrı UI yüzeyi (proje genel bakış
+kartları vs. "Maliyet Kontrolü" sekmesi) için iki ayrı, kasıtlı olarak
+bağımsız hesaplamadır ve Sprint 5 bunu DEĞİŞTİRMEMİŞTİR (bkz.
+[docs/subcontracts.md](subcontracts.md) "Legacy Taşeron Sistemi" bölümü
+için tam gerekçe).
 
 ---
 
@@ -285,7 +315,7 @@ Her bütçe kalemi (ve her "bütçe dışı" satır) için:
 | **Original** | Bütçe kaleminin `original_amount`'ı (bütçe dışı satırlarda her zaman 0) |
 | **Approved Adjustments** | `Σ(status='approved' olan adjustment.amount)` |
 | **Revised** | `Original + Approved Adjustments` |
-| **Committed** | `Σ(project_commitments WHERE status='active')` + taşeron sözleşmesi (bkz. §5) |
+| **Committed** | `Σ(project_commitments WHERE status='active')` — tek kaynak, bkz. §5 (Sprint 5 düzeltmesi) |
 | **Actual** | `Σ(project_expenses WHERE voided_at IS NULL)` — **tek gerçek kaynak** |
 | **ETC** (Estimate To Complete) | Varsa `project_cost_forecasts.etc_amount` (manuel override); YOKSA varsayılan `GREATEST(Revised − Actual, 0)` |
 | **EAC** (Estimate At Completion) | `Actual + ETC` — **Committed'i İÇERMEZ** (spec: "committed ile ETC'yi ÇİFT SAYMA") |

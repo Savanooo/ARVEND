@@ -37,6 +37,7 @@ type supplierResponse struct {
 	Address     string `json:"address"`
 	City        string `json:"city"`
 	Country     string `json:"country"`
+	Specialty   string `json:"specialty"`
 	IBANSet     bool   `json:"iban_set"`
 	IsActive    bool   `json:"is_active"`
 	Notes       string `json:"notes"`
@@ -49,7 +50,8 @@ func toSupplierResponse(s domain.Supplier) supplierResponse {
 		ID: s.ID, Code: s.Code, LegalName: s.LegalName, TradeName: s.TradeName,
 		TaxNumber: s.TaxNumber, TaxOffice: s.TaxOffice, ContactName: s.ContactName,
 		Email: s.Email, Phone: s.Phone, Address: s.Address, City: s.City, Country: s.Country,
-		IBANSet: s.IBANEncSet, IsActive: s.IsActive, Notes: s.Notes,
+		Specialty: s.Specialty,
+		IBANSet:   s.IBANEncSet, IsActive: s.IsActive, Notes: s.Notes,
 		CreatedAt: s.CreatedAt.Format(rfc3339), UpdatedAt: s.UpdatedAt.Format(rfc3339),
 	}
 }
@@ -66,6 +68,7 @@ type supplierRequest struct {
 	Address     string `json:"address"`
 	City        string `json:"city"`
 	Country     string `json:"country"`
+	Specialty   string `json:"specialty"`
 	// IBAN, nil ise DEĞİŞTİRİLMEZ; boş string ise TEMİZLENİR; dolu ise
 	// şifrelenir (bkz. SupplierService.encryptIBAN). Plaintext hiçbir
 	// yanıtta DÖNMEZ, yalnızca IBANSet boolean'ı görünür.
@@ -78,7 +81,8 @@ func (req supplierRequest) toInput(userID string) service.SupplierInput {
 		Code: req.Code, LegalName: req.LegalName, TradeName: req.TradeName,
 		TaxNumber: req.TaxNumber, TaxOffice: req.TaxOffice, ContactName: req.ContactName,
 		Email: req.Email, Phone: req.Phone, Address: req.Address, City: req.City, Country: req.Country,
-		IBAN: req.IBAN, Notes: req.Notes, UserID: userID,
+		Specialty: req.Specialty,
+		IBAN:      req.IBAN, Notes: req.Notes, UserID: userID,
 	}
 }
 

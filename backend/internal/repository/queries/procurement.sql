@@ -9,8 +9,8 @@
 -- name: CreateSupplier :one
 INSERT INTO suppliers (
     organization_id, code, legal_name, trade_name, tax_number, tax_office,
-    contact_name, email, phone, address, city, country, iban_enc, notes, created_by
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+    contact_name, email, phone, address, city, country, iban_enc, notes, created_by, specialty
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 RETURNING *;
 
 -- name: ListSuppliers :many
@@ -25,7 +25,7 @@ SELECT * FROM suppliers WHERE id = $1 AND organization_id = $2;
 UPDATE suppliers SET
     legal_name = $3, trade_name = $4, tax_number = $5, tax_office = $6,
     contact_name = $7, email = $8, phone = $9, address = $10, city = $11,
-    country = $12, iban_enc = $13, notes = $14
+    country = $12, iban_enc = $13, notes = $14, specialty = $15
 WHERE id = $1 AND organization_id = $2
 RETURNING *;
 

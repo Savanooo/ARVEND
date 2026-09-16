@@ -855,9 +855,9 @@ const createSupplier = `-- name: CreateSupplier :one
 
 INSERT INTO suppliers (
     organization_id, code, legal_name, trade_name, tax_number, tax_office,
-    contact_name, email, phone, address, city, country, iban_enc, notes, created_by
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-RETURNING id, organization_id, code, legal_name, trade_name, tax_number, tax_office, contact_name, email, phone, address, city, country, iban_enc, is_active, notes, created_by, created_at, updated_at
+    contact_name, email, phone, address, city, country, iban_enc, notes, created_by, specialty
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+RETURNING id, organization_id, code, legal_name, trade_name, tax_number, tax_office, contact_name, email, phone, address, city, country, iban_enc, is_active, notes, created_by, created_at, updated_at, specialty
 `
 
 type CreateSupplierParams struct {
@@ -876,6 +876,7 @@ type CreateSupplierParams struct {
 	IbanEnc        string      `json:"iban_enc"`
 	Notes          string      `json:"notes"`
 	CreatedBy      pgtype.UUID `json:"created_by"`
+	Specialty      string      `json:"specialty"`
 }
 
 // ARVEND V2 — Sprint 4: Procurement Foundation. Suppliers + Purchase
@@ -901,6 +902,7 @@ func (q *Queries) CreateSupplier(ctx context.Context, arg CreateSupplierParams) 
 		arg.IbanEnc,
 		arg.Notes,
 		arg.CreatedBy,
+		arg.Specialty,
 	)
 	var i Supplier
 	err := row.Scan(
@@ -923,6 +925,7 @@ func (q *Queries) CreateSupplier(ctx context.Context, arg CreateSupplierParams) 
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Specialty,
 	)
 	return i, err
 }
@@ -1359,7 +1362,7 @@ func (q *Queries) GetRFQItem(ctx context.Context, arg GetRFQItemParams) (RfqItem
 }
 
 const getSupplier = `-- name: GetSupplier :one
-SELECT id, organization_id, code, legal_name, trade_name, tax_number, tax_office, contact_name, email, phone, address, city, country, iban_enc, is_active, notes, created_by, created_at, updated_at FROM suppliers WHERE id = $1 AND organization_id = $2
+SELECT id, organization_id, code, legal_name, trade_name, tax_number, tax_office, contact_name, email, phone, address, city, country, iban_enc, is_active, notes, created_by, created_at, updated_at, specialty FROM suppliers WHERE id = $1 AND organization_id = $2
 `
 
 type GetSupplierParams struct {
@@ -1390,6 +1393,7 @@ func (q *Queries) GetSupplier(ctx context.Context, arg GetSupplierParams) (Suppl
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Specialty,
 	)
 	return i, err
 }
@@ -2047,7 +2051,7 @@ func (q *Queries) ListSupplierQuotations(ctx context.Context, arg ListSupplierQu
 }
 
 const listSuppliers = `-- name: ListSuppliers :many
-SELECT id, organization_id, code, legal_name, trade_name, tax_number, tax_office, contact_name, email, phone, address, city, country, iban_enc, is_active, notes, created_by, created_at, updated_at FROM suppliers WHERE organization_id = $1 ORDER BY code ASC
+SELECT id, organization_id, code, legal_name, trade_name, tax_number, tax_office, contact_name, email, phone, address, city, country, iban_enc, is_active, notes, created_by, created_at, updated_at, specialty FROM suppliers WHERE organization_id = $1 ORDER BY code ASC
 `
 
 // TÜM tedarikçiler (aktif+arşivlenmiş) döner -- organization_cost_codes
@@ -2081,6 +2085,7 @@ func (q *Queries) ListSuppliers(ctx context.Context, organizationID pgtype.UUID)
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Specialty,
 		); err != nil {
 			return nil, err
 		}
@@ -2587,9 +2592,9 @@ const updateSupplier = `-- name: UpdateSupplier :one
 UPDATE suppliers SET
     legal_name = $3, trade_name = $4, tax_number = $5, tax_office = $6,
     contact_name = $7, email = $8, phone = $9, address = $10, city = $11,
-    country = $12, iban_enc = $13, notes = $14
+    country = $12, iban_enc = $13, notes = $14, specialty = $15
 WHERE id = $1 AND organization_id = $2
-RETURNING id, organization_id, code, legal_name, trade_name, tax_number, tax_office, contact_name, email, phone, address, city, country, iban_enc, is_active, notes, created_by, created_at, updated_at
+RETURNING id, organization_id, code, legal_name, trade_name, tax_number, tax_office, contact_name, email, phone, address, city, country, iban_enc, is_active, notes, created_by, created_at, updated_at, specialty
 `
 
 type UpdateSupplierParams struct {
@@ -2607,6 +2612,7 @@ type UpdateSupplierParams struct {
 	Country        string      `json:"country"`
 	IbanEnc        string      `json:"iban_enc"`
 	Notes          string      `json:"notes"`
+	Specialty      string      `json:"specialty"`
 }
 
 func (q *Queries) UpdateSupplier(ctx context.Context, arg UpdateSupplierParams) (Supplier, error) {
@@ -2625,6 +2631,7 @@ func (q *Queries) UpdateSupplier(ctx context.Context, arg UpdateSupplierParams) 
 		arg.Country,
 		arg.IbanEnc,
 		arg.Notes,
+		arg.Specialty,
 	)
 	var i Supplier
 	err := row.Scan(
@@ -2647,6 +2654,7 @@ func (q *Queries) UpdateSupplier(ctx context.Context, arg UpdateSupplierParams) 
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Specialty,
 	)
 	return i, err
 }

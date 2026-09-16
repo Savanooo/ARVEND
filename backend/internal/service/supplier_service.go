@@ -51,6 +51,7 @@ type SupplierInput struct {
 	Address     string
 	City        string
 	Country     string
+	Specialty   string
 	// IBAN, nil ise DEĞİŞTİRİLMEZ (Update'te); boş string ise TEMİZLENİR;
 	// dolu ise şifrelenip YENİDEN yazılır (organization_commercial_
 	// settings.IBAN alanının AYNI üç-durumlu semantiği, bkz. onboarding_
@@ -113,7 +114,7 @@ func (s *SupplierService) Create(ctx context.Context, organizationID string, in 
 		TaxNumber: strings.TrimSpace(in.TaxNumber), TaxOffice: strings.TrimSpace(in.TaxOffice),
 		ContactName: strings.TrimSpace(in.ContactName), Email: strings.TrimSpace(in.Email), Phone: strings.TrimSpace(in.Phone),
 		Address: in.Address, City: strings.TrimSpace(in.City), Country: strings.TrimSpace(in.Country),
-		IbanEnc: ibanEnc, Notes: in.Notes, CreatedBy: actorUUID(in.UserID),
+		IbanEnc: ibanEnc, Notes: in.Notes, CreatedBy: actorUUID(in.UserID), Specialty: strings.TrimSpace(in.Specialty),
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -152,7 +153,7 @@ func (s *SupplierService) Update(ctx context.Context, id, organizationID string,
 		TaxNumber: strings.TrimSpace(in.TaxNumber), TaxOffice: strings.TrimSpace(in.TaxOffice),
 		ContactName: strings.TrimSpace(in.ContactName), Email: strings.TrimSpace(in.Email), Phone: strings.TrimSpace(in.Phone),
 		Address: in.Address, City: strings.TrimSpace(in.City), Country: strings.TrimSpace(in.Country),
-		IbanEnc: ibanEnc, Notes: in.Notes,
+		IbanEnc: ibanEnc, Notes: in.Notes, Specialty: strings.TrimSpace(in.Specialty),
 	})
 	if err != nil {
 		return nil, err

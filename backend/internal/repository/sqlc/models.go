@@ -714,6 +714,39 @@ type ProjectScheduleItem struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ProjectSubcontract struct {
+	ID                    pgtype.UUID        `json:"id"`
+	OrganizationID        pgtype.UUID        `json:"organization_id"`
+	ProjectID             pgtype.UUID        `json:"project_id"`
+	SubcontractNo         string             `json:"subcontract_no"`
+	SupplierID            pgtype.UUID        `json:"supplier_id"`
+	Title                 string             `json:"title"`
+	ScopeSummary          string             `json:"scope_summary"`
+	OriginalAmount        pgtype.Numeric     `json:"original_amount"`
+	Currency              string             `json:"currency"`
+	Status                string             `json:"status"`
+	EffectiveDate         pgtype.Date        `json:"effective_date"`
+	StartDate             pgtype.Date        `json:"start_date"`
+	PlannedCompletionDate pgtype.Date        `json:"planned_completion_date"`
+	RetentionPercent      pgtype.Numeric     `json:"retention_percent"`
+	AdvanceAmount         pgtype.Numeric     `json:"advance_amount"`
+	PaymentTerms          string             `json:"payment_terms"`
+	Notes                 string             `json:"notes"`
+	CreatedBy             pgtype.UUID        `json:"created_by"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	ActivatedAt           pgtype.Timestamptz `json:"activated_at"`
+	ActivatedBy           pgtype.UUID        `json:"activated_by"`
+	CompletedAt           pgtype.Timestamptz `json:"completed_at"`
+	CompletedBy           pgtype.UUID        `json:"completed_by"`
+	CancelledAt           pgtype.Timestamptz `json:"cancelled_at"`
+	CancelledBy           pgtype.UUID        `json:"cancelled_by"`
+	CancelReason          string             `json:"cancel_reason"`
+	TerminatedAt          pgtype.Timestamptz `json:"terminated_at"`
+	TerminatedBy          pgtype.UUID        `json:"terminated_by"`
+	TerminationReason     string             `json:"termination_reason"`
+}
+
 type ProjectSubcontractor struct {
 	ID              pgtype.UUID        `json:"id"`
 	OrganizationID  pgtype.UUID        `json:"organization_id"`
@@ -983,6 +1016,124 @@ type SmtpSetting struct {
 	OrganizationID pgtype.UUID        `json:"organization_id"`
 }
 
+type SubcontractChangeOrder struct {
+	ID              pgtype.UUID        `json:"id"`
+	OrganizationID  pgtype.UUID        `json:"organization_id"`
+	ProjectID       pgtype.UUID        `json:"project_id"`
+	SubcontractID   pgtype.UUID        `json:"subcontract_id"`
+	Number          string             `json:"number"`
+	Title           string             `json:"title"`
+	Description     string             `json:"description"`
+	ChangeType      string             `json:"change_type"`
+	Amount          pgtype.Numeric     `json:"amount"`
+	Status          string             `json:"status"`
+	Reason          string             `json:"reason"`
+	RequestedAt     pgtype.Timestamptz `json:"requested_at"`
+	ApprovedAt      pgtype.Timestamptz `json:"approved_at"`
+	ApprovedBy      pgtype.UUID        `json:"approved_by"`
+	RejectedAt      pgtype.Timestamptz `json:"rejected_at"`
+	RejectedBy      pgtype.UUID        `json:"rejected_by"`
+	RejectionReason string             `json:"rejection_reason"`
+	CancelledAt     pgtype.Timestamptz `json:"cancelled_at"`
+	CancelledBy     pgtype.UUID        `json:"cancelled_by"`
+	CreatedBy       pgtype.UUID        `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type SubcontractChangeOrderCounter struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Year           int32       `json:"year"`
+	Seq            int32       `json:"seq"`
+}
+
+type SubcontractChangeOrderItem struct {
+	ID             pgtype.UUID    `json:"id"`
+	OrganizationID pgtype.UUID    `json:"organization_id"`
+	ProjectID      pgtype.UUID    `json:"project_id"`
+	ChangeOrderID  pgtype.UUID    `json:"change_order_id"`
+	WbsNodeID      pgtype.UUID    `json:"wbs_node_id"`
+	CostCodeID     pgtype.UUID    `json:"cost_code_id"`
+	BudgetLineID   pgtype.UUID    `json:"budget_line_id"`
+	Description    string         `json:"description"`
+	Amount         pgtype.Numeric `json:"amount"`
+	SortOrder      int32          `json:"sort_order"`
+}
+
+type SubcontractCounter struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Year           int32       `json:"year"`
+	Seq            int32       `json:"seq"`
+}
+
+type SubcontractItem struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	SubcontractID  pgtype.UUID        `json:"subcontract_id"`
+	WbsNodeID      pgtype.UUID        `json:"wbs_node_id"`
+	CostCodeID     pgtype.UUID        `json:"cost_code_id"`
+	BudgetLineID   pgtype.UUID        `json:"budget_line_id"`
+	Description    string             `json:"description"`
+	Quantity       pgtype.Numeric     `json:"quantity"`
+	Unit           string             `json:"unit"`
+	UnitPrice      pgtype.Numeric     `json:"unit_price"`
+	OriginalAmount pgtype.Numeric     `json:"original_amount"`
+	SortOrder      int32              `json:"sort_order"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type SubcontractProgressClaim struct {
+	ID                       pgtype.UUID        `json:"id"`
+	OrganizationID           pgtype.UUID        `json:"organization_id"`
+	ProjectID                pgtype.UUID        `json:"project_id"`
+	SubcontractID            pgtype.UUID        `json:"subcontract_id"`
+	ClaimNumber              string             `json:"claim_number"`
+	PeriodStart              pgtype.Date        `json:"period_start"`
+	PeriodEnd                pgtype.Date        `json:"period_end"`
+	Status                   string             `json:"status"`
+	GrossWorkAmount          pgtype.Numeric     `json:"gross_work_amount"`
+	RetentionPercentSnapshot pgtype.Numeric     `json:"retention_percent_snapshot"`
+	RetentionAmount          pgtype.Numeric     `json:"retention_amount"`
+	AdvanceRecoveryAmount    pgtype.Numeric     `json:"advance_recovery_amount"`
+	OtherDeductions          pgtype.Numeric     `json:"other_deductions"`
+	PreviousCertifiedAmount  pgtype.Numeric     `json:"previous_certified_amount"`
+	CurrentCertifiedAmount   pgtype.Numeric     `json:"current_certified_amount"`
+	NetPayable               pgtype.Numeric     `json:"net_payable"`
+	SubmittedAt              pgtype.Timestamptz `json:"submitted_at"`
+	CertifiedAt              pgtype.Timestamptz `json:"certified_at"`
+	CertifiedBy              pgtype.UUID        `json:"certified_by"`
+	RejectedAt               pgtype.Timestamptz `json:"rejected_at"`
+	RejectedBy               pgtype.UUID        `json:"rejected_by"`
+	RejectionReason          string             `json:"rejection_reason"`
+	CancelledAt              pgtype.Timestamptz `json:"cancelled_at"`
+	CancelledBy              pgtype.UUID        `json:"cancelled_by"`
+	Notes                    string             `json:"notes"`
+	CreatedBy                pgtype.UUID        `json:"created_by"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                pgtype.Timestamptz `json:"updated_at"`
+}
+
+type SubcontractProgressClaimCounter struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Year           int32       `json:"year"`
+	Seq            int32       `json:"seq"`
+}
+
+type SubcontractProgressClaimItem struct {
+	ID                       pgtype.UUID    `json:"id"`
+	OrganizationID           pgtype.UUID    `json:"organization_id"`
+	ProjectID                pgtype.UUID    `json:"project_id"`
+	ProgressClaimID          pgtype.UUID    `json:"progress_claim_id"`
+	SubcontractItemID        pgtype.UUID    `json:"subcontract_item_id"`
+	ScheduledValue           pgtype.Numeric `json:"scheduled_value"`
+	PreviousProgressAmount   pgtype.Numeric `json:"previous_progress_amount"`
+	CurrentProgressAmount    pgtype.Numeric `json:"current_progress_amount"`
+	CumulativeProgressAmount pgtype.Numeric `json:"cumulative_progress_amount"`
+	SortOrder                int32          `json:"sort_order"`
+}
+
 type Supplier struct {
 	ID             pgtype.UUID        `json:"id"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`
@@ -1003,6 +1154,7 @@ type Supplier struct {
 	CreatedBy      pgtype.UUID        `json:"created_by"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	Specialty      string             `json:"specialty"`
 }
 
 type SupplierQuotation struct {

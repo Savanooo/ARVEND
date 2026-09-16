@@ -26,11 +26,18 @@ type Supplier struct {
 	Address        string
 	City           string
 	Country        string
-	IBANEncSet     bool
-	IsActive       bool
-	Notes          string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// Specialty, taşeron olarak kullanılabildiğinde branş/uzmanlık alanını
+	// belirtir (ör. "Elektrik", "Sıhhi Tesisat") -- Sprint 5, spec §3/§4:
+	// AYRI bir subcontractor master tablosu İCAT ETMEK yerine, mevcut
+	// tedarikçi kaydı bu tek opsiyonel alanla genişletildi. Boş olabilir --
+	// hiçbir supplier/subcontract kullanılabilirlik farkı YOKTUR, salt
+	// bilgilendirici metadata.
+	Specialty  string
+	IBANEncSet bool
+	IsActive   bool
+	Notes      string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // ---------- Organizasyon olayları (organization_events -- Sprint 2'nin

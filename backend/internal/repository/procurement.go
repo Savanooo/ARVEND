@@ -38,6 +38,7 @@ func ToDomainSupplier(s sqlc.Supplier) domain.Supplier {
 		Code: s.Code, LegalName: s.LegalName, TradeName: s.TradeName,
 		TaxNumber: s.TaxNumber, TaxOffice: s.TaxOffice, ContactName: s.ContactName,
 		Email: s.Email, Phone: s.Phone, Address: s.Address, City: s.City, Country: s.Country,
+		Specialty:  s.Specialty,
 		IBANEncSet: s.IbanEnc != "",
 		IsActive:   s.IsActive, Notes: s.Notes,
 		CreatedAt: s.CreatedAt.Time, UpdatedAt: s.UpdatedAt.Time,

@@ -82,6 +82,14 @@ func rbacCleanupOrg(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM supplier_quotations WHERE organization_id = $1",
 		"DELETE FROM rfqs WHERE organization_id = $1",
 		"DELETE FROM purchase_requests WHERE organization_id = $1",
+		// Sprint 5 (Taşeron Yönetimi, migration 0038) -- tenant_isolation_
+		// test.go'daki cleanupOrganization İLE AYNI sıra/gerekçe.
+		"DELETE FROM subcontract_progress_claim_items WHERE organization_id = $1",
+		"DELETE FROM subcontract_progress_claims WHERE organization_id = $1",
+		"DELETE FROM subcontract_change_order_items WHERE organization_id = $1",
+		"DELETE FROM subcontract_change_orders WHERE organization_id = $1",
+		"DELETE FROM subcontract_items WHERE organization_id = $1",
+		"DELETE FROM project_subcontracts WHERE organization_id = $1",
 		"DELETE FROM suppliers WHERE organization_id = $1",
 		"DELETE FROM projects WHERE organization_id = $1",
 		// current_revision_id, offer_revisions'a FK taşır -- satırı
@@ -96,6 +104,9 @@ func rbacCleanupOrg(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM purchase_request_counters WHERE organization_id = $1",
 		"DELETE FROM rfq_counters WHERE organization_id = $1",
 		"DELETE FROM purchase_order_counters WHERE organization_id = $1",
+		"DELETE FROM subcontract_counters WHERE organization_id = $1",
+		"DELETE FROM subcontract_change_order_counters WHERE organization_id = $1",
+		"DELETE FROM subcontract_progress_claim_counters WHERE organization_id = $1",
 		"DELETE FROM role_permissions WHERE organization_role_id IN (SELECT id FROM organization_roles WHERE organization_id = $1)",
 		"UPDATE users SET organization_role_id = NULL WHERE organization_id = $1",
 		"DELETE FROM organization_roles WHERE organization_id = $1",
