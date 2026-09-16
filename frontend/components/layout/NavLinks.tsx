@@ -13,6 +13,7 @@ import {
   Ruler,
   Settings,
   ShieldCheck,
+  Truck,
   UserCog,
   Users,
 } from "lucide-react";
@@ -41,6 +42,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/admin/kullanicilar": UserCog,
   "/admin/roller": ShieldCheck,
   "/admin/maliyet-kodlari": Coins,
+  "/admin/tedarikciler": Truck,
   "/admin/firma-ayarlari": Building2,
   "/admin/ayarlar": Settings,
   "/panel/profil": CircleUserRound,

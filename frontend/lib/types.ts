@@ -1137,3 +1137,222 @@ export interface ProjectContract {
   terminated_at?: string | null;
   termination_reason?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Sprint 4 — Procurement Foundation. Suppliers + Purchase Request + RFQ +
+// Supplier Quotations + Bid Comparison + Purchase Order + Cost Control
+// entegrasyonu. Contract/Change Order (Sprint 3, gelir tarafı) İLE
+// KARIŞTIRILMAMALI — bu zincir MALİYET (tedarikçi) tarafıdır (bkz.
+// docs/procurement.md).
+// ---------------------------------------------------------------------------
+
+export interface Supplier {
+  id: string;
+  code: string;
+  legal_name: string;
+  trade_name: string;
+  tax_number: string;
+  tax_office: string;
+  contact_name: string;
+  email: string;
+  phone: string;
+  address: string;
+  city: string;
+  country: string;
+  iban_set: boolean;
+  is_active: boolean;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type PurchaseRequestStatus = "draft" | "submitted" | "approved" | "rejected" | "cancelled";
+
+export const PURCHASE_REQUEST_STATUS_LABELS: Record<PurchaseRequestStatus, string> = {
+  draft: "Taslak",
+  submitted: "Gönderildi",
+  approved: "Onaylandı",
+  rejected: "Reddedildi",
+  cancelled: "İptal Edildi",
+};
+
+export interface PurchaseRequest {
+  id: string;
+  pr_no: string;
+  title: string;
+  description: string;
+  needed_by: string | null;
+  status: PurchaseRequestStatus;
+  estimated_total: number;
+  requested_by?: string | null;
+  submitted_at?: string | null;
+  approved_at?: string | null;
+  approved_by?: string | null;
+  rejected_at?: string | null;
+  rejected_by?: string | null;
+  rejection_reason?: string;
+  cancelled_at?: string | null;
+  cancelled_by?: string | null;
+  cancel_reason?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PurchaseRequestItem {
+  id: string;
+  wbs_node_id?: string | null;
+  cost_code_id?: string | null;
+  budget_line_id?: string | null;
+  description: string;
+  quantity: number;
+  unit: string;
+  estimated_unit_cost?: number | null;
+  estimated_total: number;
+  notes: string;
+  sort_order: number;
+}
+
+export type RFQStatus = "draft" | "issued" | "closed" | "cancelled";
+
+export const RFQ_STATUS_LABELS: Record<RFQStatus, string> = {
+  draft: "Taslak",
+  issued: "Gönderildi",
+  closed: "Kapatıldı",
+  cancelled: "İptal Edildi",
+};
+
+export interface RFQ {
+  id: string;
+  rfq_no: string;
+  purchase_request_id?: string | null;
+  title: string;
+  issue_date: string;
+  due_date: string | null;
+  status: RFQStatus;
+  notes: string;
+  awarded_quotation_id?: string | null;
+  awarded_at?: string | null;
+  awarded_by?: string | null;
+  award_notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RFQItem {
+  id: string;
+  source_pr_item_id?: string | null;
+  wbs_node_id?: string | null;
+  cost_code_id?: string | null;
+  budget_line_id?: string | null;
+  description: string;
+  quantity: number;
+  unit: string;
+  sort_order: number;
+}
+
+export type RFQSupplierResponseStatus = "pending" | "responded" | "declined";
+
+export interface RFQSupplier {
+  id: string;
+  supplier_id: string;
+  supplier_code: string;
+  supplier_name: string;
+  invited_at: string;
+  response_status: RFQSupplierResponseStatus;
+}
+
+export interface SupplierQuotation {
+  id: string;
+  rfq_id: string;
+  supplier_id: string;
+  supplier_code?: string;
+  supplier_name?: string;
+  quotation_number: string;
+  quotation_date: string;
+  valid_until: string | null;
+  currency: string;
+  subtotal: number;
+  discount: number;
+  tax_rate: number;
+  tax: number;
+  total: number;
+  delivery_days?: number | null;
+  payment_terms: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface QuotationItem {
+  id: string;
+  rfq_item_id: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+  notes: string;
+}
+
+export interface BidComparisonCell {
+  supplier_id: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+  notes: string;
+}
+
+export interface BidComparisonRow {
+  item: RFQItem;
+  cells: Record<string, BidComparisonCell>;
+}
+
+export type PurchaseOrderStatus = "draft" | "approved" | "cancelled" | "closed";
+
+export const PURCHASE_ORDER_STATUS_LABELS: Record<PurchaseOrderStatus, string> = {
+  draft: "Taslak",
+  approved: "Onaylandı",
+  cancelled: "İptal Edildi",
+  closed: "Kapatıldı",
+};
+
+export interface PurchaseOrder {
+  id: string;
+  po_no: string;
+  supplier_id: string;
+  supplier_code?: string;
+  supplier_name?: string;
+  source_rfq_id?: string | null;
+  source_quotation_id?: string | null;
+  currency: string;
+  status: PurchaseOrderStatus;
+  issue_date: string;
+  expected_delivery_date: string | null;
+  payment_terms: string;
+  delivery_address: string;
+  notes: string;
+  subtotal: number;
+  tax_rate: number;
+  tax: number;
+  total: number;
+  approved_at?: string | null;
+  approved_by?: string | null;
+  cancelled_at?: string | null;
+  cancelled_by?: string | null;
+  cancel_reason?: string;
+  closed_at?: string | null;
+  closed_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PurchaseOrderItem {
+  id: string;
+  wbs_node_id?: string | null;
+  cost_code_id: string;
+  budget_line_id?: string | null;
+  description: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  line_total: number;
+  sort_order: number;
+}

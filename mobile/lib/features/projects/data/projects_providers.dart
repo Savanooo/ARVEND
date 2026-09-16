@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_providers.dart';
+import '../domain/procurement.dart';
 import '../domain/project.dart';
 import 'projects_repository.dart';
 
@@ -43,4 +44,24 @@ final projectCostControlProvider = FutureProvider.autoDispose
 
 final projectChangeOrdersProvider = FutureProvider.autoDispose.family<List<ChangeOrder>, String>(
   (ref, id) => ref.watch(projectsRepositoryProvider).changeOrders(id),
+);
+
+final projectPurchaseRequestsProvider = FutureProvider.autoDispose.family<List<PurchaseRequest>, String>(
+  (ref, id) => ref.watch(projectsRepositoryProvider).purchaseRequests(id),
+);
+
+final purchaseRequestDetailProvider = FutureProvider.autoDispose.family<
+    ({PurchaseRequest request, List<PurchaseRequestItem> items}),
+    ({String projectId, String prId})>(
+  (ref, args) => ref.watch(projectsRepositoryProvider).purchaseRequestDetail(args.projectId, args.prId),
+);
+
+final projectPurchaseOrdersProvider = FutureProvider.autoDispose.family<List<PurchaseOrder>, String>(
+  (ref, id) => ref.watch(projectsRepositoryProvider).purchaseOrders(id),
+);
+
+final purchaseOrderDetailProvider = FutureProvider.autoDispose.family<
+    ({PurchaseOrder order, List<PurchaseOrderItem> items}),
+    ({String projectId, String poId})>(
+  (ref, args) => ref.watch(projectsRepositoryProvider).purchaseOrderDetail(args.projectId, args.poId),
 );

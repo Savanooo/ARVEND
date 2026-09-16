@@ -74,6 +74,21 @@ abstract final class StatusRegistry {
     'superseded': ('Yenilendi', StatusTone.muted),
   };
 
+  static const purchaseRequest = {
+    'draft': ('Taslak', StatusTone.muted),
+    'submitted': ('Gönderildi', StatusTone.info),
+    'approved': ('Onaylandı', StatusTone.success),
+    'rejected': ('Reddedildi', StatusTone.danger),
+    'cancelled': ('İptal Edildi', StatusTone.danger),
+  };
+
+  static const purchaseOrder = {
+    'draft': ('Taslak', StatusTone.muted),
+    'approved': ('Onaylandı', StatusTone.gold),
+    'cancelled': ('İptal Edildi', StatusTone.danger),
+    'closed': ('Kapatıldı', StatusTone.success),
+  };
+
   static const attendance = {
     'geldi': ('Geldi', StatusTone.success),
     'yarım gün': ('Yarım Gün', StatusTone.gold),

@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../../core/api/api_client.dart';
+import '../domain/procurement.dart';
 import '../domain/project.dart';
 
 class ProjectsRepository {
@@ -177,5 +178,37 @@ class ProjectsRepository {
   Future<List<ChangeOrder>> changeOrders(String projectId) async {
     final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/change-orders');
     return (json['change_orders'] as List).cast<Map<String, dynamic>>().map(ChangeOrder.fromJson).toList();
+  }
+
+  /// Sprint 4 — Satın Alma, mobilde YALNIZCA OKUMA (bkz. domain/procurement.dart
+  /// dosya başı notu). İzin: projects.procurement.read (Ek İşler'in aksine bu
+  /// sprint için AYRI, yeni bir izin -- web ile AYNI uç ve AYNI izin).
+  Future<List<PurchaseRequest>> purchaseRequests(String projectId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/purchase-requests');
+    return (json['purchase_requests'] as List).cast<Map<String, dynamic>>().map(PurchaseRequest.fromJson).toList();
+  }
+
+  Future<({PurchaseRequest request, List<PurchaseRequestItem> items})> purchaseRequestDetail(
+      String projectId, String prId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/purchase-requests/$prId');
+    final request = PurchaseRequest.fromJson(json['purchase_request'] as Map<String, dynamic>);
+    final items =
+        (json['items'] as List).cast<Map<String, dynamic>>().map(PurchaseRequestItem.fromJson).toList();
+    return (request: request, items: items);
+  }
+
+  Future<List<PurchaseOrder>> purchaseOrders(String projectId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/purchase-orders');
+    return (json['purchase_orders'] as List).cast<Map<String, dynamic>>().map(PurchaseOrder.fromJson).toList();
+  }
+
+  /// `commitments` alanı kasıtlı olarak yoksayılır -- maliyet-kontrolü
+  /// detayı web-first bir kapsam (bkz. Sprint 4 spec'i).
+  Future<({PurchaseOrder order, List<PurchaseOrderItem> items})> purchaseOrderDetail(
+      String projectId, String poId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/purchase-orders/$poId');
+    final order = PurchaseOrder.fromJson(json['purchase_order'] as Map<String, dynamic>);
+    final items = (json['items'] as List).cast<Map<String, dynamic>>().map(PurchaseOrderItem.fromJson).toList();
+    return (order: order, items: items);
   }
 }

@@ -36,7 +36,11 @@ import {
   type ProjectNote,
   type ProjectPhoto,
   type ProjectTask,
+  type PurchaseOrder,
+  type PurchaseRequest,
+  type RFQ,
   type ScheduleItem,
+  type Supplier,
   type WBSNode,
 } from "@/lib/types";
 
@@ -45,6 +49,7 @@ import { ProjectAccessSection } from "./AccessSections";
 import { ChangeOrdersSection } from "./ChangeOrderSections";
 import { ContractSection } from "./ContractSection";
 import { CostControlWorkspace } from "./CostControlSections";
+import { PurchasingWorkspace } from "./PurchasingSections";
 import { FinanceSummary } from "./FinanceSummary";
 import {
   CollectionsSection,
@@ -132,6 +137,7 @@ export default async function ProjeDetayPage({
     summaryR, planR, collectionsR, expensesR, invoicesR, subcontractorsR, subPaymentsR, eventsR,
     opsR, membersR, scheduleR, tasksR, filesR, photosR, notesR, employeesR, changeOrdersR, contractR, accessR, orgUsersR,
     costControlR, budgetR, budgetLinesR, wbsNodesR, adjustmentsR, commitmentsR, forecastsR, costCodesR,
+    purchaseRequestsR, rfqsR, purchaseOrdersR, suppliersR,
   ] = await Promise.allSettled([
     apiServer<FinancialSummary>(`${base}/financial-summary`, cookieHeader),
     apiServer<{ items: PaymentPlanItem[]; planned_total: number }>(`${base}/payment-plan`, cookieHeader),
@@ -175,6 +181,14 @@ export default async function ProjeDetayPage({
     apiServer<{ commitments: Commitment[] }>(`${base}/commitments`, cookieHeader),
     apiServer<{ forecasts: CostForecast[] }>(`${base}/forecasts`, cookieHeader),
     apiServer<{ cost_codes: OrganizationCostCode[] }>("/api/v1/organization/cost-codes", cookieHeader),
+    // Sprint 4 -- Procurement Foundation. Liste uçları kalem/tedarikçi
+    // detayı TAŞIMAZ (ChangeOrderCard'ın AYNI ilkesi) -- detay, satır
+    // genişletildiğinde istemci tarafında AYRICA çekilir (N+1'i yalnızca
+    // gerçekten AÇILAN satırlar için ödemek üzere).
+    apiServer<{ purchase_requests: PurchaseRequest[] }>(`${base}/purchase-requests`, cookieHeader),
+    apiServer<{ rfqs: RFQ[] }>(`${base}/rfqs`, cookieHeader),
+    apiServer<{ purchase_orders: PurchaseOrder[] }>(`${base}/purchase-orders`, cookieHeader),
+    apiServer<{ suppliers: Supplier[] }>("/api/v1/organization/suppliers", cookieHeader),
   ]);
 
   const summary = settled(summaryR);
@@ -205,6 +219,10 @@ export default async function ProjeDetayPage({
   const commitments = settled(commitmentsR);
   const forecasts = settled(forecastsR);
   const costCodes = settled(costCodesR);
+  const purchaseRequests = settled(purchaseRequestsR);
+  const rfqs = settled(rfqsR);
+  const purchaseOrders = settled(purchaseOrdersR);
+  const suppliers = settled(suppliersR);
 
   // Tamamlanmış/iptal edilmiş projede finans hareketleri kilitlidir --
   // backend zaten reddediyor, UI da form göstermez.
@@ -285,6 +303,7 @@ export default async function ProjeDetayPage({
             { key: "genel", label: "Genel" },
             { key: "finans", label: "Finans" },
             { key: "maliyet", label: "Maliyet Kontrolü" },
+            { key: "satinalma", label: "Satın Alma" },
             { key: "operasyon", label: "Operasyon" },
             { key: "dosyalar", label: "Dosyalar" },
             { key: "aktivite", label: "Aktivite" },
@@ -484,6 +503,24 @@ export default async function ProjeDetayPage({
                 commitments={commitments?.commitments ?? []}
                 forecasts={forecasts?.forecasts ?? []}
                 expenses={expenses?.expenses ?? []}
+                locked={locked}
+              />
+            ) : (
+              <p className="text-sm text-text-muted">Bu bölümü görüntüleme yetkiniz yok.</p>
+            )}
+          </ControlledTabPanel>
+
+          <ControlledTabPanel tab="satinalma">
+            {purchaseRequests && rfqs && purchaseOrders ? (
+              <PurchasingWorkspace
+                project={project}
+                purchaseRequests={purchaseRequests.purchase_requests}
+                rfqs={rfqs.rfqs}
+                purchaseOrders={purchaseOrders.purchase_orders}
+                suppliers={suppliers?.suppliers ?? []}
+                costCodes={costCodes?.cost_codes ?? []}
+                wbsNodes={wbsNodes?.wbs_nodes ?? []}
+                budgetLines={budgetLines?.budget_lines ?? []}
                 locked={locked}
               />
             ) : (

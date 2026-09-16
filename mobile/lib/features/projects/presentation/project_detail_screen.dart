@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/auth/auth_controller.dart';
@@ -37,6 +38,10 @@ final _tabDefs = <_TabDef>[
   // mobilde YOK (yalnızca web) -- bu, yalnızca onu değiştiren Ek İşlerin
   // salt-okunur listesi.
   _TabDef('Ek İşler', 'projects.finance.read', (id, p) => _ChangeOrdersTab(projectId: id)),
+  // Sprint 4 — Satın Alma, mobilde YALNIZCA OKUMA (bkz. domain/procurement.dart
+  // dosya başı notu). Ek İşler'in aksine bu, bu sprint için tanımlanan YENİ
+  // bir izin -- eski bir izin yeniden kullanılmıyor.
+  _TabDef('Satın Alma', 'projects.procurement.read', (id, p) => _ProcurementTab(projectId: id)),
   // Sprint 2 — Maliyet Kontrolü, mobilde YALNIZCA OKUMA (spec: "no budget
   // editing, no manual commitment editing, no cost-code admin on mobile
   // this sprint -- web-first"). İzin, budget.read DEĞİL cost_control.read
@@ -395,6 +400,121 @@ class _ChangeOrdersTab extends ConsumerWidget {
                     color: co.changeType == 'addition' ? Colors.green : Colors.red,
                   ),
                 ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+enum _ProcurementView { requests, orders }
+
+/// Sprint 4 — Satın Alma, mobilde YALNIZCA OKUMA (bkz. domain/procurement.dart
+/// dosya başı notu). RFQ/teklif karşılaştırma/tedarikçi/PO onay-iptal-kapatma
+/// mobilde YOKTUR -- yalnızca Talep ve Sipariş listeleri arasında geçiş.
+class _ProcurementTab extends ConsumerStatefulWidget {
+  const _ProcurementTab({required this.projectId});
+  final String projectId;
+
+  @override
+  ConsumerState<_ProcurementTab> createState() => _ProcurementTabState();
+}
+
+class _ProcurementTabState extends ConsumerState<_ProcurementTab> {
+  _ProcurementView _view = _ProcurementView.requests;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: SegmentedButton<_ProcurementView>(
+            segments: const [
+              ButtonSegment(value: _ProcurementView.requests, label: Text('Talepler')),
+              ButtonSegment(value: _ProcurementView.orders, label: Text('Siparişler')),
+            ],
+            selected: {_view},
+            onSelectionChanged: (s) => setState(() => _view = s.first),
+          ),
+        ),
+        Expanded(
+          child: _view == _ProcurementView.requests
+              ? _PurchaseRequestsList(projectId: widget.projectId)
+              : _PurchaseOrdersList(projectId: widget.projectId),
+        ),
+      ],
+    );
+  }
+}
+
+class _PurchaseRequestsList extends ConsumerWidget {
+  const _PurchaseRequestsList({required this.projectId});
+  final String projectId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final requestsAsync = ref.watch(projectPurchaseRequestsProvider(projectId));
+
+    return RefreshIndicator(
+      onRefresh: () async => ref.invalidate(projectPurchaseRequestsProvider(projectId)),
+      child: AsyncStateView(
+        value: requestsAsync,
+        onRetry: () async => ref.invalidate(projectPurchaseRequestsProvider(projectId)),
+        isEmpty: (list) => list.isEmpty,
+        emptyBuilder: (_) => const EmptyStateView(message: 'Henüz satın alma talebi yok.'),
+        data: (context, requests) => ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          itemCount: requests.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 8),
+          itemBuilder: (context, i) {
+            final pr = requests[i];
+            return Card(
+              child: ListTile(
+                title: Text('${pr.prNo} — ${pr.title}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: StatusRegistry.build(pr.status, StatusRegistry.purchaseRequest),
+                trailing: Text(Formatters.money(pr.estimatedTotal), style: const TextStyle(fontWeight: FontWeight.w700)),
+                onTap: () => context.push('/projeler/$projectId/satin-alma/talepler/${pr.id}'),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _PurchaseOrdersList extends ConsumerWidget {
+  const _PurchaseOrdersList({required this.projectId});
+  final String projectId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ordersAsync = ref.watch(projectPurchaseOrdersProvider(projectId));
+
+    return RefreshIndicator(
+      onRefresh: () async => ref.invalidate(projectPurchaseOrdersProvider(projectId)),
+      child: AsyncStateView(
+        value: ordersAsync,
+        onRetry: () async => ref.invalidate(projectPurchaseOrdersProvider(projectId)),
+        isEmpty: (list) => list.isEmpty,
+        emptyBuilder: (_) => const EmptyStateView(message: 'Henüz satın alma siparişi yok.'),
+        data: (context, orders) => ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          itemCount: orders.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 8),
+          itemBuilder: (context, i) {
+            final po = orders[i];
+            return Card(
+              child: ListTile(
+                title: Text('${po.poNo} — ${po.supplierName ?? po.supplierCode ?? ''}',
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: StatusRegistry.build(po.status, StatusRegistry.purchaseOrder),
+                trailing: Text(Formatters.money(po.total, currency: po.currency),
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                onTap: () => context.push('/projeler/$projectId/satin-alma/siparisler/${po.id}'),
               ),
             );
           },

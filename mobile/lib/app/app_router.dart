@@ -21,6 +21,8 @@ import '../features/profile/presentation/other_menu_screen.dart';
 import '../features/profile/presentation/profile_screen.dart';
 import '../features/projects/presentation/project_detail_screen.dart';
 import '../features/projects/presentation/projects_screen.dart';
+import '../features/projects/presentation/purchase_order_detail_screen.dart';
+import '../features/projects/presentation/purchase_request_detail_screen.dart';
 import '../features/tasks/presentation/tasks_screen.dart';
 import 'app_shell.dart';
 
@@ -109,6 +111,22 @@ final routerProvider = Provider<GoRouter>((ref) {
                 GoRoute(
                   path: ':id',
                   builder: (context, state) => ProjectDetailScreen(projectId: state.pathParameters['id']!),
+                  routes: [
+                    GoRoute(
+                      path: 'satin-alma/talepler/:prId',
+                      builder: (context, state) => PurchaseRequestDetailScreen(
+                        projectId: state.pathParameters['id']!,
+                        prId: state.pathParameters['prId']!,
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'satin-alma/siparisler/:poId',
+                      builder: (context, state) => PurchaseOrderDetailScreen(
+                        projectId: state.pathParameters['id']!,
+                        poId: state.pathParameters['poId']!,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

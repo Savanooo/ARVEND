@@ -9,6 +9,9 @@ import {
   ORG_STATUS_LABELS,
   PLAN_ITEM_STATUS_LABELS,
   PROJECT_STATUS_LABELS,
+  PURCHASE_ORDER_STATUS_LABELS,
+  PURCHASE_REQUEST_STATUS_LABELS,
+  RFQ_STATUS_LABELS,
   SCHEDULE_STATUS_LABELS,
   SUBCONTRACTOR_STATUS_LABELS,
   TASK_STATUS_LABELS,
@@ -23,6 +26,9 @@ import {
   type OrgStatus,
   type PlanItemStatus,
   type ProjectStatus,
+  type PurchaseOrderStatus,
+  type PurchaseRequestStatus,
+  type RFQStatus,
   type ScheduleStatus,
   type SubcontractorStatus,
   type TaskStatus,
@@ -153,4 +159,29 @@ export const CONTRACT_STATUS: Record<ContractStatus, StatusMeta> = {
   completed: { label: CONTRACT_STATUS_LABELS.completed, tone: "success" },
   cancelled: { label: CONTRACT_STATUS_LABELS.cancelled, tone: "danger" },
   terminated: { label: CONTRACT_STATUS_LABELS.terminated, tone: "danger" },
+};
+
+// Sprint 4 — Procurement Foundation. "submitted"/"issued" (onay/yanıt
+// bekleniyor) OfferStatus.gönderildi/ChangeOrderStatus.sent İLE AYNI
+// "info" tonu ilkesini izler.
+export const PURCHASE_REQUEST_STATUS: Record<PurchaseRequestStatus, StatusMeta> = {
+  draft: { label: PURCHASE_REQUEST_STATUS_LABELS.draft, tone: "muted" },
+  submitted: { label: PURCHASE_REQUEST_STATUS_LABELS.submitted, tone: "info" },
+  approved: { label: PURCHASE_REQUEST_STATUS_LABELS.approved, tone: "success" },
+  rejected: { label: PURCHASE_REQUEST_STATUS_LABELS.rejected, tone: "danger" },
+  cancelled: { label: PURCHASE_REQUEST_STATUS_LABELS.cancelled, tone: "danger" },
+};
+
+export const RFQ_STATUS: Record<RFQStatus, StatusMeta> = {
+  draft: { label: RFQ_STATUS_LABELS.draft, tone: "muted" },
+  issued: { label: RFQ_STATUS_LABELS.issued, tone: "info" },
+  closed: { label: RFQ_STATUS_LABELS.closed, tone: "success" },
+  cancelled: { label: RFQ_STATUS_LABELS.cancelled, tone: "danger" },
+};
+
+export const PURCHASE_ORDER_STATUS: Record<PurchaseOrderStatus, StatusMeta> = {
+  draft: { label: PURCHASE_ORDER_STATUS_LABELS.draft, tone: "muted" },
+  approved: { label: PURCHASE_ORDER_STATUS_LABELS.approved, tone: "gold" },
+  cancelled: { label: PURCHASE_ORDER_STATUS_LABELS.cancelled, tone: "danger" },
+  closed: { label: PURCHASE_ORDER_STATUS_LABELS.closed, tone: "success" },
 };
