@@ -525,6 +525,34 @@ type ProjectCommitment struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ProjectContract struct {
+	ID                    pgtype.UUID        `json:"id"`
+	OrganizationID        pgtype.UUID        `json:"organization_id"`
+	ProjectID             pgtype.UUID        `json:"project_id"`
+	Currency              string             `json:"currency"`
+	Status                string             `json:"status"`
+	Scope                 string             `json:"scope"`
+	PaymentTerms          string             `json:"payment_terms"`
+	RetentionTerms        string             `json:"retention_terms"`
+	AdvanceTerms          string             `json:"advance_terms"`
+	EffectiveDate         pgtype.Date        `json:"effective_date"`
+	PlannedCompletionDate pgtype.Date        `json:"planned_completion_date"`
+	InternalNotes         string             `json:"internal_notes"`
+	CreatedBy             pgtype.UUID        `json:"created_by"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	ActivatedAt           pgtype.Timestamptz `json:"activated_at"`
+	ActivatedBy           pgtype.UUID        `json:"activated_by"`
+	CompletedAt           pgtype.Timestamptz `json:"completed_at"`
+	CompletedBy           pgtype.UUID        `json:"completed_by"`
+	CancelledAt           pgtype.Timestamptz `json:"cancelled_at"`
+	CancelledBy           pgtype.UUID        `json:"cancelled_by"`
+	CancelReason          string             `json:"cancel_reason"`
+	TerminatedAt          pgtype.Timestamptz `json:"terminated_at"`
+	TerminatedBy          pgtype.UUID        `json:"terminated_by"`
+	TerminationReason     string             `json:"termination_reason"`
+}
+
 type ProjectCostForecast struct {
 	ID             pgtype.UUID        `json:"id"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`

@@ -70,6 +70,9 @@ func rbacCleanupOrg(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM project_budget_lines WHERE organization_id = $1",
 		"DELETE FROM project_budgets WHERE organization_id = $1",
 		"DELETE FROM project_wbs_nodes WHERE organization_id = $1",
+		// project_contracts (Sprint 3), projects'e CASCADE'siz FK taşır --
+		// AYNI gerekçeyle projects'ten ÖNCE temizlenmeli.
+		"DELETE FROM project_contracts WHERE organization_id = $1",
 		"DELETE FROM projects WHERE organization_id = $1",
 		// current_revision_id, offer_revisions'a FK taşır -- satırı
 		// SİLMEDEN ÖNCE NULL'lanmalı (offers_current_revision_id_fkey).

@@ -95,6 +95,9 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		// ÖNCE temizlenmeli (project_budget_lines.wbs_node_id RESTRICT
 		// referansı yukarıda budget_lines silinerek zaten kaldırıldı).
 		"DELETE FROM project_wbs_nodes WHERE organization_id = $1",
+		// project_contracts (Sprint 3), projects'e CASCADE'siz FK taşır --
+		// AYNI gerekçeyle projects'ten ÖNCE temizlenmeli.
+		"DELETE FROM project_contracts WHERE organization_id = $1",
 		// projects, teklife/revizyona CASCADE'siz FK ile bağlıdır (kasıtlı:
 		// bir projeye dayanak olan teklif silinememeli), bu yüzden
 		// tekliflerden ÖNCE temizlenmeli.

@@ -295,6 +295,30 @@ func NewRouter(d Deps) http.Handler {
 				r.Put("/{id}/budget/lines/{lineId}/forecast", d.Projects.UpsertForecast)
 			})
 
+			// --- Sprint 3: Sözleşme (Contract) -- gelir (revenue) tarafı,
+			// Bütçe/Bütçe Revizyonu (maliyet tarafı, yukarıda) İLE
+			// KARIŞTIRILMAMALI. ÜÇ ayrı izin: read/manage/lifecycle --
+			// Project Manager manage alır (taslak düzenleyebilir) ama
+			// lifecycle ALMAZ (Activate/Cancel/Complete/Terminate yapamaz,
+			// bkz. migration 0036 rol matrisi gerekçesi).
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsContractsRead))
+				r.Get("/{id}/contract", d.Projects.GetProjectContract)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsContractsManage))
+				r.Post("/{id}/contract", d.Projects.CreateProjectContract)
+				r.Put("/{id}/contract", d.Projects.UpdateProjectContractDraft)
+				r.Put("/{id}/contract/notes", d.Projects.UpdateProjectContractNotes)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsContractsLifecycle))
+				r.Post("/{id}/contract/activate", d.Projects.ActivateProjectContract)
+				r.Post("/{id}/contract/cancel", d.Projects.CancelProjectContract)
+				r.Post("/{id}/contract/complete", d.Projects.CompleteProjectContract)
+				r.Post("/{id}/contract/terminate", d.Projects.TerminateProjectContract)
+			})
+
 			// --- Faz 7: operasyon (ekip/planlama/dosya/fotoğraf/not) ---
 			r.Group(func(r chi.Router) {
 				r.Use(projPerm(domain.PermProjectsOperationsRead))

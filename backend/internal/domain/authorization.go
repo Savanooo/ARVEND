@@ -113,6 +113,17 @@ const (
 	PermProjectsCostControlManage   = "projects.cost_control.manage"
 	PermOrganizationCostCodesRead   = "organization.cost_codes.read"
 	PermOrganizationCostCodesManage = "organization.cost_codes.manage"
+
+	// Sprint 3 -- Proje Sözleşmesi (Contract, gelir/revenue tarafı --
+	// Sprint 2'nin budget/cost_control'ünden [maliyet tarafı] AYRI).
+	// Sprint 2'nin read/manage ikilisinden FARKLI olarak ÜÇ parçalı:
+	// lifecycle (Activate/Cancel/Complete/Terminate), manage'den (taslak
+	// düzenleme) BİLİNÇLİ OLARAK AYRI bir izindir (bkz. migration 0036
+	// rol matrisi gerekçesi -- Project Manager manage alır ama lifecycle
+	// almaz).
+	PermProjectsContractsRead      = "projects.contracts.read"
+	PermProjectsContractsManage    = "projects.contracts.manage"
+	PermProjectsContractsLifecycle = "projects.contracts.lifecycle"
 )
 
 // ---------- Domain tipleri ----------
