@@ -24,6 +24,7 @@ import {
   type Project,
   type ProjectAccessUser,
   type ProjectBudget,
+  type ProjectContract,
   type ProjectEvent,
   type ProjectInvoice,
   type Subcontractor,
@@ -42,6 +43,7 @@ import {
 import { Section } from "@/components/ui/Accordion";
 import { ProjectAccessSection } from "./AccessSections";
 import { ChangeOrdersSection } from "./ChangeOrderSections";
+import { ContractSection } from "./ContractSection";
 import { CostControlWorkspace } from "./CostControlSections";
 import { FinanceSummary } from "./FinanceSummary";
 import {
@@ -128,7 +130,7 @@ export default async function ProjeDetayPage({
 
   const [
     summaryR, planR, collectionsR, expensesR, invoicesR, subcontractorsR, subPaymentsR, eventsR,
-    opsR, membersR, scheduleR, tasksR, filesR, photosR, notesR, employeesR, changeOrdersR, accessR, orgUsersR,
+    opsR, membersR, scheduleR, tasksR, filesR, photosR, notesR, employeesR, changeOrdersR, contractR, accessR, orgUsersR,
     costControlR, budgetR, budgetLinesR, wbsNodesR, adjustmentsR, commitmentsR, forecastsR, costCodesR,
   ] = await Promise.allSettled([
     apiServer<FinancialSummary>(`${base}/financial-summary`, cookieHeader),
@@ -148,6 +150,11 @@ export default async function ProjeDetayPage({
     apiServer<{ notes: ProjectNote[] }>(`${base}/notes`, cookieHeader),
     apiServer<{ employees: Employee[] }>(`/api/v1/employees?filter=aktif`, cookieHeader),
     apiServer<{ change_orders: ChangeOrder[] }>(`${base}/change-orders`, cookieHeader),
+    // Sprint 3 -- Sözleşme (Contract). Sözleşmesi henüz oluşturulmamış bir
+    // projede (backfill YOK) 404 döner -- settled() bunu null'a indirger,
+    // ContractSection bunu "Sözleşme Oluştur" CTA'sına çevirir (Bütçe'nin
+    // AYNI deseni).
+    apiServer<ProjectContract>(`${base}/contract`, cookieHeader),
     apiServer<{ users: ProjectAccessUser[] }>(`${base}/access`, cookieHeader),
     // Kullanıcı seçici yalnızca projects.access.manage sahibi (owner/admin/
     // legacy_user) tarafından kullanılır -- bu roller zaten organization.
@@ -187,6 +194,7 @@ export default async function ProjeDetayPage({
   const notes = settled(notesR);
   const employees = settled(employeesR);
   const changeOrders = settled(changeOrdersR);
+  const contract = settled(contractR);
   const access = settled(accessR);
   const orgUsers = settled(orgUsersR);
   const costControl = settled(costControlR);
@@ -389,9 +397,24 @@ export default async function ProjeDetayPage({
           </ControlledTabPanel>
 
           <ControlledTabPanel tab="finans">
-            {/* Bu sekmenin TÜM kaynakları AYNI izne (projects.finance.read)
-                bağlıdır -- ya hepsi doludur ya da (finance izni olmayan bir
-                rol, ör. field) hepsi null'dır; tek bir kontrol yeterli. */}
+            {/* Sözleşme (Sprint 3) kendi 3-katmanlı izin setine sahiptir
+                (contracts.read/manage/lifecycle) -- AŞAĞIDAKİ finance.read'e
+                bağlı toplu kapıdan KASITLI OLARAK AYRI tutulur. Aksi halde
+                finance.read'i olmayan ama contracts.manage'e sahip bir Proje
+                Yöneticisi (bkz. rol matrisi) Sözleşme'yi hiç göremezdi. */}
+            <Section title="Sözleşme" defaultOpen>
+              <ContractSection
+                project={project}
+                contract={contract}
+                changeOrders={changeOrders?.change_orders ?? []}
+                locked={locked}
+              />
+            </Section>
+
+            {/* Bu sekmenin GERİ KALAN TÜM kaynakları AYNI izne (projects.
+                finance.read) bağlıdır -- ya hepsi doludur ya da (finance izni
+                olmayan bir rol, ör. field) hepsi null'dır; tek bir kontrol
+                yeterli. */}
             {summary && plan && collections && expenses && invoices && subcontractors && subPayments && changeOrders ? (
               <>
                 <Section title="Ödeme Planı" defaultOpen>

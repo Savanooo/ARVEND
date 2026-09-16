@@ -30,6 +30,13 @@ class _TabDef {
 final _tabDefs = <_TabDef>[
   _TabDef('Genel', null, (id, p) => _GeneralTab(project: p)),
   _TabDef('Finans', 'projects.finance.read', (id, p) => _FinanceTab(projectId: id, project: p)),
+  // Sprint 3 — Ek İşler, mobilde YALNIZCA OKUMA (spec: read-only visibility
+  // this sprint). İzin MEVCUT projects.finance.read'i yeniden kullanır --
+  // Ek İşler bugün backend'de bu iznin altında yaşıyor, mobil için ayrı bir
+  // izin tanımlanmadı (bkz. docs/contracts.md). Sözleşme'nin kendisi
+  // mobilde YOK (yalnızca web) -- bu, yalnızca onu değiştiren Ek İşlerin
+  // salt-okunur listesi.
+  _TabDef('Ek İşler', 'projects.finance.read', (id, p) => _ChangeOrdersTab(projectId: id)),
   // Sprint 2 — Maliyet Kontrolü, mobilde YALNIZCA OKUMA (spec: "no budget
   // editing, no manual commitment editing, no cost-code admin on mobile
   // this sprint -- web-first"). İzin, budget.read DEĞİL cost_control.read
@@ -350,6 +357,48 @@ class _CostControlTab extends ConsumerWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _ChangeOrdersTab extends ConsumerWidget {
+  const _ChangeOrdersTab({required this.projectId});
+  final String projectId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final changeOrdersAsync = ref.watch(projectChangeOrdersProvider(projectId));
+
+    return RefreshIndicator(
+      onRefresh: () async => ref.invalidate(projectChangeOrdersProvider(projectId)),
+      child: AsyncStateView(
+        value: changeOrdersAsync,
+        onRetry: () async => ref.invalidate(projectChangeOrdersProvider(projectId)),
+        isEmpty: (list) => list.isEmpty,
+        emptyBuilder: (_) => const EmptyStateView(message: 'Henüz ek iş/değişiklik emri yok.'),
+        data: (context, changeOrders) => ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: changeOrders.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 8),
+          itemBuilder: (context, i) {
+            final co = changeOrders[i];
+            final signedTotal = co.changeType == 'deduction' ? -co.grandTotal : co.grandTotal;
+            return Card(
+              child: ListTile(
+                title: Text('${co.changeOrderNo} — ${co.title}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: StatusRegistry.build(co.status, StatusRegistry.changeOrder),
+                trailing: Text(
+                  '${signedTotal >= 0 ? '+' : ''}${Formatters.money(signedTotal, currency: co.currency)}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: co.changeType == 'addition' ? Colors.green : Colors.red,
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }

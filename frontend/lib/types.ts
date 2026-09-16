@@ -1099,3 +1099,41 @@ export interface CostControlData {
   summary: CostControlSummary;
   lines: CostControlLine[];
 }
+
+// ---------------------------------------------------------------------------
+// Sprint 3 — Proje Sözleşmesi (Contract). Gelir (revenue) tarafı —
+// Bütçe/Bütçe Revizyonu (Sprint 2, maliyet tarafı) İLE KARIŞTIRILMAMALI.
+// Durum makinesi: draft -> active -> completed; draft -> cancelled;
+// active -> terminated (bkz. docs/contracts.md).
+// ---------------------------------------------------------------------------
+
+export type ContractStatus = "draft" | "active" | "completed" | "cancelled" | "terminated";
+
+export const CONTRACT_STATUS_LABELS: Record<ContractStatus, string> = {
+  draft: "Taslak",
+  active: "Aktif",
+  completed: "Tamamlandı",
+  cancelled: "İptal Edildi",
+  terminated: "Feshedildi",
+};
+
+export interface ProjectContract {
+  id: string;
+  currency: string;
+  status: ContractStatus;
+  scope: string;
+  payment_terms: string;
+  retention_terms: string;
+  advance_terms: string;
+  effective_date: string | null;
+  planned_completion_date: string | null;
+  internal_notes: string;
+  created_at: string;
+  updated_at: string;
+  activated_at?: string | null;
+  completed_at?: string | null;
+  cancelled_at?: string | null;
+  cancel_reason?: string;
+  terminated_at?: string | null;
+  termination_reason?: string;
+}

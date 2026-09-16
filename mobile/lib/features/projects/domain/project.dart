@@ -378,3 +378,53 @@ class CostControlLine {
         isUnbudgeted: json['is_unbudgeted'] as bool? ?? false,
       );
 }
+
+/// Sprint 3 — Ek İş (Change Order), mobilde YALNIZCA OKUMA (bkz.
+/// docs/contracts.md "Mobil"). Web'in tam DTO'sundan (`ChangeOrder` -
+/// lib/types.ts) bilinçli olarak dar bir alt küme -- kalemler/kârlılık/
+/// dahili notlar salt-okunur özet için gereksiz (CostControlLine'ın aynı
+/// minimalizmi).
+class ChangeOrder {
+  final String id;
+  final String changeOrderNo;
+  final String changeType;
+  final String title;
+  final String status;
+  final double grandTotal;
+  final String currency;
+  final String createdAt;
+  final String? sentAt;
+  final String? approvedAt;
+  final String? rejectedAt;
+  final String? cancelledAt;
+
+  const ChangeOrder({
+    required this.id,
+    required this.changeOrderNo,
+    required this.changeType,
+    required this.title,
+    required this.status,
+    required this.grandTotal,
+    required this.currency,
+    required this.createdAt,
+    this.sentAt,
+    this.approvedAt,
+    this.rejectedAt,
+    this.cancelledAt,
+  });
+
+  factory ChangeOrder.fromJson(Map<String, dynamic> json) => ChangeOrder(
+        id: json['id'] as String,
+        changeOrderNo: json['change_order_no'] as String,
+        changeType: json['change_type'] as String,
+        title: json['title'] as String? ?? '',
+        status: json['status'] as String,
+        grandTotal: (json['grand_total'] as num?)?.toDouble() ?? 0,
+        currency: json['currency'] as String? ?? 'TRY',
+        createdAt: json['created_at'] as String? ?? '',
+        sentAt: json['sent_at'] as String?,
+        approvedAt: json['approved_at'] as String?,
+        rejectedAt: json['rejected_at'] as String?,
+        cancelledAt: json['cancelled_at'] as String?,
+      );
+}

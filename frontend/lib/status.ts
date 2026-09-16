@@ -4,6 +4,7 @@ import {
   BUDGET_STATUS_LABELS,
   CHANGE_ORDER_STATUS_LABELS,
   COMMITMENT_STATUS_LABELS,
+  CONTRACT_STATUS_LABELS,
   INVOICE_STATUS_LABELS,
   ORG_STATUS_LABELS,
   PLAN_ITEM_STATUS_LABELS,
@@ -16,6 +17,7 @@ import {
   type BudgetStatus,
   type ChangeOrderStatus,
   type CommitmentStatus,
+  type ContractStatus,
   type InvoiceStatus,
   type OfferStatus,
   type OrgStatus,
@@ -139,4 +141,16 @@ export const ORG_STATUS: Record<OrgStatus, StatusMeta> = {
   trial: { label: ORG_STATUS_LABELS.trial, tone: "info" },
   suspended: { label: ORG_STATUS_LABELS.suspended, tone: "danger" },
   cancelled: { label: ORG_STATUS_LABELS.cancelled, tone: "muted" },
+};
+
+// Sprint 3 — Proje Sözleşmesi (Contract, gelir tarafı). "active" burada
+// PROJECT_STATUS.active/SCHEDULE_STATUS.active ile aynı "yürürlükte"
+// anlamına gelir (gold) -- ChangeOrderStatus.sent'in "gönderildi, yanıt
+// bekleniyor" anlamındaki info tonuyla KARIŞTIRILMAMALI.
+export const CONTRACT_STATUS: Record<ContractStatus, StatusMeta> = {
+  draft: { label: CONTRACT_STATUS_LABELS.draft, tone: "muted" },
+  active: { label: CONTRACT_STATUS_LABELS.active, tone: "gold" },
+  completed: { label: CONTRACT_STATUS_LABELS.completed, tone: "success" },
+  cancelled: { label: CONTRACT_STATUS_LABELS.cancelled, tone: "danger" },
+  terminated: { label: CONTRACT_STATUS_LABELS.terminated, tone: "danger" },
 };

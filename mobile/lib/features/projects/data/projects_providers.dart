@@ -40,3 +40,7 @@ final projectCostControlProvider = FutureProvider.autoDispose
     .family<({CostControlSummary summary, List<CostControlLine> lines}), String>(
   (ref, id) => ref.watch(projectsRepositoryProvider).costControl(id),
 );
+
+final projectChangeOrdersProvider = FutureProvider.autoDispose.family<List<ChangeOrder>, String>(
+  (ref, id) => ref.watch(projectsRepositoryProvider).changeOrders(id),
+);

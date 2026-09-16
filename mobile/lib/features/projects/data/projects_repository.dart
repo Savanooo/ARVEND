@@ -170,4 +170,12 @@ class ProjectsRepository {
     final lines = (json['lines'] as List).cast<Map<String, dynamic>>().map(CostControlLine.fromJson).toList();
     return (summary: summary, lines: lines);
   }
+
+  /// Sprint 3 — Ek İşler, mobilde YALNIZCA OKUMA (bkz. docs/contracts.md
+  /// "Mobil"). Web ile AYNI uç, izin de AYNI (projects.finance.read) --
+  /// backend'de bu sprint için ayrı bir mobil izin tanımlanmadı.
+  Future<List<ChangeOrder>> changeOrders(String projectId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/change-orders');
+    return (json['change_orders'] as List).cast<Map<String, dynamic>>().map(ChangeOrder.fromJson).toList();
+  }
 }
