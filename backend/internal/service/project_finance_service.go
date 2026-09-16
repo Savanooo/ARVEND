@@ -534,7 +534,14 @@ type ExpenseInput struct {
 	IdempotencyKey string
 	// ChangeOrderID, OPSİYONELDİR (bkz. SubcontractorInput notu).
 	ChangeOrderID string
-	UserID        string
+	// CostCodeID/BudgetLineID, Cost Control (Sprint 2) eşlemesi için
+	// OPSİYONELDİR (bkz. domain.Expense.CostCodeID notu). BudgetLineID
+	// doluysa, boşsa dahi CostCodeID otomatik doldurulur (bkz. CreateExpense/
+	// UpdateExpense: seçilen bütçe kaleminin cost_code_id'si kullanılır --
+	// spec: "budget-line seçilince cost code otomatik doldurulmalı").
+	CostCodeID   string
+	BudgetLineID string
+	UserID       string
 }
 
 func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizationID string, in ExpenseInput) (*domain.Expense, error) {
@@ -591,6 +598,10 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 	if err != nil {
 		return nil, err
 	}
+	costCodeID, budgetLineID, err := resolveCostAllocation(ctx, txq, in.CostCodeID, in.BudgetLineID, pid, orgID)
+	if err != nil {
+		return nil, err
+	}
 	row, err := txq.CreateExpense(ctx, sqlc.CreateExpenseParams{
 		OrganizationID: orgID,
 		ProjectID:      pid,
@@ -605,6 +616,8 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 		IdempotencyKey: keyPtr,
 		CreatedBy:      actorUUID(in.UserID),
 		ChangeOrderID:  changeOrderID,
+		CostCodeID:     costCodeID,
+		BudgetLineID:   budgetLineID,
 	})
 	if err != nil {
 		// bkz. CreateCollection: eşzamanlı aynı anahtarlı istek kazandıysa
@@ -677,6 +690,10 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	costCodeID, budgetLineID, err := resolveCostAllocation(ctx, txq, in.CostCodeID, in.BudgetLineID, pid, orgID)
+	if err != nil {
+		return nil, err
+	}
 	row, err := txq.UpdateExpense(ctx, sqlc.UpdateExpenseParams{
 		ID:             eid,
 		OrganizationID: orgID,
@@ -688,6 +705,8 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 		InvoiceNo:      strings.TrimSpace(in.InvoiceNo),
 		Notes:          strings.TrimSpace(in.Notes),
 		ProjectID:      pid,
+		CostCodeID:     costCodeID,
+		BudgetLineID:   budgetLineID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -916,7 +935,12 @@ type SubcontractorInput struct {
 	// etiketler (bkz. Faz 8 kârlılık filtrelemesi). Boşsa ana sözleşme
 	// kapsamındadır.
 	ChangeOrderID string
-	UserID        string
+	// CostCodeID, Cost Control (Sprint 2) eşlemesi için OPSİYONELDİR --
+	// taşeronun BudgetLineID'si YOKTUR (bkz. domain.Subcontractor.CostCodeID
+	// notu): taşeron taahhüdü yalnızca cost_code_id üzerinden "bütçe dışı"
+	// olarak kırılım tablosuna katkı verir.
+	CostCodeID string
+	UserID     string
 }
 
 func (s *ProjectService) CreateSubcontractor(ctx context.Context, projectID, organizationID string, in SubcontractorInput) (*domain.Subcontractor, error) {
@@ -957,6 +981,10 @@ func (s *ProjectService) CreateSubcontractor(ctx context.Context, projectID, org
 	if err != nil {
 		return nil, err
 	}
+	costCodeID, err := resolveCostCodeRef(ctx, txq, in.CostCodeID, orgID)
+	if err != nil {
+		return nil, err
+	}
 
 	row, err := txq.CreateSubcontractor(ctx, sqlc.CreateSubcontractorParams{
 		OrganizationID:  orgID,
@@ -974,6 +1002,7 @@ func (s *ProjectService) CreateSubcontractor(ctx context.Context, projectID, org
 		Notes:           strings.TrimSpace(in.Notes),
 		CreatedBy:       actorUUID(in.UserID),
 		ChangeOrderID:   changeOrderID,
+		CostCodeID:      costCodeID,
 	})
 	if err != nil {
 		return nil, err
@@ -1040,6 +1069,10 @@ func (s *ProjectService) UpdateSubcontractor(ctx context.Context, projectID, sub
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	costCodeID, err := resolveCostCodeRef(ctx, txq, in.CostCodeID, orgID)
+	if err != nil {
+		return nil, err
+	}
 	row, err := txq.UpdateSubcontractor(ctx, sqlc.UpdateSubcontractorParams{
 		ID:              sid,
 		OrganizationID:  orgID,
@@ -1054,6 +1087,7 @@ func (s *ProjectService) UpdateSubcontractor(ctx context.Context, projectID, sub
 		Status:          status,
 		Notes:           strings.TrimSpace(in.Notes),
 		ProjectID:       pid,
+		CostCodeID:      costCodeID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

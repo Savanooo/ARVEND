@@ -67,6 +67,34 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		// projects'e CASCADE FK taşır ama organization_id'ye taşımaz --
 		// yine de açıkça, projects'ten ÖNCE temizlenir (tutarlılık).
 		"DELETE FROM project_users WHERE organization_id = $1",
+		// Cost Control (Sprint 2, migration 0035): project_expenses/
+		// project_subcontractors, cost_code_id/budget_line_id'yi CASCADE'SİZ
+		// (RESTRICT) taşır -- normalde "DELETE FROM projects" bunları
+		// CASCADE ile kaldırır, ama BU satırdan SONRA çalışırsa, aşağıdaki
+		// budget_lines/cost_codes silme adımları hâlâ referans alınıyor
+		// diye RESTRICT'e takılır. Bu yüzden budget_lines'tan ÖNCE açıkça
+		// temizlenmeli (cascade'i beklemeden).
+		"DELETE FROM project_expenses WHERE organization_id = $1",
+		"DELETE FROM project_subcontractors WHERE organization_id = $1",
+		// project_cost_forecasts/project_commitments, project_budget_lines'a
+		// CASCADE'SİZ (RESTRICT) FK taşır -- project_budgets silinince
+		// (CASCADE ile) budget_lines otomatik silinir, ama bu ikisi hâlâ bir
+		// satıra işaret ediyorsa RESTRICT ihlali oluşur; bu yüzden budget_
+		// lines/budgets'ten (ve dolayısıyla projects'ten) ÖNCE açıkça
+		// temizlenmeli.
+		"DELETE FROM project_cost_forecasts WHERE organization_id = $1",
+		"DELETE FROM project_commitments WHERE organization_id = $1",
+		// project_budget_adjustments/project_budget_lines, project_budgets'e
+		// ON DELETE CASCADE taşır (aşağıdaki "DELETE FROM project_budgets"
+		// bunları zaten kaldırır) -- yine de dosyanın "açıkça sırayla
+		// temizle" ilkesiyle tutarlı olsun diye burada da AYRICA silinir.
+		"DELETE FROM project_budget_adjustments WHERE organization_id = $1",
+		"DELETE FROM project_budget_lines WHERE organization_id = $1",
+		"DELETE FROM project_budgets WHERE organization_id = $1",
+		// project_wbs_nodes, projects'e CASCADE'siz FK taşır -- projects'ten
+		// ÖNCE temizlenmeli (project_budget_lines.wbs_node_id RESTRICT
+		// referansı yukarıda budget_lines silinerek zaten kaldırıldı).
+		"DELETE FROM project_wbs_nodes WHERE organization_id = $1",
 		// projects, teklife/revizyona CASCADE'siz FK ile bağlıdır (kasıtlı:
 		// bir projeye dayanak olan teklif silinememeli), bu yüzden
 		// tekliflerden ÖNCE temizlenmeli.
@@ -104,6 +132,14 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM role_permissions WHERE organization_role_id IN (SELECT id FROM organization_roles WHERE organization_id = $1)",
 		"DELETE FROM users WHERE organization_id = $1",
 		"DELETE FROM organization_roles WHERE organization_id = $1",
+		// organization_cost_codes (Sprint 2), project_budget_lines/
+		// project_commitments/project_expenses/project_subcontractors
+		// tarafından CASCADE'SİZ referans alınır -- yukarıdaki "DELETE FROM
+		// projects" bu son ikisini (expense/subcontractor) CASCADE ile
+		// zaten kaldırdığı ve budget_lines/commitments yukarıda AYRICA
+		// silindiği için, cost code'lar artık serbestçe silinebilir.
+		"DELETE FROM organization_cost_codes WHERE organization_id = $1",
+		"DELETE FROM organization_events WHERE organization_id = $1",
 		"DELETE FROM organizations WHERE id = $1",
 	}
 	for _, stmt := range stmts {

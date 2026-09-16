@@ -87,10 +87,15 @@ RETURNING *;
 -- SADECE proje toplamının filtrelenmiş bir görünümü içindir (bkz.
 -- project_change_orders.sql ListChangeOrders notu) -- masraf, NULL
 -- olsun ya da olmasın, proje toplamına yalnızca BİR KEZ girer.
+-- cost_code_id/budget_line_id de OPSİYONELDİR (Cost Control sprint'i,
+-- migration 0035) -- ikisi de NULL bırakılabilir (bkz. o migration'ın
+-- geriye dönük uyumluluk notu); servis katmanı budget_line_id verilmişse
+-- cost_code_id'yi o kalemden DOĞRULAR/TÜRETİR (bkz. ExpenseService notu).
 INSERT INTO project_expenses (
     organization_id, project_id, category, description, amount, currency,
-    expense_date, supplier_name, invoice_no, notes, idempotency_key, created_by, change_order_id
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+    expense_date, supplier_name, invoice_no, notes, idempotency_key, created_by, change_order_id,
+    cost_code_id, budget_line_id
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 RETURNING *;
 
 -- GetExpense, void durumundan BAĞIMSIZ okur (bkz. GetCollection notu).
@@ -108,10 +113,11 @@ WHERE project_id = $1 AND organization_id = $2
 ORDER BY expense_date DESC, created_at DESC;
 
 -- name: UpdateExpense :one
--- project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
+-- project_id EKLENDİ (bkz. GetPaymentPlanItem notu). cost_code_id/
+-- budget_line_id, Cost Control sprint'i (migration 0035) -- opsiyonel.
 UPDATE project_expenses
 SET category = $3, description = $4, amount = $5, expense_date = $6,
-    supplier_name = $7, invoice_no = $8, notes = $9
+    supplier_name = $7, invoice_no = $8, notes = $9, cost_code_id = $11, budget_line_id = $12
 WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL AND project_id = $10
 RETURNING *;
 
@@ -149,11 +155,16 @@ RETURNING *;
 -- ============ Taşeronlar ============
 
 -- name: CreateSubcontractor :one
--- change_order_id OPSİYONELDİR (bkz. CreateExpense notu).
+-- change_order_id OPSİYONELDİR (bkz. CreateExpense notu). cost_code_id
+-- de OPSİYONELDİR (Cost Control sprint'i, migration 0035) -- taşeron
+-- sözleşmesi bir cost code'a etiketlenirse Cost Control'ün "committed
+-- cost" kırılımına (project_commitments İLE BİRLİKTE, bkz.
+-- docs/cost-control.md) dahil olur.
 INSERT INTO project_subcontractors (
     organization_id, project_id, name, company_name, phone, email, work_description,
-    contract_amount, currency, start_date, end_date, status, notes, created_by, change_order_id
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+    contract_amount, currency, start_date, end_date, status, notes, created_by, change_order_id,
+    cost_code_id
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 RETURNING *;
 
 -- name: GetSubcontractor :one
@@ -174,10 +185,11 @@ WHERE s.project_id = $1 AND s.organization_id = $2
 ORDER BY s.created_at ASC;
 
 -- name: UpdateSubcontractor :one
--- project_id EKLENDİ (bkz. GetSubcontractor notu).
+-- project_id EKLENDİ (bkz. GetSubcontractor notu). cost_code_id, Cost
+-- Control sprint'i (migration 0035) -- opsiyonel.
 UPDATE project_subcontractors
 SET name = $3, company_name = $4, phone = $5, email = $6, work_description = $7,
-    contract_amount = $8, start_date = $9, end_date = $10, status = $11, notes = $12
+    contract_amount = $8, start_date = $9, end_date = $10, status = $11, notes = $12, cost_code_id = $14
 WHERE id = $1 AND organization_id = $2 AND project_id = $13
 RETURNING *;
 

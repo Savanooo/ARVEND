@@ -36,6 +36,7 @@ type Deps struct {
 	Onboarding        *handler.OnboardingHandler
 	Authorization     *handler.AuthorizationHandler
 	AuthorizationSvc  *service.AuthorizationService
+	CostCodes         *handler.CostCodeHandler
 	CORSOrigins       []string
 }
 
@@ -248,6 +249,52 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/change-orders/{changeOrderId}/cancel", d.Projects.CancelChangeOrder)
 			})
 
+			// --- Sprint 2: WBS + Proje Bütçesi (planlama katmanı) ---
+			// budget.read/manage, WBS+bütçe+kalem+revizyon YAPISINI kapsar;
+			// cost_control.read/manage (aşağıda) ise bu yapı ÜZERİNE kurulan
+			// izleme/takip katmanını (taahhüt/tahmin/özet) kapsar --
+			// migration 0035'te HER rol bu ikisini birlikte aldığı için
+			// bugün pratik bir erişim farkı YOK, ama gelecekte (Roller &
+			// Yetkiler ekranından) bağımsız özelleştirilebilir olması için
+			// baştan AYRI izin kodlarıyla kurulur.
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsBudgetRead))
+				r.Get("/{id}/wbs", d.Projects.ListWBSNodes)
+				r.Get("/{id}/budget", d.Projects.GetProjectBudget)
+				r.Get("/{id}/budget/lines", d.Projects.ListBudgetLines)
+				r.Get("/{id}/budget/adjustments", d.Projects.ListBudgetAdjustments)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsBudgetManage))
+				r.Post("/{id}/wbs", d.Projects.CreateWBSNode)
+				r.Put("/{id}/wbs/{nodeId}", d.Projects.UpdateWBSNode)
+				r.Delete("/{id}/wbs/{nodeId}", d.Projects.ArchiveWBSNode)
+				r.Post("/{id}/budget", d.Projects.CreateProjectBudget)
+				r.Post("/{id}/budget/baseline", d.Projects.BaselineProjectBudget)
+				r.Post("/{id}/budget/lines", d.Projects.CreateBudgetLine)
+				r.Put("/{id}/budget/lines/{lineId}", d.Projects.UpdateBudgetLine)
+				r.Delete("/{id}/budget/lines/{lineId}", d.Projects.DeleteBudgetLine)
+				r.Post("/{id}/budget/adjustments", d.Projects.CreateBudgetAdjustment)
+				r.Post("/{id}/budget/adjustments/{adjustmentId}/approve", d.Projects.ApproveBudgetAdjustment)
+				r.Post("/{id}/budget/adjustments/{adjustmentId}/reject", d.Projects.RejectBudgetAdjustment)
+			})
+
+			// --- Sprint 2: Maliyet Kontrolü (izleme katmanı: taahhüt/tahmin/
+			// özet) -- bu sprintte YALNIZCA manuel taahhüt (procurement/
+			// subcontract modülleri Sprint 3+ kapsamındadır).
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsCostControlRead))
+				r.Get("/{id}/commitments", d.Projects.ListCommitments)
+				r.Get("/{id}/forecasts", d.Projects.ListForecasts)
+				r.Get("/{id}/cost-control", d.Projects.CostControl)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsCostControlManage))
+				r.Post("/{id}/commitments", d.Projects.CreateCommitment)
+				r.Post("/{id}/commitments/{commitmentId}/void", d.Projects.VoidCommitment)
+				r.Put("/{id}/budget/lines/{lineId}/forecast", d.Projects.UpsertForecast)
+			})
+
 			// --- Faz 7: operasyon (ekip/planlama/dosya/fotoğraf/not) ---
 			r.Group(func(r chi.Router) {
 				r.Use(projPerm(domain.PermProjectsOperationsRead))
@@ -361,6 +408,24 @@ func NewRouter(d Deps) http.Handler {
 			r.With(perm(domain.PermOrganizationRolesRead)).Get("/", d.Authorization.ListOrganizationRoles)
 			r.With(perm(domain.PermOrganizationRolesRead)).Get("/{id}", d.Authorization.GetOrganizationRole)
 			r.With(perm(domain.PermOrganizationRolesManage)).Put("/{id}/permissions", d.Authorization.SetRolePermissions)
+		})
+
+		// Maliyet Kodları (Sprint 2) -- organizasyon-seviyeli, PAYLAŞILAN
+		// katalog. requireAdmin YOK (Roller/Kullanıcılar'ın AKSİNE): finance/
+		// legacy_user/project_manager (izinleri dahilinde) doğrudan
+		// erişebilmeli, admin-only bir kapı olmamalı -- yetki TAMAMEN
+		// organization.cost_codes.* iznine bırakılır.
+		r.Route("/organization/cost-codes", func(r chi.Router) {
+			r.Use(requireAuth, requireOnboarded, loadAuthorization)
+			r.With(perm(domain.PermOrganizationCostCodesRead)).Get("/", d.CostCodes.List)
+			r.With(perm(domain.PermOrganizationCostCodesRead)).Get("/{id}", d.CostCodes.Get)
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermOrganizationCostCodesManage))
+				r.Post("/", d.CostCodes.Create)
+				r.Put("/{id}", d.CostCodes.Update)
+				r.Delete("/{id}", d.CostCodes.Archive)
+				r.Post("/{id}/reactivate", d.CostCodes.Reactivate)
+			})
 		})
 
 		r.Route("/organization/permissions", func(r chi.Router) {

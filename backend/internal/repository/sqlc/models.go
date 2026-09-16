@@ -239,6 +239,27 @@ type OrganizationCommercialSetting struct {
 	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
 }
 
+type OrganizationCostCode struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	Code           string             `json:"code"`
+	Name           string             `json:"name"`
+	Description    string             `json:"description"`
+	Category       string             `json:"category"`
+	IsActive       bool               `json:"is_active"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type OrganizationEvent struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	EventType      string             `json:"event_type"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	Metadata       []byte             `json:"metadata"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type OrganizationProfile struct {
 	OrganizationID   pgtype.UUID        `json:"organization_id"`
 	AuthorizedPerson string             `json:"authorized_person"`
@@ -346,6 +367,53 @@ type Project struct {
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ProjectBudget struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	Currency       string             `json:"currency"`
+	Status         string             `json:"status"`
+	Version        int32              `json:"version"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	BaselinedAt    pgtype.Timestamptz `json:"baselined_at"`
+	BaselinedBy    pgtype.UUID        `json:"baselined_by"`
+}
+
+type ProjectBudgetAdjustment struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	BudgetID       pgtype.UUID        `json:"budget_id"`
+	BudgetLineID   pgtype.UUID        `json:"budget_line_id"`
+	Amount         pgtype.Numeric     `json:"amount"`
+	Reason         string             `json:"reason"`
+	Status         string             `json:"status"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	ApprovedBy     pgtype.UUID        `json:"approved_by"`
+	ApprovedAt     pgtype.Timestamptz `json:"approved_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProjectBudgetLine struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	BudgetID       pgtype.UUID        `json:"budget_id"`
+	WbsNodeID      pgtype.UUID        `json:"wbs_node_id"`
+	CostCodeID     pgtype.UUID        `json:"cost_code_id"`
+	Description    string             `json:"description"`
+	Quantity       pgtype.Numeric     `json:"quantity"`
+	Unit           string             `json:"unit"`
+	UnitCost       pgtype.Numeric     `json:"unit_cost"`
+	OriginalAmount pgtype.Numeric     `json:"original_amount"`
+	Notes          string             `json:"notes"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type ProjectChangeOrder struct {
 	ID                      pgtype.UUID        `json:"id"`
 	OrganizationID          pgtype.UUID        `json:"organization_id"`
@@ -435,6 +503,39 @@ type ProjectCollection struct {
 	VoidReason        string             `json:"void_reason"`
 }
 
+type ProjectCommitment struct {
+	ID              pgtype.UUID        `json:"id"`
+	OrganizationID  pgtype.UUID        `json:"organization_id"`
+	ProjectID       pgtype.UUID        `json:"project_id"`
+	BudgetLineID    pgtype.UUID        `json:"budget_line_id"`
+	CostCodeID      pgtype.UUID        `json:"cost_code_id"`
+	SourceType      string             `json:"source_type"`
+	SourceID        pgtype.UUID        `json:"source_id"`
+	Description     string             `json:"description"`
+	CommittedAmount pgtype.Numeric     `json:"committed_amount"`
+	Currency        string             `json:"currency"`
+	Status          string             `json:"status"`
+	CommittedAt     pgtype.Date        `json:"committed_at"`
+	IdempotencyKey  *string            `json:"idempotency_key"`
+	CreatedBy       pgtype.UUID        `json:"created_by"`
+	VoidedAt        pgtype.Timestamptz `json:"voided_at"`
+	VoidedBy        pgtype.UUID        `json:"voided_by"`
+	VoidReason      string             `json:"void_reason"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProjectCostForecast struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	BudgetLineID   pgtype.UUID        `json:"budget_line_id"`
+	EtcAmount      pgtype.Numeric     `json:"etc_amount"`
+	Note           string             `json:"note"`
+	UpdatedBy      pgtype.UUID        `json:"updated_by"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type ProjectCounter struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
 	Year           int32       `json:"year"`
@@ -471,6 +572,8 @@ type ProjectExpense struct {
 	VoidReason     string             `json:"void_reason"`
 	IdempotencyKey *string            `json:"idempotency_key"`
 	ChangeOrderID  pgtype.UUID        `json:"change_order_id"`
+	CostCodeID     pgtype.UUID        `json:"cost_code_id"`
+	BudgetLineID   pgtype.UUID        `json:"budget_line_id"`
 }
 
 type ProjectFile struct {
@@ -602,6 +705,7 @@ type ProjectSubcontractor struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 	ChangeOrderID   pgtype.UUID        `json:"change_order_id"`
+	CostCodeID      pgtype.UUID        `json:"cost_code_id"`
 }
 
 type ProjectSubcontractorPayment struct {
@@ -648,6 +752,19 @@ type ProjectUser struct {
 	ProjectRole    string             `json:"project_role"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	CreatedBy      pgtype.UUID        `json:"created_by"`
+}
+
+type ProjectWbsNode struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	ParentID       pgtype.UUID        `json:"parent_id"`
+	Code           string             `json:"code"`
+	Name           string             `json:"name"`
+	SortOrder      int32              `json:"sort_order"`
+	IsActive       bool               `json:"is_active"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 type RefreshToken struct {

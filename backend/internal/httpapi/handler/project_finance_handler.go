@@ -256,6 +256,8 @@ type expenseResponse struct {
 	VoidReason    string  `json:"void_reason"`
 	CreatedAt     string  `json:"created_at"`
 	ChangeOrderID *string `json:"change_order_id,omitempty"`
+	CostCodeID    *string `json:"cost_code_id,omitempty"`
+	BudgetLineID  *string `json:"budget_line_id,omitempty"`
 }
 
 func toExpenseResponse(e domain.Expense) expenseResponse {
@@ -264,7 +266,7 @@ func toExpenseResponse(e domain.Expense) expenseResponse {
 		Currency: e.Currency, ExpenseDate: e.ExpenseDate.Format(dateLayout),
 		SupplierName: e.SupplierName, InvoiceNo: e.InvoiceNo, Notes: e.Notes,
 		VoidedAt: tsStrPtr(e.VoidedAt), VoidReason: e.VoidReason, CreatedAt: e.CreatedAt.Format(rfc3339),
-		ChangeOrderID: e.ChangeOrderID,
+		ChangeOrderID: e.ChangeOrderID, CostCodeID: e.CostCodeID, BudgetLineID: e.BudgetLineID,
 	}
 }
 
@@ -279,6 +281,10 @@ type expenseRequest struct {
 	Notes          string  `json:"notes"`
 	IdempotencyKey string  `json:"idempotency_key"`
 	ChangeOrderID  string  `json:"change_order_id"`
+	// CostCodeID/BudgetLineID, Cost Control (Sprint 2) eşlemesi -- İKİSİ
+	// de OPSİYONELDİR (bkz. service.ExpenseInput.CostCodeID notu).
+	CostCodeID   string `json:"cost_code_id"`
+	BudgetLineID string `json:"budget_line_id"`
 }
 
 func (r expenseRequest) toInput(userID string) service.ExpenseInput {
@@ -287,6 +293,7 @@ func (r expenseRequest) toInput(userID string) service.ExpenseInput {
 		ExpenseDate: parseDateOrToday(r.ExpenseDate), SupplierName: r.SupplierName,
 		InvoiceNo: r.InvoiceNo, Notes: r.Notes, IdempotencyKey: r.IdempotencyKey,
 		ChangeOrderID: r.ChangeOrderID, UserID: userID,
+		CostCodeID: r.CostCodeID, BudgetLineID: r.BudgetLineID,
 	}
 }
 
@@ -459,6 +466,7 @@ type subcontractorResponse struct {
 	Status          string  `json:"status"`
 	Notes           string  `json:"notes"`
 	ChangeOrderID   *string `json:"change_order_id,omitempty"`
+	CostCodeID      *string `json:"cost_code_id,omitempty"`
 }
 
 func toSubcontractorResponse(s domain.Subcontractor) subcontractorResponse {
@@ -467,7 +475,7 @@ func toSubcontractorResponse(s domain.Subcontractor) subcontractorResponse {
 		WorkDescription: s.WorkDescription, ContractAmount: s.ContractAmount,
 		PaidAmount: s.PaidAmount, RemainingAmount: s.RemainingAmount, Currency: s.Currency,
 		StartDate: dateStrPtr(s.StartDate), EndDate: dateStrPtr(s.EndDate),
-		Status: s.Status, Notes: s.Notes, ChangeOrderID: s.ChangeOrderID,
+		Status: s.Status, Notes: s.Notes, ChangeOrderID: s.ChangeOrderID, CostCodeID: s.CostCodeID,
 	}
 }
 
@@ -484,6 +492,9 @@ type subcontractorRequest struct {
 	Status          string  `json:"status"`
 	Notes           string  `json:"notes"`
 	ChangeOrderID   string  `json:"change_order_id"`
+	// CostCodeID, Cost Control (Sprint 2) eşlemesi -- OPSİYONELDİR (bkz.
+	// service.SubcontractorInput.CostCodeID notu).
+	CostCodeID string `json:"cost_code_id"`
 }
 
 func (r subcontractorRequest) toInput(userID string) service.SubcontractorInput {
@@ -492,6 +503,7 @@ func (r subcontractorRequest) toInput(userID string) service.SubcontractorInput 
 		WorkDescription: r.WorkDescription, ContractAmount: r.ContractAmount, Currency: r.Currency,
 		StartDate: parseDateParam(r.StartDate), EndDate: parseDateParam(r.EndDate),
 		Status: r.Status, Notes: r.Notes, ChangeOrderID: r.ChangeOrderID, UserID: userID,
+		CostCodeID: r.CostCodeID,
 	}
 }
 

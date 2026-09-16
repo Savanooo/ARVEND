@@ -60,6 +60,16 @@ func rbacCleanupOrg(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM project_expenses WHERE organization_id = $1",
 		// change_order_counters, projects SİLİNMEDEN ÖNCE (project_id FK) temizlenmeli.
 		"DELETE FROM change_order_counters WHERE project_id IN (SELECT id FROM projects WHERE organization_id = $1)",
+		// Cost Control (Sprint 2, migration 0035) -- bkz. tenant_isolation_
+		// test.go'daki cleanupOrganization'ın AYNI gerekçesi: forecasts/
+		// commitments, budget_lines'a RESTRICT FK taşır, bu yüzden projects
+		// (ve onun cascade'lediği project_budgets) silinmeden ÖNCE temizlenir.
+		"DELETE FROM project_cost_forecasts WHERE organization_id = $1",
+		"DELETE FROM project_commitments WHERE organization_id = $1",
+		"DELETE FROM project_budget_adjustments WHERE organization_id = $1",
+		"DELETE FROM project_budget_lines WHERE organization_id = $1",
+		"DELETE FROM project_budgets WHERE organization_id = $1",
+		"DELETE FROM project_wbs_nodes WHERE organization_id = $1",
 		"DELETE FROM projects WHERE organization_id = $1",
 		// current_revision_id, offer_revisions'a FK taşır -- satırı
 		// SİLMEDEN ÖNCE NULL'lanmalı (offers_current_revision_id_fkey).
@@ -79,6 +89,11 @@ func rbacCleanupOrg(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM organization_profile WHERE organization_id = $1",
 		"DELETE FROM organization_commercial_settings WHERE organization_id = $1",
 		"DELETE FROM platform_audit_events WHERE target_organization_id = $1",
+		// organization_cost_codes, projects SİLİNDİKTEN SONRA (o silme
+		// expenses/subcontractors'ı CASCADE ile kaldırır) VE budget_lines/
+		// commitments yukarıda AYRICA silindiği İÇİN artık serbestçe silinebilir.
+		"DELETE FROM organization_cost_codes WHERE organization_id = $1",
+		"DELETE FROM organization_events WHERE organization_id = $1",
 		"DELETE FROM users WHERE organization_id = $1",
 		"DELETE FROM organizations WHERE id = $1",
 	} {
@@ -91,15 +106,16 @@ func rbacCleanupOrg(t *testing.T, pool *pgxpool.Pool, orgID string) {
 // rbacTestDeps, main.go'nun bağımlılık kablolamasının BİREBİR aynısıdır --
 // gerçek router'ı test etmek için.
 type rbacTestDeps struct {
-	pool       *pgxpool.Pool
-	q          *sqlc.Queries
-	router     http.Handler
-	issuer     *auth.JWTIssuer
-	userSvc    *service.UserService
-	platform   *service.PlatformService
-	authzSvc   *service.AuthorizationService
-	offerSvc   *service.OfferService
-	projectSvc *service.ProjectService
+	pool        *pgxpool.Pool
+	q           *sqlc.Queries
+	router      http.Handler
+	issuer      *auth.JWTIssuer
+	userSvc     *service.UserService
+	platform    *service.PlatformService
+	authzSvc    *service.AuthorizationService
+	offerSvc    *service.OfferService
+	projectSvc  *service.ProjectService
+	costCodeSvc *service.CostCodeService
 }
 
 func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
@@ -135,6 +151,7 @@ func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
 	platformSvc := service.NewPlatformService(pool, q, userSvc, calcSvc, productSvc)
 	onboardingSvc := service.NewOnboardingService(q, secretBox)
 	authzSvc := service.NewAuthorizationService(q)
+	costCodeSvc := service.NewCostCodeService(pool, q)
 
 	issuer := auth.NewJWTIssuer("test-secret-rbac-matrix", 15*time.Minute)
 	authSvc := service.NewAuthService(q, issuer, 24*time.Hour)
@@ -158,13 +175,14 @@ func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
 		Onboarding:        handler.NewOnboardingHandler(onboardingSvc),
 		Authorization:     handler.NewAuthorizationHandler(authzSvc),
 		AuthorizationSvc:  authzSvc,
+		CostCodes:         handler.NewCostCodeHandler(costCodeSvc),
 		CORSOrigins:       []string{"*"},
 	})
 
 	return &rbacTestDeps{
 		pool: pool, q: q, router: router, issuer: issuer,
 		userSvc: userSvc, platform: platformSvc, authzSvc: authzSvc,
-		offerSvc: offerSvc, projectSvc: projectSvc,
+		offerSvc: offerSvc, projectSvc: projectSvc, costCodeSvc: costCodeSvc,
 	}
 }
 

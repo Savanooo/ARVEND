@@ -64,6 +64,7 @@ func main() {
 	platformSvc := service.NewPlatformService(pool, q, userSvc, calcSvc, productSvc)
 	onboardingSvc := service.NewOnboardingService(q, secretBox)
 	authzSvc := service.NewAuthorizationService(q)
+	costCodeSvc := service.NewCostCodeService(pool, q)
 
 	jwtIssuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL)
 	authSvc := service.NewAuthService(q, jwtIssuer, cfg.RefreshTTL)
@@ -87,6 +88,7 @@ func main() {
 		Onboarding:        handler.NewOnboardingHandler(onboardingSvc),
 		Authorization:     handler.NewAuthorizationHandler(authzSvc),
 		AuthorizationSvc:  authzSvc,
+		CostCodes:         handler.NewCostCodeHandler(costCodeSvc),
 		CORSOrigins:       cfg.CORSOrigins,
 	})
 

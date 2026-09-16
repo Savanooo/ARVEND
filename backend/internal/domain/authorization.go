@@ -104,6 +104,15 @@ const (
 	PermOrganizationRolesManage    = "organization.roles.manage"
 	PermOrganizationSettingsRead   = "organization.settings.read"
 	PermOrganizationSettingsManage = "organization.settings.manage"
+
+	// Sprint 2 -- WBS + Cost Codes + Project Budget + Cost Control
+	// (bkz. migration 0035 permissions seed'i, docs/cost-control.md).
+	PermProjectsBudgetRead          = "projects.budget.read"
+	PermProjectsBudgetManage        = "projects.budget.manage"
+	PermProjectsCostControlRead     = "projects.cost_control.read"
+	PermProjectsCostControlManage   = "projects.cost_control.manage"
+	PermOrganizationCostCodesRead   = "organization.cost_codes.read"
+	PermOrganizationCostCodesManage = "organization.cost_codes.manage"
 )
 
 // ---------- Domain tipleri ----------

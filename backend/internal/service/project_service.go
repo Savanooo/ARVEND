@@ -176,6 +176,20 @@ func (s *ProjectService) CreateFromOffer(ctx context.Context, offerID, organizat
 		return nil, err
 	}
 
+	// Cost Control (Sprint 2): denetim, offers/calc zincirinde HİÇBİR
+	// noktada güvenilir bir MALİYET tabanı olmadığını doğruladı (yalnızca
+	// satış fiyatı taşınır, bkz. docs/cost-control.md "offer revenue neden
+	// otomatik cost budget değildir") -- bu yüzden spec'in "reliable cost
+	// basis YOKSA boş bir draft bütçe oluştur" talimatı gereği, YENİ
+	// projeye HER ZAMAN boş (sıfır kalemli) bir taslak bütçe otomatik
+	// eklenir; offer'ın grand_total'i BÜTÇEYE asla kopyalanmaz (yalnızca
+	// contract_amount'a, yukarıda -- gelir/maliyet ayrımı korunur).
+	if _, err := txq.CreateProjectBudget(ctx, sqlc.CreateProjectBudgetParams{
+		OrganizationID: orgID, ProjectID: projectRow.ID, Currency: projectRow.Currency, CreatedBy: createdBy,
+	}); err != nil {
+		return nil, err
+	}
+
 	if err := logOfferEvent(ctx, txq, orgID, offerRow.ID, revRow.ID, domain.EventProjectCreated, createdBy,
 		map[string]any{
 			"project_id":         projectRow.ID.String(),

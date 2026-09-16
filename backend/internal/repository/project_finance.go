@@ -121,6 +121,14 @@ func ToDomainExpense(e sqlc.ProjectExpense) domain.Expense {
 		s := e.ChangeOrderID.String()
 		exp.ChangeOrderID = &s
 	}
+	if e.CostCodeID.Valid {
+		s := e.CostCodeID.String()
+		exp.CostCodeID = &s
+	}
+	if e.BudgetLineID.Valid {
+		s := e.BudgetLineID.String()
+		exp.BudgetLineID = &s
+	}
 	return exp
 }
 
@@ -186,6 +194,10 @@ func ToDomainSubcontractor(r sqlc.ListSubcontractorsRow) domain.Subcontractor {
 		s := r.ChangeOrderID.String()
 		sub.ChangeOrderID = &s
 	}
+	if r.CostCodeID.Valid {
+		s := r.CostCodeID.String()
+		sub.CostCodeID = &s
+	}
 	return sub
 }
 
@@ -216,6 +228,10 @@ func ToDomainSubcontractorRow(s sqlc.ProjectSubcontractor) domain.Subcontractor 
 	if s.ChangeOrderID.Valid {
 		v := s.ChangeOrderID.String()
 		sub.ChangeOrderID = &v
+	}
+	if s.CostCodeID.Valid {
+		v := s.CostCodeID.String()
+		sub.CostCodeID = &v
 	}
 	return sub
 }

@@ -264,6 +264,19 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "proje bulunamadı")
+	case errors.Is(err, service.ErrBudgetNotFound):
+		httpjson.Error(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, service.ErrBudgetAlreadyExists),
+		errors.Is(err, service.ErrBudgetNotBaselinable),
+		errors.Is(err, service.ErrBudgetBaselined),
+		errors.Is(err, service.ErrBudgetNotYetBaselined),
+		errors.Is(err, service.ErrAdjustmentNotPending),
+		errors.Is(err, service.ErrDuplicateWBSCode),
+		errors.Is(err, service.ErrCommitmentNotActive):
+		httpjson.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrInvalidWBSParent),
+		errors.Is(err, service.ErrInvalidBudgetLineCostCode):
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, service.ErrOfferNotAccepted),
 		errors.Is(err, service.ErrInvalidProjectState),
 		errors.Is(err, service.ErrProjectLocked),

@@ -192,6 +192,13 @@ type Expense struct {
 	// ChangeOrderID, OPSİYONELDİR: bu masrafı bir ek işe etiketler (Faz 8
 	// kârlılık filtrelemesi). NULL ise ana sözleşme kapsamındadır.
 	ChangeOrderID *string
+	// CostCodeID/BudgetLineID, Cost Control (Sprint 2) alanlarıdır --
+	// İKİSİ de OPSİYONELDİR, eski masraflarda NULL kalır (bkz. migration
+	// 0035 backward-compat notu). BudgetLineID doluysa maliyet kontrolü
+	// bu satırı "bütçeli" (budgeted) olarak sayar; yalnızca CostCodeID
+	// doluysa "bütçe dışı" (unbudgeted) olarak.
+	CostCodeID   *string
+	BudgetLineID *string
 }
 
 type ProjectInvoice struct {
@@ -232,6 +239,11 @@ type Subcontractor struct {
 	// Ödeme kayıtlarından toplanır.
 	PaidAmount      float64
 	RemainingAmount float64
+	// CostCodeID, Cost Control (Sprint 2) alanıdır -- OPSİYONELDİR (bkz.
+	// Expense.CostCodeID notu). Taşeron BUDGET_LINE_ID TAŞIMAZ (bkz.
+	// migration 0035: taşeron taahhüdü yalnızca cost_code_id üzerinden
+	// kırılım tablosuna "bütçe dışı" olarak katkı verir).
+	CostCodeID *string
 }
 
 type SubcontractorPayment struct {
