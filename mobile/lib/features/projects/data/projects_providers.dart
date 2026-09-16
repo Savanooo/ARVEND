@@ -35,3 +35,8 @@ final projectPhotosProvider = FutureProvider.autoDispose.family<List<ProjectPhot
 final projectFilesProvider = FutureProvider.autoDispose.family<List<ProjectFile>, String>(
   (ref, id) => ref.watch(projectsRepositoryProvider).files(id),
 );
+
+final projectCostControlProvider = FutureProvider.autoDispose
+    .family<({CostControlSummary summary, List<CostControlLine> lines}), String>(
+  (ref, id) => ref.watch(projectsRepositoryProvider).costControl(id),
+);

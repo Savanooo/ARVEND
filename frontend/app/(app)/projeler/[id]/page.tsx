@@ -9,14 +9,21 @@ import { apiServer } from "@/lib/api";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
 import { PROJECT_STATUS } from "@/lib/status";
 import {
+  type BudgetAdjustment,
+  type BudgetLine,
   type ChangeOrder,
   type Collection,
+  type Commitment,
+  type CostControlData,
+  type CostForecast,
   type Expense,
   type FinancialSummary,
+  type OrganizationCostCode,
   type OrgUserOption,
   type PaymentPlanItem,
   type Project,
   type ProjectAccessUser,
+  type ProjectBudget,
   type ProjectEvent,
   type ProjectInvoice,
   type Subcontractor,
@@ -29,11 +36,13 @@ import {
   type ProjectPhoto,
   type ProjectTask,
   type ScheduleItem,
+  type WBSNode,
 } from "@/lib/types";
 
 import { Section } from "@/components/ui/Accordion";
 import { ProjectAccessSection } from "./AccessSections";
 import { ChangeOrdersSection } from "./ChangeOrderSections";
+import { CostControlWorkspace } from "./CostControlSections";
 import { FinanceSummary } from "./FinanceSummary";
 import {
   CollectionsSection,
@@ -120,6 +129,7 @@ export default async function ProjeDetayPage({
   const [
     summaryR, planR, collectionsR, expensesR, invoicesR, subcontractorsR, subPaymentsR, eventsR,
     opsR, membersR, scheduleR, tasksR, filesR, photosR, notesR, employeesR, changeOrdersR, accessR, orgUsersR,
+    costControlR, budgetR, budgetLinesR, wbsNodesR, adjustmentsR, commitmentsR, forecastsR, costCodesR,
   ] = await Promise.allSettled([
     apiServer<FinancialSummary>(`${base}/financial-summary`, cookieHeader),
     apiServer<{ items: PaymentPlanItem[]; planned_total: number }>(`${base}/payment-plan`, cookieHeader),
@@ -145,6 +155,19 @@ export default async function ProjeDetayPage({
     // project_manager/finance/field için bu çağrı 403 olsa bile (seçiciyi
     // hiç göremeyecekleri için) sorun yaratmaz.
     apiServer<{ users: OrgUserOption[] }>("/api/v1/users?limit=200", cookieHeader),
+    // Sprint 2 -- Maliyet Kontrolü. cost-control TEK istekte özet+kırılım
+    // döner (N+1 yok); budget AYRI çekilir çünkü bütçesiz bir projede 404
+    // döner (settled() bunu null'a indirger, "Bütçe" sekmesi bunu "Bütçe
+    // Oluştur" CTA'sına çevirir) -- cost-control İSE bütçesiz projede bile
+    // 200 döner (bkz. handler yorumu).
+    apiServer<CostControlData>(`${base}/cost-control`, cookieHeader),
+    apiServer<ProjectBudget>(`${base}/budget`, cookieHeader),
+    apiServer<{ budget_lines: BudgetLine[] }>(`${base}/budget/lines`, cookieHeader),
+    apiServer<{ wbs_nodes: WBSNode[] }>(`${base}/wbs`, cookieHeader),
+    apiServer<{ adjustments: BudgetAdjustment[] }>(`${base}/budget/adjustments`, cookieHeader),
+    apiServer<{ commitments: Commitment[] }>(`${base}/commitments`, cookieHeader),
+    apiServer<{ forecasts: CostForecast[] }>(`${base}/forecasts`, cookieHeader),
+    apiServer<{ cost_codes: OrganizationCostCode[] }>("/api/v1/organization/cost-codes", cookieHeader),
   ]);
 
   const summary = settled(summaryR);
@@ -166,6 +189,14 @@ export default async function ProjeDetayPage({
   const changeOrders = settled(changeOrdersR);
   const access = settled(accessR);
   const orgUsers = settled(orgUsersR);
+  const costControl = settled(costControlR);
+  const budget = settled(budgetR);
+  const budgetLines = settled(budgetLinesR);
+  const wbsNodes = settled(wbsNodesR);
+  const adjustments = settled(adjustmentsR);
+  const commitments = settled(commitmentsR);
+  const forecasts = settled(forecastsR);
+  const costCodes = settled(costCodesR);
 
   // Tamamlanmış/iptal edilmiş projede finans hareketleri kilitlidir --
   // backend zaten reddediyor, UI da form göstermez.
@@ -245,6 +276,7 @@ export default async function ProjeDetayPage({
           items={[
             { key: "genel", label: "Genel" },
             { key: "finans", label: "Finans" },
+            { key: "maliyet", label: "Maliyet Kontrolü" },
             { key: "operasyon", label: "Operasyon" },
             { key: "dosyalar", label: "Dosyalar" },
             { key: "aktivite", label: "Aktivite" },
@@ -385,6 +417,8 @@ export default async function ProjeDetayPage({
                   project={project}
                   expenses={expenses.expenses}
                   changeOrders={changeOrders.change_orders}
+                  costCodes={costCodes?.cost_codes ?? []}
+                  budgetLines={budgetLines?.budget_lines ?? []}
                   locked={locked}
                 />
 
@@ -409,6 +443,26 @@ export default async function ProjeDetayPage({
                   <ChangeOrdersSection project={project} changeOrders={changeOrders.change_orders} locked={locked} />
                 </Section>
               </>
+            ) : (
+              <p className="text-sm text-text-muted">Bu bölümü görüntüleme yetkiniz yok.</p>
+            )}
+          </ControlledTabPanel>
+
+          <ControlledTabPanel tab="maliyet">
+            {costControl ? (
+              <CostControlWorkspace
+                project={project}
+                data={costControl}
+                budget={budget}
+                budgetLines={budgetLines?.budget_lines ?? []}
+                wbsNodes={wbsNodes?.wbs_nodes ?? []}
+                costCodes={costCodes?.cost_codes ?? []}
+                adjustments={adjustments?.adjustments ?? []}
+                commitments={commitments?.commitments ?? []}
+                forecasts={forecasts?.forecasts ?? []}
+                expenses={expenses?.expenses ?? []}
+                locked={locked}
+              />
             ) : (
               <p className="text-sm text-text-muted">Bu bölümü görüntüleme yetkiniz yok.</p>
             )}

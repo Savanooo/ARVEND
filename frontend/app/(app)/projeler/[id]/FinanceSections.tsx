@@ -17,10 +17,12 @@ import { INVOICE_STATUS, PLAN_ITEM_STATUS, SUBCONTRACTOR_STATUS } from "@/lib/st
 import {
   EXPENSE_CATEGORY_LABELS,
   INVOICE_STATUS_LABELS,
+  type BudgetLine,
   type ChangeOrder,
   type Collection,
   type Expense,
   type ExpenseCategory,
+  type OrganizationCostCode,
   type PaymentPlanItem,
   type Project,
   type ProjectInvoice,
@@ -434,6 +436,9 @@ const emptyExpenseForm = () => ({
   invoice_no: "",
   notes: "",
   change_order_id: "",
+  // Maliyet Kontrolü (Sprint 2) eşlemesi -- ikisi de opsiyonel.
+  cost_code_id: "",
+  budget_line_id: "",
 });
 
 // Masraflar bölümü kendi <Section> sarmalayıcısını render eder: başlıktaki
@@ -447,11 +452,19 @@ export function ExpensesSection({
   project,
   expenses,
   changeOrders,
+  costCodes = [],
+  budgetLines = [],
   locked,
 }: {
   project: Project;
   expenses: Expense[];
   changeOrders: ChangeOrder[];
+  // Maliyet Kontrolü (Sprint 2) -- opsiyonel: kullanıcının organization.
+  // cost_codes.read/projects.budget.read izni yoksa (nadiren, bkz.
+  // migration 0035 rol matrisi) boş dizi olarak gelir, seçiciler
+  // gösterilmez ama masraf formu ÇALIŞMAYA devam eder.
+  costCodes?: OrganizationCostCode[];
+  budgetLines?: BudgetLine[];
   locked: boolean;
 }) {
   const { busy, error, run } = useFinanceAction(locked);
@@ -470,6 +483,8 @@ export function ExpensesSection({
     (co) => co.status !== "cancelled" && co.status !== "superseded"
   );
   const changeOrderNoById = new Map(changeOrders.map((co) => [co.id, co.change_order_no]));
+  const activeCostCodes = costCodes.filter((c) => c.is_active);
+  const costCodeById = new Map(costCodes.map((c) => [c.id, c]));
 
   function openForm() {
     setSectionOpen(true);
@@ -539,6 +554,11 @@ export function ExpensesSection({
                     {e.change_order_id && (
                       <span className="ml-2 text-xs text-text-muted">
                         · {changeOrderNoById.get(e.change_order_id) ?? "Ek iş"}
+                      </span>
+                    )}
+                    {e.cost_code_id && (
+                      <span className="ml-2 text-xs text-text-muted">
+                        · {costCodeById.get(e.cost_code_id)?.code ?? "Maliyet kodu"}
                       </span>
                     )}
                     {e.voided_at && (
@@ -646,6 +666,48 @@ export function ExpensesSection({
                     {linkableChangeOrders.map((co) => (
                       <option key={co.id} value={co.id}>
                         {co.change_order_no} · {co.title}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+                {budgetLines.length > 0 && (
+                  <Select
+                    label="Bütçe Kalemi (opsiyonel)"
+                    name="expense_budget_line"
+                    value={form.budget_line_id}
+                    onChange={(e) => {
+                      const line = budgetLines.find((l) => l.id === e.target.value);
+                      setForm({
+                        ...form,
+                        budget_line_id: e.target.value,
+                        // Maliyet kodu, seçilen bütçe kaleminden OTOMATİK
+                        // doldurulur (spec: "budget-line seçilince cost code
+                        // otomatik doldurulmalı") -- backend zaten aynı
+                        // kuralı otoriter olarak uygular, bu yalnızca UX.
+                        cost_code_id: line ? line.cost_code_id : form.cost_code_id,
+                      });
+                    }}
+                  >
+                    <option value="">Bağlı değil (bütçe dışı)</option>
+                    {budgetLines.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.description} ({l.cost_code_code})
+                      </option>
+                    ))}
+                  </Select>
+                )}
+                {activeCostCodes.length > 0 && (
+                  <Select
+                    label="Maliyet Kodu (opsiyonel)"
+                    name="expense_cost_code"
+                    value={form.cost_code_id}
+                    disabled={!!form.budget_line_id}
+                    onChange={(e) => setForm({ ...form, cost_code_id: e.target.value })}
+                  >
+                    <option value="">Yok</option>
+                    {activeCostCodes.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.code} — {c.name}
                       </option>
                     ))}
                   </Select>

@@ -30,6 +30,11 @@ class _TabDef {
 final _tabDefs = <_TabDef>[
   _TabDef('Genel', null, (id, p) => _GeneralTab(project: p)),
   _TabDef('Finans', 'projects.finance.read', (id, p) => _FinanceTab(projectId: id, project: p)),
+  // Sprint 2 — Maliyet Kontrolü, mobilde YALNIZCA OKUMA (spec: "no budget
+  // editing, no manual commitment editing, no cost-code admin on mobile
+  // this sprint -- web-first"). İzin, budget.read DEĞİL cost_control.read
+  // (web'deki AYNI ayrım: cost_control.* özet/izleme katmanını kapsar).
+  _TabDef('Maliyet Kontrolü', 'projects.cost_control.read', (id, p) => _CostControlTab(projectId: id, project: p)),
   _TabDef('Operasyon', 'projects.tasks.read', (id, p) => _OperationsTab(projectId: id)),
   _TabDef('Dosyalar', 'projects.operations.read', (id, p) => _FilesTab(projectId: id)),
   _TabDef('Aktivite', null, (id, p) => _ActivityTab(projectId: id)),
@@ -235,6 +240,116 @@ class _FinanceTab extends ConsumerWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Sprint 2 — Maliyet Kontrolü, mobilde YALNIZCA OKUMA (spec: web-first,
+/// bu sprintte mobilde düzenleme/onay/taahhüt/tahmin yoktur). Backend
+/// hesapları (revised/committed/actual/etc/eac/variance/forecast_profit/
+/// forecast_margin) OTORİTER kabul edilir — burada HİÇBİR türetilmiş
+/// rakam yeniden hesaplanmaz.
+class _CostControlTab extends ConsumerWidget {
+  const _CostControlTab({required this.projectId, required this.project});
+  final String projectId;
+  final Project project;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final costControlAsync = ref.watch(projectCostControlProvider(projectId));
+
+    return RefreshIndicator(
+      onRefresh: () async => ref.invalidate(projectCostControlProvider(projectId)),
+      child: AsyncStateView(
+        value: costControlAsync,
+        onRetry: () async => ref.invalidate(projectCostControlProvider(projectId)),
+        data: (context, data) {
+          final s = data.summary;
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              if (!s.hasBudget)
+                const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'Bu proje için henüz bir bütçe oluşturulmadı. Bütçe, web uygulamasından oluşturulabilir.',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  ),
+                ),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _InfoRow(
+                          label: 'Sözleşme Bedeli',
+                          value: Formatters.money(s.contractValue, currency: s.currency),
+                          emphasize: true),
+                      _InfoRow(label: 'Revize Bütçe', value: Formatters.money(s.revisedBudget, currency: s.currency)),
+                      const Divider(height: 20),
+                      _InfoRow(label: 'Taahhüt', value: Formatters.money(s.committedCost, currency: s.currency)),
+                      _InfoRow(label: 'Gerçekleşen', value: Formatters.money(s.actualCost, currency: s.currency)),
+                      _InfoRow(label: 'EAC (Tahmini Nihai Maliyet)', value: Formatters.money(s.eac, currency: s.currency)),
+                      _InfoRow(
+                        label: 'Varyans',
+                        value: Formatters.money(s.variance, currency: s.currency),
+                        valueColor: s.variance < 0 ? Colors.red : Colors.green,
+                      ),
+                      const Divider(height: 20),
+                      _InfoRow(
+                        label: 'Tahmini Kâr',
+                        value: Formatters.money(s.forecastProfit, currency: s.currency),
+                        emphasize: true,
+                        valueColor: s.forecastProfit < 0 ? Colors.red : Colors.green,
+                      ),
+                      _InfoRow(label: 'Tahmini Marj', value: '%${s.forecastMarginPercent.toStringAsFixed(2)}'),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (data.lines.isNotEmpty) ...[
+                const Text('Bütçe Kalemleri', style: TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                ...data.lines.map((l) => Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        title: Text('${l.costCodeCode} — ${l.costCodeName}'),
+                        subtitle: Text(
+                          [
+                            if (l.wbsCode.isNotEmpty) l.wbsCode,
+                            l.description,
+                            if (l.isUnbudgeted) 'Bütçe Dışı',
+                          ].join(' · '),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(Formatters.money(l.eac, currency: s.currency),
+                                style: const TextStyle(fontWeight: FontWeight.w700)),
+                            Text(
+                              Formatters.money(l.variance, currency: s.currency),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: l.variance < 0 ? Colors.red : Colors.green,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )),
+              ] else if (s.hasBudget)
+                const EmptyStateView(message: 'Henüz bütçe kalemi yok.'),
+            ],
+          );
+        },
       ),
     );
   }
@@ -500,10 +615,11 @@ class _ActivityTab extends ConsumerWidget {
 }
 
 class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value, this.emphasize = false});
+  const _InfoRow({required this.label, required this.value, this.emphasize = false, this.valueColor});
   final String label;
   final String value;
   final bool emphasize;
+  final Color? valueColor;
 
   @override
   Widget build(BuildContext context) {
@@ -515,7 +631,11 @@ class _InfoRow extends StatelessWidget {
           Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13)),
           Text(
             value,
-            style: TextStyle(fontWeight: emphasize ? FontWeight.w800 : FontWeight.w600, fontSize: emphasize ? 16 : 13),
+            style: TextStyle(
+              fontWeight: emphasize ? FontWeight.w800 : FontWeight.w600,
+              fontSize: emphasize ? 16 : 13,
+              color: valueColor,
+            ),
           ),
         ],
       ),

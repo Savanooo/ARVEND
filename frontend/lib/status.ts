@@ -1,6 +1,9 @@
 import type { Tone } from "@/components/ui/Badge";
 import {
+  ADJUSTMENT_STATUS_LABELS,
+  BUDGET_STATUS_LABELS,
   CHANGE_ORDER_STATUS_LABELS,
+  COMMITMENT_STATUS_LABELS,
   INVOICE_STATUS_LABELS,
   ORG_STATUS_LABELS,
   PLAN_ITEM_STATUS_LABELS,
@@ -8,8 +11,11 @@ import {
   SCHEDULE_STATUS_LABELS,
   SUBCONTRACTOR_STATUS_LABELS,
   TASK_STATUS_LABELS,
+  type AdjustmentStatus,
   type AttendanceStatus,
+  type BudgetStatus,
   type ChangeOrderStatus,
+  type CommitmentStatus,
   type InvoiceStatus,
   type OfferStatus,
   type OrgStatus,
@@ -109,6 +115,23 @@ export const ATTENDANCE_STATUS: Record<AttendanceStatus, StatusMeta> = {
   "yarım gün": { label: "Yarım Gün", tone: "gold" },
   gelmedi: { label: "Gelmedi", tone: "danger" },
   izinli: { label: "İzinli", tone: "muted" },
+};
+
+// Sprint 2 — WBS + Maliyet Kodları + Proje Bütçesi + Maliyet Kontrolü.
+export const BUDGET_STATUS: Record<BudgetStatus, StatusMeta> = {
+  draft: { label: BUDGET_STATUS_LABELS.draft, tone: "muted" },
+  baselined: { label: BUDGET_STATUS_LABELS.baselined, tone: "success" },
+};
+
+export const ADJUSTMENT_STATUS: Record<AdjustmentStatus, StatusMeta> = {
+  draft: { label: ADJUSTMENT_STATUS_LABELS.draft, tone: "muted" },
+  approved: { label: ADJUSTMENT_STATUS_LABELS.approved, tone: "success" },
+  rejected: { label: ADJUSTMENT_STATUS_LABELS.rejected, tone: "danger" },
+};
+
+export const COMMITMENT_STATUS: Record<CommitmentStatus, StatusMeta> = {
+  active: { label: COMMITMENT_STATUS_LABELS.active, tone: "gold" },
+  voided: { label: COMMITMENT_STATUS_LABELS.voided, tone: "danger" },
 };
 
 export const ORG_STATUS: Record<OrgStatus, StatusMeta> = {

@@ -420,6 +420,10 @@ export interface Expense {
   void_reason: string;
   created_at: string;
   change_order_id?: string | null;
+  // Maliyet Kontrolü (Sprint 2) eşlemesi -- İKİSİ de opsiyonel, eski
+  // masraflarda boştur (bkz. docs/cost-control.md).
+  cost_code_id?: string | null;
+  budget_line_id?: string | null;
 }
 
 export type InvoiceStatus = "draft" | "issued" | "sent" | "paid" | "cancelled";
@@ -471,6 +475,9 @@ export interface Subcontractor {
   status: SubcontractorStatus;
   notes: string;
   change_order_id?: string | null;
+  // Maliyet Kontrolü (Sprint 2) eşlemesi -- opsiyonel; taşeronun
+  // budget_line_id'si YOKTUR (bkz. docs/cost-control.md).
+  cost_code_id?: string | null;
 }
 
 export interface SubcontractorPayment {
@@ -938,4 +945,157 @@ export interface AuditEvent {
   target_user_id: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 2 — WBS + Maliyet Kodları + Proje Bütçesi + Maliyet Kontrolü
+// (bkz. docs/cost-control.md). Bütçe/kalem/revizyon/taahhüt/tahmin akışları
+// backend'de OTORİTERDİR — bu tipler yalnızca API yanıtlarının şeklidir,
+// hiçbir hesap burada TEKRAR yapılmaz.
+// ---------------------------------------------------------------------------
+
+export interface OrganizationCostCode {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  category: string;
+  is_active: boolean;
+}
+
+export interface WBSNode {
+  id: string;
+  parent_id?: string | null;
+  code: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+}
+
+export type BudgetStatus = "draft" | "baselined";
+
+export const BUDGET_STATUS_LABELS: Record<BudgetStatus, string> = {
+  draft: "Taslak",
+  baselined: "Baseline Alındı",
+};
+
+export interface ProjectBudget {
+  id: string;
+  currency: string;
+  status: BudgetStatus;
+  version: number;
+  baselined_at?: string | null;
+}
+
+export interface BudgetLine {
+  id: string;
+  wbs_node_id?: string | null;
+  wbs_code?: string;
+  wbs_name?: string;
+  cost_code_id: string;
+  cost_code_code?: string;
+  cost_code_name?: string;
+  description: string;
+  quantity?: number | null;
+  unit?: string;
+  unit_cost?: number | null;
+  original_amount: number;
+  notes?: string;
+}
+
+export type AdjustmentStatus = "draft" | "approved" | "rejected";
+
+export const ADJUSTMENT_STATUS_LABELS: Record<AdjustmentStatus, string> = {
+  draft: "Taslak",
+  approved: "Onaylandı",
+  rejected: "Reddedildi",
+};
+
+export interface BudgetAdjustment {
+  id: string;
+  budget_line_id: string;
+  amount: number;
+  reason: string;
+  status: AdjustmentStatus;
+  approved_at?: string | null;
+  created_at: string;
+}
+
+export type CommitmentStatus = "active" | "voided";
+
+export const COMMITMENT_STATUS_LABELS: Record<CommitmentStatus, string> = {
+  active: "Aktif",
+  voided: "İptal Edildi",
+};
+
+// Commitment, bu sprintte YALNIZCA manuel taahhütleri temsil eder --
+// source_type her zaman "manual"dır (bkz. docs/cost-control.md).
+export interface Commitment {
+  id: string;
+  budget_line_id?: string | null;
+  cost_code_id: string;
+  cost_code_code?: string;
+  cost_code_name?: string;
+  source_type: "manual" | "purchase_order" | "subcontract";
+  description: string;
+  committed_amount: number;
+  currency: string;
+  status: CommitmentStatus;
+  committed_at: string;
+  voided_at?: string | null;
+  void_reason?: string;
+}
+
+export interface CostForecast {
+  budget_line_id: string;
+  etc_amount: number;
+  note: string;
+  updated_at: string;
+}
+
+// CostControlLine, "Maliyet Kontrolü" kırılım tablosunun tek bir satırıdır.
+// is_unbudgeted=true ise bu satırın bir bütçe kalemi YOKTUR — yalnızca o
+// maliyet koduna doğrudan bağlı (bütçe kalemine bağlanmamış) taahhüt/gider
+// vardır ("bütçe dışı harcama").
+export interface CostControlLine {
+  budget_line_id?: string | null;
+  wbs_code?: string;
+  wbs_name?: string;
+  cost_code_id: string;
+  cost_code_code: string;
+  cost_code_name: string;
+  description: string;
+  original_budget: number;
+  approved_adjustments: number;
+  revised_budget: number;
+  committed_cost: number;
+  actual_cost: number;
+  etc: number;
+  eac: number;
+  variance: number;
+  is_unbudgeted: boolean;
+}
+
+// CostControlSummary — has_budget=false ise proje için HENÜZ bir bütçe
+// oluşturulmamıştır (spec: "bütçesiz proje geçerli bir durumdur"); bu
+// durumda contract_value dışındaki alanlar 0'dır.
+export interface CostControlSummary {
+  currency: string;
+  contract_value: number;
+  original_budget: number;
+  approved_adjustments: number;
+  revised_budget: number;
+  committed_cost: number;
+  actual_cost: number;
+  etc: number;
+  eac: number;
+  variance: number;
+  forecast_profit: number;
+  forecast_margin_percent: number;
+  has_budget: boolean;
+}
+
+export interface CostControlData {
+  summary: CostControlSummary;
+  lines: CostControlLine[];
 }

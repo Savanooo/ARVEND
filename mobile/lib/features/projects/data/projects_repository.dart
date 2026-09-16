@@ -160,4 +160,14 @@ class ProjectsRepository {
     final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/events');
     return (json['events'] as List).cast<Map<String, dynamic>>();
   }
+
+  /// Sprint 2 — Maliyet Kontrolü, mobilde YALNIZCA OKUMA (bkz. docs/cost-
+  /// control.md "Mobile"). TEK istekte özet+kırılım döner (N+1 yok) --
+  /// bütçesiz bir projede bile 200 döner (has_budget=false ile).
+  Future<({CostControlSummary summary, List<CostControlLine> lines})> costControl(String projectId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/cost-control');
+    final summary = CostControlSummary.fromJson(json['summary'] as Map<String, dynamic>);
+    final lines = (json['lines'] as List).cast<Map<String, dynamic>>().map(CostControlLine.fromJson).toList();
+    return (summary: summary, lines: lines);
+  }
 }

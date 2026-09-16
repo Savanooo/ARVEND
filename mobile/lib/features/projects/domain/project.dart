@@ -266,3 +266,115 @@ class ProjectFile {
         createdAt: json['created_at'] as String? ?? '',
       );
 }
+
+/// Sprint 2 — WBS + Maliyet Kodları + Proje Bütçesi + Maliyet Kontrolü.
+/// `GET /projects/{id}/cost-control` — özet+kırılım TEK istekte (N+1 yok).
+/// Mobil bu sprintte YALNIZCA OKUMA amaçlıdır (bkz. docs/cost-control.md
+/// "Mobile" bölümü) — düzenleme/onay/taahhüt/tahmin uçları mobilde YOKTUR.
+class CostControlSummary {
+  final String currency;
+  final double contractValue;
+  final double originalBudget;
+  final double approvedAdjustments;
+  final double revisedBudget;
+  final double committedCost;
+  final double actualCost;
+  final double etc;
+  final double eac;
+  final double variance;
+  final double forecastProfit;
+  final double forecastMarginPercent;
+  final bool hasBudget;
+
+  const CostControlSummary({
+    required this.currency,
+    required this.contractValue,
+    required this.originalBudget,
+    required this.approvedAdjustments,
+    required this.revisedBudget,
+    required this.committedCost,
+    required this.actualCost,
+    required this.etc,
+    required this.eac,
+    required this.variance,
+    required this.forecastProfit,
+    required this.forecastMarginPercent,
+    required this.hasBudget,
+  });
+
+  factory CostControlSummary.fromJson(Map<String, dynamic> json) => CostControlSummary(
+        currency: json['currency'] as String? ?? 'TRY',
+        contractValue: (json['contract_value'] as num?)?.toDouble() ?? 0,
+        originalBudget: (json['original_budget'] as num?)?.toDouble() ?? 0,
+        approvedAdjustments: (json['approved_adjustments'] as num?)?.toDouble() ?? 0,
+        revisedBudget: (json['revised_budget'] as num?)?.toDouble() ?? 0,
+        committedCost: (json['committed_cost'] as num?)?.toDouble() ?? 0,
+        actualCost: (json['actual_cost'] as num?)?.toDouble() ?? 0,
+        etc: (json['etc'] as num?)?.toDouble() ?? 0,
+        eac: (json['eac'] as num?)?.toDouble() ?? 0,
+        variance: (json['variance'] as num?)?.toDouble() ?? 0,
+        forecastProfit: (json['forecast_profit'] as num?)?.toDouble() ?? 0,
+        forecastMarginPercent: (json['forecast_margin_percent'] as num?)?.toDouble() ?? 0,
+        hasBudget: json['has_budget'] as bool? ?? false,
+      );
+}
+
+/// "Maliyet Kontrolü" kırılım tablosunun tek bir satırı. isUnbudgeted=true
+/// ise bu satırın bir bütçe kalemi YOKTUR — yalnızca o maliyet koduna
+/// doğrudan bağlı (bütçe kalemine bağlanmamış) taahhüt/gider vardır.
+class CostControlLine {
+  final String? budgetLineId;
+  final String wbsCode;
+  final String wbsName;
+  final String costCodeId;
+  final String costCodeCode;
+  final String costCodeName;
+  final String description;
+  final double originalBudget;
+  final double approvedAdjustments;
+  final double revisedBudget;
+  final double committedCost;
+  final double actualCost;
+  final double etc;
+  final double eac;
+  final double variance;
+  final bool isUnbudgeted;
+
+  const CostControlLine({
+    required this.budgetLineId,
+    required this.wbsCode,
+    required this.wbsName,
+    required this.costCodeId,
+    required this.costCodeCode,
+    required this.costCodeName,
+    required this.description,
+    required this.originalBudget,
+    required this.approvedAdjustments,
+    required this.revisedBudget,
+    required this.committedCost,
+    required this.actualCost,
+    required this.etc,
+    required this.eac,
+    required this.variance,
+    required this.isUnbudgeted,
+  });
+
+  factory CostControlLine.fromJson(Map<String, dynamic> json) => CostControlLine(
+        budgetLineId: json['budget_line_id'] as String?,
+        wbsCode: json['wbs_code'] as String? ?? '',
+        wbsName: json['wbs_name'] as String? ?? '',
+        costCodeId: json['cost_code_id'] as String? ?? '',
+        costCodeCode: json['cost_code_code'] as String? ?? '',
+        costCodeName: json['cost_code_name'] as String? ?? '',
+        description: json['description'] as String? ?? '',
+        originalBudget: (json['original_budget'] as num?)?.toDouble() ?? 0,
+        approvedAdjustments: (json['approved_adjustments'] as num?)?.toDouble() ?? 0,
+        revisedBudget: (json['revised_budget'] as num?)?.toDouble() ?? 0,
+        committedCost: (json['committed_cost'] as num?)?.toDouble() ?? 0,
+        actualCost: (json['actual_cost'] as num?)?.toDouble() ?? 0,
+        etc: (json['etc'] as num?)?.toDouble() ?? 0,
+        eac: (json['eac'] as num?)?.toDouble() ?? 0,
+        variance: (json['variance'] as num?)?.toDouble() ?? 0,
+        isUnbudgeted: json['is_unbudgeted'] as bool? ?? false,
+      );
+}
