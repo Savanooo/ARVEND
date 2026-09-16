@@ -7,10 +7,13 @@ package middleware_test
 // mustCreateReadyOrg/mustCreateProject/mustCreateRoleUser/rbacDo/
 // rbacCleanupOrg) kullanır -- ayrı bir kopya kurmaz.
 //
-// mustCreateProject (ProjectService.CreateFromOffer üzerinden), HER
-// proje için OTOMATİK bir taslak sözleşme oluşturur (Sprint 3'ün auto-
-// provision değişikliği) -- bu yüzden testlerde ayrıca "sözleşme
-// oluştur" adımı GEREKMEZ, doğrudan mevcut sözleşme üzerinde çalışılır.
+// mustCreateProject (ProjectService.CreateFromOffer üzerinden) artık
+// HİÇBİR projede otomatik sözleşme oluşturmaz (Sprint 4 düzeltmesi --
+// bkz. docs/contracts.md "Contract Creation Consistency"): bu izin
+// matrisi, MEVCUT bir sözleşme üzerinde çalışmayı gerektirdiği için, her
+// test projesi için owner token'ıyla (her zaman contracts.manage sahibi)
+// AÇIKÇA bir taslak sözleşme oluşturulur -- gerçek "Sözleşme Oluştur"
+// CTA'sının tetiklediği AYNI uç (`mustCreateContract` helper'ı).
 
 import (
 	"context"
@@ -20,6 +23,18 @@ import (
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/service"
 )
+
+// mustCreateContract, verilen proje için (artık hiçbir zaman otomatik
+// oluşmayan) taslak sözleşmeyi gerçek HTTP ucundan (create-then-manage
+// izin akışının kendisi) oluşturur -- token'ın contracts.manage iznine
+// sahip olması gerekir (burada her zaman ownerToken kullanılır).
+func mustCreateContract(t *testing.T, router http.Handler, token, projectID string) {
+	t.Helper()
+	rec, body := rbacDo(t, router, http.MethodPost, "/api/v1/projects/"+projectID+"/contract", token, "")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("sözleşme oluşturulamadı (proje %s): status=%d body=%v", projectID, rec.Code, body)
+	}
+}
 
 func TestProjectContractSecurityMatrix(t *testing.T) {
 	d := setupRBACTestRouter(t)
@@ -41,6 +56,8 @@ func TestProjectContractSecurityMatrix(t *testing.T) {
 
 	pA := mustCreateProject(t, ctx, d, org.Organization.ID, "Sözleşme Projesi A (üye)")
 	pB := mustCreateProject(t, ctx, d, org.Organization.ID, "Sözleşme Projesi B (üye değil)")
+	mustCreateContract(t, d.router, ownerToken, pA.ID)
+	mustCreateContract(t, d.router, ownerToken, pB.ID)
 
 	// pm/finance/field YALNIZCA pA'ya üye -- pB'ye ASLA eklenmedi (Sprint
 	// 1/2 İLE AYNI üyelik-farkında erişim yüzeyi).
@@ -81,6 +98,7 @@ func TestProjectContractSecurityMatrix(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("üyelik eklenemedi: %v", err)
 		}
+		mustCreateContract(t, d.router, ownerToken, pLifecycle.ID)
 		rec, body := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pLifecycle.ID+"/contract/activate", finToken, "")
 		if rec.Code != http.StatusOK {
 			t.Errorf("status = %d, want 200 (finance, contracts.lifecycle izni var), body=%v", rec.Code, body)

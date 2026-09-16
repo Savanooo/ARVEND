@@ -190,17 +190,14 @@ func (s *ProjectService) CreateFromOffer(ctx context.Context, offerID, organizat
 		return nil, err
 	}
 
-	// Sözleşme (Sprint 3): Bütçe'nin AYNI otomatik-oluşturma deseni --
-	// YENİ her proje, boş bir taslak Sözleşme (project_contracts) alır;
-	// mevcut (Sprint 3 ÖNCESİ) projeler için backfill YOKTUR (bkz.
-	// docs/contracts.md) -- yalnızca bundan sonra oluşturulan projeler
-	// için sessiz (logProjectEvent YOK, Bütçe'nin AYNI sessizliği).
-	if _, err := txq.CreateProjectContract(ctx, sqlc.CreateProjectContractParams{
-		OrganizationID: orgID, ProjectID: projectRow.ID, Currency: projectRow.Currency, CreatedBy: createdBy,
-	}); err != nil {
-		return nil, err
-	}
-
+	// Sözleşme (Sprint 3): BİLİNÇLİ OLARAK burada otomatik oluşturulmaz
+	// (Sprint 4'te düzeltilen bir karar -- bkz. docs/contracts.md).
+	// Contract gerçek bir ticari nesnedir; salt proje var diye "hayalet"
+	// bir boş taslak Sözleşme YARATILMAZ. Kabul edilen teklifin ticari
+	// anlık görüntüsü (contract_amount/currency/source_offer_id/vb.,
+	// yukarıda) proje üzerinde zaten korunur -- Contract'ın kendisi
+	// yalnızca kullanıcı açıkça `POST /projects/{id}/contract` çağırdığında
+	// (web'deki "Sözleşme Oluştur" CTA'sı) var olur.
 	if err := logOfferEvent(ctx, txq, orgID, offerRow.ID, revRow.ID, domain.EventProjectCreated, createdBy,
 		map[string]any{
 			"project_id":         projectRow.ID.String(),

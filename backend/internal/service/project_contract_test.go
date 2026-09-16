@@ -64,20 +64,26 @@ func TestProjectContract(t *testing.T) {
 		return p
 	}
 
-	// deleteContract, "mevcut (Sprint 3 öncesi) proje" senaryosunu simüle
-	// etmek için otomatik oluşan taslak sözleşmeyi doğrudan SQL ile siler.
-	deleteContract := func(t *testing.T, projectID string) {
+	// newProjectWithContract, Sprint 4'ten itibaren tüm projelerin doğal
+	// hali olan "proje var, sözleşme YOK" durumunun ÜZERİNE, testin
+	// ihtiyaç duyduğu taslak sözleşmeyi AÇIKÇA (kullanıcının "Sözleşme
+	// Oluştur" CTA'sını tetiklemesiyle AYNI çağrı) ekler -- otomatik
+	// oluşturma SİMÜLE EDİLMEZ, gerçek API çağrısı kullanılır.
+	newProjectWithContract := func(t *testing.T, orgID string) (*domain.Project, *domain.ProjectContract) {
 		t.Helper()
-		if _, err := pool.Exec(ctx, "DELETE FROM project_contracts WHERE project_id = $1", projectID); err != nil {
-			t.Fatalf("sözleşme silinemedi (test kurulumu): %v", err)
+		p := newProject(t, orgID)
+		c, err := projectSvc.CreateProjectContract(ctx, p.ID, orgID, "")
+		if err != nil {
+			t.Fatalf("sözleşme oluşturulamadı: %v", err)
 		}
+		return p, c
 	}
 
 	// activated, draft->active geçişini tamamlamış bir proje+sözleşme
 	// döner (Complete/Terminate testleri için ortak kurulum).
 	activated := func(t *testing.T, orgID string) (*domain.Project, *domain.ProjectContract) {
 		t.Helper()
-		p := newProject(t, orgID)
+		p, _ := newProjectWithContract(t, orgID)
 		c, err := projectSvc.ActivateProjectContract(ctx, p.ID, orgID, "")
 		if err != nil {
 			t.Fatalf("aktive edilemedi: %v", err)
@@ -85,26 +91,26 @@ func TestProjectContract(t *testing.T) {
 		return p, c
 	}
 
-	t.Run("1_offer_conversion_auto_creates_draft_contract", func(t *testing.T) {
+	t.Run("1_offer_conversion_does_not_auto_create_contract", func(t *testing.T) {
+		// Sprint 4 düzeltmesi: Contract gerçek bir ticari nesnedir, salt
+		// proje var diye "hayalet" bir boş taslak sözleşme YARATILMAZ --
+		// offer'ın ticari anlık görüntüsü (contract_amount/currency/vb.)
+		// projenin KENDİSİNDE zaten korunur, project_contracts BOŞ kalır.
 		p := newProject(t, orgA.ID)
-		c, err := projectSvc.GetProjectContract(ctx, p.ID, orgA.ID)
-		if err != nil {
-			t.Fatalf("offer dönüşümünde otomatik taslak sözleşme oluşmalı: %v", err)
+		if p.ContractAmount <= 0 {
+			t.Fatalf("proje üzerindeki ticari anlık görüntü (contract_amount) korunmalı: %v", p.ContractAmount)
 		}
-		if c.Status != domain.ContractStatusDraft {
-			t.Errorf("otomatik oluşan sözleşme draft olmalı: %s", c.Status)
-		}
-		if c.Currency != p.Currency {
-			t.Errorf("currency snapshot projeninkiyle eşleşmeli: %s != %s", c.Currency, p.Currency)
+		if _, err := projectSvc.GetProjectContract(ctx, p.ID, orgA.ID); !errors.Is(err, service.ErrContractNotFound) {
+			t.Fatalf("offer dönüşümü project_contracts satırı OLUŞTURMAMALI, beklenen ErrContractNotFound, geldi: %v", err)
 		}
 	})
 
-	t.Run("2_manual_create_for_preexisting_project_without_contract", func(t *testing.T) {
+	t.Run("2_manual_create_after_offer_conversion", func(t *testing.T) {
+		// Kullanıcının web'deki "Sözleşme Oluştur" CTA'sını tetiklemesiyle
+		// AYNI akış -- artık TEK yol budur, "mevcut proje" için özel bir
+		// durum değildir (Sprint 4 öncesi yalnızca eski projeler için
+		// geçerliydi, şimdi TÜM projeler için geçerli).
 		p := newProject(t, orgA.ID)
-		deleteContract(t, p.ID)
-		if _, err := projectSvc.GetProjectContract(ctx, p.ID, orgA.ID); !errors.Is(err, service.ErrContractNotFound) {
-			t.Fatalf("beklenen ErrContractNotFound, geldi: %v", err)
-		}
 		c, err := projectSvc.CreateProjectContract(ctx, p.ID, orgA.ID, "")
 		if err != nil {
 			t.Fatalf("manuel oluşturma başarısız: %v", err)
@@ -112,10 +118,13 @@ func TestProjectContract(t *testing.T) {
 		if c.Status != domain.ContractStatusDraft {
 			t.Errorf("beklenen draft, geldi: %s", c.Status)
 		}
+		if c.Currency != p.Currency {
+			t.Errorf("currency snapshot projeninkiyle eşleşmeli: %s != %s", c.Currency, p.Currency)
+		}
 	})
 
 	t.Run("3_duplicate_create_rejected", func(t *testing.T) {
-		p := newProject(t, orgA.ID)
+		p, _ := newProjectWithContract(t, orgA.ID)
 		_, err := projectSvc.CreateProjectContract(ctx, p.ID, orgA.ID, "")
 		if !errors.Is(err, service.ErrContractAlreadyExists) {
 			t.Errorf("beklenen ErrContractAlreadyExists, geldi: %v", err)
@@ -123,7 +132,7 @@ func TestProjectContract(t *testing.T) {
 	})
 
 	t.Run("4_update_draft_fields_allowed_in_draft", func(t *testing.T) {
-		p := newProject(t, orgA.ID)
+		p, _ := newProjectWithContract(t, orgA.ID)
 		c, err := projectSvc.UpdateProjectContractDraft(ctx, p.ID, orgA.ID, service.ContractDraftInput{
 			Scope: "Kaba+ince inşaat", PaymentTerms: "Aylık hakediş", RetentionTerms: "%5 teminat kesintisi",
 			AdvanceTerms: "%10 avans", UserID: "",
@@ -145,7 +154,7 @@ func TestProjectContract(t *testing.T) {
 	})
 
 	t.Run("6_update_notes_allowed_in_draft_and_active", func(t *testing.T) {
-		p := newProject(t, orgA.ID)
+		p, _ := newProjectWithContract(t, orgA.ID)
 		if _, err := projectSvc.UpdateProjectContractNotes(ctx, p.ID, orgA.ID, "", "draft notu"); err != nil {
 			t.Errorf("draft'ta not güncellenebilmeli: %v", err)
 		}
@@ -162,7 +171,7 @@ func TestProjectContract(t *testing.T) {
 	})
 
 	t.Run("7_update_notes_rejected_in_terminal_state", func(t *testing.T) {
-		p := newProject(t, orgA.ID)
+		p, _ := newProjectWithContract(t, orgA.ID)
 		if _, err := projectSvc.CancelProjectContract(ctx, p.ID, orgA.ID, "", "vazgeçildi"); err != nil {
 			t.Fatalf("iptal edilemedi: %v", err)
 		}
@@ -173,7 +182,7 @@ func TestProjectContract(t *testing.T) {
 	})
 
 	t.Run("8_activate_transitions_draft_to_active", func(t *testing.T) {
-		p := newProject(t, orgA.ID)
+		p, _ := newProjectWithContract(t, orgA.ID)
 		c, err := projectSvc.ActivateProjectContract(ctx, p.ID, orgA.ID, "")
 		if err != nil {
 			t.Fatalf("aktive edilemedi: %v", err)
@@ -192,7 +201,7 @@ func TestProjectContract(t *testing.T) {
 	})
 
 	t.Run("10_cancel_from_draft_allowed_requires_reason", func(t *testing.T) {
-		p := newProject(t, orgA.ID)
+		p, _ := newProjectWithContract(t, orgA.ID)
 		_, err := projectSvc.CancelProjectContract(ctx, p.ID, orgA.ID, "", "")
 		if !errors.Is(err, service.ErrContractReasonRequired) {
 			t.Errorf("beklenen ErrContractReasonRequired, geldi: %v", err)
@@ -229,7 +238,7 @@ func TestProjectContract(t *testing.T) {
 	})
 
 	t.Run("13_complete_rejected_from_draft", func(t *testing.T) {
-		p := newProject(t, orgA.ID)
+		p, _ := newProjectWithContract(t, orgA.ID)
 		_, err := projectSvc.CompleteProjectContract(ctx, p.ID, orgA.ID, "")
 		if !errors.Is(err, service.ErrContractNotCompletable) {
 			t.Errorf("beklenen ErrContractNotCompletable, geldi: %v", err)
@@ -254,7 +263,7 @@ func TestProjectContract(t *testing.T) {
 	t.Run("15_terminate_rejected_from_draft", func(t *testing.T) {
 		// KRİTİK: hiç yürürlüğe girmemiş (draft) bir sözleşme ASLA
 		// terminate edilemez -- yalnızca cancel edilebilir.
-		p := newProject(t, orgA.ID)
+		p, _ := newProjectWithContract(t, orgA.ID)
 		_, err := projectSvc.TerminateProjectContract(ctx, p.ID, orgA.ID, "", "gerekçe")
 		if !errors.Is(err, service.ErrContractNotTerminable) {
 			t.Errorf("beklenen ErrContractNotTerminable, geldi: %v", err)
@@ -270,7 +279,7 @@ func TestProjectContract(t *testing.T) {
 			t.Errorf("completed'ten activate reddedilmeli, geldi: %v", err)
 		}
 
-		pCancelled := newProject(t, orgA.ID)
+		pCancelled, _ := newProjectWithContract(t, orgA.ID)
 		if _, err := projectSvc.CancelProjectContract(ctx, pCancelled.ID, orgA.ID, "", "gerekçe"); err != nil {
 			t.Fatalf("iptal edilemedi: %v", err)
 		}
@@ -288,8 +297,8 @@ func TestProjectContract(t *testing.T) {
 	})
 
 	t.Run("17_cross_project_contract_get_denied", func(t *testing.T) {
-		pA := newProject(t, orgA.ID)
-		pB := newProject(t, orgA.ID)
+		pA, _ := newProjectWithContract(t, orgA.ID)
+		pB, _ := newProjectWithContract(t, orgA.ID)
 		// pB'nin bağlamında pA'nın sözleşmesine erişim yok -- her proje
 		// yalnızca KENDİ project_id'sine bağlı sözleşmeyi görür.
 		_, err := projectSvc.GetProjectContract(ctx, pB.ID, orgA.ID)
@@ -307,7 +316,7 @@ func TestProjectContract(t *testing.T) {
 	})
 
 	t.Run("18_cross_tenant_contract_get_denied", func(t *testing.T) {
-		pA := newProject(t, orgA.ID)
+		pA, _ := newProjectWithContract(t, orgA.ID)
 		// orgB bağlamında, orgA'nın proje id'siyle sözleşme okuma denemesi
 		// -- organization_id eşleşmediği için bulunamaz.
 		_, err := projectSvc.GetProjectContract(ctx, pA.ID, orgB.ID)
@@ -317,7 +326,7 @@ func TestProjectContract(t *testing.T) {
 	})
 
 	t.Run("golden_path_draft_to_active_to_completed", func(t *testing.T) {
-		p := newProject(t, orgA.ID)
+		p, _ := newProjectWithContract(t, orgA.ID)
 		if _, err := projectSvc.UpdateProjectContractDraft(ctx, p.ID, orgA.ID, service.ContractDraftInput{
 			Scope: "Tam kapsam", PaymentTerms: "Hakediş", RetentionTerms: "%5", AdvanceTerms: "%10",
 		}); err != nil {
@@ -336,7 +345,7 @@ func TestProjectContract(t *testing.T) {
 	})
 
 	t.Run("golden_path_draft_to_cancelled", func(t *testing.T) {
-		p := newProject(t, orgA.ID)
+		p, _ := newProjectWithContract(t, orgA.ID)
 		c, err := projectSvc.CancelProjectContract(ctx, p.ID, orgA.ID, "", "teklif iptal edildi")
 		if err != nil {
 			t.Fatalf("iptal: %v", err)

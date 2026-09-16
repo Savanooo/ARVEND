@@ -136,19 +136,38 @@ projenin (en fazla bir) sözleşmesini değiştiren Ek İşler listesi, mevcut
 `GET /projects/{id}/change-orders` ile aynen çekilir (yeni bir
 sorgu/ilişki İCAT EDİLMEDİ).
 
-### 4.1 Otomatik Oluşturma + Geriye Dönük Uyumluluk
+### 4.1 Otomatik Oluşturma YOK — Sprint 4 Düzeltmesi
 
-Sprint 2'nin Bütçe otomatik-oluşturma emsalinin **HER İKİ yarısı** da
-uygulanır:
+Sprint 3'te, Bütçe'nin otomatik-oluşturma emsali Contract'a da
+uygulanmıştı: yeni bir proje, offer dönüşümünde sessizce boş bir taslak
+Contract alıyordu. **Sprint 4'te bu davranış kaldırıldı**: Contract
+gerçek bir ticari nesnedir (kullanıcının bir eylemle — "Sözleşme
+Oluştur" — var ettiği bir kayıt), salt proje var diye "hayalet" bir boş
+taslak sözleşme YARATILMAZ. Bütçe'nin (Sprint 2, maliyet tarafı)
+otomatik-oluşturma davranışı bundan ETKİLENMEDİ — bu ayrım BİLİNÇLİDİR:
+Bütçe her projenin ZORUNLU bir maliyet planlama iskeletidir, Contract
+ise yalnızca kullanıcı bir ticari çerçeveyi resmileştirmek istediğinde
+var olan opsiyonel bir belgedir.
 
-- **Mevcut (Sprint 3 ÖNCESİ) projeler**: hiçbir backfill YOK — web UI
-  "Sözleşme Oluştur" CTA'sı gösterir (Bütçe'nin `!budget` → CTA
-  deseniyle BİREBİR).
-- **YENİ projeler**: `ProjectService.CreateFromOffer`
-  (`backend/internal/service/project_service.go`), Bütçe için zaten
-  yaptığı sessiz otomatik-oluşturmayı (`txq.CreateProjectBudget`, hiçbir
-  `logProjectEvent` YOK) AYNI transaction içinde Contract için de
-  tekrarlar — yeni proje, boş bir taslak Sözleşme ile başlar.
+Güncel davranış, TÜM projeler için tekdüzedir:
+
+- `ProjectService.CreateFromOffer`, kabul edilen teklifin ticari anlık
+  görüntüsünü (`contract_amount`/`currency`/`source_offer_id`/
+  `source_revision_id`/müşteri anlık görüntüsü) her zaman olduğu gibi
+  `projects` tablosuna yazar — bu **DEĞİŞMEDİ**, yalnızca
+  `project_contracts` satırının otomatik oluşturulması kaldırıldı.
+- `project_contracts` satırı hiçbir projede (yeni veya eski) otomatik
+  oluşmaz.
+- Sözleşmesi olmayan bir projede web Finans ekranı her zaman "Sözleşme
+  Oluştur" CTA'sını gösterir; kullanıcı `POST /projects/{id}/contract`
+  ile (`contracts.manage` izni gerektirir) açıkça bir taslak oluşturur.
+
+Regresyon testi (`backend/internal/service/project_contract_test.go`,
+`1_offer_conversion_does_not_auto_create_contract` +
+`2_manual_create_after_offer_conversion`): offer → project dönüşümü
+sonrası projenin var olduğu, ticari anlık görüntünün korunduğu, ama
+`project_contracts`'ta hiçbir satır OLUŞMADIĞI ve `POST .../contract`
+ucunun taslağı başarıyla oluşturduğu doğrulanır.
 
 ---
 
