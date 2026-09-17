@@ -202,6 +202,7 @@ func (h *ProjectHandler) GetSubcontract(w http.ResponseWriter, r *http.Request) 
 			"approved_deductions": value.ApprovedDeductions, "pending_additions": value.PendingAdditions,
 			"pending_deductions": value.PendingDeductions, "current_value": value.CurrentValue,
 			"certified_to_date": value.CertifiedToDate, "remaining_commitment": value.RemainingCommitment,
+			"paid_to_date": value.PaidToDate, "remaining_payable": value.RemainingPayable,
 		},
 		"commitments": commitmentsOut,
 	})

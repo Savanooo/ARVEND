@@ -339,3 +339,37 @@ func (i SubcontractProgressClaimItem) RemainingAmount() float64 {
 func round2(v float64) float64 {
 	return float64(int64(v*100+0.5)) / 100
 }
+
+// ---------- Subcontract Payment (Gerçek Ödeme) ----------
+
+const (
+	ProjectEventSubcontractPaymentMade = "subcontract_payment_made"
+	ProjectEventSubcontractPaymentVoid = "subcontract_payment_void"
+)
+
+// SubcontractPayment, subcontract_payments satırının domain karşılığıdır —
+// GERÇEK nakit çıkışıdır. Progress Claim'in NetPayable'ı bir YÜKÜMLÜLÜK,
+// bu ise ÖDEME olayıdır (bkz. SubcontractProgressClaim yorumu). Sertifikasyon
+// ile ödeme BİRBİRİNDEN BAĞIMSIZDIR — bir hakediş hiç ödenmeden sertifika
+// edilebilir, bir ödeme de hiçbir hakedişe bağlı olmadan (avans/mobilizasyon)
+// yapılabilir. Bu yüzden ProgressClaimID OPSİYONELDİR (Collection'ın
+// PaymentPlanItemID İLE AYNI ilke). Durum makinesi YOKTUR — Collection/
+// Expense İLE AYNI create+void deseni.
+type SubcontractPayment struct {
+	ID              string
+	OrganizationID  string
+	ProjectID       string
+	SubcontractID   string
+	ProgressClaimID *string
+	Amount          float64
+	Currency        string
+	PaidDate        time.Time
+	PaymentMethod   string
+	ReferenceNo     string
+	Description     string
+	CreatedBy       *string
+	CreatedAt       time.Time
+	VoidedAt        *time.Time
+	VoidedBy        *string
+	VoidReason      string
+}

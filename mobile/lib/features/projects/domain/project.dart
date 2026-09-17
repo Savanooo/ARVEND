@@ -76,6 +76,8 @@ class FinancialSummary {
   final double committedCost;
   final double realizedGrossProfit;
   final double estimatedGrossProfit;
+  final double realizedMarginPercent;
+  final double estimatedMarginPercent;
   final String currency;
 
   const FinancialSummary({
@@ -89,6 +91,8 @@ class FinancialSummary {
     required this.committedCost,
     required this.realizedGrossProfit,
     required this.estimatedGrossProfit,
+    required this.realizedMarginPercent,
+    required this.estimatedMarginPercent,
     required this.currency,
   });
 
@@ -103,6 +107,8 @@ class FinancialSummary {
         committedCost: (json['committed_cost'] as num).toDouble(),
         realizedGrossProfit: (json['realized_gross_profit'] as num).toDouble(),
         estimatedGrossProfit: (json['estimated_gross_profit'] as num).toDouble(),
+        realizedMarginPercent: (json['realized_margin_percent'] as num?)?.toDouble() ?? 0,
+        estimatedMarginPercent: (json['estimated_margin_percent'] as num?)?.toDouble() ?? 0,
         currency: json['currency'] as String? ?? 'TRY',
       );
 }
@@ -148,6 +154,53 @@ class Expense {
         supplierName: json['supplier_name'] as String? ?? '',
         invoiceNo: json['invoice_no'] as String? ?? '',
         notes: json['notes'] as String? ?? '',
+        voidedAt: json['voided_at'] as String?,
+        voidReason: json['void_reason'] as String? ?? '',
+        createdAt: json['created_at'] as String? ?? '',
+      );
+}
+
+/// `/projects/{id}/collections` (Tahsilat). Var olan `payment_plan_item_id`
+/// bağı opsiyoneldir (backend serbest kayda izin verir) — mobil şimdilik
+/// yalnızca serbest tahsilat oluşturur (ödeme planına bağlama yok).
+class Collection {
+  final String id;
+  final String? paymentPlanItemId;
+  final double amount;
+  final String currency;
+  final String receivedDate;
+  final String paymentMethod;
+  final String description;
+  final String referenceNo;
+  final String? voidedAt;
+  final String voidReason;
+  final String createdAt;
+
+  const Collection({
+    required this.id,
+    required this.paymentPlanItemId,
+    required this.amount,
+    required this.currency,
+    required this.receivedDate,
+    required this.paymentMethod,
+    required this.description,
+    required this.referenceNo,
+    required this.voidedAt,
+    required this.voidReason,
+    required this.createdAt,
+  });
+
+  bool get isVoided => voidedAt != null;
+
+  factory Collection.fromJson(Map<String, dynamic> json) => Collection(
+        id: json['id'] as String,
+        paymentPlanItemId: json['payment_plan_item_id'] as String?,
+        amount: (json['amount'] as num).toDouble(),
+        currency: json['currency'] as String? ?? 'TRY',
+        receivedDate: json['received_date'] as String? ?? '',
+        paymentMethod: json['payment_method'] as String? ?? '',
+        description: json['description'] as String? ?? '',
+        referenceNo: json['reference_no'] as String? ?? '',
         voidedAt: json['voided_at'] as String?,
         voidReason: json['void_reason'] as String? ?? '',
         createdAt: json['created_at'] as String? ?? '',

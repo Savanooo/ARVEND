@@ -14,6 +14,7 @@ import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../data/projects_providers.dart';
 import '../domain/project.dart';
+import 'collection_form_sheet.dart';
 import 'expense_form_sheet.dart';
 
 /// RBAC/Project Membership sprint'i: sekmeler kullanıcının izin kümesine
@@ -47,6 +48,12 @@ final _tabDefs = <_TabDef>[
   // this sprint -- web-first"). İzin, budget.read DEĞİL cost_control.read
   // (web'deki AYNI ayrım: cost_control.* özet/izleme katmanını kapsar).
   _TabDef('Maliyet Kontrolü', 'projects.cost_control.read', (id, p) => _CostControlTab(projectId: id, project: p)),
+  // Sprint 5 follow-up — Taşeron Yönetimi (yeni modül, migration 0039).
+  // Legacy Finans>Taşeronlar İLE KARIŞTIRILMAMALI (o mobilde HİÇ YOK,
+  // bilinçli olarak buraya YATIRIM YAPILMIYOR, bkz. domain/subcontract.dart
+  // dosya başı notu) -- bu, backend'in "product direction" olarak
+  // işaretlediği YENİ modülün mobil karşılığı.
+  _TabDef('Taşeronlar', 'projects.subcontracts.read', (id, p) => _SubcontractsTab(projectId: id)),
   _TabDef('Operasyon', 'projects.tasks.read', (id, p) => _OperationsTab(projectId: id)),
   _TabDef('Dosyalar', 'projects.operations.read', (id, p) => _FilesTab(projectId: id)),
   _TabDef('Aktivite', null, (id, p) => _ActivityTab(projectId: id)),
@@ -171,11 +178,23 @@ class _FinanceTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final summaryAsync = ref.watch(projectFinancialSummaryProvider(projectId));
     final expensesAsync = ref.watch(projectExpensesProvider(projectId));
+    final collectionsAsync = ref.watch(projectCollectionsProvider(projectId));
+    final user = ref.watch(authControllerProvider).valueOrNull;
+    // Maliyet Kontrolü (bütçe bazlı EAC/tahmini kâr) AYRI bir izin
+    // (projects.cost_control.read) -- Finans sekmesini görebilen her
+    // kullanıcı bunu göremeyebilir; izin yoksa özet kartı yalnızca
+    // financial-summary'nin HER ZAMAN dolu olan taahhüt-bazlı tahminine
+    // (committed_cost/estimated_gross_profit) düşer, gereksiz 403 isteği
+    // atılmaz.
+    final canSeeCostControl = user == null || user.permissions.isEmpty || user.hasPermission('projects.cost_control.read');
+    final costControlAsync = canSeeCostControl ? ref.watch(projectCostControlProvider(projectId)) : null;
 
     return RefreshIndicator(
       onRefresh: () async {
         ref.invalidate(projectFinancialSummaryProvider(projectId));
         ref.invalidate(projectExpensesProvider(projectId));
+        ref.invalidate(projectCollectionsProvider(projectId));
+        if (canSeeCostControl) ref.invalidate(projectCostControlProvider(projectId));
       },
       child: ListView(
         padding: const EdgeInsets.all(16),
@@ -183,24 +202,7 @@ class _FinanceTab extends ConsumerWidget {
           AsyncStateView(
             value: summaryAsync,
             onRetry: () async => ref.invalidate(projectFinancialSummaryProvider(projectId)),
-            data: (context, s) => Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _InfoRow(label: 'Güncel Sözleşme Bedeli', value: Formatters.money(s.currentContractValue, currency: s.currency), emphasize: true),
-                    _InfoRow(label: 'Tahsil Edilen', value: Formatters.money(s.collectedAmount, currency: s.currency)),
-                    _InfoRow(label: 'Kalan Alacak', value: Formatters.money(s.remainingReceivable, currency: s.currency)),
-                    const Divider(height: 20),
-                    _InfoRow(label: 'Gerçekleşen Maliyet', value: Formatters.money(s.realizedCost, currency: s.currency)),
-                    _InfoRow(label: 'Taahhüt Edilen Maliyet', value: Formatters.money(s.committedCost, currency: s.currency)),
-                    _InfoRow(label: 'Gerçekleşen Kâr', value: Formatters.money(s.realizedGrossProfit, currency: s.currency)),
-                    _InfoRow(label: 'Tahmini Kâr', value: Formatters.money(s.estimatedGrossProfit, currency: s.currency)),
-                  ],
-                ),
-              ),
-            ),
+            data: (context, s) => _FinancialSummaryCard(summary: s, costControl: costControlAsync?.valueOrNull),
           ),
           const SizedBox(height: 16),
           Row(
@@ -215,6 +217,7 @@ class _FinanceTab extends ConsumerWidget {
                   if (created != null) {
                     ref.invalidate(projectExpensesProvider(projectId));
                     ref.invalidate(projectFinancialSummaryProvider(projectId));
+                    if (canSeeCostControl) ref.invalidate(projectCostControlProvider(projectId));
                   }
                 },
               ),
@@ -251,7 +254,139 @@ class _FinanceTab extends ConsumerWidget {
                   .toList(),
             ),
           ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Tahsilatlar', style: TextStyle(fontWeight: FontWeight.w700)),
+              TextButton.icon(
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Tahsilat Ekle'),
+                onPressed: () async {
+                  final created = await showCollectionFormSheet(context, projectId, currency: project.currency);
+                  if (created != null) {
+                    ref.invalidate(projectCollectionsProvider(projectId));
+                    ref.invalidate(projectFinancialSummaryProvider(projectId));
+                    if (canSeeCostControl) ref.invalidate(projectCostControlProvider(projectId));
+                  }
+                },
+              ),
+            ],
+          ),
+          AsyncStateView(
+            value: collectionsAsync,
+            onRetry: () async => ref.invalidate(projectCollectionsProvider(projectId)),
+            isEmpty: (list) => list.isEmpty,
+            emptyBuilder: (_) => const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: EmptyStateView(message: 'Henüz tahsilat kaydı yok.'),
+            ),
+            data: (context, collections) => Column(
+              children: collections
+                  .map((c) => Card(
+                        margin: const EdgeInsets.only(top: 8),
+                        child: ListTile(
+                          title: Text(
+                            c.paymentMethod.isEmpty ? 'Tahsilat' : c.paymentMethod,
+                          ),
+                          subtitle: Text(
+                            [
+                              Formatters.date(c.receivedDate),
+                              if (c.description.isNotEmpty) c.description,
+                              if (c.referenceNo.isNotEmpty) c.referenceNo,
+                            ].join(' · '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: Text(
+                            Formatters.money(c.amount, currency: c.currency.isEmpty ? project.currency : c.currency),
+                            style: TextStyle(
+                              decoration: c.isVoided ? TextDecoration.lineThrough : null,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.green.shade700,
+                            ),
+                          ),
+                        ),
+                      ))
+                  .toList(),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+/// Adım 1 (birleşik kârlılık özeti) — Finans sekmesinin tepesindeki tek
+/// Özet kartı, `financial-summary` (HER ZAMAN dolu) ile `cost-control`'ün
+/// bütçe-bazlı EAC/tahmini kâr rakamlarını (izin varsa VE bütçe oluşmuşsa)
+/// YAN YANA gösterir -- gerçekleşen/tahmini AYRI bloklarda kalır, TEK bir
+/// yanıltıcı rakamda birleştirilmez (bkz. iş isteği). Backend'in hesapladığı
+/// hiçbir rakam burada YENİDEN hesaplanmaz.
+class _FinancialSummaryCard extends StatelessWidget {
+  const _FinancialSummaryCard({required this.summary, required this.costControl});
+  final FinancialSummary summary;
+  final ({CostControlSummary summary, List<CostControlLine> lines})? costControl;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = summary;
+    final cc = costControl?.summary;
+    final hasForecastBudget = cc != null && cc.hasBudget;
+    // Bütçe varsa EAC/tahmini-kâr/marj bütçe-bazlı (cost-control) kaynaktan;
+    // yoksa financial-summary'nin HER ZAMAN dolu olan taahhüt-bazlı
+    // (legacy taşeron ödemesi + gider) tahmininden -- iki kaynak asla
+    // TOPLANMAZ, yalnızca biri seçilir.
+    final forecastCost = hasForecastBudget ? cc.eac : s.committedCost;
+    final forecastProfit = hasForecastBudget ? cc.forecastProfit : s.estimatedGrossProfit;
+    final forecastMargin = hasForecastBudget ? cc.forecastMarginPercent : s.estimatedMarginPercent;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Özet', style: TextStyle(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            _InfoRow(
+              label: 'Satış / Sözleşme Bedeli',
+              value: Formatters.money(s.currentContractValue, currency: s.currency),
+              emphasize: true,
+            ),
+            _InfoRow(label: 'Tahsil Edilen', value: Formatters.money(s.collectedAmount, currency: s.currency)),
+            _InfoRow(label: 'Kalan Alacak', value: Formatters.money(s.remainingReceivable, currency: s.currency)),
+            const Divider(height: 24),
+            const Text('Gerçekleşen', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.grey)),
+            const SizedBox(height: 4),
+            _InfoRow(label: 'Gerçekleşen Maliyet', value: Formatters.money(s.realizedCost, currency: s.currency)),
+            _InfoRow(
+              label: 'Gerçekleşen Kâr',
+              value: Formatters.money(s.realizedGrossProfit, currency: s.currency),
+              valueColor: s.realizedGrossProfit < 0 ? Colors.red : Colors.green,
+            ),
+            _InfoRow(label: 'Gerçekleşen Marj', value: '%${s.realizedMarginPercent.toStringAsFixed(2)}'),
+            const Divider(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Tahmini / Öngörülen', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.grey)),
+                Text(
+                  hasForecastBudget ? 'bütçeye göre (EAC)' : 'taahhüt bazlı',
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            _InfoRow(label: 'Tahmini Maliyet', value: Formatters.money(forecastCost, currency: s.currency)),
+            _InfoRow(
+              label: 'Tahmini Kâr',
+              value: Formatters.money(forecastProfit, currency: s.currency),
+              valueColor: forecastProfit < 0 ? Colors.red : Colors.green,
+            ),
+            _InfoRow(label: 'Tahmini Marj', value: '%${forecastMargin.toStringAsFixed(2)}'),
+          ],
+        ),
       ),
     );
   }
@@ -400,6 +535,46 @@ class _ChangeOrdersTab extends ConsumerWidget {
                     color: co.changeType == 'addition' ? Colors.green : Colors.red,
                   ),
                 ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// Sprint 5 follow-up — Taşeron listesi, tıklanınca detay ekranına
+/// (`SubcontractDetailScreen`) gider -- SOV/hakediş/ödeme kaydı ORADA.
+class _SubcontractsTab extends ConsumerWidget {
+  const _SubcontractsTab({required this.projectId});
+  final String projectId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final subcontractsAsync = ref.watch(projectSubcontractsProvider(projectId));
+
+    return RefreshIndicator(
+      onRefresh: () async => ref.invalidate(projectSubcontractsProvider(projectId)),
+      child: AsyncStateView(
+        value: subcontractsAsync,
+        onRetry: () async => ref.invalidate(projectSubcontractsProvider(projectId)),
+        isEmpty: (list) => list.isEmpty,
+        emptyBuilder: (_) => const EmptyStateView(message: 'Henüz taşeron sözleşmesi yok.'),
+        data: (context, subcontracts) => ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: subcontracts.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 8),
+          itemBuilder: (context, i) {
+            final sc = subcontracts[i];
+            return Card(
+              child: ListTile(
+                title: Text('${sc.subcontractNo} — ${sc.supplierName ?? sc.supplierCode ?? ''}',
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: StatusRegistry.build(sc.status, StatusRegistry.subcontract),
+                trailing: Text(Formatters.money(sc.originalAmount, currency: sc.currency),
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                onTap: () => context.push('/projeler/$projectId/taseronlar/${sc.id}'),
               ),
             );
           },

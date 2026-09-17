@@ -257,6 +257,18 @@ type SubcontractValueSummary struct {
 	repository.SubcontractValue
 	CertifiedToDate     float64
 	RemainingCommitment float64
+	// Sprint 5 follow-up (bkz. migration 0039): PaidToDate = voidlenmemiş
+	// subcontract_payments toplamı. RemainingPayable = CertifiedToDate -
+	// PaidToDate -- RemainingCommitment'tan (CurrentValue - CertifiedToDate)
+	// KASITLI OLARAK FARKLI bir eksendir ve BİLİNÇLİ OLARAK 0'a
+	// kelepçelenmez: negatif bir değer avans/fazla ödeme anlamına gelir,
+	// bu anlamlı bir sinyaldir (gizlenmemelidir). Sertifikasyon ödeme
+	// DEĞİLDİR -- bir hakediş hiç ödenmeden sertifika edilebilir
+	// (RemainingPayable o zaman CertifiedToDate'e eşit kalır), bir ödeme de
+	// hiçbir hakedişe bağlı olmadan (avans) yapılabilir (PaidToDate o zaman
+	// CertifiedToDate'i AŞABİLİR, RemainingPayable negatif olur).
+	PaidToDate       float64
+	RemainingPayable float64
 }
 
 func (s *ProjectService) GetSubcontractValue(ctx context.Context, projectID, subcontractID, organizationID string) (*SubcontractValueSummary, error) {
@@ -279,13 +291,21 @@ func (s *ProjectService) GetSubcontractValue(ctx context.Context, projectID, sub
 	if err != nil {
 		return nil, err
 	}
+	paid, err := s.q.GetSubcontractPaidToDate(ctx, sqlc.GetSubcontractPaidToDateParams{SubcontractID: id, OrganizationID: orgID, ProjectID: pid})
+	if err != nil {
+		return nil, err
+	}
 	val := repository.ToDomainSubcontractValue(valueRow)
 	certifiedF := repository.NumericToFloat64(certified)
+	paidF := repository.NumericToFloat64(paid)
 	remaining := val.CurrentValue - certifiedF
 	if remaining < 0 {
 		remaining = 0
 	}
-	return &SubcontractValueSummary{SubcontractValue: val, CertifiedToDate: certifiedF, RemainingCommitment: remaining}, nil
+	return &SubcontractValueSummary{
+		SubcontractValue: val, CertifiedToDate: certifiedF, RemainingCommitment: remaining,
+		PaidToDate: paidF, RemainingPayable: certifiedF - paidF,
+	}, nil
 }
 
 func (s *ProjectService) UpdateSubcontractDraft(ctx context.Context, projectID, subcontractID, organizationID string, in SubcontractInput) (*domain.Subcontract, error) {

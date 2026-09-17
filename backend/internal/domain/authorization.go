@@ -148,6 +148,12 @@ const (
 	PermProjectsSubcontractClaimsRead    = "projects.subcontract_claims.read"
 	PermProjectsSubcontractClaimsManage  = "projects.subcontract_claims.manage"
 	PermProjectsSubcontractClaimsCertify = "projects.subcontract_claims.certify"
+
+	// Sprint 5 follow-up -- Taşeron Ödemeleri (Subcontract Payments). Bir
+	// ödemenin onay durumu YOKTUR (create+void), bu yüzden subcontracts.*/
+	// subcontract_claims.* İLE AYNI üçlü DEĞİL, yalnızca ikili (read/manage).
+	PermProjectsSubcontractPaymentsRead   = "projects.subcontract_payments.read"
+	PermProjectsSubcontractPaymentsManage = "projects.subcontract_payments.manage"
 )
 
 // ---------- Domain tipleri ----------

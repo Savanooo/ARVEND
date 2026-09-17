@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_providers.dart';
 import '../domain/procurement.dart';
 import '../domain/project.dart';
+import '../domain/subcontract.dart';
 import 'projects_repository.dart';
 
 final projectsRepositoryProvider =
@@ -23,6 +24,10 @@ final projectFinancialSummaryProvider = FutureProvider.autoDispose.family<Financ
 
 final projectExpensesProvider = FutureProvider.autoDispose.family<List<Expense>, String>(
   (ref, id) => ref.watch(projectsRepositoryProvider).expenses(id),
+);
+
+final projectCollectionsProvider = FutureProvider.autoDispose.family<List<Collection>, String>(
+  (ref, id) => ref.watch(projectsRepositoryProvider).collections(id),
 );
 
 final projectTasksProvider = FutureProvider.autoDispose.family<List<ProjectTask>, String>(
@@ -64,4 +69,24 @@ final purchaseOrderDetailProvider = FutureProvider.autoDispose.family<
     ({PurchaseOrder order, List<PurchaseOrderItem> items}),
     ({String projectId, String poId})>(
   (ref, args) => ref.watch(projectsRepositoryProvider).purchaseOrderDetail(args.projectId, args.poId),
+);
+
+final projectSubcontractsProvider = FutureProvider.autoDispose.family<List<Subcontract>, String>(
+  (ref, id) => ref.watch(projectsRepositoryProvider).subcontracts(id),
+);
+
+final subcontractDetailProvider = FutureProvider.autoDispose.family<
+    ({Subcontract subcontract, List<SubcontractItem> items, SubcontractValue value}),
+    ({String projectId, String subcontractId})>(
+  (ref, args) => ref.watch(projectsRepositoryProvider).subcontractDetail(args.projectId, args.subcontractId),
+);
+
+final subcontractPaymentsProvider = FutureProvider.autoDispose
+    .family<List<SubcontractPayment>, ({String projectId, String subcontractId})>(
+  (ref, args) => ref.watch(projectsRepositoryProvider).subcontractPayments(args.projectId, args.subcontractId),
+);
+
+final subcontractProgressClaimsProvider = FutureProvider.autoDispose
+    .family<List<ProgressClaim>, ({String projectId, String subcontractId})>(
+  (ref, args) => ref.watch(projectsRepositoryProvider).subcontractProgressClaims(args.projectId, args.subcontractId),
 );

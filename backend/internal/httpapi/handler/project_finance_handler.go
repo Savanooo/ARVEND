@@ -651,6 +651,8 @@ type financialSummaryResponse struct {
 	TotalSubcontractorCommitment float64 `json:"total_subcontractor_commitment"`
 	SubcontractorPaid            float64 `json:"subcontractor_paid"`
 	SubcontractorRemaining       float64 `json:"subcontractor_remaining"`
+	NewSubcontractPaid           float64 `json:"new_subcontract_paid"`
+	NewSubcontractRemaining      float64 `json:"new_subcontract_remaining"`
 	IssuedInvoiceTotal           float64 `json:"issued_invoice_total"`
 	PaidInvoiceTotal             float64 `json:"paid_invoice_total"`
 	RealizedCost                 float64 `json:"realized_cost"`
@@ -678,6 +680,7 @@ func (h *ProjectHandler) FinancialSummary(w http.ResponseWriter, r *http.Request
 		RemainingReceivable: s.RemainingReceivable, OverCollected: s.OverCollected(),
 		TotalExpenses: s.TotalExpenses, TotalSubcontractorCommitment: s.TotalSubcontractorCommitment,
 		SubcontractorPaid: s.SubcontractorPaid, SubcontractorRemaining: s.SubcontractorRemaining,
+		NewSubcontractPaid: s.NewSubcontractPaid, NewSubcontractRemaining: s.NewSubcontractRemaining,
 		IssuedInvoiceTotal: s.IssuedInvoiceTotal, PaidInvoiceTotal: s.PaidInvoiceTotal,
 		RealizedCost: s.RealizedCost, CommittedCost: s.CommittedCost,
 		RealizedGrossProfit: s.RealizedGrossProfit, EstimatedGrossProfit: s.EstimatedGrossProfit,

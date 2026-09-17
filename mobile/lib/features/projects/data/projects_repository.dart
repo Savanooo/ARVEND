@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../../../core/api/api_client.dart';
 import '../domain/procurement.dart';
 import '../domain/project.dart';
+import '../domain/subcontract.dart';
 
 class ProjectsRepository {
   ProjectsRepository(this._client);
@@ -68,6 +69,33 @@ class ProjectsRepository {
 
   Future<void> voidExpense(String projectId, String expenseId, {String reason = ''}) => _client
       .post<void>('/projects/$projectId/expenses/$expenseId/void', data: {'reason': reason});
+
+  Future<List<Collection>> collections(String projectId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/collections');
+    return (json['collections'] as List).cast<Map<String, dynamic>>().map(Collection.fromJson).toList();
+  }
+
+  Future<Collection> createCollection(
+    String projectId, {
+    required double amount,
+    required String receivedDate,
+    String paymentMethod = '',
+    String description = '',
+    String referenceNo = '',
+  }) async {
+    final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/collections', data: {
+      'amount': amount,
+      'received_date': receivedDate,
+      'payment_method': paymentMethod,
+      'description': description,
+      'reference_no': referenceNo,
+      'idempotency_key': '${DateTime.now().microsecondsSinceEpoch}',
+    });
+    return Collection.fromJson(json);
+  }
+
+  Future<void> voidCollection(String projectId, String collectionId, {String reason = ''}) => _client
+      .post<void>('/projects/$projectId/collections/$collectionId/void', data: {'reason': reason});
 
   Future<List<ProjectTask>> tasks(String projectId) async {
     final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/tasks');
@@ -210,5 +238,61 @@ class ProjectsRepository {
     final order = PurchaseOrder.fromJson(json['purchase_order'] as Map<String, dynamic>);
     final items = (json['items'] as List).cast<Map<String, dynamic>>().map(PurchaseOrderItem.fromJson).toList();
     return (order: order, items: items);
+  }
+
+  /// Sprint 5 — Taşeron Yönetimi (yeni modül). `/subcontracts` -- legacy
+  /// `/subcontractors` İLE KARIŞTIRILMAMALI (bkz. domain/subcontract.dart
+  /// dosya başı notu).
+  Future<List<Subcontract>> subcontracts(String projectId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/subcontracts');
+    return (json['subcontracts'] as List).cast<Map<String, dynamic>>().map(Subcontract.fromJson).toList();
+  }
+
+  Future<({Subcontract subcontract, List<SubcontractItem> items, SubcontractValue value})> subcontractDetail(
+      String projectId, String subcontractId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/subcontracts/$subcontractId');
+    final subcontract = Subcontract.fromJson(json['subcontract'] as Map<String, dynamic>);
+    final items = (json['items'] as List).cast<Map<String, dynamic>>().map(SubcontractItem.fromJson).toList();
+    final value = SubcontractValue.fromJson(json['current_value'] as Map<String, dynamic>);
+    return (subcontract: subcontract, items: items, value: value);
+  }
+
+  Future<List<SubcontractPayment>> subcontractPayments(String projectId, String subcontractId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/subcontracts/$subcontractId/payments');
+    return (json['payments'] as List).cast<Map<String, dynamic>>().map(SubcontractPayment.fromJson).toList();
+  }
+
+  Future<SubcontractPayment> createSubcontractPayment(
+    String projectId,
+    String subcontractId, {
+    required double amount,
+    required String paidDate,
+    String paymentMethod = '',
+    String referenceNo = '',
+    String description = '',
+    String? progressClaimId,
+  }) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/subcontracts/$subcontractId/payments',
+      data: {
+        'amount': amount,
+        'paid_date': paidDate,
+        'payment_method': paymentMethod,
+        'reference_no': referenceNo,
+        'description': description,
+        'progress_claim_id': progressClaimId,
+        'idempotency_key': '${DateTime.now().microsecondsSinceEpoch}',
+      },
+    );
+    return SubcontractPayment.fromJson(json);
+  }
+
+  Future<void> voidSubcontractPayment(String projectId, String paymentId, {String reason = ''}) => _client
+      .post<void>('/projects/$projectId/subcontract-payments/$paymentId/void', data: {'reason': reason});
+
+  Future<List<ProgressClaim>> subcontractProgressClaims(String projectId, String subcontractId) async {
+    final json =
+        await _client.get<Map<String, dynamic>>('/projects/$projectId/subcontracts/$subcontractId/progress-claims');
+    return (json['progress_claims'] as List).cast<Map<String, dynamic>>().map(ProgressClaim.fromJson).toList();
   }
 }

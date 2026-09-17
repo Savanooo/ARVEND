@@ -2414,3 +2414,307 @@ func (q *Queries) UpdateSubcontractProgressClaimDraft(ctx context.Context, arg U
 	)
 	return i, err
 }
+
+const createSubcontractPayment = `-- name: CreateSubcontractPayment :one
+INSERT INTO subcontract_payments (
+    organization_id, project_id, subcontract_id, progress_claim_id, amount, currency,
+    paid_date, payment_method, reference_no, description, idempotency_key, created_by
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+RETURNING id, organization_id, project_id, subcontract_id, progress_claim_id, amount, currency, paid_date, payment_method, reference_no, description, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason
+`
+
+type CreateSubcontractPaymentParams struct {
+	OrganizationID  pgtype.UUID    `json:"organization_id"`
+	ProjectID       pgtype.UUID    `json:"project_id"`
+	SubcontractID   pgtype.UUID    `json:"subcontract_id"`
+	ProgressClaimID pgtype.UUID    `json:"progress_claim_id"`
+	Amount          pgtype.Numeric `json:"amount"`
+	Currency        string         `json:"currency"`
+	PaidDate        pgtype.Date    `json:"paid_date"`
+	PaymentMethod   string         `json:"payment_method"`
+	ReferenceNo     string         `json:"reference_no"`
+	Description     string         `json:"description"`
+	IdempotencyKey  *string        `json:"idempotency_key"`
+	CreatedBy       pgtype.UUID    `json:"created_by"`
+}
+
+func (q *Queries) CreateSubcontractPayment(ctx context.Context, arg CreateSubcontractPaymentParams) (SubcontractPayment, error) {
+	row := q.db.QueryRow(ctx, createSubcontractPayment,
+		arg.OrganizationID,
+		arg.ProjectID,
+		arg.SubcontractID,
+		arg.ProgressClaimID,
+		arg.Amount,
+		arg.Currency,
+		arg.PaidDate,
+		arg.PaymentMethod,
+		arg.ReferenceNo,
+		arg.Description,
+		arg.IdempotencyKey,
+		arg.CreatedBy,
+	)
+	var i SubcontractPayment
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ProjectID,
+		&i.SubcontractID,
+		&i.ProgressClaimID,
+		&i.Amount,
+		&i.Currency,
+		&i.PaidDate,
+		&i.PaymentMethod,
+		&i.ReferenceNo,
+		&i.Description,
+		&i.IdempotencyKey,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VoidedAt,
+		&i.VoidedBy,
+		&i.VoidReason,
+	)
+	return i, err
+}
+
+const getSubcontractPaidToDate = `-- name: GetSubcontractPaidToDate :one
+SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
+FROM subcontract_payments
+WHERE subcontract_id = $1 AND organization_id = $2 AND project_id = $3 AND voided_at IS NULL
+`
+
+type GetSubcontractPaidToDateParams struct {
+	SubcontractID  pgtype.UUID `json:"subcontract_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+}
+
+func (q *Queries) GetSubcontractPaidToDate(ctx context.Context, arg GetSubcontractPaidToDateParams) (pgtype.Numeric, error) {
+	row := q.db.QueryRow(ctx, getSubcontractPaidToDate, arg.SubcontractID, arg.OrganizationID, arg.ProjectID)
+	var total pgtype.Numeric
+	err := row.Scan(&total)
+	return total, err
+}
+
+const getSubcontractPaidTotalForProject = `-- name: GetSubcontractPaidTotalForProject :one
+SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
+FROM subcontract_payments
+WHERE project_id = $1 AND organization_id = $2 AND voided_at IS NULL
+`
+
+type GetSubcontractPaidTotalForProjectParams struct {
+	ProjectID      pgtype.UUID `json:"project_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) GetSubcontractPaidTotalForProject(ctx context.Context, arg GetSubcontractPaidTotalForProjectParams) (pgtype.Numeric, error) {
+	row := q.db.QueryRow(ctx, getSubcontractPaidTotalForProject, arg.ProjectID, arg.OrganizationID)
+	var total pgtype.Numeric
+	err := row.Scan(&total)
+	return total, err
+}
+
+const getSubcontractPayment = `-- name: GetSubcontractPayment :one
+SELECT id, organization_id, project_id, subcontract_id, progress_claim_id, amount, currency, paid_date, payment_method, reference_no, description, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason FROM subcontract_payments WHERE id = $1 AND organization_id = $2 AND project_id = $3
+`
+
+type GetSubcontractPaymentParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+}
+
+func (q *Queries) GetSubcontractPayment(ctx context.Context, arg GetSubcontractPaymentParams) (SubcontractPayment, error) {
+	row := q.db.QueryRow(ctx, getSubcontractPayment, arg.ID, arg.OrganizationID, arg.ProjectID)
+	var i SubcontractPayment
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ProjectID,
+		&i.SubcontractID,
+		&i.ProgressClaimID,
+		&i.Amount,
+		&i.Currency,
+		&i.PaidDate,
+		&i.PaymentMethod,
+		&i.ReferenceNo,
+		&i.Description,
+		&i.IdempotencyKey,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VoidedAt,
+		&i.VoidedBy,
+		&i.VoidReason,
+	)
+	return i, err
+}
+
+const getSubcontractPaymentByIdempotencyKey = `-- name: GetSubcontractPaymentByIdempotencyKey :one
+SELECT id, organization_id, project_id, subcontract_id, progress_claim_id, amount, currency, paid_date, payment_method, reference_no, description, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason FROM subcontract_payments WHERE subcontract_id = $1 AND idempotency_key = $2
+`
+
+type GetSubcontractPaymentByIdempotencyKeyParams struct {
+	SubcontractID  pgtype.UUID `json:"subcontract_id"`
+	IdempotencyKey *string     `json:"idempotency_key"`
+}
+
+func (q *Queries) GetSubcontractPaymentByIdempotencyKey(ctx context.Context, arg GetSubcontractPaymentByIdempotencyKeyParams) (SubcontractPayment, error) {
+	row := q.db.QueryRow(ctx, getSubcontractPaymentByIdempotencyKey, arg.SubcontractID, arg.IdempotencyKey)
+	var i SubcontractPayment
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ProjectID,
+		&i.SubcontractID,
+		&i.ProgressClaimID,
+		&i.Amount,
+		&i.Currency,
+		&i.PaidDate,
+		&i.PaymentMethod,
+		&i.ReferenceNo,
+		&i.Description,
+		&i.IdempotencyKey,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VoidedAt,
+		&i.VoidedBy,
+		&i.VoidReason,
+	)
+	return i, err
+}
+
+const listSubcontractPaidTotalsBySubcontractForProject = `-- name: ListSubcontractPaidTotalsBySubcontractForProject :many
+SELECT subcontract_id, sum(amount)::numeric(18,2) AS total
+FROM subcontract_payments
+WHERE project_id = $1 AND organization_id = $2 AND voided_at IS NULL
+GROUP BY subcontract_id
+`
+
+type ListSubcontractPaidTotalsBySubcontractForProjectParams struct {
+	ProjectID      pgtype.UUID `json:"project_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+type ListSubcontractPaidTotalsBySubcontractForProjectRow struct {
+	SubcontractID pgtype.UUID    `json:"subcontract_id"`
+	Total         pgtype.Numeric `json:"total"`
+}
+
+func (q *Queries) ListSubcontractPaidTotalsBySubcontractForProject(ctx context.Context, arg ListSubcontractPaidTotalsBySubcontractForProjectParams) ([]ListSubcontractPaidTotalsBySubcontractForProjectRow, error) {
+	rows, err := q.db.Query(ctx, listSubcontractPaidTotalsBySubcontractForProject, arg.ProjectID, arg.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSubcontractPaidTotalsBySubcontractForProjectRow
+	for rows.Next() {
+		var i ListSubcontractPaidTotalsBySubcontractForProjectRow
+		if err := rows.Scan(&i.SubcontractID, &i.Total); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSubcontractPayments = `-- name: ListSubcontractPayments :many
+SELECT id, organization_id, project_id, subcontract_id, progress_claim_id, amount, currency, paid_date, payment_method, reference_no, description, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason FROM subcontract_payments
+WHERE subcontract_id = $1 AND organization_id = $2 AND project_id = $3
+ORDER BY paid_date DESC, created_at DESC
+`
+
+type ListSubcontractPaymentsParams struct {
+	SubcontractID  pgtype.UUID `json:"subcontract_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+}
+
+func (q *Queries) ListSubcontractPayments(ctx context.Context, arg ListSubcontractPaymentsParams) ([]SubcontractPayment, error) {
+	rows, err := q.db.Query(ctx, listSubcontractPayments, arg.SubcontractID, arg.OrganizationID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SubcontractPayment
+	for rows.Next() {
+		var i SubcontractPayment
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.ProjectID,
+			&i.SubcontractID,
+			&i.ProgressClaimID,
+			&i.Amount,
+			&i.Currency,
+			&i.PaidDate,
+			&i.PaymentMethod,
+			&i.ReferenceNo,
+			&i.Description,
+			&i.IdempotencyKey,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.VoidedAt,
+			&i.VoidedBy,
+			&i.VoidReason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const voidSubcontractPayment = `-- name: VoidSubcontractPayment :one
+UPDATE subcontract_payments SET voided_at = now(), voided_by = $4, void_reason = $5
+WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND voided_at IS NULL
+RETURNING id, organization_id, project_id, subcontract_id, progress_claim_id, amount, currency, paid_date, payment_method, reference_no, description, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason
+`
+
+type VoidSubcontractPaymentParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+	VoidedBy       pgtype.UUID `json:"voided_by"`
+	VoidReason     string      `json:"void_reason"`
+}
+
+func (q *Queries) VoidSubcontractPayment(ctx context.Context, arg VoidSubcontractPaymentParams) (SubcontractPayment, error) {
+	row := q.db.QueryRow(ctx, voidSubcontractPayment,
+		arg.ID,
+		arg.OrganizationID,
+		arg.ProjectID,
+		arg.VoidedBy,
+		arg.VoidReason,
+	)
+	var i SubcontractPayment
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ProjectID,
+		&i.SubcontractID,
+		&i.ProgressClaimID,
+		&i.Amount,
+		&i.Currency,
+		&i.PaidDate,
+		&i.PaymentMethod,
+		&i.ReferenceNo,
+		&i.Description,
+		&i.IdempotencyKey,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VoidedAt,
+		&i.VoidedBy,
+		&i.VoidReason,
+	)
+	return i, err
+}

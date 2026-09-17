@@ -1084,6 +1084,27 @@ type SubcontractItem struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type SubcontractPayment struct {
+	ID              pgtype.UUID        `json:"id"`
+	OrganizationID  pgtype.UUID        `json:"organization_id"`
+	ProjectID       pgtype.UUID        `json:"project_id"`
+	SubcontractID   pgtype.UUID        `json:"subcontract_id"`
+	ProgressClaimID pgtype.UUID        `json:"progress_claim_id"`
+	Amount          pgtype.Numeric     `json:"amount"`
+	Currency        string             `json:"currency"`
+	PaidDate        pgtype.Date        `json:"paid_date"`
+	PaymentMethod   string             `json:"payment_method"`
+	ReferenceNo     string             `json:"reference_no"`
+	Description     string             `json:"description"`
+	IdempotencyKey  *string            `json:"idempotency_key"`
+	CreatedBy       pgtype.UUID        `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	VoidedAt        pgtype.Timestamptz `json:"voided_at"`
+	VoidedBy        pgtype.UUID        `json:"voided_by"`
+	VoidReason      string             `json:"void_reason"`
+}
+
 type SubcontractProgressClaim struct {
 	ID                       pgtype.UUID        `json:"id"`
 	OrganizationID           pgtype.UUID        `json:"organization_id"`

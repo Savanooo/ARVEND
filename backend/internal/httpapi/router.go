@@ -426,6 +426,22 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/subcontract-progress-claims/{claimId}/reject", d.Projects.RejectSubcontractProgressClaim)
 			})
 
+			// Sprint 5 follow-up — Taşeron Ödemeleri (migration 0039).
+			// Sertifikasyon (subcontract_claims.certify, YUKARIDA) ödeme
+			// DEĞİLDİR -- bu GERÇEK nakit çıkışı AYRI bir izin çiftiyle
+			// (read/manage, subcontracts.approve/subcontract_claims.certify
+			// İLE AYNI "hassas karar anı" güven sınıfında ama onay durumu
+			// olmadığı için ikili) korunur.
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsSubcontractPaymentsRead))
+				r.Get("/{id}/subcontracts/{subcontractId}/payments", d.Projects.ListSubcontractPayments)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsSubcontractPaymentsManage))
+				r.Post("/{id}/subcontracts/{subcontractId}/payments", d.Projects.CreateSubcontractPayment)
+				r.Post("/{id}/subcontract-payments/{paymentId}/void", d.Projects.VoidSubcontractPayment)
+			})
+
 			// --- Faz 7: operasyon (ekip/planlama/dosya/fotoğraf/not) ---
 			r.Group(func(r chi.Router) {
 				r.Use(projPerm(domain.PermProjectsOperationsRead))

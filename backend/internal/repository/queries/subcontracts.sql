@@ -331,6 +331,58 @@ ORDER BY pci.sort_order ASC;
 -- name: DeleteSubcontractProgressClaimItems :exec
 DELETE FROM subcontract_progress_claim_items WHERE progress_claim_id = $1 AND organization_id = $2 AND project_id = $3;
 
+-- ============ Subcontract Payments (Gerçek Ödemeler) ============
+-- Sprint 5 follow-up. Collection (project_finance.sql) İLE AYNI desen:
+-- durum makinesi yok, create+void; idempotency anahtarı TAŞERON bazında
+-- (SubcontractorPayment İLE AYNI ilke, bkz. migration 0026 gerekçesi).
+
+-- name: CreateSubcontractPayment :one
+INSERT INTO subcontract_payments (
+    organization_id, project_id, subcontract_id, progress_claim_id, amount, currency,
+    paid_date, payment_method, reference_no, description, idempotency_key, created_by
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+RETURNING *;
+
+-- name: GetSubcontractPayment :one
+SELECT * FROM subcontract_payments WHERE id = $1 AND organization_id = $2 AND project_id = $3;
+
+-- name: GetSubcontractPaymentByIdempotencyKey :one
+SELECT * FROM subcontract_payments WHERE subcontract_id = $1 AND idempotency_key = $2;
+
+-- name: ListSubcontractPayments :many
+SELECT * FROM subcontract_payments
+WHERE subcontract_id = $1 AND organization_id = $2 AND project_id = $3
+ORDER BY paid_date DESC, created_at DESC;
+
+-- name: VoidSubcontractPayment :one
+UPDATE subcontract_payments SET voided_at = now(), voided_by = $4, void_reason = $5
+WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND voided_at IS NULL
+RETURNING *;
+
+-- name: GetSubcontractPaidToDate :one
+-- SubcontractValueSummary'nin PaidToDate'i -- yalnızca voidlenmemiş
+-- ödemelerin toplamı (bkz. GetSubcontractCertifiedToDate İLE AYNI savunma
+-- derinliği: organization_id/project_id doğrudan filtrelenir).
+SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
+FROM subcontract_payments
+WHERE subcontract_id = $1 AND organization_id = $2 AND project_id = $3 AND voided_at IS NULL;
+
+-- name: GetSubcontractPaidTotalForProject :one
+-- GetProjectFinancialSummary'nin new-module taşeron maliyeti CTE'si için --
+-- projedeki TÜM (henüz voidlenmemiş) taşeron ödemelerinin toplamı.
+SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
+FROM subcontract_payments
+WHERE project_id = $1 AND organization_id = $2 AND voided_at IS NULL;
+
+-- name: ListSubcontractPaidTotalsBySubcontractForProject :many
+-- GetProjectFinancialSummary'nin "kalan taahhüt" (subcontract_remaining)
+-- CTE'si için -- proje İÇİNDEKİ HER sözleşmenin kendi ödeme toplamı
+-- (sözleşme başına GREATEST(current_value - paid, 0) hesaplanabilsin diye).
+SELECT subcontract_id, sum(amount)::numeric(18,2) AS total
+FROM subcontract_payments
+WHERE project_id = $1 AND organization_id = $2 AND voided_at IS NULL
+GROUP BY subcontract_id;
+
 -- name: GetLatestCertifiedCumulativeForSubcontractItem :one
 -- Yeni bir hakediş kalemi oluşturulurken previous_progress_amount'ı
 -- OTOMATİK doldurmak için -- yalnızca SERTİFİKALI hakedişler sayılır

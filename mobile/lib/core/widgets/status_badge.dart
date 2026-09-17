@@ -89,6 +89,22 @@ abstract final class StatusRegistry {
     'closed': ('Kapatıldı', StatusTone.success),
   };
 
+  static const subcontract = {
+    'draft': ('Taslak', StatusTone.muted),
+    'active': ('Aktif', StatusTone.info),
+    'completed': ('Tamamlandı', StatusTone.success),
+    'cancelled': ('İptal Edildi', StatusTone.danger),
+    'terminated': ('Feshedildi', StatusTone.danger),
+  };
+
+  static const progressClaim = {
+    'draft': ('Taslak', StatusTone.muted),
+    'submitted': ('Gönderildi', StatusTone.info),
+    'certified': ('Sertifika Edildi', StatusTone.success),
+    'rejected': ('Reddedildi', StatusTone.danger),
+    'cancelled': ('İptal Edildi', StatusTone.danger),
+  };
+
   static const attendance = {
     'geldi': ('Geldi', StatusTone.success),
     'yarım gün': ('Yarım Gün', StatusTone.gold),

@@ -282,6 +282,8 @@ func ToDomainFinancialSummary(r sqlc.GetProjectFinancialSummaryRow) domain.Proje
 		TotalSubcontractorCommitment: NumericToFloat64(r.TotalSubcontractorCommitment),
 		SubcontractorPaid:            NumericToFloat64(r.SubcontractorPaid),
 		SubcontractorRemaining:       NumericToFloat64(r.SubcontractorRemaining),
+		NewSubcontractPaid:           NumericToFloat64(r.NewSubcontractPaid),
+		NewSubcontractRemaining:      NumericToFloat64(r.NewSubcontractRemaining),
 		IssuedInvoiceTotal:           NumericToFloat64(r.IssuedInvoiceTotal),
 		PaidInvoiceTotal:             NumericToFloat64(r.PaidInvoiceTotal),
 		RealizedCost:                 NumericToFloat64(r.RealizedCost),

@@ -23,6 +23,7 @@ import '../features/projects/presentation/project_detail_screen.dart';
 import '../features/projects/presentation/projects_screen.dart';
 import '../features/projects/presentation/purchase_order_detail_screen.dart';
 import '../features/projects/presentation/purchase_request_detail_screen.dart';
+import '../features/projects/presentation/subcontract_detail_screen.dart';
 import '../features/tasks/presentation/tasks_screen.dart';
 import 'app_shell.dart';
 
@@ -124,6 +125,13 @@ final routerProvider = Provider<GoRouter>((ref) {
                       builder: (context, state) => PurchaseOrderDetailScreen(
                         projectId: state.pathParameters['id']!,
                         poId: state.pathParameters['poId']!,
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'taseronlar/:subcontractId',
+                      builder: (context, state) => SubcontractDetailScreen(
+                        projectId: state.pathParameters['id']!,
+                        subcontractId: state.pathParameters['subcontractId']!,
                       ),
                     ),
                   ],

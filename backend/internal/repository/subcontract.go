@@ -153,6 +153,20 @@ func ToDomainProgressClaimItemDetailed(i sqlc.ListSubcontractProgressClaimItemsD
 	}
 }
 
+// ---------- Subcontract Payment (Gerçek Ödeme) ----------
+
+func ToDomainSubcontractPayment(p sqlc.SubcontractPayment) domain.SubcontractPayment {
+	return domain.SubcontractPayment{
+		ID: p.ID.String(), OrganizationID: p.OrganizationID.String(), ProjectID: p.ProjectID.String(),
+		SubcontractID: p.SubcontractID.String(), ProgressClaimID: nullableUUIDToPtr(p.ProgressClaimID),
+		Amount: NumericToFloat64(p.Amount), Currency: p.Currency, PaidDate: p.PaidDate.Time,
+		PaymentMethod: p.PaymentMethod, ReferenceNo: p.ReferenceNo, Description: p.Description,
+		CreatedBy: nullableUUIDToPtr(p.CreatedBy), CreatedAt: p.CreatedAt.Time,
+		VoidedAt: nullableTimestamptzToPtr(p.VoidedAt), VoidedBy: nullableUUIDToPtr(p.VoidedBy),
+		VoidReason: p.VoidReason,
+	}
+}
+
 // CostCodeTarget, syncSubcontractCommitments'ın maliyet-kodu bazında
 // NETLENMİŞ hedef satırıdır (bkz. docs/subcontracts.md §Commitment
 // Entegrasyonu) -- ListSubcontractItemTotalsByCostCode/

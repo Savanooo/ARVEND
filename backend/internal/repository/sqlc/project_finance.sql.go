@@ -763,6 +763,35 @@ inv AS (
         COALESCE(sum(amount) FILTER (WHERE status = 'paid'), 0)::numeric(18,2) AS paid_total
     FROM project_invoices WHERE project_id = $1 AND invoice_type = 'sales'
 ),
+new_sc_value AS (
+    SELECT sc.id,
+        (sc.original_amount + COALESCE(coe.approved_additions, 0) - COALESCE(coe.approved_deductions, 0))::numeric(18,2)
+            AS current_value
+    FROM project_subcontracts sc
+    LEFT JOIN (
+        SELECT subcontract_id,
+            COALESCE(sum(amount) FILTER (WHERE change_type = 'addition' AND status = 'approved'), 0)::numeric(18,2)
+                AS approved_additions,
+            COALESCE(sum(amount) FILTER (WHERE change_type = 'deduction' AND status = 'approved'), 0)::numeric(18,2)
+                AS approved_deductions
+        FROM subcontract_change_orders WHERE project_id = $1 AND organization_id = $2
+        GROUP BY subcontract_id
+    ) coe ON coe.subcontract_id = sc.id
+    WHERE sc.project_id = $1 AND sc.organization_id = $2 AND sc.status NOT IN ('draft', 'cancelled')
+),
+newsubpay AS (
+    SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
+    FROM subcontract_payments WHERE project_id = $1 AND organization_id = $2 AND voided_at IS NULL
+),
+newsubremaining AS (
+    SELECT COALESCE(sum(GREATEST(v.current_value - COALESCE(p.paid, 0), 0)), 0)::numeric(18,2) AS total
+    FROM new_sc_value v
+    LEFT JOIN (
+        SELECT subcontract_id, sum(amount) AS paid
+        FROM subcontract_payments WHERE project_id = $1 AND organization_id = $2 AND voided_at IS NULL
+        GROUP BY subcontract_id
+    ) p ON p.subcontract_id = v.id
+),
 co_effect AS (
     SELECT
         COALESCE(sum(grand_total) FILTER (WHERE change_type = 'addition' AND status = 'approved'), 0)::numeric(18,2)
@@ -797,12 +826,16 @@ SELECT
     subcommit.total    AS total_subcontractor_commitment,
     subpay.total       AS subcontractor_paid,
     subremaining.total AS subcontractor_remaining,
+    newsubpay.total       AS new_subcontract_paid,
+    newsubremaining.total AS new_subcontract_remaining,
     inv.issued_total   AS issued_invoice_total,
     inv.paid_total     AS paid_invoice_total,
-    (expense_total.total + subpay.total)::numeric(18,2) AS realized_cost,
-    (expense_total.total + subpay.total + subremaining.total)::numeric(18,2) AS committed_cost,
-    (current_value.total - (expense_total.total + subpay.total))::numeric(18,2) AS realized_gross_profit,
-    (current_value.total - (expense_total.total + subpay.total + subremaining.total))::numeric(18,2) AS estimated_gross_profit,
+    (expense_total.total + subpay.total + newsubpay.total)::numeric(18,2) AS realized_cost,
+    (expense_total.total + subpay.total + newsubpay.total + subremaining.total + newsubremaining.total)::numeric(18,2)
+        AS committed_cost,
+    (current_value.total - (expense_total.total + subpay.total + newsubpay.total))::numeric(18,2) AS realized_gross_profit,
+    (current_value.total - (expense_total.total + subpay.total + newsubpay.total + subremaining.total + newsubremaining.total))::numeric(18,2)
+        AS estimated_gross_profit,
     -- Marj yüzdesi matematiksel olarak SINIRSIZDIR (küçük bir sözleşme
     -- bedeline karşı çok büyük bir maliyet girilirse oran patlar). Cast
     -- overflow'la 500 üretmek yerine GREATEST/LEAST ile makul ama geniş
@@ -814,13 +847,13 @@ SELECT
     -- döner -- sıfıra bölme yoktur.
     CASE WHEN current_value.total > 0
          THEN GREATEST(-99999999.99, LEAST(99999999.99,
-              round((current_value.total - (expense_total.total + subpay.total)) * 100 / current_value.total, 2)))
+              round((current_value.total - (expense_total.total + subpay.total + newsubpay.total)) * 100 / current_value.total, 2)))
          ELSE 0 END::numeric(10,2) AS realized_margin_percent,
     CASE WHEN current_value.total > 0
          THEN GREATEST(-99999999.99, LEAST(99999999.99,
-              round((current_value.total - (expense_total.total + subpay.total + subremaining.total)) * 100 / current_value.total, 2)))
+              round((current_value.total - (expense_total.total + subpay.total + newsubpay.total + subremaining.total + newsubremaining.total)) * 100 / current_value.total, 2)))
          ELSE 0 END::numeric(10,2) AS estimated_margin_percent
-FROM proj, coll, planned, expense_total, subpay, subcommit, subremaining, inv, co_effect, current_value
+FROM proj, coll, planned, expense_total, subpay, subcommit, subremaining, newsubpay, newsubremaining, inv, co_effect, current_value
 `
 
 type GetProjectFinancialSummaryParams struct {
@@ -845,6 +878,8 @@ type GetProjectFinancialSummaryRow struct {
 	TotalSubcontractorCommitment pgtype.Numeric `json:"total_subcontractor_commitment"`
 	SubcontractorPaid            pgtype.Numeric `json:"subcontractor_paid"`
 	SubcontractorRemaining       pgtype.Numeric `json:"subcontractor_remaining"`
+	NewSubcontractPaid           pgtype.Numeric `json:"new_subcontract_paid"`
+	NewSubcontractRemaining      pgtype.Numeric `json:"new_subcontract_remaining"`
 	IssuedInvoiceTotal           pgtype.Numeric `json:"issued_invoice_total"`
 	PaidInvoiceTotal             pgtype.Numeric `json:"paid_invoice_total"`
 	RealizedCost                 pgtype.Numeric `json:"realized_cost"`
@@ -889,6 +924,8 @@ func (q *Queries) GetProjectFinancialSummary(ctx context.Context, arg GetProject
 		&i.TotalSubcontractorCommitment,
 		&i.SubcontractorPaid,
 		&i.SubcontractorRemaining,
+		&i.NewSubcontractPaid,
+		&i.NewSubcontractRemaining,
 		&i.IssuedInvoiceTotal,
 		&i.PaidInvoiceTotal,
 		&i.RealizedCost,

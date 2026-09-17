@@ -289,11 +289,18 @@ type ProjectFinancialSummary struct {
 	TotalSubcontractorCommitment float64
 	SubcontractorPaid            float64
 	SubcontractorRemaining       float64
-	IssuedInvoiceTotal           float64
-	PaidInvoiceTotal             float64
-	// RealizedCost: gerçekleşen masraflar + taşerona GERÇEKTEN ödenen.
+	// Sprint 5 follow-up: legacy taşeron ödemelerinin (yukarıda) AYRI,
+	// paralel kaynağı -- yeni "project_subcontracts" (Sprint 5) sözleşmelerine
+	// yapılan GERÇEK ödemeler (bkz. migration 0039). Fiziksel olarak farklı
+	// tablolara bağlı oldukları için RealizedCost/CommittedCost'a SAF TOPLAMA
+	// ile katılırlar, çift sayım riski yoktur (bkz. docs/subcontracts.md).
+	NewSubcontractPaid      float64
+	NewSubcontractRemaining float64
+	IssuedInvoiceTotal      float64
+	PaidInvoiceTotal        float64
+	// RealizedCost: gerçekleşen masraflar + taşerona (legacy+yeni) GERÇEKTEN ödenen.
 	RealizedCost float64
-	// CommittedCost: gerçekleşen + taşeron sözleşmelerinin kalan taahhüdü.
+	// CommittedCost: gerçekleşen + taşeron sözleşmelerinin (legacy+yeni) kalan taahhüdü.
 	CommittedCost          float64
 	RealizedGrossProfit    float64
 	EstimatedGrossProfit   float64
