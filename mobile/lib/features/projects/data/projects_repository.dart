@@ -137,6 +137,21 @@ class ProjectsRepository {
     return (json['files'] as List).cast<Map<String, dynamic>>().map(ProjectFile.fromJson).toList();
   }
 
+
+
+  Future<List<ProjectNote>> notes(String projectId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/notes');
+    return (json['notes'] as List).cast<Map<String, dynamic>>().map(ProjectNote.fromJson).toList();
+  }
+
+  Future<ProjectNote> createNote(String projectId, {required String content}) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/notes',
+      data: {'content': content},
+    );
+    return ProjectNote.fromJson(json);
+  }
+
   String photoContentUrl(String projectId, String photoId) =>
       '${_client.dio.options.baseUrl}/projects/$projectId/photos/$photoId/content';
 

@@ -16,6 +16,7 @@ import '../data/projects_providers.dart';
 import '../domain/project.dart';
 import 'collection_form_sheet.dart';
 import 'expense_form_sheet.dart';
+import 'note_form_sheet.dart';
 
 /// RBAC/Project Membership sprint'i: sekmeler kullanıcının izin kümesine
 /// göre GİZLENİR (spec: "no finance section shown without finance
@@ -56,6 +57,7 @@ final _tabDefs = <_TabDef>[
   _TabDef('Taşeronlar', 'projects.subcontracts.read', (id, p) => _SubcontractsTab(projectId: id)),
   _TabDef('Operasyon', 'projects.tasks.read', (id, p) => _OperationsTab(projectId: id)),
   _TabDef('Dosyalar', 'projects.operations.read', (id, p) => _FilesTab(projectId: id)),
+  _TabDef('Notlar', 'projects.operations.read', (id, p) => _NotesTab(projectId: id)),
   _TabDef('Aktivite', null, (id, p) => _ActivityTab(projectId: id)),
 ];
 
@@ -986,3 +988,80 @@ class _InfoRow extends StatelessWidget {
     );
   }
 }
+
+
+class _NotesTab extends ConsumerWidget {
+  const _NotesTab({required this.projectId});
+  final String projectId;
+
+  Future<void> _addNote(BuildContext context, WidgetRef ref) async {
+    final created = await showNoteFormSheet(context, projectId);
+    if (created == null) return;
+    ref.invalidate(projectNotesProvider(projectId));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Not kaydedildi')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notesAsync = ref.watch(projectNotesProvider(projectId));
+    final user = ref.watch(authControllerProvider).valueOrNull;
+    final canCreate =
+        user == null || user.permissions.isEmpty || user.hasPermission('projects.operations.manage');
+
+    return RefreshIndicator(
+      onRefresh: () async => ref.invalidate(projectNotesProvider(projectId)),
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Proje Notları', style: TextStyle(fontWeight: FontWeight.w700)),
+              if (canCreate)
+                FilledButton.tonalIcon(
+                  onPressed: () => _addNote(context, ref),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Not Ekle'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          AsyncStateView<List<ProjectNote>>(
+            value: notesAsync,
+            onRetry: () async => ref.invalidate(projectNotesProvider(projectId)),
+            isEmpty: (notes) => notes.isEmpty,
+            emptyBuilder: (_) => const EmptyStateView(message: 'Henüz not yok.'),
+            data: (context, notes) => Column(
+              children: [
+                for (final note in notes)
+                  Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(note.content),
+                          const SizedBox(height: 8),
+                          Text(
+                            [
+                              if (note.createdByName.isNotEmpty) note.createdByName,
+                              if (note.createdAt.isNotEmpty) Formatters.dateTime(note.createdAt),
+                            ].join(' · '),
+                            style: const TextStyle(color: Colors.black54, fontSize: 12.5),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+

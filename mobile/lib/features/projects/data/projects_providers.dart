@@ -90,3 +90,7 @@ final subcontractProgressClaimsProvider = FutureProvider.autoDispose
     .family<List<ProgressClaim>, ({String projectId, String subcontractId})>(
   (ref, args) => ref.watch(projectsRepositoryProvider).subcontractProgressClaims(args.projectId, args.subcontractId),
 );
+
+final projectNotesProvider = FutureProvider.autoDispose.family<List<ProjectNote>, String>(
+  (ref, id) => ref.watch(projectsRepositoryProvider).notes(id),
+);

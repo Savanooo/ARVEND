@@ -320,6 +320,30 @@ class ProjectFile {
       );
 }
 
+/// Proje saha notu - GET/POST /projects/{id}/notes
+/// (backend noteResponse: id, content, created_by_name, created_at).
+class ProjectNote {
+  final String id;
+  final String content;
+  final String createdByName;
+  final String createdAt;
+
+  const ProjectNote({
+    required this.id,
+    required this.content,
+    required this.createdByName,
+    required this.createdAt,
+  });
+
+  factory ProjectNote.fromJson(Map<String, dynamic> json) => ProjectNote(
+        id: json['id'] as String,
+        content: json['content'] as String? ?? '',
+        createdByName: json['created_by_name'] as String? ?? '',
+        createdAt: json['created_at'] as String? ?? '',
+      );
+}
+
+
 /// Sprint 2 — WBS + Maliyet Kodları + Proje Bütçesi + Maliyet Kontrolü.
 /// `GET /projects/{id}/cost-control` — özet+kırılım TEK istekte (N+1 yok).
 /// Mobil bu sprintte YALNIZCA OKUMA amaçlıdır (bkz. docs/cost-control.md
