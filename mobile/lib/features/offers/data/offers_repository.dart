@@ -25,6 +25,35 @@ class OffersRepository {
     return (json['revisions'] as List).cast<Map<String, dynamic>>().map(OfferRevision.fromJson).toList();
   }
 
+  Future<OfferRevision> getRevision(String offerId, String revisionId) async {
+    final json = await _client.get<Map<String, dynamic>>('/offers/$offerId/revisions/$revisionId');
+    return OfferRevision.fromJson(json);
+  }
+
+  Map<String, dynamic> _offerBody({
+    String? customerId,
+    String customerName = '',
+    String customerPhone = '',
+    String customerEmail = '',
+    String customerAddress = '',
+    String? validUntil,
+    String notes = '',
+    double? vatRate,
+    required List<OfferItem> items,
+    required bool includeInternalPricing,
+  }) =>
+      {
+        'customer_id': customerId,
+        'customer_name': customerName,
+        'customer_phone': customerPhone,
+        'customer_email': customerEmail,
+        'customer_address': customerAddress,
+        'valid_until': validUntil,
+        'notes': notes,
+        'vat_rate': vatRate,
+        'items': items.map((e) => e.toJson(includeInternalPricing: includeInternalPricing)).toList(),
+      };
+
   Future<Offer> create({
     String? customerId,
     String customerName = '',
@@ -35,18 +64,55 @@ class OffersRepository {
     String notes = '',
     double? vatRate,
     required List<OfferItem> items,
+    bool includeInternalPricing = false,
   }) async {
-    final json = await _client.post<Map<String, dynamic>>('/offers/', data: {
-      'customer_id': customerId,
-      'customer_name': customerName,
-      'customer_phone': customerPhone,
-      'customer_email': customerEmail,
-      'customer_address': customerAddress,
-      'valid_until': validUntil,
-      'notes': notes,
-      'vat_rate': vatRate,
-      'items': items.map((e) => e.toJson()).toList(),
-    });
+    final json = await _client.post<Map<String, dynamic>>(
+      '/offers/',
+      data: _offerBody(
+        customerId: customerId,
+        customerName: customerName,
+        customerPhone: customerPhone,
+        customerEmail: customerEmail,
+        customerAddress: customerAddress,
+        validUntil: validUntil,
+        notes: notes,
+        vatRate: vatRate,
+        items: items,
+        includeInternalPricing: includeInternalPricing,
+      ),
+    );
+    return Offer.fromJson(json);
+  }
+
+  /// PUT /offers/{id} — yalnızca status=taslak iken (backend ErrOfferNotEditable).
+  Future<Offer> update(
+    String id, {
+    String? customerId,
+    String customerName = '',
+    String customerPhone = '',
+    String customerEmail = '',
+    String customerAddress = '',
+    String? validUntil,
+    String notes = '',
+    double? vatRate,
+    required List<OfferItem> items,
+    bool includeInternalPricing = false,
+  }) async {
+    final json = await _client.put<Map<String, dynamic>>(
+      '/offers/$id',
+      data: _offerBody(
+        customerId: customerId,
+        customerName: customerName,
+        customerPhone: customerPhone,
+        customerEmail: customerEmail,
+        customerAddress: customerAddress,
+        validUntil: validUntil,
+        notes: notes,
+        vatRate: vatRate,
+        items: items,
+        includeInternalPricing: includeInternalPricing,
+      ),
+    );
     return Offer.fromJson(json);
   }
 

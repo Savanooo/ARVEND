@@ -19,6 +19,12 @@ final offerRevisionsProvider = FutureProvider.autoDispose.family<List<OfferRevis
   (ref, id) => ref.watch(offersRepositoryProvider).revisions(id),
 );
 
+typedef OfferRevisionKey = ({String offerId, String revisionId});
+
+final offerRevisionDetailProvider = FutureProvider.autoDispose.family<OfferRevision, OfferRevisionKey>(
+  (ref, key) => ref.watch(offersRepositoryProvider).getRevision(key.offerId, key.revisionId),
+);
+
 final offerHasProjectProvider = FutureProvider.autoDispose.family<bool, String>(
   (ref, id) => ref.watch(offersRepositoryProvider).hasProject(id),
 );

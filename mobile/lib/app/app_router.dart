@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -14,6 +14,7 @@ import '../features/attendance/presentation/attendance_screen.dart';
 import '../features/offers/domain/offer.dart';
 import '../features/offers/presentation/offer_create_screen.dart';
 import '../features/offers/presentation/offer_detail_screen.dart';
+import '../features/offers/presentation/offer_revision_detail_screen.dart';
 import '../features/offers/presentation/offers_screen.dart';
 import '../features/onboarding/presentation/onboarding_wizard_screen.dart';
 import '../features/onboarding/presentation/organization_settings_screen.dart';
@@ -150,9 +151,22 @@ final routerProvider = Provider<GoRouter>((ref) {
                       OfferCreateScreen(initialCalcItems: state.extra as List<OfferItem>?),
                 ),
                 GoRoute(
+                  path: ':id/duzenle',
+                  builder: (context, state) =>
+                      OfferCreateScreen(offerId: state.pathParameters['id']),
+                ),
+                GoRoute(
+                  path: ':id/revizyonlar/:revisionId',
+                  builder: (context, state) => OfferRevisionDetailScreen(
+                    offerId: state.pathParameters['id']!,
+                    revisionId: state.pathParameters['revisionId']!,
+                  ),
+                ),
+                GoRoute(
                   path: ':id',
                   builder: (context, state) => OfferDetailScreen(offerId: state.pathParameters['id']!),
                 ),
+
               ],
             ),
           ]),
@@ -190,3 +204,4 @@ final routerProvider = Provider<GoRouter>((ref) {
     ],
   );
 });
+
