@@ -273,6 +273,42 @@ func (h *ProjectHandler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	httpjson.Write(w, http.StatusOK, toTaskResponse(*t))
 }
 
+type myTaskResponse struct {
+	taskResponse
+	ProjectID   string `json:"project_id"`
+	ProjectName string `json:"project_name"`
+}
+
+func toMyTaskResponse(t service.MyTask) myTaskResponse {
+	return myTaskResponse{
+		taskResponse: toTaskResponse(t.ProjectTask),
+		ProjectID:    t.ProjectID,
+		ProjectName:  t.ProjectName,
+	}
+}
+
+// ListMyTasks, GET /api/v1/tasks/mine -- cross-project gorev listesi.
+// Proje uyelik kisiti ListProjects ile ayni (AuthzContext).
+func (h *ProjectHandler) ListMyTasks(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	statusMode := r.URL.Query().Get("status")
+	var restrictToUserID string
+	if authz, ok := middleware.AuthzContextFromRequest(r.Context()); ok && !authz.BypassesProjectMembership() {
+		restrictToUserID = authz.UserID
+	}
+	rows, err := h.svc.ListMyTasks(r.Context(), orgID, statusMode, restrictToUserID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	out := make([]myTaskResponse, len(rows))
+	for i, t := range rows {
+		out[i] = toMyTaskResponse(t)
+	}
+	httpjson.Write(w, http.StatusOK, map[string]any{"tasks": out})
+}
+
+
 // ---------- Dosyalar ----------
 
 type fileResponse struct {

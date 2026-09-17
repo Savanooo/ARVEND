@@ -10,8 +10,7 @@ import '../../../core/widgets/status_badge.dart';
 import '../../projects/data/projects_providers.dart';
 import '../data/tasks_providers.dart';
 
-/// bkz. tasks_providers.dart - backend'de cross-project görev ucu yok,
-/// bu ekran aktif/planlanan projelerin açık görevlerini birleştirir.
+/// Global görevler — GET /tasks/mine (tek sorgu).
 class TasksScreen extends ConsumerWidget {
   const TasksScreen({super.key});
 

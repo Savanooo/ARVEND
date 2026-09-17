@@ -488,6 +488,11 @@ func NewRouter(d Deps) http.Handler {
 			})
 		})
 
+		// Cross-project "benim gorevlerim" -- proje dongusu yerine tek sorgu.
+		// Org-seviyesinde projects.tasks.read; proje uyelik filtresi handler icinde.
+		r.With(requireAuth, requireOnboarded, loadAuthorization, perm(domain.PermProjectsTasksRead)).
+			Get("/tasks/mine", d.Projects.ListMyTasks)
+
 		r.Route("/customers", func(r chi.Router) {
 			r.Use(requireAuth, requireOnboarded, loadAuthorization)
 			// Teklif oluşturan herkes müşteri seçebilmeli/ekleyebilmeli --

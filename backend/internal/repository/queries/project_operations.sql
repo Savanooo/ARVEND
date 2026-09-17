@@ -205,3 +205,44 @@ RETURNING *;
 -- name: DeleteProjectNote :execrows
 -- project_id EKLENDİ (bkz. GetProjectMember notu).
 DELETE FROM project_notes WHERE id = $1 AND organization_id = $2 AND project_id = $3;
+
+-- ============ Cross-project my tasks ============
+-- ListMyTasks: authenticated kullanicinin erisebildigi projelerdeki
+-- gorevleri TEK sorguda dondurur. Mobil O(N) proje dongusunun yerini alir.
+--
+-- status_mode:
+--   open  -> todo + in_progress (mobil varsayilan)
+--   all   -> durum filtresi yok
+--   diger -> tam eslesen status (todo|in_progress|completed|cancelled)
+--
+-- restrict_to_user_id: ListProjects ile AYNI kural -- NULL ise (owner/admin/
+-- legacy_user) org daki tum projeler; dolu ise yalnizca project_users uyeligi.
+-- name: ListMyTasks :many
+SELECT t.*, p.name AS project_name
+FROM project_tasks t
+INNER JOIN projects p ON p.id = t.project_id AND p.organization_id = t.organization_id
+WHERE t.organization_id = $1
+  AND (
+    CASE
+      WHEN $2::text = 'open' THEN t.status IN ('todo', 'in_progress')
+      WHEN $2::text = 'all' THEN TRUE
+      ELSE t.status = $2::text
+    END
+  )
+  AND (
+    $3::uuid IS NULL
+    OR EXISTS (
+      SELECT 1 FROM project_users pu
+      WHERE pu.project_id = t.project_id
+        AND pu.user_id = $3::uuid
+    )
+  )
+ORDER BY
+  CASE
+    WHEN t.status IN ('todo', 'in_progress')
+         AND t.due_date IS NOT NULL
+         AND t.due_date < CURRENT_DATE THEN 0
+    ELSE 1
+  END,
+  t.due_date ASC NULLS LAST,
+  t.created_at ASC;

@@ -102,6 +102,23 @@ class ProjectsRepository {
     return (json['tasks'] as List).cast<Map<String, dynamic>>().map(ProjectTask.fromJson).toList();
   }
 
+  /// GET /tasks/mine — org+proje erişimindeki görevler (tek sorgu; O(N) döngü yok).
+  Future<List<(ProjectTask, String, String)>> myTasks({String status = 'open'}) async {
+    final json = await _client.get<Map<String, dynamic>>(
+      '/tasks/mine',
+      query: {'status': status},
+    );
+    final list = (json['tasks'] as List).cast<Map<String, dynamic>>();
+    return [
+      for (final m in list)
+        (
+          ProjectTask.fromJson(m),
+          m['project_id'] as String? ?? '',
+          m['project_name'] as String? ?? '',
+        ),
+    ];
+  }
+
   Future<ProjectTask> completeTask(String projectId, String taskId) async {
     final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/tasks/$taskId/complete');
     return ProjectTask.fromJson(json);

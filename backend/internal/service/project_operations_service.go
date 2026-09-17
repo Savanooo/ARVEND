@@ -524,8 +524,72 @@ func (s *ProjectService) ListTasks(ctx context.Context, projectID, organizationI
 	return out, nil
 }
 
-// projectID, URL'deki proje kimliğidir -- taskID'nin GERÇEKTEN bu projeye
-// ait olduğunu sorgu seviyesinde doğrular (bkz. IDOR denetim bulgusu).
+// MyTask, global Gorevler listesi icin proje adini da tasiyan gorevdir.
+type MyTask struct {
+	domain.ProjectTask
+	ProjectName string
+}
+
+// ListMyTasks, kullanicinin erisebildigi projelerdeki gorevleri TEK sorguda doner.
+// statusMode: "open" (todo+in_progress, varsayilan), "all", veya somut bir status.
+// restrictToUserID, ListProjects ile ayni: owner/admin/legacy icin bos;
+// uyelik-kisitli roller icin cagiranin user id'si.
+func (s *ProjectService) ListMyTasks(ctx context.Context, organizationID, statusMode, restrictToUserID string) ([]MyTask, error) {
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	mode := strings.TrimSpace(statusMode)
+	if mode == "" {
+		mode = "open"
+	}
+	switch mode {
+	case "open", "all", domain.TaskStatusTodo, domain.TaskStatusInProgress, domain.TaskStatusCompleted, domain.TaskStatusCancelled:
+	default:
+		return nil, errors.New("gecersiz status filtresi")
+	}
+	var restrict pgtype.UUID
+	if restrictToUserID != "" {
+		uid, err := repository.StringToUUID(restrictToUserID)
+		if err != nil {
+			return nil, domain.ErrNotFound
+		}
+		restrict = uid
+	}
+	rows, err := s.q.ListMyTasks(ctx, sqlc.ListMyTasksParams{
+		OrganizationID:   orgID,
+		StatusMode:       mode,
+		RestrictToUserID: restrict,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MyTask, 0, len(rows))
+	for _, r := range rows {
+		task := repository.ToDomainTask(sqlc.ProjectTask{
+			ID:                 r.ID,
+			OrganizationID:     r.OrganizationID,
+			ProjectID:          r.ProjectID,
+			ScheduleItemID:     r.ScheduleItemID,
+			Title:              r.Title,
+			Description:        r.Description,
+			AssignedEmployeeID: r.AssignedEmployeeID,
+			AssignedName:       r.AssignedName,
+			Priority:           r.Priority,
+			Status:             r.Status,
+			DueDate:            r.DueDate,
+			CompletedAt:        r.CompletedAt,
+			CreatedBy:          r.CreatedBy,
+			CreatedAt:          r.CreatedAt,
+			UpdatedAt:          r.UpdatedAt,
+		})
+		out = append(out, MyTask{ProjectTask: task, ProjectName: r.ProjectName})
+	}
+	return out, nil
+}
+
+// projectID, URL'deki proje kimligidir -- taskID'nin GERCEKTEN bu projeye
+// ait oldugunu sorgu seviyesinde dogrular (bkz. IDOR denetim bulgusu).
 func (s *ProjectService) UpdateTask(ctx context.Context, projectID, taskID, organizationID string, in TaskInput) (*domain.ProjectTask, error) {
 	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
