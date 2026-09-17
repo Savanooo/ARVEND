@@ -20,6 +20,7 @@ export default async function TeklifRevizyonDetayPage({
     `/api/v1/offers/${id}/revisions/${revisionId}`,
     cookieHeader
   );
+  const hasInternalPricing = revision.items?.some((it) => it.internal_pricing) ?? false;
 
   return (
     <>
@@ -35,6 +36,12 @@ export default async function TeklifRevizyonDetayPage({
                   <Th className="text-right">Miktar</Th>
                   <Th className="text-right">Birim Fiyat</Th>
                   <Th className="text-right">Tutar</Th>
+                  {hasInternalPricing && (
+                    <>
+                      <Th className="text-right text-gold">İç Maliyet</Th>
+                      <Th className="text-right text-gold">Beklenen Kâr</Th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -44,6 +51,16 @@ export default async function TeklifRevizyonDetayPage({
                     <Td className="text-right">{it.quantity}</Td>
                     <Td className="text-right">{formatTL(it.unit_price)}</Td>
                     <Td className="text-right font-medium">{formatTL(it.line_total)}</Td>
+                    {hasInternalPricing && (
+                      <>
+                        <Td className="text-right text-text-muted">
+                          {it.internal_pricing ? formatTL(it.internal_pricing.cost) : "—"}
+                        </Td>
+                        <Td className="text-right text-text-muted">
+                          {it.internal_pricing ? formatTL(it.internal_pricing.expected_profit) : "—"}
+                        </Td>
+                      </>
+                    )}
                   </Tr>
                 ))}
               </tbody>

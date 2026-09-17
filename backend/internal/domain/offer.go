@@ -51,6 +51,52 @@ type OfferItem struct {
 	SectionLabel   *string
 	CalcCategoryID *string
 	CalcSnapshot   json.RawMessage
+
+	// InternalSubcontractCost/PricingMode/MarkupPercent: İç Taşeron
+	// Fiyatlama (bkz. migration 0040) — kalemin ASLA müşteriye gösterilmeyen
+	// iç maliyet varsayımı. nil ise bu kaleme iç fiyatlama uygulanmamıştır
+	// (ör. malzeme/ürün kalemi). GÜVENLİK SINIRI bu struct'ta DEĞİL, HTTP
+	// serialization katmanındadır (bkz. handler/offer_handler.go
+	// toOfferResponse/attachInternalPricing yorumu) — domain.OfferItem her
+	// zaman TAM veriyi taşır, personel/müşteri ayrımı yalnızca yanıt
+	// oluşturulurken yapılır.
+	//
+	// PricingMode == "markup": UnitPrice sunucuda
+	// InternalSubcontractCost*(1+MarkupPercent/100) olarak OTORİTER hesaplanır.
+	// PricingMode == "manual": UnitPrice kullanıcının elle girdiği değerdir,
+	// maliyet/markup'tan ASLA otomatik ÜZERİNE YAZILMAZ.
+	InternalSubcontractCost *float64
+	PricingMode             *string
+	MarkupPercent           *float64
+}
+
+const (
+	OfferItemPricingModeMarkup = "markup"
+	OfferItemPricingModeManual = "manual"
+)
+
+// ExpectedProfit, iç maliyet girilmişse (satış fiyatı - maliyet) döner --
+// KASITLI OLARAK persist edilmez (redundant hesaplanmış değer yerine
+// otoriter girdi saklama ilkesi, bkz. migration 0040), her okumada
+// UnitPrice/InternalSubcontractCost'tan türetilir.
+func (it OfferItem) ExpectedProfit() *float64 {
+	if it.InternalSubcontractCost == nil {
+		return nil
+	}
+	p := round2(it.UnitPrice - *it.InternalSubcontractCost)
+	return &p
+}
+
+// EffectiveMarkupPercent, GERÇEKTE uygulanmış marjı döner -- 'manual' modda
+// (elle girilen satış fiyatı) bu, kullanıcının hedeflediği bir MarkupPercent
+// olmayabilir, satış fiyatının maliyete göre GERÇEK oranıdır (ör. spec
+// örneğindeki 35.714...%). Maliyet 0/nil ise sıfıra bölme olmadan nil döner.
+func (it OfferItem) EffectiveMarkupPercent() *float64 {
+	if it.InternalSubcontractCost == nil || *it.InternalSubcontractCost <= 0 {
+		return nil
+	}
+	m := round2((it.UnitPrice - *it.InternalSubcontractCost) * 100 / *it.InternalSubcontractCost)
+	return &m
 }
 
 // Offer, teklifin kimliğini ve lifecycle bilgisini taşır -- gerçek içerik

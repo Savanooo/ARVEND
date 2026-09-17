@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
+import { getCurrentUser } from "@/lib/auth";
 import type { Offer } from "@/lib/types";
 
 import { OfferForm } from "../../OfferForm";
@@ -14,7 +15,10 @@ export default async function TeklifDuzenlePage({
 }) {
   const { id } = await params;
   const cookieHeader = (await cookies()).toString();
-  const offer = await apiServer<Offer>(`/api/v1/offers/${id}`, cookieHeader);
+  const [offer, user] = await Promise.all([
+    apiServer<Offer>(`/api/v1/offers/${id}`, cookieHeader),
+    getCurrentUser(),
+  ]);
 
   // Yalnızca taslak teklifler düzenlenebilir -- backend zaten bunu
   // zorunlu kılıyor (409), burada yalnızca gereksiz bir form gösterimini
@@ -23,10 +27,12 @@ export default async function TeklifDuzenlePage({
     redirect(`/teklifler/${id}`);
   }
 
+  const canManageInternalPricing = user?.permissions?.includes("offers.internal_pricing.manage") ?? false;
+
   return (
     <>
       <PageHeader title={`${offer.offer_no} — Düzenle`} />
-      <OfferForm offer={offer} />
+      <OfferForm offer={offer} canManageInternalPricing={canManageInternalPricing} />
     </>
   );
 }

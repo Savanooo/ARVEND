@@ -99,37 +99,46 @@ func (q *Queries) CreateOfferRevision(ctx context.Context, arg CreateOfferRevisi
 const createOfferRevisionItem = `-- name: CreateOfferRevisionItem :one
 INSERT INTO offer_revision_items (
     revision_id, product_id, product_name, quantity, unit_price, discount_type, discount_value,
-    line_total, sort_order, unit, section_label, calc_category_id, calc_snapshot
+    line_total, sort_order, unit, section_label, calc_category_id, calc_snapshot,
+    internal_subcontract_cost, pricing_mode, markup_percent
 )
 VALUES (
     $1, $2, $3, $4,
     $5, $6, $7, $8,
     $9, $10, $11, $12,
-    $13
+    $13, $14, $15,
+    $16
 )
-RETURNING id, revision_id, product_id, product_name, quantity, unit_price, discount_type, discount_value, line_total, sort_order, unit, section_label, calc_category_id, calc_snapshot
+RETURNING id, revision_id, product_id, product_name, quantity, unit_price, discount_type, discount_value, line_total, sort_order, unit, section_label, calc_category_id, calc_snapshot, internal_subcontract_cost, pricing_mode, markup_percent
 `
 
 type CreateOfferRevisionItemParams struct {
-	RevisionID     pgtype.UUID    `json:"revision_id"`
-	ProductID      pgtype.UUID    `json:"product_id"`
-	ProductName    string         `json:"product_name"`
-	Quantity       pgtype.Numeric `json:"quantity"`
-	UnitPrice      pgtype.Numeric `json:"unit_price"`
-	DiscountType   string         `json:"discount_type"`
-	DiscountValue  pgtype.Numeric `json:"discount_value"`
-	LineTotal      pgtype.Numeric `json:"line_total"`
-	SortOrder      int32          `json:"sort_order"`
-	Unit           string         `json:"unit"`
-	SectionLabel   *string        `json:"section_label"`
-	CalcCategoryID pgtype.UUID    `json:"calc_category_id"`
-	CalcSnapshot   []byte         `json:"calc_snapshot"`
+	RevisionID              pgtype.UUID    `json:"revision_id"`
+	ProductID               pgtype.UUID    `json:"product_id"`
+	ProductName             string         `json:"product_name"`
+	Quantity                pgtype.Numeric `json:"quantity"`
+	UnitPrice               pgtype.Numeric `json:"unit_price"`
+	DiscountType            string         `json:"discount_type"`
+	DiscountValue           pgtype.Numeric `json:"discount_value"`
+	LineTotal               pgtype.Numeric `json:"line_total"`
+	SortOrder               int32          `json:"sort_order"`
+	Unit                    string         `json:"unit"`
+	SectionLabel            *string        `json:"section_label"`
+	CalcCategoryID          pgtype.UUID    `json:"calc_category_id"`
+	CalcSnapshot            []byte         `json:"calc_snapshot"`
+	InternalSubcontractCost pgtype.Numeric `json:"internal_subcontract_cost"`
+	PricingMode             *string        `json:"pricing_mode"`
+	MarkupPercent           pgtype.Numeric `json:"markup_percent"`
 }
 
 // unit/section_label/calc_category_id/calc_snapshot: Metraj Hesaplama
 // entegrasyonu (Faz M2) -- serbest/elle girilen kalemlerde hepsi boş/NULL
 // kalır. calc_snapshot bir kez yazılır, offer_revisions ilkesiyle AYNI
 // şekilde bir daha ASLA güncellenmez (yeni revizyon = yeni satır).
+// internal_subcontract_cost/pricing_mode/markup_percent: İç Taşeron
+// Fiyatlama (migration 0040) -- ASLA müşteriye dönmez (bkz. offer_handler.go
+// toOfferResponse yorumu), üçü de NULL olabilir (iç fiyatlama uygulanmayan
+// kalem).
 func (q *Queries) CreateOfferRevisionItem(ctx context.Context, arg CreateOfferRevisionItemParams) (OfferRevisionItem, error) {
 	row := q.db.QueryRow(ctx, createOfferRevisionItem,
 		arg.RevisionID,
@@ -145,6 +154,9 @@ func (q *Queries) CreateOfferRevisionItem(ctx context.Context, arg CreateOfferRe
 		arg.SectionLabel,
 		arg.CalcCategoryID,
 		arg.CalcSnapshot,
+		arg.InternalSubcontractCost,
+		arg.PricingMode,
+		arg.MarkupPercent,
 	)
 	var i OfferRevisionItem
 	err := row.Scan(
@@ -162,6 +174,9 @@ func (q *Queries) CreateOfferRevisionItem(ctx context.Context, arg CreateOfferRe
 		&i.SectionLabel,
 		&i.CalcCategoryID,
 		&i.CalcSnapshot,
+		&i.InternalSubcontractCost,
+		&i.PricingMode,
+		&i.MarkupPercent,
 	)
 	return i, err
 }
@@ -226,7 +241,7 @@ func (q *Queries) GetOfferRevisionByID(ctx context.Context, arg GetOfferRevision
 }
 
 const listOfferRevisionItems = `-- name: ListOfferRevisionItems :many
-SELECT id, revision_id, product_id, product_name, quantity, unit_price, discount_type, discount_value, line_total, sort_order, unit, section_label, calc_category_id, calc_snapshot FROM offer_revision_items WHERE revision_id = $1 ORDER BY sort_order ASC
+SELECT id, revision_id, product_id, product_name, quantity, unit_price, discount_type, discount_value, line_total, sort_order, unit, section_label, calc_category_id, calc_snapshot, internal_subcontract_cost, pricing_mode, markup_percent FROM offer_revision_items WHERE revision_id = $1 ORDER BY sort_order ASC
 `
 
 func (q *Queries) ListOfferRevisionItems(ctx context.Context, revisionID pgtype.UUID) ([]OfferRevisionItem, error) {
@@ -253,6 +268,9 @@ func (q *Queries) ListOfferRevisionItems(ctx context.Context, revisionID pgtype.
 			&i.SectionLabel,
 			&i.CalcCategoryID,
 			&i.CalcSnapshot,
+			&i.InternalSubcontractCost,
+			&i.PricingMode,
+			&i.MarkupPercent,
 		); err != nil {
 			return nil, err
 		}

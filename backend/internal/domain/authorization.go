@@ -88,6 +88,12 @@ const (
 	PermOffersUpdate               = "offers.update"
 	PermOffersApprove              = "offers.approve"
 	PermOffersDelete               = "offers.delete"
+	// İç Taşeron Fiyatlama (bkz. migration 0040) -- offers.read'den
+	// KASITLI OLARAK AYRI: teklifi okuyabilen HERKES iç maliyet/marj/kâr
+	// görmemeli (ticari açıdan hassas). Onay durumu YOKTUR, bu yüzden
+	// subcontract_payments İLE AYNI ilkeyle yalnızca read/manage ikilisi.
+	PermOffersInternalPricingRead   = "offers.internal_pricing.read"
+	PermOffersInternalPricingManage = "offers.internal_pricing.manage"
 	PermCalculationsRead           = "calculations.read"
 	PermCalculationsManage         = "calculations.manage"
 	PermProductsRead               = "products.read"

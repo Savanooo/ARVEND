@@ -193,6 +193,10 @@ type OfferRevisionItem struct {
 	SectionLabel   *string        `json:"section_label"`
 	CalcCategoryID pgtype.UUID    `json:"calc_category_id"`
 	CalcSnapshot   []byte         `json:"calc_snapshot"`
+	// İç Taşeron Fiyatlama (migration 0040) -- bkz. domain.OfferItem yorumu.
+	InternalSubcontractCost pgtype.Numeric `json:"internal_subcontract_cost"`
+	PricingMode             *string        `json:"pricing_mode"`
+	MarkupPercent           pgtype.Numeric `json:"markup_percent"`
 }
 
 type OfferShareLink struct {

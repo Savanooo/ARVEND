@@ -34,15 +34,21 @@ RETURNING *;
 -- entegrasyonu (Faz M2) -- serbest/elle girilen kalemlerde hepsi boş/NULL
 -- kalır. calc_snapshot bir kez yazılır, offer_revisions ilkesiyle AYNI
 -- şekilde bir daha ASLA güncellenmez (yeni revizyon = yeni satır).
+-- internal_subcontract_cost/pricing_mode/markup_percent: İç Taşeron
+-- Fiyatlama (migration 0040) -- ASLA müşteriye dönmez (bkz. offer_handler.go
+-- toOfferResponse yorumu), üçü de NULL olabilir (iç fiyatlama uygulanmayan
+-- kalem).
 INSERT INTO offer_revision_items (
     revision_id, product_id, product_name, quantity, unit_price, discount_type, discount_value,
-    line_total, sort_order, unit, section_label, calc_category_id, calc_snapshot
+    line_total, sort_order, unit, section_label, calc_category_id, calc_snapshot,
+    internal_subcontract_cost, pricing_mode, markup_percent
 )
 VALUES (
     sqlc.arg(revision_id), sqlc.arg(product_id), sqlc.arg(product_name), sqlc.arg(quantity),
     sqlc.arg(unit_price), sqlc.arg(discount_type), sqlc.arg(discount_value), sqlc.arg(line_total),
     sqlc.arg(sort_order), sqlc.arg(unit), sqlc.narg(section_label), sqlc.narg(calc_category_id),
-    sqlc.narg(calc_snapshot)
+    sqlc.narg(calc_snapshot), sqlc.narg(internal_subcontract_cost), sqlc.narg(pricing_mode),
+    sqlc.narg(markup_percent)
 )
 RETURNING *;
 

@@ -13,7 +13,7 @@ import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatTL } from "@/lib/format";
-import type { CalcSnapshot, Customer, Offer, Product } from "@/lib/types";
+import type { CalcSnapshot, Customer, Offer, OfferItemPricingMode, Product } from "@/lib/types";
 
 interface ItemRow {
   product_id: string | null;
@@ -26,6 +26,14 @@ interface ItemRow {
   section_label: string | null;
   calc_category_id: string | null;
   calc_snapshot: CalcSnapshot | null;
+  // İç Taşeron Fiyatlama — MÜŞTERİYE ASLA gönderilmez (yalnızca
+  // canManageInternalPricing true iken form alanları gösterilir/gönderilir;
+  // backend YİNE DE offers.internal_pricing.manage izni yoksa bunları
+  // sessizce temizler, bkz. computeOfferTotals). internal_cost boşsa
+  // ("") bu kaleme iç fiyatlama uygulanmamış demektir.
+  internal_cost: string;
+  pricing_mode: OfferItemPricingMode;
+  markup_percent: string;
 }
 
 const emptyRow = (): ItemRow => ({
@@ -37,6 +45,9 @@ const emptyRow = (): ItemRow => ({
   section_label: null,
   calc_category_id: null,
   calc_snapshot: null,
+  internal_cost: "",
+  pricing_mode: "manual",
+  markup_percent: "",
 });
 
 function offerToRows(offer?: Offer): ItemRow[] {
@@ -50,6 +61,10 @@ function offerToRows(offer?: Offer): ItemRow[] {
     section_label: it.section_label ?? null,
     calc_category_id: it.calc_category_id ?? null,
     calc_snapshot: it.calc_snapshot ?? null,
+    internal_cost: it.internal_pricing ? String(it.internal_pricing.cost) : "",
+    pricing_mode: it.internal_pricing?.pricing_mode ?? "manual",
+    markup_percent:
+      it.internal_pricing?.markup_percent != null ? String(it.internal_pricing.markup_percent) : "",
   }));
 }
 
@@ -63,7 +78,14 @@ function draftToRow(draft: MetrajOfferItemDraft): ItemRow {
     section_label: draft.section_label,
     calc_category_id: draft.calc_category_id,
     calc_snapshot: draft.calc_snapshot,
+    internal_cost: "",
+    pricing_mode: "manual",
+    markup_percent: "",
   };
+}
+
+function parseNum(raw: string): number {
+  return parseFloat(raw.replace(",", ".")) || 0;
 }
 
 // Hem yeni teklif oluşturma hem taslak düzenleme için ortak form --
@@ -71,7 +93,18 @@ function draftToRow(draft: MetrajOfferItemDraft): ItemRow {
 // customer_id o karta bağlanır ve iletişim bilgileri o karttan otomatik
 // dolar (salt-okunur); tanınmayan bir ad yazılırsa serbest metin olarak
 // kalır (customer_id null).
-export function OfferForm({ offer }: { offer?: Offer }) {
+export function OfferForm({
+  offer,
+  canManageInternalPricing = false,
+}: {
+  offer?: Offer;
+  // Sunucu bileşeninden (bkz. yeni/duzenle page.tsx) hesaplanıp geçirilir --
+  // offers.internal_pricing.manage izni yoksa İç Fiyatlama bölümü hiç
+  // RENDER EDİLMEZ (ekstra bir istemci-taraflı izin kontrolü değil, tek
+  // kaynak backend'deki AuthzContext'tir; bu yalnızca UX'tir -- gerçek
+  // sınır backend'de: izinsiz gönderilen alanlar sessizce temizlenir).
+  canManageInternalPricing?: boolean;
+}) {
   const router = useRouter();
   const isEdit = !!offer;
   const [products, setProducts] = useState<Product[]>([]);
@@ -146,10 +179,30 @@ export function OfferForm({ offer }: { offer?: Offer }) {
     });
   }
 
+  // effectiveUnitPrice: markup modunda satış fiyatı maliyet*(1+markup/100)
+  // İSTEMCİDE de aynı formülle ÖNİZLENİR (kaydederken sunucu ZATEN aynı
+  // hesabı otoriter olarak tekrarlar, bkz. computeOfferTotals) -- manuel
+  // modda ya da iç fiyatlama uygulanmayan kalemlerde her zaman kullanıcının
+  // yazdığı unit_price'tır, hiç dokunulmaz.
+  function effectiveUnitPrice(row: ItemRow): number {
+    if (canManageInternalPricing && row.pricing_mode === "markup" && row.internal_cost.trim()) {
+      const cost = parseNum(row.internal_cost);
+      const markup = parseNum(row.markup_percent);
+      return cost * (1 + markup / 100);
+    }
+    return parseNum(row.unit_price);
+  }
+
   const computedRows = items.map((row) => {
-    const qty = parseFloat(row.quantity.replace(",", ".")) || 0;
-    const price = parseFloat(row.unit_price.replace(",", ".")) || 0;
-    return { ...row, lineTotal: qty * price };
+    const qty = parseNum(row.quantity);
+    const price = effectiveUnitPrice(row);
+    const cost = row.internal_cost.trim() ? parseNum(row.internal_cost) : null;
+    return {
+      ...row,
+      lineTotal: qty * price,
+      effectivePrice: price,
+      expectedProfit: cost !== null ? price - cost : null,
+    };
   });
   const subtotal = computedRows.reduce((sum, r) => sum + r.lineTotal, 0);
   const vat = parseFloat(vatRate.replace(",", ".")) || 0;
@@ -171,12 +224,23 @@ export function OfferForm({ offer }: { offer?: Offer }) {
           .map((r) => ({
             product_id: r.product_id,
             product_name: r.product_name.trim(),
-            quantity: parseFloat(r.quantity.replace(",", ".")) || 0,
-            unit_price: parseFloat(r.unit_price.replace(",", ".")) || 0,
+            quantity: parseNum(r.quantity),
+            unit_price: effectiveUnitPrice(r),
             unit: r.unit,
             section_label: r.section_label,
             calc_category_id: r.calc_category_id,
             calc_snapshot: r.calc_snapshot,
+            // İç Taşeron Fiyatlama — yalnızca bölüm görünürken (izin
+            // varken) VE kullanıcı bir maliyet girmişken gönderilir; sunucu
+            // izinsizse bunları YİNE DE sessizce temizler (tek gerçek
+            // sınır orada), burası yalnızca gereksiz alan göndermemek için.
+            ...(canManageInternalPricing && r.internal_cost.trim()
+              ? {
+                  internal_subcontract_cost: parseNum(r.internal_cost),
+                  pricing_mode: r.pricing_mode,
+                  markup_percent: r.pricing_mode === "markup" ? parseNum(r.markup_percent) : null,
+                }
+              : {}),
           })),
       };
       const saved = isEdit
@@ -289,7 +353,12 @@ export function OfferForm({ offer }: { offer?: Offer }) {
                     label={i === 0 ? "Birim Fiyat" : undefined}
                     type="number"
                     step="0.01"
-                    value={row.unit_price}
+                    value={
+                      canManageInternalPricing && row.pricing_mode === "markup" && row.internal_cost.trim()
+                        ? computedRows[i].effectivePrice.toFixed(2)
+                        : row.unit_price
+                    }
+                    disabled={canManageInternalPricing && row.pricing_mode === "markup" && !!row.internal_cost.trim()}
                     onChange={(e) => updateItem(i, { unit_price: e.target.value })}
                   />
                 </div>
@@ -306,6 +375,81 @@ export function OfferForm({ offer }: { offer?: Offer }) {
                     <Trash2 size={16} strokeWidth={1.75} />
                   </IconButton>
                 </div>
+                {canManageInternalPricing && (
+                  <div className="col-span-12 rounded-md border border-dashed border-border bg-surface-hover/40 p-3">
+                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-text-muted">
+                      İç Maliyet / Müşteri Görmez
+                    </div>
+                    <div className="grid grid-cols-12 items-end gap-2">
+                      <div className="col-span-3">
+                        <Input
+                          label="Taşeron Maliyeti"
+                          type="number"
+                          step="0.01"
+                          value={row.internal_cost}
+                          onChange={(e) => updateItem(i, { internal_cost: e.target.value })}
+                          placeholder="—"
+                        />
+                      </div>
+                      <div className="col-span-4">
+                        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-text-muted">
+                          Fiyatlama
+                        </label>
+                        <div className="flex items-center gap-4 pb-2 text-sm">
+                          <label className="flex items-center gap-1.5">
+                            <input
+                              type="radio"
+                              name={`pricing-mode-${i}`}
+                              checked={row.pricing_mode === "markup"}
+                              onChange={() => updateItem(i, { pricing_mode: "markup" })}
+                            />
+                            Maliyet üzerine %
+                          </label>
+                          <label className="flex items-center gap-1.5">
+                            <input
+                              type="radio"
+                              name={`pricing-mode-${i}`}
+                              checked={row.pricing_mode === "manual"}
+                              onChange={() => updateItem(i, { pricing_mode: "manual" })}
+                            />
+                            Satış fiyatını elle gir
+                          </label>
+                        </div>
+                      </div>
+                      {row.pricing_mode === "markup" && (
+                        <div className="col-span-2">
+                          <Input
+                            label="Marj (%)"
+                            type="number"
+                            step="0.01"
+                            value={row.markup_percent}
+                            onChange={(e) => updateItem(i, { markup_percent: e.target.value })}
+                          />
+                        </div>
+                      )}
+                      {row.internal_cost.trim() && (
+                        <div className="col-span-3 flex flex-col gap-0.5 text-right text-xs">
+                          <span className="text-text-muted">
+                            Müşteri Fiyatı:{" "}
+                            <span className="font-medium text-text">
+                              {formatTL(computedRows[i].effectivePrice)}
+                            </span>
+                          </span>
+                          <span className="text-text-muted">
+                            Beklenen Kâr:{" "}
+                            <span
+                              className={`font-medium ${
+                                (computedRows[i].expectedProfit ?? 0) < 0 ? "text-danger" : "text-success"
+                              }`}
+                            >
+                              {formatTL(computedRows[i].expectedProfit ?? 0)}
+                            </span>
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
             <div className="flex gap-2">

@@ -261,6 +261,9 @@ func ToDomainOfferRevisionItem(i sqlc.OfferRevisionItem) domain.OfferItem {
 		s := i.CalcCategoryID.String()
 		di.CalcCategoryID = &s
 	}
+	di.InternalSubcontractCost = NumericToFloat64Ptr(i.InternalSubcontractCost)
+	di.PricingMode = i.PricingMode
+	di.MarkupPercent = NumericToFloat64Ptr(i.MarkupPercent)
 	return di
 }
 

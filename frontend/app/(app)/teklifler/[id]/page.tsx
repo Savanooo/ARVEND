@@ -48,6 +48,12 @@ export default async function TeklifDetayPage({
     }
   );
 
+  // internal_pricing alanı backend'de YALNIZCA offers.internal_pricing.read
+  // izni olan personel için doldurulur (bkz. offer_handler.go
+  // attachInternalPricing) -- burada AYRICA bir izin kontrolü YAPILMAZ,
+  // alanın varlığı/yokluğu TEK gerçek kaynaktır.
+  const hasInternalPricing = offer.items?.some((it) => it.internal_pricing) ?? false;
+
   return (
     <>
       <PageHeader
@@ -90,6 +96,12 @@ export default async function TeklifDetayPage({
                   <Th className="text-right">Miktar</Th>
                   <Th className="text-right">Birim Fiyat</Th>
                   <Th className="text-right">Tutar</Th>
+                  {hasInternalPricing && (
+                    <>
+                      <Th className="text-right text-gold">İç Maliyet</Th>
+                      <Th className="text-right text-gold">Beklenen Kâr</Th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -99,6 +111,16 @@ export default async function TeklifDetayPage({
                     <Td className="text-right">{it.quantity}</Td>
                     <Td className="text-right">{formatTL(it.unit_price)}</Td>
                     <Td className="text-right font-medium">{formatTL(it.line_total)}</Td>
+                    {hasInternalPricing && (
+                      <>
+                        <Td className="text-right text-text-muted">
+                          {it.internal_pricing ? formatTL(it.internal_pricing.cost) : "—"}
+                        </Td>
+                        <Td className="text-right text-text-muted">
+                          {it.internal_pricing ? formatTL(it.internal_pricing.expected_profit) : "—"}
+                        </Td>
+                      </>
+                    )}
                   </Tr>
                 ))}
               </tbody>

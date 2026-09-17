@@ -103,6 +103,16 @@ type OfferItemInput struct {
 	SectionLabel   *string
 	CalcCategoryID *string
 	CalcSnapshot   json.RawMessage
+
+	// İç Taşeron Fiyatlama (migration 0040) -- yalnızca çağıran
+	// offers.internal_pricing.manage iznine sahipse İŞLENİR (bkz.
+	// computeOfferTotals); aksi halde SESSİZCE temizlenir. PricingMode ""
+	// ise (pointer değil) bu kaleme iç fiyatlama uygulanmamış demektir --
+	// domain.OfferItem'ın *string'inden FARKLI olarak burada boş dize
+	// "yok" anlamına gelir (createOfferItemRequest JSON'unda daha basit).
+	InternalSubcontractCost *float64
+	PricingMode             string
+	MarkupPercent           *float64
 }
 
 type CreateOfferInput struct {
@@ -123,6 +133,12 @@ type CreateOfferInput struct {
 	Items          []OfferItemInput
 	UserID         string
 	OrganizationID string
+	// CanManageInternalPricing: handler'ın (AuthzContext üzerinden)
+	// hesapladığı, offers.internal_pricing.manage iznine sahip olup
+	// olmadığı -- false ise Items'taki iç fiyatlama alanları
+	// computeOfferTotals içinde SESSİZCE temizlenir (bkz. o fonksiyonun
+	// yorumu).
+	CanManageInternalPricing bool
 }
 
 type computedOfferItem struct {
@@ -130,10 +146,21 @@ type computedOfferItem struct {
 	LineTotal float64
 }
 
-// computeOfferTotals, Create/Update/Revise arasında paylaşılan hesaplama
-// mantığı -- frontend'den gelen subtotal/vat_amount/grand_total değerlerine
-// ASLA güvenilmez, her zaman burada sunucu tarafında yeniden hesaplanır.
-func computeOfferTotals(items []OfferItemInput, vatRateInput *float64) ([]computedOfferItem, float64, float64, float64, float64, error) {
+// computeOfferTotals, Create/Update arasında paylaşılan hesaplama mantığı --
+// frontend'den gelen subtotal/vat_amount/grand_total değerlerine ASLA
+// güvenilmez, her zaman burada sunucu tarafında yeniden hesaplanır.
+//
+// İç Taşeron Fiyatlama (migration 0040): canManageInternalPricing false ise
+// (çağıranın offers.internal_pricing.manage izni yoksa) her kalemin iç
+// fiyatlama alanları SESSİZCE temizlenir -- product_id/calc_category_id
+// çapraz-org referanslarının "sessizce NULL'a düşürülmesi" İLE AYNI ilke,
+// izin yok diye 400 üretmek yerine. İzin VARSA ve PricingMode="markup" ise
+// unit_price -- computeOfferTotals'ın HİÇBİR istemci toplamına güvenmeme
+// ilkesiyle BİREBİR AYNI gerekçeyle -- istemcinin gönderdiği değer ne
+// olursa olsun cost*(1+markup/100) olarak SUNUCUDA yeniden hesaplanır;
+// "manual" modda ise unit_price OLDUĞU GİBİ (dokunulmadan) kullanılır --
+// elle girilen satış fiyatı hiçbir zaman otomatik ÜZERİNE YAZILMAZ.
+func computeOfferTotals(items []OfferItemInput, vatRateInput *float64, canManageInternalPricing bool) ([]computedOfferItem, float64, float64, float64, float64, error) {
 	vatRate := 20.0
 	if vatRateInput != nil {
 		vatRate = *vatRateInput
@@ -144,6 +171,30 @@ func computeOfferTotals(items []OfferItemInput, vatRateInput *float64) ([]comput
 		name := strings.TrimSpace(it.ProductName)
 		if name == "" || it.Quantity <= 0 || it.UnitPrice < 0 {
 			continue
+		}
+		if !canManageInternalPricing {
+			it.InternalSubcontractCost = nil
+			it.PricingMode = ""
+			it.MarkupPercent = nil
+		}
+		if it.InternalSubcontractCost != nil {
+			if *it.InternalSubcontractCost < 0 {
+				return nil, 0, 0, 0, 0, errors.New("iç taşeron maliyeti negatif olamaz")
+			}
+			switch it.PricingMode {
+			case domain.OfferItemPricingModeMarkup:
+				if it.MarkupPercent == nil {
+					return nil, 0, 0, 0, 0, errors.New("marj yüzdesi girilmelidir")
+				}
+				it.UnitPrice = round2(*it.InternalSubcontractCost * (1 + *it.MarkupPercent/100))
+			case domain.OfferItemPricingModeManual:
+				it.MarkupPercent = nil
+			default:
+				return nil, 0, 0, 0, 0, errors.New("geçersiz fiyatlama modu")
+			}
+		} else {
+			it.PricingMode = ""
+			it.MarkupPercent = nil
 		}
 		lineTotal := round2(it.Quantity * it.UnitPrice)
 		subtotal += lineTotal
@@ -202,20 +253,28 @@ func insertRevisionItems(ctx context.Context, txq *sqlc.Queries, revisionID, org
 				}
 			}
 		}
+		var pricingMode *string
+		if it.PricingMode != "" {
+			pm := it.PricingMode
+			pricingMode = &pm
+		}
 		itemRow, err := txq.CreateOfferRevisionItem(ctx, sqlc.CreateOfferRevisionItemParams{
-			RevisionID:     revisionID,
-			ProductID:      productID,
-			ProductName:    strings.TrimSpace(it.ProductName),
-			Quantity:       repository.Float64ToNumeric(it.Quantity),
-			UnitPrice:      repository.Float64ToNumeric(it.UnitPrice),
-			DiscountType:   domain.DiscountNone,
-			DiscountValue:  repository.Float64ToNumeric(0),
-			LineTotal:      repository.Float64ToNumeric(it.LineTotal),
-			SortOrder:      int32(i),
-			Unit:           strings.TrimSpace(it.Unit),
-			SectionLabel:   it.SectionLabel,
-			CalcCategoryID: calcCategoryID,
-			CalcSnapshot:   []byte(it.CalcSnapshot),
+			RevisionID:              revisionID,
+			ProductID:               productID,
+			ProductName:             strings.TrimSpace(it.ProductName),
+			Quantity:                repository.Float64ToNumeric(it.Quantity),
+			UnitPrice:               repository.Float64ToNumeric(it.UnitPrice),
+			DiscountType:            domain.DiscountNone,
+			DiscountValue:           repository.Float64ToNumeric(0),
+			LineTotal:               repository.Float64ToNumeric(it.LineTotal),
+			SortOrder:               int32(i),
+			Unit:                    strings.TrimSpace(it.Unit),
+			SectionLabel:            it.SectionLabel,
+			CalcCategoryID:          calcCategoryID,
+			CalcSnapshot:            []byte(it.CalcSnapshot),
+			InternalSubcontractCost: repository.Float64PtrToNumeric(it.InternalSubcontractCost),
+			PricingMode:             pricingMode,
+			MarkupPercent:           repository.Float64PtrToNumeric(it.MarkupPercent),
 		})
 		if err != nil {
 			return nil, err
@@ -235,19 +294,28 @@ func insertRevisionItems(ctx context.Context, txq *sqlc.Queries, revisionID, org
 func cloneRevisionItems(ctx context.Context, txq *sqlc.Queries, newRevisionID pgtype.UUID, items []sqlc.OfferRevisionItem) error {
 	for _, it := range items {
 		if _, err := txq.CreateOfferRevisionItem(ctx, sqlc.CreateOfferRevisionItemParams{
-			RevisionID:     newRevisionID,
-			ProductID:      it.ProductID,
-			ProductName:    it.ProductName,
-			Quantity:       it.Quantity,
-			UnitPrice:      it.UnitPrice,
-			DiscountType:   it.DiscountType,
-			DiscountValue:  it.DiscountValue,
-			LineTotal:      it.LineTotal,
-			SortOrder:      it.SortOrder,
-			Unit:           it.Unit,
-			SectionLabel:   it.SectionLabel,
-			CalcCategoryID: it.CalcCategoryID,
-			CalcSnapshot:   it.CalcSnapshot,
+			RevisionID:              newRevisionID,
+			ProductID:               it.ProductID,
+			ProductName:             it.ProductName,
+			Quantity:                it.Quantity,
+			UnitPrice:               it.UnitPrice,
+			DiscountType:            it.DiscountType,
+			DiscountValue:           it.DiscountValue,
+			LineTotal:               it.LineTotal,
+			SortOrder:               it.SortOrder,
+			Unit:                    it.Unit,
+			SectionLabel:            it.SectionLabel,
+			CalcCategoryID:          it.CalcCategoryID,
+			CalcSnapshot:            it.CalcSnapshot,
+			// İç Taşeron Fiyatlama (migration 0040): calc_snapshot İLE AYNI
+			// ilke -- "Revize Et" önceki revizyonun İÇ fiyatlama
+			// varsayımlarını da AYNEN taşır, MUTATE ETMEZ (spec: "Do not
+			// mutate historical revision assumptions when creating a new
+			// revision" -- yeni revizyonda kullanıcı Update() ile bilinçli
+			// olarak değiştirene kadar).
+			InternalSubcontractCost: it.InternalSubcontractCost,
+			PricingMode:             it.PricingMode,
+			MarkupPercent:           it.MarkupPercent,
 		}); err != nil {
 			return err
 		}
@@ -263,7 +331,7 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 	if len(in.Items) == 0 {
 		return nil, errors.New("en az bir kalem girilmelidir")
 	}
-	items, subtotal, vatRate, vatAmount, grandTotal, err := computeOfferTotals(in.Items, in.VatRate)
+	items, subtotal, vatRate, vatAmount, grandTotal, err := computeOfferTotals(in.Items, in.VatRate, in.CanManageInternalPricing)
 	if err != nil {
 		return nil, err
 	}
@@ -480,6 +548,8 @@ type UpdateOfferInput struct {
 	VatRate         *float64
 	Items           []OfferItemInput
 	UserID          string
+	// CanManageInternalPricing: bkz. CreateOfferInput.
+	CanManageInternalPricing bool
 }
 
 // Update, yalnızca "taslak" durumundaki (henüz gönderilmemiş ya da yeni
@@ -510,7 +580,7 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 	if len(in.Items) == 0 {
 		return nil, errors.New("en az bir kalem girilmelidir")
 	}
-	items, subtotal, vatRate, vatAmount, grandTotal, err := computeOfferTotals(in.Items, in.VatRate)
+	items, subtotal, vatRate, vatAmount, grandTotal, err := computeOfferTotals(in.Items, in.VatRate, in.CanManageInternalPricing)
 	if err != nil {
 		return nil, err
 	}

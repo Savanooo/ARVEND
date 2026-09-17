@@ -59,6 +59,22 @@ export interface OfferItem {
   section_label?: string | null;
   calc_category_id?: string | null;
   calc_snapshot?: CalcSnapshot | null;
+  // İç Taşeron Fiyatlama — MÜŞTERİYE ASLA dönmez (backend toOfferResponse
+  // yalnızca offers.internal_pricing.read iznine sahip personel için bunu
+  // opt-in olarak ekler). Alan yoksa/undefined ise ya bu kaleme iç
+  // fiyatlama uygulanmamıştır ya da görüntüleyenin izni yoktur — ikisi
+  // arasında ayrım yapmaya GEREK YOK, ikisinde de bölüm gizlenir.
+  internal_pricing?: OfferItemInternalPricing | null;
+}
+
+export type OfferItemPricingMode = "markup" | "manual";
+
+export interface OfferItemInternalPricing {
+  cost: number;
+  pricing_mode: OfferItemPricingMode;
+  markup_percent?: number | null;
+  expected_profit: number;
+  effective_markup_percent?: number | null;
 }
 
 // --- Metraj Hesaplama ---

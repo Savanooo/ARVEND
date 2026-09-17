@@ -15,6 +15,34 @@ import (
 	"github.com/Savanooo/ARVEND/backend/internal/service"
 )
 
+// canSeeOfferInternalPricing/canManageOfferInternalPricing, GÜVENLİK
+// SINIRININ tam da kendisidir (bkz. migration 0040 dosya başı yorumu):
+// - toOfferResponse/toOfferRevisionResponse (bu dosyanın geri kalanı, VE
+//   PublicOfferHandler'ın TEK kullandığı fonksiyon) internal_pricing
+//   alanını ASLA doldurmaz -- güvenli/sızdırmaz VARSAYILAN budur.
+// - attachInternalPricing, personel uçlarında (List/Get/Create/Update/
+//   Revise/ListRevisions/GetRevision) toOfferResponse'un SONUCUNU mutate
+//   eden AYRI, opt-in bir adımdır -- yalnızca bu iki fonksiyon true
+//   dönerse çağrılır. PublicOfferHandler bu iki fonksiyonu HİÇ ÇAĞIRMAZ,
+//   dolayısıyla public/paylaşım yolunda hiçbir kod yolu bu alana
+//   dokunmaz (bağlama/izin durumuna bağlı bir "if" değil, tamamen AYRI
+//   bir fonksiyon çağrısı).
+func canSeeOfferInternalPricing(r *http.Request) bool {
+	return hasOfferPermission(r, domain.PermOffersInternalPricingRead)
+}
+
+func canManageOfferInternalPricing(r *http.Request) bool {
+	return hasOfferPermission(r, domain.PermOffersInternalPricingManage)
+}
+
+func hasOfferPermission(r *http.Request, code string) bool {
+	if role, ok := middleware.RoleFromContext(r.Context()); ok && role == domain.RoleSuperAdmin {
+		return true
+	}
+	authz, ok := middleware.AuthzContextFromRequest(r.Context())
+	return ok && authz.HasPermission(code)
+}
+
 type OfferHandler struct {
 	svc *service.OfferService
 }
@@ -39,6 +67,51 @@ type offerItemResponse struct {
 	SectionLabel   *string         `json:"section_label,omitempty"`
 	CalcCategoryID *string         `json:"calc_category_id,omitempty"`
 	CalcSnapshot   json.RawMessage `json:"calc_snapshot,omitempty"`
+
+	// InternalPricing: bkz. bu dosyanın başındaki canSeeOfferInternalPricing
+	// yorumu -- toOfferResponse/toOfferRevisionResponse bunu ASLA doldurmaz,
+	// yalnızca attachInternalPricing (personel uçlarında, izin varsa) SONRADAN
+	// ekler. omitempty: izin yoksa/public yolda alan JSON'da HİÇ GÖRÜNMEZ.
+	InternalPricing *offerItemInternalPricingResponse `json:"internal_pricing,omitempty"`
+}
+
+// offerItemInternalPricingResponse, İç Taşeron Fiyatlama (migration 0040)
+// için personel-only ek veridir. ExpectedProfit/EffectiveMarkupPercent
+// PERSIST EDİLMEZ (bkz. domain.OfferItem.ExpectedProfit/
+// EffectiveMarkupPercent), burada her yanıt için canlı hesaplanır.
+type offerItemInternalPricingResponse struct {
+	Cost                   float64  `json:"cost"`
+	PricingMode            string   `json:"pricing_mode"`
+	MarkupPercent          *float64 `json:"markup_percent,omitempty"`
+	ExpectedProfit         float64  `json:"expected_profit"`
+	EffectiveMarkupPercent *float64 `json:"effective_markup_percent,omitempty"`
+}
+
+// attachInternalPricing, toOfferResponse'un GÜVENLİ/sızdırmaz sonucunu
+// SONRADAN, YALNIZCA çağıran bunu bilinçli olarak yaptığında (bkz. dosya
+// başı yorumu) mutate eder. o.Items ile resp.Items HER ZAMAN aynı sırada
+// (toOfferResponse'un ürettiği sıra) -- index eşleşmesi burada güvenlidir.
+func attachInternalPricing(resp *offerResponse, o domain.Offer) {
+	for i, it := range o.Items {
+		if it.InternalSubcontractCost == nil || i >= len(resp.Items) {
+			continue
+		}
+		mode := ""
+		if it.PricingMode != nil {
+			mode = *it.PricingMode
+		}
+		profit := 0.0
+		if p := it.ExpectedProfit(); p != nil {
+			profit = *p
+		}
+		resp.Items[i].InternalPricing = &offerItemInternalPricingResponse{
+			Cost:                   *it.InternalSubcontractCost,
+			PricingMode:            mode,
+			MarkupPercent:          it.MarkupPercent,
+			ExpectedProfit:         profit,
+			EffectiveMarkupPercent: it.EffectiveMarkupPercent(),
+		}
+	}
 }
 
 type offerResponse struct {
@@ -117,9 +190,14 @@ func (h *OfferHandler) List(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusInternalServerError, "teklifler alınamadı")
 		return
 	}
+	seeInternal := canSeeOfferInternalPricing(r)
 	offers := make([]offerResponse, len(result.Offers))
 	for i, o := range result.Offers {
-		offers[i] = toOfferResponse(o)
+		resp := toOfferResponse(o)
+		if seeInternal {
+			attachInternalPricing(&resp, o)
+		}
+		offers[i] = resp
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"offers": offers, "total": result.Total})
 }
@@ -131,7 +209,11 @@ func (h *OfferHandler) Get(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toOfferResponse(*o))
+	resp := toOfferResponse(*o)
+	if canSeeOfferInternalPricing(r) {
+		attachInternalPricing(&resp, *o)
+	}
+	httpjson.Write(w, http.StatusOK, resp)
 }
 
 type createOfferItemRequest struct {
@@ -146,6 +228,14 @@ type createOfferItemRequest struct {
 	SectionLabel   *string         `json:"section_label"`
 	CalcCategoryID *string         `json:"calc_category_id"`
 	CalcSnapshot   json.RawMessage `json:"calc_snapshot"`
+
+	// İç Taşeron Fiyatlama (migration 0040) -- offers.internal_pricing.manage
+	// izni olmayan bir istemci bunları gönderse bile service katmanında
+	// (computeOfferTotals) SESSİZCE temizlenir, burada AYRICA kontrol
+	// edilmez (tek doğrulama noktası, bkz. o fonksiyonun yorumu).
+	InternalSubcontractCost *float64 `json:"internal_subcontract_cost"`
+	PricingMode             string   `json:"pricing_mode"`
+	MarkupPercent           *float64 `json:"markup_percent"`
 }
 
 type createOfferRequest struct {
@@ -175,14 +265,17 @@ func toOfferItemInputs(items []createOfferItemRequest) []service.OfferItemInput 
 	out := make([]service.OfferItemInput, len(items))
 	for i, it := range items {
 		out[i] = service.OfferItemInput{
-			ProductID:      it.ProductID,
-			ProductName:    it.ProductName,
-			Quantity:       it.Quantity,
-			UnitPrice:      it.UnitPrice,
-			Unit:           it.Unit,
-			SectionLabel:   it.SectionLabel,
-			CalcCategoryID: it.CalcCategoryID,
-			CalcSnapshot:   it.CalcSnapshot,
+			ProductID:               it.ProductID,
+			ProductName:             it.ProductName,
+			Quantity:                it.Quantity,
+			UnitPrice:               it.UnitPrice,
+			Unit:                    it.Unit,
+			SectionLabel:            it.SectionLabel,
+			CalcCategoryID:          it.CalcCategoryID,
+			CalcSnapshot:            it.CalcSnapshot,
+			InternalSubcontractCost: it.InternalSubcontractCost,
+			PricingMode:             it.PricingMode,
+			MarkupPercent:           it.MarkupPercent,
 		}
 	}
 	return out
@@ -197,25 +290,31 @@ func (h *OfferHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	userID, _ := middleware.UserIDFromContext(r.Context())
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	canManageInternal := canManageOfferInternalPricing(r)
 
 	o, err := h.svc.Create(r.Context(), service.CreateOfferInput{
-		CustomerID:      req.CustomerID,
-		CustomerName:    req.CustomerName,
-		CustomerPhone:   req.CustomerPhone,
-		CustomerEmail:   req.CustomerEmail,
-		CustomerAddress: req.CustomerAddress,
-		ValidUntil:      parseValidUntil(req.ValidUntil),
-		Notes:           req.Notes,
-		VatRate:         req.VatRate,
-		Items:           toOfferItemInputs(req.Items),
-		UserID:          userID,
-		OrganizationID:  orgID,
+		CustomerID:               req.CustomerID,
+		CustomerName:             req.CustomerName,
+		CustomerPhone:            req.CustomerPhone,
+		CustomerEmail:            req.CustomerEmail,
+		CustomerAddress:          req.CustomerAddress,
+		ValidUntil:               parseValidUntil(req.ValidUntil),
+		Notes:                    req.Notes,
+		VatRate:                  req.VatRate,
+		Items:                    toOfferItemInputs(req.Items),
+		UserID:                   userID,
+		OrganizationID:           orgID,
+		CanManageInternalPricing: canManageInternal,
 	})
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusCreated, toOfferResponse(*o))
+	resp := toOfferResponse(*o)
+	if canManageInternal {
+		attachInternalPricing(&resp, *o)
+	}
+	httpjson.Write(w, http.StatusCreated, resp)
 }
 
 func (h *OfferHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -226,23 +325,29 @@ func (h *OfferHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
+	canManageInternal := canManageOfferInternalPricing(r)
 	o, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), orgID, service.UpdateOfferInput{
-		CustomerID:      req.CustomerID,
-		CustomerName:    req.CustomerName,
-		CustomerPhone:   req.CustomerPhone,
-		CustomerEmail:   req.CustomerEmail,
-		CustomerAddress: req.CustomerAddress,
-		ValidUntil:      parseValidUntil(req.ValidUntil),
-		Notes:           req.Notes,
-		VatRate:         req.VatRate,
-		Items:           toOfferItemInputs(req.Items),
-		UserID:          userID,
+		CustomerID:               req.CustomerID,
+		CustomerName:             req.CustomerName,
+		CustomerPhone:            req.CustomerPhone,
+		CustomerEmail:            req.CustomerEmail,
+		CustomerAddress:          req.CustomerAddress,
+		ValidUntil:               parseValidUntil(req.ValidUntil),
+		Notes:                    req.Notes,
+		VatRate:                  req.VatRate,
+		Items:                    toOfferItemInputs(req.Items),
+		UserID:                   userID,
+		CanManageInternalPricing: canManageInternal,
 	})
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toOfferResponse(*o))
+	resp := toOfferResponse(*o)
+	if canManageInternal {
+		attachInternalPricing(&resp, *o)
+	}
+	httpjson.Write(w, http.StatusOK, resp)
 }
 
 func (h *OfferHandler) Revise(w http.ResponseWriter, r *http.Request) {
@@ -253,7 +358,11 @@ func (h *OfferHandler) Revise(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusCreated, toOfferResponse(*o))
+	resp := toOfferResponse(*o)
+	if canSeeOfferInternalPricing(r) {
+		attachInternalPricing(&resp, *o)
+	}
+	httpjson.Write(w, http.StatusCreated, resp)
 }
 
 type offerRevisionResponse struct {
@@ -322,6 +431,34 @@ func toOfferRevisionResponse(r domain.OfferRevision) offerRevisionResponse {
 	return resp
 }
 
+// attachRevisionInternalPricing: bkz. attachInternalPricing -- AYNI
+// güvenlik ilkesi, offerRevisionResponse için (ListRevisions/GetRevision
+// personel uçları, teklifin hiçbir revizyon-detay yanıtı public/paylaşım
+// yolunda KULLANILMAZ, bkz. public_offer_handler.go -- yalnızca
+// toOfferResponse çağrılır).
+func attachRevisionInternalPricing(resp *offerRevisionResponse, rev domain.OfferRevision) {
+	for i, it := range rev.Items {
+		if it.InternalSubcontractCost == nil || i >= len(resp.Items) {
+			continue
+		}
+		mode := ""
+		if it.PricingMode != nil {
+			mode = *it.PricingMode
+		}
+		profit := 0.0
+		if p := it.ExpectedProfit(); p != nil {
+			profit = *p
+		}
+		resp.Items[i].InternalPricing = &offerItemInternalPricingResponse{
+			Cost:                   *it.InternalSubcontractCost,
+			PricingMode:            mode,
+			MarkupPercent:          it.MarkupPercent,
+			ExpectedProfit:         profit,
+			EffectiveMarkupPercent: it.EffectiveMarkupPercent(),
+		}
+	}
+}
+
 func (h *OfferHandler) ListRevisions(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	revisions, err := h.svc.ListRevisions(r.Context(), chi.URLParam(r, "id"), orgID)
@@ -329,9 +466,14 @@ func (h *OfferHandler) ListRevisions(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	seeInternal := canSeeOfferInternalPricing(r)
 	out := make([]offerRevisionResponse, len(revisions))
 	for i, rev := range revisions {
-		out[i] = toOfferRevisionResponse(rev)
+		resp := toOfferRevisionResponse(rev)
+		if seeInternal {
+			attachRevisionInternalPricing(&resp, rev)
+		}
+		out[i] = resp
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"revisions": out})
 }
@@ -343,7 +485,11 @@ func (h *OfferHandler) GetRevision(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toOfferRevisionResponse(*rev))
+	resp := toOfferRevisionResponse(*rev)
+	if canSeeOfferInternalPricing(r) {
+		attachRevisionInternalPricing(&resp, *rev)
+	}
+	httpjson.Write(w, http.StatusOK, resp)
 }
 
 type updateStatusRequest struct {
