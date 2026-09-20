@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/utils/formatters.dart';
+import '../../calculations/presentation/metraj_screen.dart';
 import '../data/offers_providers.dart';
 import '../domain/offer.dart';
 
@@ -180,6 +181,30 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
     super.dispose();
   }
 
+  /// Metraj ekranını "seçici" modda açar ve seçilen kalemleri BU teklif
+  /// taslağına ekler -- web'in aynı modalı teklif formunun İÇİNDE tuttuğu
+  /// ve birden çok bölüm (Salon/Oda 1/Koridor...) hesaplayıp AYNI teklife
+  /// ekleyebildiği akışın mobildeki karşılığı (bkz. web MetrajHesaplaPanel.
+  /// tsx handleAddFromMetraj). Yeni bir hesaplama motoru İCAT EDİLMEZ --
+  /// var olan MetrajScreen'in `pickMode` parametresiyle çağrılır.
+  Future<void> _addFromMetraj() async {
+    final items = await Navigator.of(context).push<List<OfferItem>>(
+      MaterialPageRoute(builder: (_) => const MetrajScreen(pickMode: true)),
+    );
+    if (items == null || items.isEmpty) return;
+    final newRows = items.map(_DraftItem.fromOfferItem).toList();
+    setState(() {
+      final isSinglePristineRow = _items.length == 1 && _items.single.productName.trim().isEmpty;
+      if (isSinglePristineRow) {
+        _items
+          ..clear()
+          ..addAll(newRows);
+      } else {
+        _items.addAll(newRows);
+      }
+    });
+  }
+
   List<OfferItem> _buildItems() {
     final out = <OfferItem>[];
     for (final i in _items) {
@@ -320,10 +345,20 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text('Kalemler', style: TextStyle(fontWeight: FontWeight.w700)),
-                      TextButton.icon(
-                        icon: const Icon(Icons.add, size: 18),
-                        label: const Text('Kalem Ekle'),
-                        onPressed: () => setState(() => _items.add(_DraftItem())),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextButton.icon(
+                            icon: const Icon(Icons.calculate_outlined, size: 18),
+                            label: const Text('Metrajdan Ekle'),
+                            onPressed: _addFromMetraj,
+                          ),
+                          TextButton.icon(
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text('Kalem Ekle'),
+                            onPressed: () => setState(() => _items.add(_DraftItem())),
+                          ),
+                        ],
                       ),
                     ],
                   ),

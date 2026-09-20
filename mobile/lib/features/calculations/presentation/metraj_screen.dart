@@ -6,7 +6,6 @@ import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/async_state_view.dart';
-import '../../offers/domain/offer.dart';
 import '../data/calc_providers.dart';
 import '../domain/calc.dart';
 
@@ -14,8 +13,20 @@ import '../domain/calc.dart';
 /// Malzeme sonucu -> Teklife ekle. Motor mobilde YOK - yalnızca
 /// POST /calculations/run çağrılır, backend'in döndürdüğü sonuç aynen
 /// gösterilir (bkz. mobile/API_CONTRACT.md#calculations).
+///
+/// [pickMode]: "Diğer > Metraj Hesaplama" üzerinden bağımsız açıldığında
+/// (varsayılan, false) "Teklife Ekle" her zaman YENİ bir teklif taslağına
+/// gider (mevcut davranış, DEĞİŞMEDİ). `OfferCreateScreen` içinden
+/// "Metrajdan Ekle" ile açıldığında (true) ekran, seçilen kalemleri
+/// AÇIK olan teklif taslağına eklemek üzere `Navigator.pop` ile geri
+/// döner -- bu, web'in aynı modalı teklif formunun İÇİNDE tuttuğu ve
+/// birden çok bölüm (Salon/Oda 1/...) hesaplayıp AYNI teklife
+/// ekleyebildiği akışın mobildeki karşılığıdır (bkz. web
+/// MetrajHesaplaPanel.tsx handleAddFromMetraj).
 class MetrajScreen extends ConsumerStatefulWidget {
-  const MetrajScreen({super.key});
+  const MetrajScreen({super.key, this.pickMode = false});
+
+  final bool pickMode;
 
   @override
   ConsumerState<MetrajScreen> createState() => _MetrajScreenState();
@@ -46,8 +57,32 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
     super.dispose();
   }
 
+  /// Yalnızca daha hızlı geri bildirim için -- gerçek sınır her zaman
+  /// backend'de (bkz. calc.dart validatePositiveIfPresent yorumu).
+  String? _validateInputs() {
+    if (_useAreaDirectly) {
+      final err = validatePositiveIfPresent(_areaController.text, 'Alan');
+      if (err != null) return err;
+    } else {
+      final w = validatePositiveIfPresent(_widthController.text, 'En');
+      if (w != null) return w;
+      final h = validatePositiveIfPresent(_heightController.text, 'Boy');
+      if (h != null) return h;
+    }
+    final p = validatePositiveIfPresent(_perimeterController.text, 'Çevre');
+    if (p != null) return p;
+    final pitch = validatePositiveIfPresent(_pitchController.text, 'Çatı Eğimi');
+    if (pitch != null) return pitch;
+    return null;
+  }
+
   Future<void> _calculate() async {
     if (_category == null) return;
+    final validationError = _validateInputs();
+    if (validationError != null) {
+      setState(() => _error = validationError);
+      return;
+    }
     setState(() {
       _calculating = true;
       _error = null;
@@ -79,35 +114,13 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
   void _addToOffer() {
     final result = _result;
     if (result == null) return;
-    final items = result.items
-        .where((i) => _selectedForOffer.contains(i.recipeItemId))
-        .map((i) => OfferItem(
-              id: '',
-              productId: i.productId,
-              productName: i.materialName,
-              quantity: double.tryParse(i.quantity) ?? 0,
-              unitPrice: double.tryParse(i.unitPrice) ?? 0,
-              lineTotal: 0,
-              unit: i.unit,
-              sectionLabel: result.categoryName,
-              calcCategoryId: result.categoryId,
-              calcSnapshot: {
-                'recipe_item_id': i.recipeItemId,
-                'category_id': result.categoryId,
-                'category_name': result.categoryName,
-                'footprint_area': result.footprintArea,
-                'effective_area': result.effectiveArea,
-                'perimeter': result.perimeter,
-                'calculation_type': i.calculationType,
-                'factor': i.factor,
-                'waste_percent': i.wastePercent,
-                'rounding_type': i.roundingType,
-                'price_at_calc': i.unitPrice,
-              },
-            ))
-        .toList();
+    final items = buildOfferItemsFromCalcResult(result, _selectedForOffer);
     if (items.isEmpty) return;
-    context.push('/teklifler/yeni', extra: items);
+    if (widget.pickMode) {
+      Navigator.of(context).pop(items);
+    } else {
+      context.push('/teklifler/yeni', extra: items);
+    }
   }
 
   @override
@@ -146,6 +159,10 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
                         _result = null;
                       }),
             ),
+            if (_category != null && _category!.description.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(_category!.description, style: const TextStyle(fontSize: 12.5, color: AppColors.textMuted)),
+            ],
             if (_category != null) ...[
               const SizedBox(height: 20),
               SegmentedButton<bool>(
@@ -259,6 +276,16 @@ class _ResultSection extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Etkin Alan: ${Formatters.quantityFromString(result.effectiveArea)} m²'),
+                // footprint_area (eğim uygulanmadan önceki taban alan)
+                // yalnızca eğim (pitch) etkin alanı DEĞİŞTİRDİĞİNDE ayrıca
+                // gösterilir -- aksi halde ikisi zaten aynı, tekrar gürültü
+                // olur (bkz. backend ComputeGeometry: pitch yoksa
+                // effective_area == footprint_area).
+                if (result.footprintArea != result.effectiveArea)
+                  Text(
+                    'Taban Alan: ${Formatters.quantityFromString(result.footprintArea)} m² (eğim uygulanmadan önce)',
+                    style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                  ),
                 if (result.perimeter != null)
                   Text('Çevre: ${Formatters.quantityFromString(result.perimeter!)} m'),
               ],
@@ -290,26 +317,7 @@ class _ResultSection extends StatelessWidget {
           ),
         const SizedBox(height: 8),
         const Text('Malzeme Listesi', style: TextStyle(fontWeight: FontWeight.w700)),
-        ...result.items.map((item) => Card(
-              margin: const EdgeInsets.only(top: 6),
-              child: CheckboxListTile(
-                value: selected.contains(item.recipeItemId),
-                onChanged: (v) => onToggle(item.recipeItemId, v ?? false),
-                title: Text(item.materialName),
-                subtitle: Text(
-                  '${Formatters.quantityFromString(item.quantity)} ${item.unit} × '
-                  '${Formatters.moneyFromString(item.unitPrice)}',
-                ),
-                secondary: SizedBox(
-                  width: 84,
-                  child: Text(
-                    Formatters.moneyFromString(item.lineTotal),
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-              ),
-            )),
+        ..._buildItemRows(),
         const SizedBox(height: 12),
         Card(
           child: Padding(
@@ -332,5 +340,46 @@ class _ResultSection extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  /// Malzeme grubu (`group_name`, ör. "Ana Malzemeler"/"Aksesuar") başlığı,
+  /// yalnızca bir önceki kalemden FARKLI ve boş olmayan bir grup adına
+  /// geçildiğinde eklenir -- backend'in döndürdüğü sırayı yeniden
+  /// SIRALAMAZ, yalnızca zaten ardışık gelen aynı gruptaki kalemleri
+  /// görsel olarak ayırır.
+  List<Widget> _buildItemRows() {
+    final widgets = <Widget>[];
+    String? lastGroup;
+    for (final item in result.items) {
+      final group = item.groupName;
+      if (group != null && group.isNotEmpty && group != lastGroup) {
+        widgets.add(Padding(
+          padding: const EdgeInsets.only(top: 10, bottom: 2),
+          child: Text(group, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.textMuted)),
+        ));
+      }
+      lastGroup = group;
+      widgets.add(Card(
+        margin: const EdgeInsets.only(top: 6),
+        child: CheckboxListTile(
+          value: selected.contains(item.recipeItemId),
+          onChanged: (v) => onToggle(item.recipeItemId, v ?? false),
+          title: Text(item.materialName),
+          subtitle: Text(
+            '${Formatters.quantityFromString(item.quantity)} ${item.unit} × '
+            '${Formatters.moneyFromString(item.unitPrice)}',
+          ),
+          secondary: SizedBox(
+            width: 84,
+            child: Text(
+              Formatters.moneyFromString(item.lineTotal),
+              textAlign: TextAlign.right,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ),
+      ));
+    }
+    return widgets;
   }
 }

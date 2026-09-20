@@ -1,3 +1,5 @@
+import '../../offers/domain/offer.dart';
+
 /// bkz. mobile/API_CONTRACT.md#calculations - TÜM sayısal alanlar JSON
 /// string'idir (backend'in bilinçli tercihi); burada da String olarak
 /// tutulup yalnızca görüntülemede parse edilir (Formatters.moneyFromString /
@@ -9,6 +11,7 @@ class CalcCategory {
   final String? groupName;
   final String slug;
   final String name;
+  final String description;
 
   const CalcCategory({
     required this.id,
@@ -17,6 +20,7 @@ class CalcCategory {
     required this.groupName,
     required this.slug,
     required this.name,
+    required this.description,
   });
 
   factory CalcCategory.fromJson(Map<String, dynamic> json) => CalcCategory(
@@ -26,6 +30,7 @@ class CalcCategory {
         groupName: json['group_name'] as String?,
         slug: json['slug'] as String,
         name: json['name'] as String,
+        description: json['description'] as String? ?? '',
       );
 }
 
@@ -155,4 +160,57 @@ class CalcRunResult {
           .toList(),
     );
   }
+}
+
+/// Backend, doldurulmuş `area`/`width`/`height`/`perimeter`/`pitch_deg`
+/// alanlarının 0'dan büyük olmasını şart koşar (bkz. backend
+/// ComputeGeometry doğrulaması: mevcut-ama-<=0 bir değer AÇIKÇA
+/// reddedilir, "alan yok" ile karıştırılmaz). Burada AYNI kural yalnızca
+/// daha hızlı geri bildirim için istemci tarafında ÖN-KONTROL edilir --
+/// gerçek sınır her zaman backend'dedir, bu fonksiyon backend'i
+/// TEKRARLAMAZ, yalnızca aynı "> 0" şartını erken yakalar.
+String? validatePositiveIfPresent(String raw, String fieldLabel) {
+  final v = raw.trim();
+  if (v.isEmpty) return null;
+  final n = double.tryParse(v.replaceAll(',', '.'));
+  if (n == null) return "$fieldLabel geçerli bir sayı olmalı";
+  if (n <= 0) return "$fieldLabel 0'dan büyük olmalı";
+  return null;
+}
+
+/// Seçilen kalemleri teklife eklenecek `OfferItem` listesine çevirir --
+/// backend'in `/calculations/run`'dan DÖNDÜRDÜĞÜ değerleri olduğu gibi
+/// taşır, yeni bir hesap/formül İCAT ETMEZ. `calcSnapshot`'ın 11 alanı
+/// (bkz. MOBILE_BACKEND_GAPS.md #10 -- backend bu şekli doğrulamaz,
+/// yalnızca ham JSON olarak dondurur) burada TEK yerde inşa edilir, hem
+/// bağımsız Metraj ekranından hem de bir teklif taslağına "Metrajdan
+/// Ekle" ile eklerken AYNI şekilde kullanılır.
+List<OfferItem> buildOfferItemsFromCalcResult(CalcRunResult result, Set<String> selectedRecipeItemIds) {
+  return result.items
+      .where((i) => selectedRecipeItemIds.contains(i.recipeItemId))
+      .map((i) => OfferItem(
+            id: '',
+            productId: i.productId,
+            productName: i.materialName,
+            quantity: double.tryParse(i.quantity) ?? 0,
+            unitPrice: double.tryParse(i.unitPrice) ?? 0,
+            lineTotal: 0,
+            unit: i.unit,
+            sectionLabel: result.categoryName,
+            calcCategoryId: result.categoryId,
+            calcSnapshot: {
+              'recipe_item_id': i.recipeItemId,
+              'category_id': result.categoryId,
+              'category_name': result.categoryName,
+              'footprint_area': result.footprintArea,
+              'effective_area': result.effectiveArea,
+              'perimeter': result.perimeter,
+              'calculation_type': i.calculationType,
+              'factor': i.factor,
+              'waste_percent': i.wastePercent,
+              'rounding_type': i.roundingType,
+              'price_at_calc': i.unitPrice,
+            },
+          ))
+      .toList();
 }
