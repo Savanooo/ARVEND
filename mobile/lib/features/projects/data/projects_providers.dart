@@ -105,3 +105,25 @@ final suppliersProvider = FutureProvider.autoDispose<List<Supplier>>(
 final orgCostCodesProvider = FutureProvider.autoDispose<List<OrgCostCode>>(
   (ref) => ref.watch(projectsRepositoryProvider).costCodes(),
 );
+
+// ---------- P2: Hakediş (Progress Claim) ----------
+
+final progressClaimDetailProvider = FutureProvider.autoDispose.family<
+    ({ProgressClaim claim, List<ProgressClaimItem> items}),
+    ({String projectId, String claimId})>(
+  (ref, args) => ref.watch(projectsRepositoryProvider).progressClaimDetail(args.projectId, args.claimId),
+);
+
+// ---------- P2: Taşeron Değişiklik Emri (Subcontract Change Order) ----------
+
+final subcontractChangeOrdersProvider = FutureProvider.autoDispose
+    .family<List<SubcontractChangeOrder>, ({String projectId, String subcontractId})>(
+  (ref, args) => ref.watch(projectsRepositoryProvider).subcontractChangeOrders(args.projectId, args.subcontractId),
+);
+
+final subcontractChangeOrderDetailProvider = FutureProvider.autoDispose.family<
+    ({SubcontractChangeOrder changeOrder, List<SubcontractChangeOrderItem> items}),
+    ({String projectId, String changeOrderId})>(
+  (ref, args) =>
+      ref.watch(projectsRepositoryProvider).subcontractChangeOrderDetail(args.projectId, args.changeOrderId),
+);

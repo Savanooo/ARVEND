@@ -105,6 +105,17 @@ abstract final class StatusRegistry {
     'cancelled': ('İptal Edildi', StatusTone.danger),
   };
 
+  /// `subcontract_change_orders` (Sprint 5, maliyet tarafı) -- `changeOrder`
+  /// (yukarıda, Sprint-3 gelir tarafı "Ek İşler") İLE KARIŞTIRILMAMALI; durum
+  /// SÖZCÜKLERİ bile farklı ('submitted'/'approved' vs 'sent'/'approved').
+  static const subcontractChangeOrder = {
+    'draft': ('Taslak', StatusTone.muted),
+    'submitted': ('Gönderildi', StatusTone.info),
+    'approved': ('Onaylandı', StatusTone.success),
+    'rejected': ('Reddedildi', StatusTone.danger),
+    'cancelled': ('İptal Edildi', StatusTone.danger),
+  };
+
   static const attendance = {
     'geldi': ('Geldi', StatusTone.success),
     'yarım gün': ('Yarım Gün', StatusTone.gold),

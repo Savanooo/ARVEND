@@ -461,4 +461,231 @@ class ProjectsRepository {
     );
     return Subcontract.fromJson(json);
   }
+
+  // ---------- P2: Hakediş (Progress Claim) ----------
+
+  Future<({ProgressClaim claim, List<ProgressClaimItem> items})> progressClaimDetail(
+      String projectId, String claimId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/subcontract-progress-claims/$claimId');
+    final claim = ProgressClaim.fromJson(json['progress_claim'] as Map<String, dynamic>);
+    final items = (json['items'] as List).cast<Map<String, dynamic>>().map(ProgressClaimItem.fromJson).toList();
+    return (claim: claim, items: items);
+  }
+
+  Map<String, dynamic> _progressClaimBody({
+    String? periodStart,
+    required String periodEnd,
+    required double retentionPercent,
+    required double advanceRecoveryAmount,
+    required double otherDeductions,
+    required String notes,
+    required List<ProgressClaimItem> items,
+  }) =>
+      {
+        'period_start': periodStart,
+        'period_end': periodEnd,
+        'retention_percent': retentionPercent,
+        'advance_recovery_amount': advanceRecoveryAmount,
+        'other_deductions': otherDeductions,
+        'notes': notes,
+        'items': items.map((i) => i.toJson()).toList(),
+      };
+
+  /// Backend ana sözleşmenin `active` olmasını ZORUNLU kılar (`create` için
+  /// -- bkz. `ErrSubcontractNotActiveForClaim`) VE >=1 kalem ister
+  /// (`ErrProgressClaimItemsRequired`). Her kalemin `current_progress_amount`ı
+  /// + o SOV kaleminin önceki SERTİFİKALI kümülatifi, kalemin
+  /// `original_amount`ını AŞARSA 409 `ErrProgressClaimOverrun` döner.
+  Future<ProgressClaim> createProgressClaim(
+    String projectId,
+    String subcontractId, {
+    String? periodStart,
+    required String periodEnd,
+    required double retentionPercent,
+    double advanceRecoveryAmount = 0,
+    double otherDeductions = 0,
+    String notes = '',
+    required List<ProgressClaimItem> items,
+  }) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/subcontracts/$subcontractId/progress-claims',
+      data: _progressClaimBody(
+        periodStart: periodStart, periodEnd: periodEnd, retentionPercent: retentionPercent,
+        advanceRecoveryAmount: advanceRecoveryAmount, otherDeductions: otherDeductions, notes: notes, items: items,
+      ),
+    );
+    return ProgressClaim.fromJson(json);
+  }
+
+  /// Backend YALNIZCA `draft` durumundayken kabul eder VE (ana sözleşmenin
+  /// SOV güncellemesi gibi) kalem listesini TAMAMEN yeniden yazar --
+  /// değişmeyen kalemler de `items` içinde OLDUĞU GİBİ gönderilmelidir.
+  Future<ProgressClaim> updateProgressClaim(
+    String projectId,
+    String claimId, {
+    String? periodStart,
+    required String periodEnd,
+    required double retentionPercent,
+    double advanceRecoveryAmount = 0,
+    double otherDeductions = 0,
+    String notes = '',
+    required List<ProgressClaimItem> items,
+  }) async {
+    final json = await _client.put<Map<String, dynamic>>(
+      '/projects/$projectId/subcontract-progress-claims/$claimId',
+      data: _progressClaimBody(
+        periodStart: periodStart, periodEnd: periodEnd, retentionPercent: retentionPercent,
+        advanceRecoveryAmount: advanceRecoveryAmount, otherDeductions: otherDeductions, notes: notes, items: items,
+      ),
+    );
+    return ProgressClaim.fromJson(json);
+  }
+
+  Future<ProgressClaim> submitProgressClaim(String projectId, String claimId) async {
+    final json =
+        await _client.post<Map<String, dynamic>>('/projects/$projectId/subcontract-progress-claims/$claimId/submit');
+    return ProgressClaim.fromJson(json);
+  }
+
+  /// `submitted` -> `certified`. Backend, aynı SOV kalemine karşı ARADA
+  /// başka bir hakediş sertifika edildiyse (stale/yarış durumu) 409
+  /// `ErrProgressClaimStale` ile reddeder -- mobil bunu yalnızca backend
+  /// hata mesajıyla gösterir, kendi tarafında yeniden hesaplama YAPMAZ.
+  Future<ProgressClaim> certifyProgressClaim(String projectId, String claimId) async {
+    final json = await _client
+        .post<Map<String, dynamic>>('/projects/$projectId/subcontract-progress-claims/$claimId/certify');
+    return ProgressClaim.fromJson(json);
+  }
+
+  /// Backend YALNIZCA `submitted`tan kabul eder VE gerekçe ZORUNLUDUR --
+  /// Certify İLE AYNI izin grubunda (`subcontract_claims.certify`), Manage
+  /// İLE DEĞİL.
+  Future<ProgressClaim> rejectProgressClaim(String projectId, String claimId, {required String reason}) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/subcontract-progress-claims/$claimId/reject',
+      data: {'reason': reason},
+    );
+    return ProgressClaim.fromJson(json);
+  }
+
+  /// `draft` VEYA `submitted` -> `cancelled`. Reject'in aksine gerekçe
+  /// KABUL EDİLMEZ ve izin grubu Manage'dir (Certify DEĞİL).
+  Future<ProgressClaim> cancelProgressClaim(String projectId, String claimId) async {
+    final json =
+        await _client.post<Map<String, dynamic>>('/projects/$projectId/subcontract-progress-claims/$claimId/cancel');
+    return ProgressClaim.fromJson(json);
+  }
+
+  // ---------- P2: Taşeron Değişiklik Emri (Subcontract Change Order) ----------
+  //
+  // Sprint-3'ün proje-seviyeli `changeOrders()`/`ChangeOrder`'ı (GELİR
+  // tarafı, "Ek İşler") İLE KARIŞTIRILMAMALI -- bu, TEK bir taşeron
+  // sözleşmesine bağlı, MALİYET-tarafı bir değişiklik emridir.
+
+  Future<List<SubcontractChangeOrder>> subcontractChangeOrders(String projectId, String subcontractId) async {
+    final json =
+        await _client.get<Map<String, dynamic>>('/projects/$projectId/subcontracts/$subcontractId/change-orders');
+    return (json['subcontract_change_orders'] as List)
+        .cast<Map<String, dynamic>>()
+        .map(SubcontractChangeOrder.fromJson)
+        .toList();
+  }
+
+  Future<({SubcontractChangeOrder changeOrder, List<SubcontractChangeOrderItem> items})> subcontractChangeOrderDetail(
+      String projectId, String changeOrderId) async {
+    final json =
+        await _client.get<Map<String, dynamic>>('/projects/$projectId/subcontract-change-orders/$changeOrderId');
+    final changeOrder = SubcontractChangeOrder.fromJson(json['subcontract_change_order'] as Map<String, dynamic>);
+    final items =
+        (json['items'] as List).cast<Map<String, dynamic>>().map(SubcontractChangeOrderItem.fromJson).toList();
+    return (changeOrder: changeOrder, items: items);
+  }
+
+  Map<String, dynamic> _changeOrderBody({
+    required String title,
+    required String description,
+    required String changeType,
+    required String reason,
+    required List<SubcontractChangeOrderItem> items,
+  }) =>
+      {
+        'title': title,
+        'description': description,
+        'change_type': changeType,
+        'reason': reason,
+        'items': items.map((i) => i.toJson()).toList(),
+      };
+
+  /// Backend ana sözleşmenin `active` olmasını ZORUNLU kılar
+  /// (`ErrSubcontractNotActiveForChange`) VE >=1 kalem ister
+  /// (`ErrSubcontractChangeOrderItemsRequired`).
+  Future<SubcontractChangeOrder> createSubcontractChangeOrder(
+    String projectId,
+    String subcontractId, {
+    required String title,
+    String description = '',
+    required String changeType,
+    String reason = '',
+    required List<SubcontractChangeOrderItem> items,
+  }) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/subcontracts/$subcontractId/change-orders',
+      data: _changeOrderBody(title: title, description: description, changeType: changeType, reason: reason, items: items),
+    );
+    return SubcontractChangeOrder.fromJson(json);
+  }
+
+  /// Backend YALNIZCA değişiklik emrinin KENDİ `draft` durumundayken kabul
+  /// eder (ana sözleşmenin durumunu YENİDEN kontrol ETMEZ) VE kalem
+  /// listesini TAMAMEN yeniden yazar.
+  Future<SubcontractChangeOrder> updateSubcontractChangeOrder(
+    String projectId,
+    String changeOrderId, {
+    required String title,
+    String description = '',
+    required String changeType,
+    String reason = '',
+    required List<SubcontractChangeOrderItem> items,
+  }) async {
+    final json = await _client.put<Map<String, dynamic>>(
+      '/projects/$projectId/subcontract-change-orders/$changeOrderId',
+      data: _changeOrderBody(title: title, description: description, changeType: changeType, reason: reason, items: items),
+    );
+    return SubcontractChangeOrder.fromJson(json);
+  }
+
+  Future<SubcontractChangeOrder> submitSubcontractChangeOrder(String projectId, String changeOrderId) async {
+    final json = await _client
+        .post<Map<String, dynamic>>('/projects/$projectId/subcontract-change-orders/$changeOrderId/submit');
+    return SubcontractChangeOrder.fromJson(json);
+  }
+
+  /// `submitted` -> `approved`. Ana sözleşmenin commitment'ını YENİDEN
+  /// SENKRONİZE eder (bkz. backend `syncSubcontractCommitments`) -- bu
+  /// yüzden `subcontracts.approve` izni gerektirir (Manage DEĞİL).
+  Future<SubcontractChangeOrder> approveSubcontractChangeOrder(String projectId, String changeOrderId) async {
+    final json = await _client
+        .post<Map<String, dynamic>>('/projects/$projectId/subcontract-change-orders/$changeOrderId/approve');
+    return SubcontractChangeOrder.fromJson(json);
+  }
+
+  /// Backend YALNIZCA `submitted`tan kabul eder VE gerekçe ZORUNLUDUR --
+  /// Approve İLE AYNI izin grubunda (`subcontracts.approve`).
+  Future<SubcontractChangeOrder> rejectSubcontractChangeOrder(String projectId, String changeOrderId,
+      {required String reason}) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/subcontract-change-orders/$changeOrderId/reject',
+      data: {'reason': reason},
+    );
+    return SubcontractChangeOrder.fromJson(json);
+  }
+
+  /// `draft` VEYA `submitted` -> `cancelled`. Reject'in aksine gerekçe
+  /// KABUL EDİLMEZ ve izin grubu Manage'dir (Approve DEĞİL) -- oluşturanla
+  /// AYNI rol iptal de edebilir.
+  Future<SubcontractChangeOrder> cancelSubcontractChangeOrder(String projectId, String changeOrderId) async {
+    final json = await _client
+        .post<Map<String, dynamic>>('/projects/$projectId/subcontract-change-orders/$changeOrderId/cancel');
+    return SubcontractChangeOrder.fromJson(json);
+  }
 }

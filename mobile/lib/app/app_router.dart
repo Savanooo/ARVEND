@@ -24,6 +24,10 @@ import '../features/projects/presentation/project_detail_screen.dart';
 import '../features/projects/presentation/projects_screen.dart';
 import '../features/projects/presentation/purchase_order_detail_screen.dart';
 import '../features/projects/presentation/purchase_request_detail_screen.dart';
+import '../features/projects/presentation/progress_claim_detail_screen.dart';
+import '../features/projects/presentation/progress_claim_form_screen.dart';
+import '../features/projects/presentation/subcontract_change_order_detail_screen.dart';
+import '../features/projects/presentation/subcontract_change_order_form_screen.dart';
 import '../features/projects/presentation/subcontract_detail_screen.dart';
 import '../features/projects/presentation/subcontract_form_screen.dart';
 import '../features/tasks/presentation/tasks_screen.dart';
@@ -139,6 +143,52 @@ final routerProvider = Provider<GoRouter>((ref) {
                       builder: (context, state) => SubcontractFormScreen(
                         projectId: state.pathParameters['id']!,
                         subcontractId: state.pathParameters['subcontractId'],
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'taseronlar/:subcontractId/hakedisler/yeni',
+                      builder: (context, state) => ProgressClaimFormScreen(
+                        projectId: state.pathParameters['id']!,
+                        subcontractId: state.pathParameters['subcontractId']!,
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'taseronlar/:subcontractId/hakedisler/:claimId/duzenle',
+                      builder: (context, state) => ProgressClaimFormScreen(
+                        projectId: state.pathParameters['id']!,
+                        subcontractId: state.pathParameters['subcontractId']!,
+                        claimId: state.pathParameters['claimId'],
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'taseronlar/:subcontractId/hakedisler/:claimId',
+                      builder: (context, state) => ProgressClaimDetailScreen(
+                        projectId: state.pathParameters['id']!,
+                        subcontractId: state.pathParameters['subcontractId']!,
+                        claimId: state.pathParameters['claimId']!,
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'taseronlar/:subcontractId/degisiklik-emirleri/yeni',
+                      builder: (context, state) => SubcontractChangeOrderFormScreen(
+                        projectId: state.pathParameters['id']!,
+                        subcontractId: state.pathParameters['subcontractId']!,
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'taseronlar/:subcontractId/degisiklik-emirleri/:changeOrderId/duzenle',
+                      builder: (context, state) => SubcontractChangeOrderFormScreen(
+                        projectId: state.pathParameters['id']!,
+                        subcontractId: state.pathParameters['subcontractId']!,
+                        changeOrderId: state.pathParameters['changeOrderId'],
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'taseronlar/:subcontractId/degisiklik-emirleri/:changeOrderId',
+                      builder: (context, state) => SubcontractChangeOrderDetailScreen(
+                        projectId: state.pathParameters['id']!,
+                        subcontractId: state.pathParameters['subcontractId']!,
+                        changeOrderId: state.pathParameters['changeOrderId']!,
                       ),
                     ),
                     GoRoute(

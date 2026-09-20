@@ -2,10 +2,11 @@
 /// 8'den kalma legacy `project_subcontractors`/`/subcontractors` uçlarıyla
 /// KARIŞTIRILMAMALI — o basit taşeron+ödeme defteri mobilde YOK, bilinçli
 /// olarak bu modülün üzerine yeni mobil işlevsellik kurulmuyor (bkz. backend
-/// docs/subcontracts.md "Legacy Taşeron Sistemi"). Değişiklik emirleri
-/// (subcontract change orders) mobilde YALNIZCA OKUMA bile değil, HENÜZ HİÇ
-/// YOK — onay iş akışı web'de kalıyor (SOV/hakediş/ödeme kadar sık
-/// kullanılmayan, daha karmaşık bir akış).
+/// docs/subcontracts.md "Legacy Taşeron Sistemi"). `subcontract_change_orders`
+/// (bu dosyanın altında `SubcontractChangeOrder`) Sprint-3'ün MÜŞTERİ tarafı
+/// `project_change_orders`/"Ek İşler" İLE DE KARIŞTIRILMAMALI -- o TAMAMEN
+/// ayrı bir gelir-tarafı modülüdür (`ChangeOrder`, project.dart'ta), bu ise
+/// maliyet-tarafı, tek bir taşeron sözleşmesine bağlı bir değişiklik emridir.
 class Subcontract {
   final String id;
   final String subcontractNo;
@@ -304,42 +305,282 @@ class SubcontractPayment {
       );
 }
 
-/// `/subcontract-progress-claims` (Hakediş) -- mobilde YALNIZCA OKUMA
-/// (Değişiklik Emirleri İLE AYNI ilke: sertifikasyon onay iş akışı web'de
-/// kalır). netPayable bir YÜKÜMLÜLÜKTÜR, GERÇEKTEN ödendiği anlamına
-/// GELMEZ -- bkz. SubcontractPayment.
+/// `/subcontract-progress-claims` (Hakediş) -- P2: artık salt-okunur değil,
+/// create/edit/submit/certify/reject/cancel destekleniyor (bkz.
+/// project_subcontract_progress_claim_service.go). `netPayable` bir
+/// YÜKÜMLÜLÜKTÜR, GERÇEKTEN ödendiği anlamına GELMEZ -- bkz.
+/// `SubcontractPayment`. Durum makinesi: draft -> submitted -> {certified,
+/// rejected}; {draft, submitted} -> cancelled. `certified` TERMİNALDİR --
+/// hiçbir aksiyon onu geri döndüremez, düzeltme YENİ bir hakedişle yapılır.
 class ProgressClaim {
   final String id;
+  final String subcontractId;
   final String claimNumber;
+  final String? periodStart;
   final String periodEnd;
   final String status;
   final double grossWorkAmount;
+  final double retentionPercentSnapshot;
   final double retentionAmount;
+  final double advanceRecoveryAmount;
+  final double otherDeductions;
+  final double previousCertifiedAmount;
+  final double currentCertifiedAmount;
   final double netPayable;
+  final String? submittedAt;
   final String? certifiedAt;
+  final String? rejectedAt;
+  final String rejectionReason;
+  final String? cancelledAt;
+  final String notes;
   final String createdAt;
+  final String updatedAt;
 
   const ProgressClaim({
     required this.id,
+    required this.subcontractId,
     required this.claimNumber,
+    required this.periodStart,
     required this.periodEnd,
     required this.status,
     required this.grossWorkAmount,
+    required this.retentionPercentSnapshot,
     required this.retentionAmount,
+    required this.advanceRecoveryAmount,
+    required this.otherDeductions,
+    required this.previousCertifiedAmount,
+    required this.currentCertifiedAmount,
     required this.netPayable,
+    required this.submittedAt,
     required this.certifiedAt,
+    required this.rejectedAt,
+    required this.rejectionReason,
+    required this.cancelledAt,
+    required this.notes,
     required this.createdAt,
+    required this.updatedAt,
   });
 
   factory ProgressClaim.fromJson(Map<String, dynamic> json) => ProgressClaim(
         id: json['id'] as String,
+        subcontractId: json['subcontract_id'] as String? ?? '',
         claimNumber: json['claim_number'] as String,
+        periodStart: json['period_start'] as String?,
         periodEnd: json['period_end'] as String? ?? '',
         status: json['status'] as String,
         grossWorkAmount: (json['gross_work_amount'] as num?)?.toDouble() ?? 0,
+        retentionPercentSnapshot: (json['retention_percent_snapshot'] as num?)?.toDouble() ?? 0,
         retentionAmount: (json['retention_amount'] as num?)?.toDouble() ?? 0,
+        advanceRecoveryAmount: (json['advance_recovery_amount'] as num?)?.toDouble() ?? 0,
+        otherDeductions: (json['other_deductions'] as num?)?.toDouble() ?? 0,
+        previousCertifiedAmount: (json['previous_certified_amount'] as num?)?.toDouble() ?? 0,
+        currentCertifiedAmount: (json['current_certified_amount'] as num?)?.toDouble() ?? 0,
         netPayable: (json['net_payable'] as num?)?.toDouble() ?? 0,
+        submittedAt: json['submitted_at'] as String?,
         certifiedAt: json['certified_at'] as String?,
+        rejectedAt: json['rejected_at'] as String?,
+        rejectionReason: json['rejection_reason'] as String? ?? '',
+        cancelledAt: json['cancelled_at'] as String?,
+        notes: json['notes'] as String? ?? '',
         createdAt: json['created_at'] as String? ?? '',
+        updatedAt: json['updated_at'] as String? ?? '',
       );
+
+  static const statusDraft = 'draft';
+  static const statusSubmitted = 'submitted';
+  static const statusCertified = 'certified';
+  static const statusRejected = 'rejected';
+  static const statusCancelled = 'cancelled';
+
+  /// Yalnızca UX görünürlüğü -- backend HER geçişi kendi durum-korumalı
+  /// SQL'iyle bağımsız olarak reddeder (bkz.
+  /// project_subcontract_progress_claim_service.go).
+  bool get isEditable => status == statusDraft;
+  bool get canSubmit => status == statusDraft;
+  bool get canCertify => status == statusSubmitted;
+  bool get canReject => status == statusSubmitted;
+  bool get canCancel => status == statusDraft || status == statusSubmitted;
+}
+
+/// Bir hakedişin tek bir SOV kalemine karşılık gelen satırı. `scheduledValue`/
+/// `previousProgressAmount`/`cumulativeProgressAmount` backend-hesaplıdır
+/// (snapshot/running-total) -- mobil bunları ASLA yeniden hesaplamaz, yalnızca
+/// GÖSTERİR. `progressPercent`/`remainingAmount` backend'in KENDİSİ de canlı
+/// hesaplayıp response'a koyduğu (persist edilmeyen) türetilmiş alanlardır --
+/// mobil bunları backend'den OLDUĞU GİBİ okur, kendi formülünü İCAT ETMEZ.
+class ProgressClaimItem {
+  final String id;
+  final String subcontractItemId;
+  final String itemDescription;
+  final String itemUnit;
+  final double scheduledValue;
+  final double previousProgressAmount;
+  final double currentProgressAmount;
+  final double cumulativeProgressAmount;
+  final double progressPercent;
+  final double remainingAmount;
+  final int sortOrder;
+
+  const ProgressClaimItem({
+    required this.id,
+    required this.subcontractItemId,
+    required this.itemDescription,
+    required this.itemUnit,
+    required this.scheduledValue,
+    required this.previousProgressAmount,
+    required this.currentProgressAmount,
+    required this.cumulativeProgressAmount,
+    required this.progressPercent,
+    required this.remainingAmount,
+    required this.sortOrder,
+  });
+
+  factory ProgressClaimItem.fromJson(Map<String, dynamic> json) => ProgressClaimItem(
+        id: json['id'] as String,
+        subcontractItemId: json['subcontract_item_id'] as String? ?? '',
+        itemDescription: json['item_description'] as String? ?? '',
+        itemUnit: json['item_unit'] as String? ?? '',
+        scheduledValue: (json['scheduled_value'] as num?)?.toDouble() ?? 0,
+        previousProgressAmount: (json['previous_progress_amount'] as num?)?.toDouble() ?? 0,
+        currentProgressAmount: (json['current_progress_amount'] as num?)?.toDouble() ?? 0,
+        cumulativeProgressAmount: (json['cumulative_progress_amount'] as num?)?.toDouble() ?? 0,
+        progressPercent: (json['progress_percent'] as num?)?.toDouble() ?? 0,
+        remainingAmount: (json['remaining_amount'] as num?)?.toDouble() ?? 0,
+        sortOrder: (json['sort_order'] as num?)?.toInt() ?? 0,
+      );
+
+  /// İstek gövdesinde YALNIZCA bu iki alan var -- `scheduled_value`/
+  /// `previous_progress_amount`/`cumulative_progress_amount`/`progress_percent`/
+  /// `remaining_amount` backend tarafından türetilir, hiçbiri gönderilmez.
+  Map<String, dynamic> toJson() => {
+        'subcontract_item_id': subcontractItemId,
+        'current_progress_amount': currentProgressAmount,
+      };
+}
+
+/// `subcontract_change_orders` (Sprint 5, MALİYET tarafı) -- P2 ile mobile
+/// eklendi. Sprint-3'ün `ChangeOrder` (GELİR tarafı, "Ek İşler") İLE
+/// KARIŞTIRILMAMALI, bkz. dosya başı yorumu. `signedAmount`, backend'in
+/// KENDİSİ hesaplayıp DÖNMEDİĞİ bir alan -- API yalnızca `amount` (her zaman
+/// pozitif) + `changeType` döner, işaret burada YALNIZCA GÖRÜNTÜLEME için
+/// türetilir (backend'in domain.SubcontractChangeOrder.SignedEffect() metodu
+/// VAR ama hiçbir handler/service tarafından ÇAĞRILMIYOR -- bkz. Phase 1
+/// bulgusu). Durum makinesi: draft -> submitted -> {approved, rejected};
+/// {draft, submitted} -> cancelled. Onay, ana sözleşmenin commitment'ını
+/// YENİDEN SENKRONİZE eder (bkz. syncSubcontractCommitments) -- bu yüzden
+/// yalnızca `subcontracts.approve` iznine sahip kullanıcılar onaylayabilir.
+class SubcontractChangeOrder {
+  final String id;
+  final String subcontractId;
+  final String number;
+  final String title;
+  final String description;
+  final String changeType;
+  final double amount;
+  final String status;
+  final String reason;
+  final String? requestedAt;
+  final String? approvedAt;
+  final String? rejectedAt;
+  final String rejectionReason;
+  final String? cancelledAt;
+  final String createdAt;
+  final String updatedAt;
+
+  const SubcontractChangeOrder({
+    required this.id,
+    required this.subcontractId,
+    required this.number,
+    required this.title,
+    required this.description,
+    required this.changeType,
+    required this.amount,
+    required this.status,
+    required this.reason,
+    required this.requestedAt,
+    required this.approvedAt,
+    required this.rejectedAt,
+    required this.rejectionReason,
+    required this.cancelledAt,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory SubcontractChangeOrder.fromJson(Map<String, dynamic> json) => SubcontractChangeOrder(
+        id: json['id'] as String,
+        subcontractId: json['subcontract_id'] as String? ?? '',
+        number: json['number'] as String? ?? '',
+        title: json['title'] as String? ?? '',
+        description: json['description'] as String? ?? '',
+        changeType: json['change_type'] as String? ?? typeAddition,
+        amount: (json['amount'] as num?)?.toDouble() ?? 0,
+        status: json['status'] as String,
+        reason: json['reason'] as String? ?? '',
+        requestedAt: json['requested_at'] as String?,
+        approvedAt: json['approved_at'] as String?,
+        rejectedAt: json['rejected_at'] as String?,
+        rejectionReason: json['rejection_reason'] as String? ?? '',
+        cancelledAt: json['cancelled_at'] as String?,
+        createdAt: json['created_at'] as String? ?? '',
+        updatedAt: json['updated_at'] as String? ?? '',
+      );
+
+  static const typeAddition = 'addition';
+  static const typeDeduction = 'deduction';
+
+  static const statusDraft = 'draft';
+  static const statusSubmitted = 'submitted';
+  static const statusApproved = 'approved';
+  static const statusRejected = 'rejected';
+  static const statusCancelled = 'cancelled';
+
+  double get signedAmount => changeType == typeDeduction ? -amount : amount;
+
+  bool get isEditable => status == statusDraft;
+  bool get canSubmit => status == statusDraft;
+  bool get canApprove => status == statusSubmitted;
+  bool get canReject => status == statusSubmitted;
+  bool get canCancel => status == statusDraft || status == statusSubmitted;
+}
+
+/// Ana sözleşmenin SOV'unu (`SubcontractItem`) taklit eden değişiklik emri
+/// kalemi -- her kalem kendi cost_code_id/budget_line_id/wbs_node_id'sine
+/// sahiptir (Sprint 5 P1'deki gibi mobil bir WBS/bütçe seçici SUNMAZ, ikisi
+/// de opsiyonel boş bırakılır).
+class SubcontractChangeOrderItem {
+  final String id;
+  final String? wbsNodeId;
+  final String costCodeId;
+  final String? budgetLineId;
+  final String description;
+  final double amount;
+  final int sortOrder;
+
+  const SubcontractChangeOrderItem({
+    required this.id,
+    required this.wbsNodeId,
+    required this.costCodeId,
+    required this.budgetLineId,
+    required this.description,
+    required this.amount,
+    required this.sortOrder,
+  });
+
+  factory SubcontractChangeOrderItem.fromJson(Map<String, dynamic> json) => SubcontractChangeOrderItem(
+        id: json['id'] as String,
+        wbsNodeId: json['wbs_node_id'] as String?,
+        costCodeId: json['cost_code_id'] as String? ?? '',
+        budgetLineId: json['budget_line_id'] as String?,
+        description: json['description'] as String? ?? '',
+        amount: (json['amount'] as num?)?.toDouble() ?? 0,
+        sortOrder: (json['sort_order'] as num?)?.toInt() ?? 0,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'wbs_node_id': wbsNodeId ?? '',
+        'cost_code_id': costCodeId,
+        'budget_line_id': budgetLineId ?? '',
+        'description': description,
+        'amount': amount,
+      };
 }

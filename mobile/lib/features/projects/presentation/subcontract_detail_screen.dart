@@ -12,10 +12,14 @@ import '../data/projects_providers.dart';
 import '../domain/subcontract.dart';
 import 'subcontract_payment_form_sheet.dart';
 
-/// Sprint 5 — Taşeron Sözleşmesi detayı. SOV/hakediş mobilde YALNIZCA OKUMA
-/// (değişiklik emri onayı gibi hassas karar anları web'de kalır); ödeme
-/// kaydı (GERÇEK nakit çıkışı) TEK yazma aksiyonudur -- backend Sprint 5
-/// follow-up'ın (migration 0039) mobildeki karşılığı.
+/// Sprint 5 — Taşeron Sözleşmesi detayı. P2 ile hakediş (Progress Claim) ve
+/// değişiklik emri (Subcontract Change Order) artık YALNIZCA OKUMA değil --
+/// her ikisi de kendi detay/form ekranlarına sahiptir (bkz.
+/// `progress_claim_detail_screen.dart`, `subcontract_change_order_detail_
+/// screen.dart`). SOV kalemlerinin KENDİSİ hâlâ salt-okunur (P1'in bilinçli
+/// kapsam sınırı korunur). Ödeme kaydı (GERÇEK nakit çıkışı) bu ekranda
+/// AYRI kalır -- backend Sprint 5 follow-up'ın (migration 0039) mobildeki
+/// karşılığı.
 ///
 /// current_value/certified_to_date/remaining_commitment (taahhüt ekseni) ile
 /// paid_to_date/remaining_payable (nakit ekseni) BİLİNÇLİ OLARAK AYRI
@@ -58,22 +62,28 @@ class _SubcontractDetailBody extends ConsumerWidget {
     final args = (projectId: projectId, subcontractId: subcontractId);
     final paymentsAsync = ref.watch(subcontractPaymentsProvider(args));
     final claimsAsync = ref.watch(subcontractProgressClaimsProvider(args));
+    final changeOrdersAsync = ref.watch(subcontractChangeOrdersProvider(args));
     final sc = detail.subcontract;
     final value = detail.value;
     final user = ref.watch(authControllerProvider).valueOrNull;
     final canManage = user == null || user.permissions.isEmpty || user.hasPermission('projects.subcontracts.manage');
     final canApprove =
         user == null || user.permissions.isEmpty || user.hasPermission('projects.subcontracts.approve');
+    final canManageClaims =
+        user == null || user.permissions.isEmpty || user.hasPermission('projects.subcontract_claims.manage');
 
     void refreshAll() {
       ref.invalidate(subcontractDetailProvider(args));
       ref.invalidate(subcontractPaymentsProvider(args));
+      ref.invalidate(subcontractProgressClaimsProvider(args));
+      ref.invalidate(subcontractChangeOrdersProvider(args));
       // Yeni-modül taşeron ödemeleri financial-summary/cost-control'e
       // AKAR (migration 0039 follow-up) -- proje özetinin bayatlamaması
       // için bunlar da tazelenir (Tahsilat akışıyla AYNI ilke). Yaşam
-      // döngüsü aksiyonları (activate/complete/cancel/terminate) commitment
-      // senkronizasyonu yaptığından + liste sekmesindeki durum rozetinin
-      // bayatlamaması için subcontracts listesi de tazelenir.
+      // döngüsü aksiyonları (activate/complete/cancel/terminate/değişiklik
+      // emri onayı) commitment senkronizasyonu yaptığından + liste
+      // sekmesindeki durum rozetinin bayatlamaması için subcontracts
+      // listesi de tazelenir.
       ref.invalidate(projectFinancialSummaryProvider(projectId));
       ref.invalidate(projectCostControlProvider(projectId));
       ref.invalidate(projectSubcontractsProvider(projectId));
@@ -113,8 +123,19 @@ class _SubcontractDetailBody extends ConsumerWidget {
                   Text(sc.supplierName ?? sc.supplierCode ?? '-', style: const TextStyle(fontWeight: FontWeight.w700)),
                   if (sc.title.isNotEmpty) Text(sc.title, style: const TextStyle(color: Colors.grey)),
                   const Divider(height: 20),
-                  _Row('Sözleşme Bedeli', Formatters.money(sc.originalAmount, currency: sc.currency)),
+                  _Row('Sözleşme Bedeli (Orijinal)', Formatters.money(sc.originalAmount, currency: sc.currency)),
+                  _Row(
+                    'Onaylı Değişiklikler (net)',
+                    '${(value.approvedAdditions - value.approvedDeductions) >= 0 ? '+' : ''}'
+                        '${Formatters.money(value.approvedAdditions - value.approvedDeductions, currency: sc.currency)}',
+                  ),
                   _Row('Güncel Değer', Formatters.money(value.currentValue, currency: sc.currency)),
+                  if (value.pendingAdditions != 0 || value.pendingDeductions != 0)
+                    _Row(
+                      'Bekleyen Değişiklikler (net, henüz dahil değil)',
+                      '${(value.pendingAdditions - value.pendingDeductions) >= 0 ? '+' : ''}'
+                          '${Formatters.money(value.pendingAdditions - value.pendingDeductions, currency: sc.currency)}',
+                    ),
                   if (sc.retentionPercent != null)
                     _Row('Hakediş Kesintisi (Retention)', '%${sc.retentionPercent!.toStringAsFixed(2)}'),
                   if (sc.advanceAmount != null)
@@ -135,6 +156,25 @@ class _SubcontractDetailBody extends ConsumerWidget {
                   const SizedBox(height: 4),
                   _Row('Sertifika Edilen (Hakediş)', Formatters.money(value.certifiedToDate, currency: sc.currency)),
                   _Row('Kalan Taahhüt', Formatters.money(value.remainingCommitment, currency: sc.currency)),
+                  if (claimsAsync.valueOrNull != null && claimsAsync.valueOrNull!.isNotEmpty) ...[
+                    const Divider(height: 20),
+                    Builder(builder: (context) {
+                      final latest = [...claimsAsync.valueOrNull!]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+                      final c = latest.first;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text('Son Hakediş (${c.claimNumber})', style: const TextStyle(color: Colors.grey)),
+                            ),
+                            StatusRegistry.build(c.status, StatusRegistry.progressClaim),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
                 ],
               ),
             ),
@@ -179,7 +219,18 @@ class _SubcontractDetailBody extends ConsumerWidget {
                   ),
                 )),
           const SizedBox(height: 16),
-          const Text('Hakedişler', style: TextStyle(fontWeight: FontWeight.w700)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Hakedişler', style: TextStyle(fontWeight: FontWeight.w700)),
+              if (sc.status == Subcontract.statusActive && canManageClaims)
+                TextButton.icon(
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Hakediş Ekle'),
+                  onPressed: () => context.push('/projeler/$projectId/taseronlar/$subcontractId/hakedisler/yeni'),
+                ),
+            ],
+          ),
           const SizedBox(height: 8),
           AsyncStateView(
             value: claimsAsync,
@@ -198,6 +249,52 @@ class _SubcontractDetailBody extends ConsumerWidget {
                           subtitle: StatusRegistry.build(c.status, StatusRegistry.progressClaim),
                           trailing: Text(Formatters.money(c.netPayable, currency: sc.currency),
                               style: const TextStyle(fontWeight: FontWeight.w700)),
+                          onTap: () =>
+                              context.push('/projeler/$projectId/taseronlar/$subcontractId/hakedisler/${c.id}'),
+                        ),
+                      ))
+                  .toList(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Değişiklik Emirleri', style: TextStyle(fontWeight: FontWeight.w700)),
+              if (sc.status == Subcontract.statusActive && canManage)
+                TextButton.icon(
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Değişiklik Emri Ekle'),
+                  onPressed: () =>
+                      context.push('/projeler/$projectId/taseronlar/$subcontractId/degisiklik-emirleri/yeni'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          AsyncStateView(
+            value: changeOrdersAsync,
+            onRetry: () async => ref.invalidate(subcontractChangeOrdersProvider(args)),
+            isEmpty: (list) => list.isEmpty,
+            emptyBuilder: (_) => const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text('Henüz değişiklik emri yok.', style: TextStyle(color: Colors.grey)),
+            ),
+            data: (context, changeOrders) => Column(
+              children: changeOrders
+                  .map((co) => Card(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        child: ListTile(
+                          title: Text('${co.number} — ${co.title}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: StatusRegistry.build(co.status, StatusRegistry.subcontractChangeOrder),
+                          trailing: Text(
+                            '${co.signedAmount >= 0 ? '+' : ''}${Formatters.money(co.signedAmount, currency: sc.currency)}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: co.changeType == SubcontractChangeOrder.typeAddition ? Colors.green : Colors.red,
+                            ),
+                          ),
+                          onTap: () => context
+                              .push('/projeler/$projectId/taseronlar/$subcontractId/degisiklik-emirleri/${co.id}'),
                         ),
                       ))
                   .toList(),
