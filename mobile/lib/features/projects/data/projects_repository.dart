@@ -240,9 +240,7 @@ class ProjectsRepository {
     return (json['change_orders'] as List).cast<Map<String, dynamic>>().map(ChangeOrder.fromJson).toList();
   }
 
-  /// Sprint 4 — Satın Alma, mobilde YALNIZCA OKUMA (bkz. domain/procurement.dart
-  /// dosya başı notu). İzin: projects.procurement.read (Ek İşler'in aksine bu
-  /// sprint için AYRI, yeni bir izin -- web ile AYNI uç ve AYNI izin).
+  /// Sprint 4 — Satın Alma. İzin: projects.procurement.read.
   Future<List<PurchaseRequest>> purchaseRequests(String projectId) async {
     final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/purchase-requests');
     return (json['purchase_requests'] as List).cast<Map<String, dynamic>>().map(PurchaseRequest.fromJson).toList();
@@ -257,19 +255,479 @@ class ProjectsRepository {
     return (request: request, items: items);
   }
 
+  Map<String, dynamic> _purchaseRequestItemJson(PurchaseRequestItem i) => {
+        'wbs_node_id': i.wbsNodeId ?? '',
+        'cost_code_id': i.costCodeId ?? '',
+        'budget_line_id': i.budgetLineId ?? '',
+        'description': i.description,
+        'quantity': i.quantity,
+        'unit': i.unit,
+        'estimated_unit_cost': i.estimatedUnitCost,
+        'estimated_total': i.estimatedTotal,
+        'notes': i.notes,
+      };
+
+  Map<String, dynamic> _purchaseRequestBody({
+    required String title,
+    required String description,
+    String? neededBy,
+    required List<PurchaseRequestItem> items,
+  }) =>
+      {
+        'title': title,
+        'description': description,
+        'needed_by': neededBy,
+        'items': items.map(_purchaseRequestItemJson).toList(),
+      };
+
+  /// Backend'de kalemler OPSİYONELDİR (boş bir talep oluşturulabilir) --
+  /// ama Submit için >=1 kalem ZORUNLUDUR (409 `ErrPurchaseRequestItemsRequired`,
+  /// bkz. Phase 1 doğrulaması).
+  Future<PurchaseRequest> createPurchaseRequest(
+    String projectId, {
+    required String title,
+    String description = '',
+    String? neededBy,
+    List<PurchaseRequestItem> items = const [],
+  }) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/purchase-requests',
+      data: _purchaseRequestBody(title: title, description: description, neededBy: neededBy, items: items),
+    );
+    return PurchaseRequest.fromJson(json);
+  }
+
+  /// Backend YALNIZCA `draft` durumundayken kabul eder VE kalem listesini
+  /// TAMAMEN yeniden yazar -- değişmeyen kalemler de OLDUĞU GİBİ gönderilmelidir.
+  Future<PurchaseRequest> updatePurchaseRequest(
+    String projectId,
+    String prId, {
+    required String title,
+    String description = '',
+    String? neededBy,
+    required List<PurchaseRequestItem> items,
+  }) async {
+    final json = await _client.put<Map<String, dynamic>>(
+      '/projects/$projectId/purchase-requests/$prId',
+      data: _purchaseRequestBody(title: title, description: description, neededBy: neededBy, items: items),
+    );
+    return PurchaseRequest.fromJson(json);
+  }
+
+  Future<PurchaseRequest> submitPurchaseRequest(String projectId, String prId) async {
+    final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/purchase-requests/$prId/submit');
+    return PurchaseRequest.fromJson(json);
+  }
+
+  /// `submitted` -> `draft` -- gerekçe YOK, `manage` izniyle serbestçe
+  /// geri çekilip yeniden düzenlenebilir (Cancel'ın aksine terminal DEĞİL).
+  Future<PurchaseRequest> withdrawPurchaseRequest(String projectId, String prId) async {
+    final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/purchase-requests/$prId/withdraw');
+    return PurchaseRequest.fromJson(json);
+  }
+
+  /// `draft|submitted|approved` -> `cancelled`, gerekçe ZORUNLU. Approve/
+  /// Reject'in AKSİNE `manage` izni yeterlidir (`approve` DEĞİL) -- bkz.
+  /// Phase 1 doğrulaması.
+  Future<PurchaseRequest> cancelPurchaseRequest(String projectId, String prId, {required String reason}) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/purchase-requests/$prId/cancel',
+      data: {'reason': reason},
+    );
+    return PurchaseRequest.fromJson(json);
+  }
+
+  Future<PurchaseRequest> approvePurchaseRequest(String projectId, String prId) async {
+    final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/purchase-requests/$prId/approve');
+    return PurchaseRequest.fromJson(json);
+  }
+
+  Future<PurchaseRequest> rejectPurchaseRequest(String projectId, String prId, {required String reason}) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/purchase-requests/$prId/reject',
+      data: {'reason': reason},
+    );
+    return PurchaseRequest.fromJson(json);
+  }
+
+  // ---------- P3: RFQ ----------
+
+  Future<List<RFQ>> rfqs(String projectId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/rfqs');
+    return (json['rfqs'] as List).cast<Map<String, dynamic>>().map(RFQ.fromJson).toList();
+  }
+
+  Future<({RFQ rfq, List<RFQItem> items, List<RFQSupplier> suppliers})> rfqDetail(
+      String projectId, String rfqId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/rfqs/$rfqId');
+    final rfq = RFQ.fromJson(json['rfq'] as Map<String, dynamic>);
+    final items = (json['items'] as List).cast<Map<String, dynamic>>().map(RFQItem.fromJson).toList();
+    final suppliers =
+        (json['suppliers'] as List).cast<Map<String, dynamic>>().map(RFQSupplier.fromJson).toList();
+    return (rfq: rfq, items: items, suppliers: suppliers);
+  }
+
+  Map<String, dynamic> _rfqBody({
+    required String title,
+    String? purchaseRequestId,
+    String? issueDate,
+    String? dueDate,
+    String notes = '',
+    required List<String> supplierIds,
+    required List<RFQItem> items,
+  }) =>
+      {
+        'title': title,
+        'purchase_request_id': purchaseRequestId ?? '',
+        'issue_date': issueDate,
+        'due_date': dueDate,
+        'notes': notes,
+        'supplier_ids': supplierIds,
+        'items': items
+            .map((i) => {
+                  'wbs_node_id': i.wbsNodeId ?? '',
+                  'cost_code_id': i.costCodeId ?? '',
+                  'budget_line_id': i.budgetLineId ?? '',
+                  'description': i.description,
+                  'quantity': i.quantity,
+                  'unit': i.unit,
+                })
+            .toList(),
+      };
+
+  /// `purchase_request_id` verilirse: o PR `approved` olmalı, kalemler
+  /// PR'dan SNAPSHOT kopyalanır ve buradaki `items` YOKSAYILIR (bkz. Phase
+  /// 1). Boşsa: `items` doğrudan kullanılır.
+  Future<RFQ> createRFQ(
+    String projectId, {
+    required String title,
+    String? purchaseRequestId,
+    String? issueDate,
+    String? dueDate,
+    String notes = '',
+    List<String> supplierIds = const [],
+    List<RFQItem> items = const [],
+  }) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/rfqs',
+      data: _rfqBody(
+        title: title, purchaseRequestId: purchaseRequestId, issueDate: issueDate, dueDate: dueDate,
+        notes: notes, supplierIds: supplierIds, items: items,
+      ),
+    );
+    return RFQ.fromJson(json);
+  }
+
+  /// Backend YALNIZCA `draft` durumundayken kabul eder VE kalemleri +
+  /// tedarikçi listesini TAMAMEN yeniden yazar.
+  Future<RFQ> updateRFQ(
+    String projectId,
+    String rfqId, {
+    required String title,
+    String? purchaseRequestId,
+    String? issueDate,
+    String? dueDate,
+    String notes = '',
+    required List<String> supplierIds,
+    required List<RFQItem> items,
+  }) async {
+    final json = await _client.put<Map<String, dynamic>>(
+      '/projects/$projectId/rfqs/$rfqId',
+      data: _rfqBody(
+        title: title, purchaseRequestId: purchaseRequestId, issueDate: issueDate, dueDate: dueDate,
+        notes: notes, supplierIds: supplierIds, items: items,
+      ),
+    );
+    return RFQ.fromJson(json);
+  }
+
+  /// `draft` -> `issued`. Backend >=1 kalem VE >=1 davetli tedarikçi ister.
+  /// SAF bir DB durum geçişidir -- HİÇBİR e-posta/bildirim GÖNDERMEZ (bkz.
+  /// Phase 1'in ayrıntılı kod taraması: mailer/SendMailFunc bu dosyada HİÇ
+  /// import edilmiyor).
+  Future<RFQ> issueRFQ(String projectId, String rfqId) async {
+    final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/rfqs/$rfqId/issue');
+    return RFQ.fromJson(json);
+  }
+
+  /// `issued` -> `closed`, ödülsüz (kabul edilebilir teklif yoksa).
+  Future<RFQ> closeRFQ(String projectId, String rfqId) async {
+    final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/rfqs/$rfqId/close');
+    return RFQ.fromJson(json);
+  }
+
+  /// `draft|issued` -> `cancelled` -- gerekçe YOK (RFQ'ya özgü, PR/PO'dan
+  /// FARKLI: Cancel burada hiçbir body almaz).
+  Future<RFQ> cancelRFQ(String projectId, String rfqId) async {
+    final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/rfqs/$rfqId/cancel');
+    return RFQ.fromJson(json);
+  }
+
+  /// `issued` -> `closed` + `awarded_quotation_id` set. PO OTOMATİK
+  /// OLUŞTURULMAZ, kaybeden teklifler OTOMATİK REDDEDİLMEZ (bkz. Phase 1).
+  Future<RFQ> awardRFQ(String projectId, String rfqId, {required String quotationId, String notes = ''}) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/rfqs/$rfqId/award',
+      data: {'quotation_id': quotationId, 'notes': notes},
+    );
+    return RFQ.fromJson(json);
+  }
+
+  // ---------- P3: Tedarikçi Teklifi (Supplier Quotation) ----------
+
+  Future<List<Quotation>> quotations(String projectId, String rfqId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/rfqs/$rfqId/quotations');
+    return (json['quotations'] as List).cast<Map<String, dynamic>>().map(Quotation.fromJson).toList();
+  }
+
+  Future<({Quotation quotation, List<QuotationItem> items})> quotationDetail(
+      String projectId, String rfqId, String quotationId) async {
+    final json =
+        await _client.get<Map<String, dynamic>>('/projects/$projectId/rfqs/$rfqId/quotations/$quotationId');
+    final quotation = Quotation.fromJson(json['quotation'] as Map<String, dynamic>);
+    final items = (json['items'] as List).cast<Map<String, dynamic>>().map(QuotationItem.fromJson).toList();
+    return (quotation: quotation, items: items);
+  }
+
+  Map<String, dynamic> _quotationBody({
+    String supplierId = '',
+    required String quotationNumber,
+    String? quotationDate,
+    String? validUntil,
+    required double discount,
+    required double taxRate,
+    int? deliveryDays,
+    required String paymentTerms,
+    required String notes,
+    required List<QuotationItem> items,
+  }) =>
+      {
+        'supplier_id': supplierId,
+        'quotation_number': quotationNumber,
+        'quotation_date': quotationDate,
+        'valid_until': validUntil,
+        'discount': discount,
+        'tax_rate': taxRate,
+        'delivery_days': deliveryDays,
+        'payment_terms': paymentTerms,
+        'notes': notes,
+        'items': items
+            .map((i) => {
+                  'rfq_item_id': i.rfqItemId,
+                  'quantity': i.quantity,
+                  'unit_price': i.unitPrice,
+                  'notes': i.notes,
+                })
+            .toList(),
+      };
+
+  /// Backend RFQ'nun `issued` VE HENÜZ ödüllendirilmemiş olmasını ZORUNLU
+  /// kılar (`ErrQuotationRFQNotOpen`), `supplier_id`'nin RFQ'ya davetli
+  /// olmasını ister (`ErrQuotationSupplierNotInvited`). `currency`/
+  /// `subtotal`/`tax`/`total` İSTEK GÖVDESİNDE YOK -- backend hesaplar.
+  Future<Quotation> createQuotation(
+    String projectId,
+    String rfqId, {
+    required String supplierId,
+    String quotationNumber = '',
+    String? quotationDate,
+    String? validUntil,
+    double discount = 0,
+    double taxRate = 0,
+    int? deliveryDays,
+    String paymentTerms = '',
+    String notes = '',
+    required List<QuotationItem> items,
+  }) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/rfqs/$rfqId/quotations',
+      data: _quotationBody(
+        supplierId: supplierId, quotationNumber: quotationNumber, quotationDate: quotationDate,
+        validUntil: validUntil, discount: discount, taxRate: taxRate, deliveryDays: deliveryDays,
+        paymentTerms: paymentTerms, notes: notes, items: items,
+      ),
+    );
+    return Quotation.fromJson(json);
+  }
+
+  /// Aynı `requireOpenRFQForQuotation` kapısı Update için de geçerlidir --
+  /// `supplier_id` update'te YOKSAYILIR (bir teklifin tedarikçisi
+  /// değiştirilemez).
+  Future<Quotation> updateQuotation(
+    String projectId,
+    String rfqId,
+    String quotationId, {
+    String quotationNumber = '',
+    String? quotationDate,
+    String? validUntil,
+    double discount = 0,
+    double taxRate = 0,
+    int? deliveryDays,
+    String paymentTerms = '',
+    String notes = '',
+    required List<QuotationItem> items,
+  }) async {
+    final json = await _client.put<Map<String, dynamic>>(
+      '/projects/$projectId/rfqs/$rfqId/quotations/$quotationId',
+      data: _quotationBody(
+        quotationNumber: quotationNumber, quotationDate: quotationDate, validUntil: validUntil,
+        discount: discount, taxRate: taxRate, deliveryDays: deliveryDays, paymentTerms: paymentTerms,
+        notes: notes, items: items,
+      ),
+    );
+    return Quotation.fromJson(json);
+  }
+
+  /// Aynı açık-RFQ kapısı geçerlidir. KALICI silme (soft-delete YOK).
+  Future<void> deleteQuotation(String projectId, String rfqId, String quotationId) =>
+      _client.delete<void>('/projects/$projectId/rfqs/$rfqId/quotations/$quotationId');
+
+  /// Backend "en düşük"/"kazanan" alanı DÖNMEZ -- yalnızca ham
+  /// karşılaştırma verisi (bkz. domain/procurement.dart `BidComparisonCell`
+  /// yorumu). Mobil bir kazanan HESAPLAMAZ.
+  Future<({List<BidComparisonRow> rows, List<Quotation> quotations})> bidComparison(
+      String projectId, String rfqId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/rfqs/$rfqId/comparison');
+    final rows = (json['rows'] as List).cast<Map<String, dynamic>>().map(BidComparisonRow.fromJson).toList();
+    final list = (json['quotations'] as List).cast<Map<String, dynamic>>().map(Quotation.fromJson).toList();
+    return (rows: rows, quotations: list);
+  }
+
+  // ---------- Sprint 4 — Satın Alma Siparişi (Purchase Order) ----------
+
   Future<List<PurchaseOrder>> purchaseOrders(String projectId) async {
     final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/purchase-orders');
     return (json['purchase_orders'] as List).cast<Map<String, dynamic>>().map(PurchaseOrder.fromJson).toList();
   }
 
-  /// `commitments` alanı kasıtlı olarak yoksayılır -- maliyet-kontrolü
-  /// detayı web-first bir kapsam (bkz. Sprint 4 spec'i).
-  Future<({PurchaseOrder order, List<PurchaseOrderItem> items})> purchaseOrderDetail(
+  /// P3 ile `commitments` artık ayrıştırılıyor (PO onayının maliyet
+  /// kontrolüne KALEM-başına, onay-sonrası DEĞİŞMEZ etkisini göstermek
+  /// için) -- bkz. domain/procurement.dart `Commitment` yorumu.
+  Future<({PurchaseOrder order, List<PurchaseOrderItem> items, List<Commitment> commitments})> purchaseOrderDetail(
       String projectId, String poId) async {
     final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/purchase-orders/$poId');
     final order = PurchaseOrder.fromJson(json['purchase_order'] as Map<String, dynamic>);
     final items = (json['items'] as List).cast<Map<String, dynamic>>().map(PurchaseOrderItem.fromJson).toList();
-    return (order: order, items: items);
+    final commitments =
+        (json['commitments'] as List).cast<Map<String, dynamic>>().map(Commitment.fromJson).toList();
+    return (order: order, items: items, commitments: commitments);
+  }
+
+  Map<String, dynamic> _purchaseOrderBody({
+    required String supplierId,
+    String? sourceRfqId,
+    String? sourceQuotationId,
+    String? issueDate,
+    String? expectedDeliveryDate,
+    String paymentTerms = '',
+    String deliveryAddress = '',
+    String notes = '',
+    required double taxRate,
+    required List<PurchaseOrderItem> items,
+  }) =>
+      {
+        'supplier_id': supplierId,
+        'source_rfq_id': sourceRfqId ?? '',
+        'source_quotation_id': sourceQuotationId ?? '',
+        'issue_date': issueDate,
+        'expected_delivery_date': expectedDeliveryDate,
+        'payment_terms': paymentTerms,
+        'delivery_address': deliveryAddress,
+        'notes': notes,
+        'tax_rate': taxRate,
+        'items': items
+            .map((i) => {
+                  'wbs_node_id': i.wbsNodeId ?? '',
+                  'cost_code_id': i.costCodeId,
+                  'budget_line_id': i.budgetLineId ?? '',
+                  'description': i.description,
+                  'quantity': i.quantity,
+                  'unit': i.unit,
+                  'unit_price': i.unitPrice,
+                })
+            .toList(),
+      };
+
+  /// Backend'de "ödüllendirilmiş tekliften PO oluştur" diye AYRI bir uç
+  /// YOK -- `source_rfq_id`/`source_quotation_id` yalnızca izlenebilirlik
+  /// içindir, kalemler HER ZAMAN çağıran tarafından (burada: mobil, ödüllü
+  /// teklifin kendi kalemlerini okuyup kopyalayarak) verilir (bkz. Phase 1).
+  /// `cost_code_id` HER kalemde ZORUNLUDUR (DB NOT NULL, PR/RFQ'dan FARKLI).
+  Future<PurchaseOrder> createPurchaseOrder(
+    String projectId, {
+    required String supplierId,
+    String? sourceRfqId,
+    String? sourceQuotationId,
+    String? issueDate,
+    String? expectedDeliveryDate,
+    String paymentTerms = '',
+    String deliveryAddress = '',
+    String notes = '',
+    double taxRate = 0,
+    required List<PurchaseOrderItem> items,
+  }) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/purchase-orders',
+      data: _purchaseOrderBody(
+        supplierId: supplierId, sourceRfqId: sourceRfqId, sourceQuotationId: sourceQuotationId,
+        issueDate: issueDate, expectedDeliveryDate: expectedDeliveryDate, paymentTerms: paymentTerms,
+        deliveryAddress: deliveryAddress, notes: notes, taxRate: taxRate, items: items,
+      ),
+    );
+    return PurchaseOrder.fromJson(json);
+  }
+
+  /// Backend YALNIZCA `draft` durumundayken kabul eder VE kalemleri
+  /// TAMAMEN yeniden yazar.
+  Future<PurchaseOrder> updatePurchaseOrder(
+    String projectId,
+    String poId, {
+    required String supplierId,
+    String? sourceRfqId,
+    String? sourceQuotationId,
+    String? issueDate,
+    String? expectedDeliveryDate,
+    String paymentTerms = '',
+    String deliveryAddress = '',
+    String notes = '',
+    double taxRate = 0,
+    required List<PurchaseOrderItem> items,
+  }) async {
+    final json = await _client.put<Map<String, dynamic>>(
+      '/projects/$projectId/purchase-orders/$poId',
+      data: _purchaseOrderBody(
+        supplierId: supplierId, sourceRfqId: sourceRfqId, sourceQuotationId: sourceQuotationId,
+        issueDate: issueDate, expectedDeliveryDate: expectedDeliveryDate, paymentTerms: paymentTerms,
+        deliveryAddress: deliveryAddress, notes: notes, taxRate: taxRate, items: items,
+      ),
+    );
+    return PurchaseOrder.fromJson(json);
+  }
+
+  /// `draft` -> `approved`. KALEM-başına, ONAY-SONRASI DEĞİŞMEZ bir
+  /// commitment oluşturur (Taşeron'un void-yeniden-senkronize modelinden
+  /// BİLİNÇLİ OLARAK FARKLI, bkz. Phase 1 doğrulaması).
+  Future<PurchaseOrder> approvePurchaseOrder(String projectId, String poId) async {
+    final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/purchase-orders/$poId/approve');
+    return PurchaseOrder.fromJson(json);
+  }
+
+  /// `draft|approved` -> `cancelled`, gerekçe ZORUNLU. PR/RFQ'nun AKSİNE
+  /// `approve` izni gerektirir (`manage` DEĞİL) -- onaylıysa commitment'ları
+  /// da VOIDLER.
+  Future<PurchaseOrder> cancelPurchaseOrder(String projectId, String poId, {required String reason}) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/purchase-orders/$poId/cancel',
+      data: {'reason': reason},
+    );
+    return PurchaseOrder.fromJson(json);
+  }
+
+  /// `approved` -> `closed` -- TERMİNAL arşiv işareti, commitment'a
+  /// DOKUNMAZ (bkz. Phase 1 doğrulaması).
+  Future<PurchaseOrder> closePurchaseOrder(String projectId, String poId) async {
+    final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/purchase-orders/$poId/close');
+    return PurchaseOrder.fromJson(json);
   }
 
   /// Sprint 5 — Taşeron Yönetimi (yeni modül). `/subcontracts` -- legacy

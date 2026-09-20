@@ -89,6 +89,17 @@ abstract final class StatusRegistry {
     'closed': ('Kapatıldı', StatusTone.success),
   };
 
+  /// RFQ'da "awarded" DİYE AYRI bir durum YOK -- Award da nihai durumu
+  /// `closed` yapar (kazanan `awarded_quotation_id` alanında tutulur, bkz.
+  /// domain/procurement.dart `RFQ.isAwarded`). `SupplierQuotation`'ın
+  /// KENDİ durumu YOK, bu yüzden ayrı bir kayıt gerekmiyor.
+  static const rfq = {
+    'draft': ('Taslak', StatusTone.muted),
+    'issued': ('Yayınlandı', StatusTone.info),
+    'closed': ('Kapatıldı', StatusTone.success),
+    'cancelled': ('İptal Edildi', StatusTone.danger),
+  };
+
   static const subcontract = {
     'draft': ('Taslak', StatusTone.muted),
     'active': ('Aktif', StatusTone.info),

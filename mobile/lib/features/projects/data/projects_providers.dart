@@ -66,9 +66,38 @@ final projectPurchaseOrdersProvider = FutureProvider.autoDispose.family<List<Pur
 );
 
 final purchaseOrderDetailProvider = FutureProvider.autoDispose.family<
-    ({PurchaseOrder order, List<PurchaseOrderItem> items}),
+    ({PurchaseOrder order, List<PurchaseOrderItem> items, List<Commitment> commitments}),
     ({String projectId, String poId})>(
   (ref, args) => ref.watch(projectsRepositoryProvider).purchaseOrderDetail(args.projectId, args.poId),
+);
+
+// ---------- P3: RFQ / Teklif / Karşılaştırma ----------
+
+final projectRFQsProvider = FutureProvider.autoDispose.family<List<RFQ>, String>(
+  (ref, id) => ref.watch(projectsRepositoryProvider).rfqs(id),
+);
+
+final rfqDetailProvider = FutureProvider.autoDispose.family<
+    ({RFQ rfq, List<RFQItem> items, List<RFQSupplier> suppliers}),
+    ({String projectId, String rfqId})>(
+  (ref, args) => ref.watch(projectsRepositoryProvider).rfqDetail(args.projectId, args.rfqId),
+);
+
+final rfqQuotationsProvider = FutureProvider.autoDispose
+    .family<List<Quotation>, ({String projectId, String rfqId})>(
+  (ref, args) => ref.watch(projectsRepositoryProvider).quotations(args.projectId, args.rfqId),
+);
+
+final quotationDetailProvider = FutureProvider.autoDispose.family<
+    ({Quotation quotation, List<QuotationItem> items}),
+    ({String projectId, String rfqId, String quotationId})>(
+  (ref, args) => ref.watch(projectsRepositoryProvider).quotationDetail(args.projectId, args.rfqId, args.quotationId),
+);
+
+final bidComparisonProvider = FutureProvider.autoDispose.family<
+    ({List<BidComparisonRow> rows, List<Quotation> quotations}),
+    ({String projectId, String rfqId})>(
+  (ref, args) => ref.watch(projectsRepositoryProvider).bidComparison(args.projectId, args.rfqId),
 );
 
 final projectSubcontractsProvider = FutureProvider.autoDispose.family<List<Subcontract>, String>(

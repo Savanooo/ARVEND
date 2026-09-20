@@ -22,10 +22,17 @@ import '../features/profile/presentation/other_menu_screen.dart';
 import '../features/profile/presentation/profile_screen.dart';
 import '../features/projects/presentation/project_detail_screen.dart';
 import '../features/projects/presentation/projects_screen.dart';
+import '../features/projects/domain/procurement.dart';
+import '../features/projects/presentation/bid_comparison_screen.dart';
 import '../features/projects/presentation/purchase_order_detail_screen.dart';
+import '../features/projects/presentation/purchase_order_form_screen.dart';
 import '../features/projects/presentation/purchase_request_detail_screen.dart';
+import '../features/projects/presentation/purchase_request_form_screen.dart';
 import '../features/projects/presentation/progress_claim_detail_screen.dart';
 import '../features/projects/presentation/progress_claim_form_screen.dart';
+import '../features/projects/presentation/quotation_form_screen.dart';
+import '../features/projects/presentation/rfq_detail_screen.dart';
+import '../features/projects/presentation/rfq_form_screen.dart';
 import '../features/projects/presentation/subcontract_change_order_detail_screen.dart';
 import '../features/projects/presentation/subcontract_change_order_form_screen.dart';
 import '../features/projects/presentation/subcontract_detail_screen.dart';
@@ -120,10 +127,88 @@ final routerProvider = Provider<GoRouter>((ref) {
                   builder: (context, state) => ProjectDetailScreen(projectId: state.pathParameters['id']!),
                   routes: [
                     GoRoute(
+                      path: 'satin-alma/talepler/yeni',
+                      builder: (context, state) =>
+                          PurchaseRequestFormScreen(projectId: state.pathParameters['id']!),
+                    ),
+                    GoRoute(
+                      path: 'satin-alma/talepler/:prId/duzenle',
+                      builder: (context, state) => PurchaseRequestFormScreen(
+                        projectId: state.pathParameters['id']!,
+                        prId: state.pathParameters['prId'],
+                      ),
+                    ),
+                    GoRoute(
                       path: 'satin-alma/talepler/:prId',
                       builder: (context, state) => PurchaseRequestDetailScreen(
                         projectId: state.pathParameters['id']!,
                         prId: state.pathParameters['prId']!,
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'satin-alma/rfqlar/yeni',
+                      builder: (context, state) => RFQFormScreen(projectId: state.pathParameters['id']!),
+                    ),
+                    GoRoute(
+                      path: 'satin-alma/rfqlar/:rfqId/duzenle',
+                      builder: (context, state) => RFQFormScreen(
+                        projectId: state.pathParameters['id']!,
+                        rfqId: state.pathParameters['rfqId'],
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'satin-alma/rfqlar/:rfqId/karsilastir',
+                      builder: (context, state) => BidComparisonScreen(
+                        projectId: state.pathParameters['id']!,
+                        rfqId: state.pathParameters['rfqId']!,
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'satin-alma/rfqlar/:rfqId/teklifler/yeni',
+                      builder: (context, state) => QuotationFormScreen(
+                        projectId: state.pathParameters['id']!,
+                        rfqId: state.pathParameters['rfqId']!,
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'satin-alma/rfqlar/:rfqId/teklifler/:quotationId/duzenle',
+                      builder: (context, state) => QuotationFormScreen(
+                        projectId: state.pathParameters['id']!,
+                        rfqId: state.pathParameters['rfqId']!,
+                        quotationId: state.pathParameters['quotationId'],
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'satin-alma/rfqlar/:rfqId',
+                      builder: (context, state) => RFQDetailScreen(
+                        projectId: state.pathParameters['id']!,
+                        rfqId: state.pathParameters['rfqId']!,
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'satin-alma/siparisler/yeni',
+                      builder: (context, state) {
+                        final prefill = state.extra
+                            as ({
+                              String supplierId,
+                              String? sourceRfqId,
+                              String? sourceQuotationId,
+                              List<PurchaseOrderItem> items
+                            })?;
+                        return PurchaseOrderFormScreen(
+                          projectId: state.pathParameters['id']!,
+                          prefillSupplierId: prefill?.supplierId,
+                          sourceRfqId: prefill?.sourceRfqId,
+                          sourceQuotationId: prefill?.sourceQuotationId,
+                          prefillItems: prefill?.items ?? const [],
+                        );
+                      },
+                    ),
+                    GoRoute(
+                      path: 'satin-alma/siparisler/:poId/duzenle',
+                      builder: (context, state) => PurchaseOrderFormScreen(
+                        projectId: state.pathParameters['id']!,
+                        poId: state.pathParameters['poId'],
                       ),
                     ),
                     GoRoute(
