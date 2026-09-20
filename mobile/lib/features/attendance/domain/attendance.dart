@@ -52,3 +52,24 @@ class AttendanceRecord {
 }
 
 const kAttendanceStatuses = ['geldi', 'yarım gün', 'gelmedi', 'izinli'];
+
+/// İstemci tarafı filtre -- backend'in `ListAttendanceByMonth` sorgusunun
+/// org+ay dışında filtre parametresi YOK (bkz. Phase 1 doğrulaması), bu
+/// yüzden personel/durum filtresi zaten çekilmiş TEK aylık liste üzerinde
+/// uygulanır; yeni bir ağ isteği İCAT EDİLMEZ.
+bool attendanceMatchesFilters(
+  AttendanceRecord record, {
+  String? employeeFilter,
+  String? statusFilter,
+}) {
+  if (employeeFilter != null && record.employeeId != employeeFilter) return false;
+  if (statusFilter != null && record.status != statusFilter) return false;
+  return true;
+}
+
+/// Verilen tarih için hiç kaydı olmayan aktif personeli döndürür -- "Bugün"
+/// bölümündeki "kaydı girilmemiş" listesi için.
+List<Employee> missingAttendanceFor(List<Employee> employees, List<AttendanceRecord> recordsForDate) {
+  final presentIds = recordsForDate.map((r) => r.employeeId).toSet();
+  return employees.where((e) => e.isActive && !presentIds.contains(e.id)).toList();
+}

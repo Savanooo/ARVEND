@@ -40,4 +40,26 @@ class AttendanceRepository {
     });
     return AttendanceRecord.fromJson(json);
   }
+
+  /// Backend'de `employee_id`/`date` Update'te KABUL EDİLMEZ (servis
+  /// katmanı bu iki alanı hiç okumaz -- bkz. backend Phase 1 doğrulaması:
+  /// bir kayıt "hangi personel, hangi tarih" olduğu OLUŞTURULDUKTAN SONRA
+  /// DEĞİŞTİRİLEMEZ) -- bu yüzden istek gövdesinde bu ikisi hiç YOK.
+  Future<AttendanceRecord> update(
+    String id, {
+    String checkIn = '',
+    String checkOut = '',
+    required double workHours,
+    required String status,
+    String note = '',
+  }) async {
+    final json = await _client.put<Map<String, dynamic>>('/attendance/$id', data: {
+      'check_in': checkIn,
+      'check_out': checkOut,
+      'work_hours': workHours,
+      'status': status,
+      'note': note,
+    });
+    return AttendanceRecord.fromJson(json);
+  }
 }
