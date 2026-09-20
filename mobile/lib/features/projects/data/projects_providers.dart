@@ -94,3 +94,14 @@ final subcontractProgressClaimsProvider = FutureProvider.autoDispose
 final projectNotesProvider = FutureProvider.autoDispose.family<List<ProjectNote>, String>(
   (ref, id) => ref.watch(projectsRepositoryProvider).notes(id),
 );
+
+/// Taşeron Sözleşmesi formundaki (Ekle/Düzenle) tedarikçi/maliyet kodu
+/// seçicileri için -- organizasyon-seviyeli, projeden BAĞIMSIZ (family
+/// DEĞİL).
+final suppliersProvider = FutureProvider.autoDispose<List<Supplier>>(
+  (ref) => ref.watch(projectsRepositoryProvider).suppliers(),
+);
+
+final orgCostCodesProvider = FutureProvider.autoDispose<List<OrgCostCode>>(
+  (ref) => ref.watch(projectsRepositoryProvider).costCodes(),
+);

@@ -16,6 +16,11 @@ class FakeHttpClientAdapter implements HttpClientAdapter {
   final Map<String, List<ScriptedResponse>> _script;
   final List<String> calls = [];
 
+  /// `options.path` ile 1:1 sırada -- gönderilen istek gövdesi (POST/PUT/
+  /// PATCH). GET/DELETE için genelde null. Request-serialization testleri
+  /// içindir (bkz. test/subcontract_form_test.dart).
+  final List<Object?> requestBodies = [];
+
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
@@ -23,6 +28,7 @@ class FakeHttpClientAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     calls.add(options.path);
+    requestBodies.add(options.data);
     final queue = _script[options.path];
     if (queue == null || queue.isEmpty) {
       throw StateError('beklenmeyen istek: ${options.path} (${calls.length}. çağrı)');

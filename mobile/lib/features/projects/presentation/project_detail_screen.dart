@@ -555,32 +555,50 @@ class _SubcontractsTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final subcontractsAsync = ref.watch(projectSubcontractsProvider(projectId));
+    final user = ref.watch(authControllerProvider).valueOrNull;
+    final canCreate =
+        user == null || user.permissions.isEmpty || user.hasPermission('projects.subcontracts.manage');
 
     return RefreshIndicator(
       onRefresh: () async => ref.invalidate(projectSubcontractsProvider(projectId)),
-      child: AsyncStateView(
-        value: subcontractsAsync,
-        onRetry: () async => ref.invalidate(projectSubcontractsProvider(projectId)),
-        isEmpty: (list) => list.isEmpty,
-        emptyBuilder: (_) => const EmptyStateView(message: 'Henüz taşeron sözleşmesi yok.'),
-        data: (context, subcontracts) => ListView.separated(
-          padding: const EdgeInsets.all(16),
-          itemCount: subcontracts.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 8),
-          itemBuilder: (context, i) {
-            final sc = subcontracts[i];
-            return Card(
-              child: ListTile(
-                title: Text('${sc.subcontractNo} — ${sc.supplierName ?? sc.supplierCode ?? ''}',
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
-                subtitle: StatusRegistry.build(sc.status, StatusRegistry.subcontract),
-                trailing: Text(Formatters.money(sc.originalAmount, currency: sc.currency),
-                    style: const TextStyle(fontWeight: FontWeight.w700)),
-                onTap: () => context.push('/projeler/$projectId/taseronlar/${sc.id}'),
-              ),
-            );
-          },
-        ),
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Taşeron Sözleşmeleri', style: TextStyle(fontWeight: FontWeight.w700)),
+              if (canCreate)
+                FilledButton.tonalIcon(
+                  onPressed: () => context.push('/projeler/$projectId/taseronlar/yeni'),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Taşeron Sözleşmesi Ekle'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          AsyncStateView(
+            value: subcontractsAsync,
+            onRetry: () async => ref.invalidate(projectSubcontractsProvider(projectId)),
+            isEmpty: (list) => list.isEmpty,
+            emptyBuilder: (_) => const EmptyStateView(message: 'Henüz taşeron sözleşmesi yok.'),
+            data: (context, subcontracts) => Column(
+              children: subcontracts
+                  .map((sc) => Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: ListTile(
+                          title: Text('${sc.subcontractNo} — ${sc.supplierName ?? sc.supplierCode ?? ''}',
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: StatusRegistry.build(sc.status, StatusRegistry.subcontract),
+                          trailing: Text(Formatters.money(sc.originalAmount, currency: sc.currency),
+                              style: const TextStyle(fontWeight: FontWeight.w700)),
+                          onTap: () => context.push('/projeler/$projectId/taseronlar/${sc.id}'),
+                        ),
+                      ))
+                  .toList(),
+            ),
+          ),
+        ],
       ),
     );
   }

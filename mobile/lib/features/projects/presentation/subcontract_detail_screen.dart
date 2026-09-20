@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/auth/auth_controller.dart';
+import '../../../core/errors/api_exception.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
@@ -56,15 +60,23 @@ class _SubcontractDetailBody extends ConsumerWidget {
     final claimsAsync = ref.watch(subcontractProgressClaimsProvider(args));
     final sc = detail.subcontract;
     final value = detail.value;
+    final user = ref.watch(authControllerProvider).valueOrNull;
+    final canManage = user == null || user.permissions.isEmpty || user.hasPermission('projects.subcontracts.manage');
+    final canApprove =
+        user == null || user.permissions.isEmpty || user.hasPermission('projects.subcontracts.approve');
 
     void refreshAll() {
       ref.invalidate(subcontractDetailProvider(args));
       ref.invalidate(subcontractPaymentsProvider(args));
       // Yeni-modül taşeron ödemeleri financial-summary/cost-control'e
       // AKAR (migration 0039 follow-up) -- proje özetinin bayatlamaması
-      // için bunlar da tazelenir (Tahsilat akışıyla AYNI ilke).
+      // için bunlar da tazelenir (Tahsilat akışıyla AYNI ilke). Yaşam
+      // döngüsü aksiyonları (activate/complete/cancel/terminate) commitment
+      // senkronizasyonu yaptığından + liste sekmesindeki durum rozetinin
+      // bayatlamaması için subcontracts listesi de tazelenir.
       ref.invalidate(projectFinancialSummaryProvider(projectId));
       ref.invalidate(projectCostControlProvider(projectId));
+      ref.invalidate(projectSubcontractsProvider(projectId));
     }
 
     return RefreshIndicator(
@@ -82,7 +94,16 @@ class _SubcontractDetailBody extends ConsumerWidget {
                   style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          _LifecycleActionsBar(
+            projectId: projectId,
+            subcontractId: subcontractId,
+            subcontract: sc,
+            canManage: canManage,
+            canApprove: canApprove,
+            onChanged: refreshAll,
+          ),
+          const SizedBox(height: 4),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -241,6 +262,163 @@ class _SubcontractDetailBody extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+/// Aktivasyon/tamamlama/iptal/fesih -- yalnızca UX kolaylığı (görünürlük
+/// durum+izne göre süzülür), backend HER durumda bağımsız olarak reddeder
+/// (bkz. `ProjectService.ActivateSubcontract` vb. -- her biri kendi
+/// durum-korumalı SQL'iyle çalışır). "Düzenle" YALNIZCA `draft`ta ve
+/// `subcontracts.manage` iznine sahipken görünür; diğer dördü
+/// `subcontracts.approve` gerektirir (legacy_user/project_manager bu izne
+/// SAHİP DEĞİL -- bkz. backend migration 0038 rol matrisi).
+class _LifecycleActionsBar extends ConsumerStatefulWidget {
+  const _LifecycleActionsBar({
+    required this.projectId,
+    required this.subcontractId,
+    required this.subcontract,
+    required this.canManage,
+    required this.canApprove,
+    required this.onChanged,
+  });
+
+  final String projectId;
+  final String subcontractId;
+  final Subcontract subcontract;
+  final bool canManage;
+  final bool canApprove;
+  final VoidCallback onChanged;
+
+  @override
+  ConsumerState<_LifecycleActionsBar> createState() => _LifecycleActionsBarState();
+}
+
+class _LifecycleActionsBarState extends ConsumerState<_LifecycleActionsBar> {
+  bool _busy = false;
+
+  Future<void> _run(Future<void> Function() action) async {
+    setState(() => _busy = true);
+    try {
+      await action();
+      widget.onChanged();
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<bool> _confirm(String title, String message) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
+          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Onayla')),
+        ],
+      ),
+    );
+    return ok ?? false;
+  }
+
+  Future<String?> _promptReason(String title) {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 2,
+          decoration: const InputDecoration(labelText: 'Gerekçe'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Vazgeç')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Onayla'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final repo = ref.read(projectsRepositoryProvider);
+    final sc = widget.subcontract;
+    final buttons = <Widget>[];
+
+    if (sc.isEditable && widget.canManage) {
+      buttons.add(OutlinedButton.icon(
+        icon: const Icon(Icons.edit_outlined, size: 18),
+        label: const Text('Düzenle'),
+        onPressed: _busy
+            ? null
+            : () => context.push('/projeler/${widget.projectId}/taseronlar/${widget.subcontractId}/duzenle'),
+      ));
+    }
+    if (sc.canActivate && widget.canApprove) {
+      buttons.add(FilledButton.tonalIcon(
+        icon: const Icon(Icons.play_arrow, size: 18),
+        label: const Text('Aktifleştir'),
+        onPressed: _busy
+            ? null
+            : () async {
+                final ok = await _confirm(
+                    'Aktifleştir', 'Bu taşeron sözleşmesi aktifleştirilsin mi? Ticari şartlar bundan sonra kilitlenir.');
+                if (!ok) return;
+                await _run(() => repo.activateSubcontract(widget.projectId, widget.subcontractId));
+              },
+      ));
+    }
+    if (sc.canCancel && widget.canApprove) {
+      buttons.add(OutlinedButton.icon(
+        icon: const Icon(Icons.cancel_outlined, size: 18, color: AppColors.danger),
+        label: const Text('İptal Et', style: TextStyle(color: AppColors.danger)),
+        style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.danger)),
+        onPressed: _busy
+            ? null
+            : () async {
+                final reason = await _promptReason('Sözleşmeyi İptal Et');
+                if (reason == null || reason.isEmpty) return;
+                await _run(() => repo.cancelSubcontract(widget.projectId, widget.subcontractId, reason: reason));
+              },
+      ));
+    }
+    if (sc.canComplete && widget.canApprove) {
+      buttons.add(FilledButton.tonalIcon(
+        icon: const Icon(Icons.check_circle_outline, size: 18),
+        label: const Text('Tamamla'),
+        onPressed: _busy
+            ? null
+            : () async {
+                final ok = await _confirm('Tamamla', 'Bu taşeron sözleşmesi tamamlandı olarak işaretlensin mi?');
+                if (!ok) return;
+                await _run(() => repo.completeSubcontract(widget.projectId, widget.subcontractId));
+              },
+      ));
+    }
+    if (sc.canTerminate && widget.canApprove) {
+      buttons.add(OutlinedButton.icon(
+        icon: const Icon(Icons.block, size: 18, color: AppColors.danger),
+        label: const Text('Feshet', style: TextStyle(color: AppColors.danger)),
+        style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.danger)),
+        onPressed: _busy
+            ? null
+            : () async {
+                final reason = await _promptReason('Sözleşmeyi Feshet');
+                if (reason == null || reason.isEmpty) return;
+                await _run(() => repo.terminateSubcontract(widget.projectId, widget.subcontractId, reason: reason));
+              },
+      ));
+    }
+
+    if (buttons.isEmpty) return const SizedBox.shrink();
+    return Wrap(spacing: 8, runSpacing: 8, children: buttons);
   }
 }
 

@@ -25,6 +25,7 @@ import '../features/projects/presentation/projects_screen.dart';
 import '../features/projects/presentation/purchase_order_detail_screen.dart';
 import '../features/projects/presentation/purchase_request_detail_screen.dart';
 import '../features/projects/presentation/subcontract_detail_screen.dart';
+import '../features/projects/presentation/subcontract_form_screen.dart';
 import '../features/tasks/presentation/tasks_screen.dart';
 import 'app_shell.dart';
 
@@ -126,6 +127,18 @@ final routerProvider = Provider<GoRouter>((ref) {
                       builder: (context, state) => PurchaseOrderDetailScreen(
                         projectId: state.pathParameters['id']!,
                         poId: state.pathParameters['poId']!,
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'taseronlar/yeni',
+                      builder: (context, state) =>
+                          SubcontractFormScreen(projectId: state.pathParameters['id']!),
+                    ),
+                    GoRoute(
+                      path: 'taseronlar/:subcontractId/duzenle',
+                      builder: (context, state) => SubcontractFormScreen(
+                        projectId: state.pathParameters['id']!,
+                        subcontractId: state.pathParameters['subcontractId'],
                       ),
                     ),
                     GoRoute(

@@ -85,11 +85,30 @@ class Subcontract {
         terminationReason: json['termination_reason'] as String? ?? '',
         createdAt: json['created_at'] as String? ?? '',
       );
+
+  static const statusDraft = 'draft';
+  static const statusActive = 'active';
+  static const statusCompleted = 'completed';
+  static const statusCancelled = 'cancelled';
+  static const statusTerminated = 'terminated';
+
+  /// Durum makinesi backend-authoritative'tir (bkz.
+  /// `ProjectService.UpdateSubcontractDraft`/`Activate`/`Complete`/`Cancel`/
+  /// `TerminateSubcontract` -- her biri kendi durum-korumalı SQL'iyle
+  /// çalışır). Bu getter'lar YALNIZCA UI görünürlüğü içindir; sunucu HER
+  /// durumda bağımsız olarak reddeder.
+  bool get isEditable => status == statusDraft;
+  bool get canActivate => status == statusDraft;
+  bool get canCancel => status == statusDraft;
+  bool get canComplete => status == statusActive;
+  bool get canTerminate => status == statusActive;
 }
 
 class SubcontractItem {
   final String id;
+  final String? wbsNodeId;
   final String costCodeId;
+  final String? budgetLineId;
   final String description;
   final double? quantity;
   final String unit;
@@ -99,7 +118,9 @@ class SubcontractItem {
 
   const SubcontractItem({
     required this.id,
+    required this.wbsNodeId,
     required this.costCodeId,
+    required this.budgetLineId,
     required this.description,
     required this.quantity,
     required this.unit,
@@ -110,13 +131,86 @@ class SubcontractItem {
 
   factory SubcontractItem.fromJson(Map<String, dynamic> json) => SubcontractItem(
         id: json['id'] as String,
+        wbsNodeId: json['wbs_node_id'] as String?,
         costCodeId: json['cost_code_id'] as String? ?? '',
+        budgetLineId: json['budget_line_id'] as String?,
         description: json['description'] as String? ?? '',
         quantity: (json['quantity'] as num?)?.toDouble(),
         unit: json['unit'] as String? ?? '',
         unitPrice: (json['unit_price'] as num?)?.toDouble(),
         originalAmount: (json['original_amount'] as num?)?.toDouble() ?? 0,
         sortOrder: (json['sort_order'] as num?)?.toInt() ?? 0,
+      );
+
+  /// `POST/PUT /subcontracts` -- backend Update HER ZAMAN kalemleri TAMAMEN
+  /// yeniden yazar (sil-yeniden-oluştur, bkz. backend insertSubcontractItems)
+  /// -- bu yüzden mevcut kalemler (wbsNodeId/budgetLineId dahil) edit'te
+  /// OLDUĞU GİBİ geri gönderilmezse sessizce KAYBOLUR. `id`/`sortOrder`
+  /// istekte YOK -- backend bunları kendi üretir/sıralar.
+  Map<String, dynamic> toJson() => {
+        'wbs_node_id': wbsNodeId ?? '',
+        'cost_code_id': costCodeId,
+        'budget_line_id': budgetLineId ?? '',
+        'description': description,
+        'quantity': quantity,
+        'unit': unit,
+        'unit_price': unitPrice,
+        'original_amount': originalAmount,
+      };
+}
+
+/// Sprint 4 tedarikçi kataloğunun (`organization_suppliers`) mobildeki
+/// MİNİMAL okuma izdüşümü -- yalnızca Taşeron Sözleşmesi'nde bir tedarikçi
+/// SEÇMEK için (bkz. backend docs/subcontracts.md "Supplier Seçimi").
+/// Tedarikçi CRUD'u bilinçli olarak mobile YOK (web'de kalır).
+class Supplier {
+  final String id;
+  final String code;
+  final String legalName;
+  final String tradeName;
+  final bool isActive;
+
+  const Supplier({
+    required this.id,
+    required this.code,
+    required this.legalName,
+    required this.tradeName,
+    required this.isActive,
+  });
+
+  String get displayName => tradeName.isNotEmpty ? tradeName : legalName;
+
+  factory Supplier.fromJson(Map<String, dynamic> json) => Supplier(
+        id: json['id'] as String,
+        code: json['code'] as String? ?? '',
+        legalName: json['legal_name'] as String? ?? '',
+        tradeName: json['trade_name'] as String? ?? '',
+        isActive: json['is_active'] as bool? ?? false,
+      );
+}
+
+/// Organizasyon-seviyeli maliyet kodu kataloğunun mobildeki MİNİMAL okuma
+/// izdüşümü -- yalnızca SOV kalemi girişinde bir maliyet kodu SEÇMEK için.
+/// Bütçe/WBS'e bağlı DEĞİLDİR (bkz. `CostControlLine`) -- bütçesiz bir
+/// projede bile taşeron SOV kalemi girilebilmesi için gereklidir.
+class OrgCostCode {
+  final String id;
+  final String code;
+  final String name;
+  final bool isActive;
+
+  const OrgCostCode({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.isActive,
+  });
+
+  factory OrgCostCode.fromJson(Map<String, dynamic> json) => OrgCostCode(
+        id: json['id'] as String,
+        code: json['code'] as String? ?? '',
+        name: json['name'] as String? ?? '',
+        isActive: json['is_active'] as bool? ?? false,
       );
 }
 

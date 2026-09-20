@@ -327,4 +327,138 @@ class ProjectsRepository {
         await _client.get<Map<String, dynamic>>('/projects/$projectId/subcontracts/$subcontractId/progress-claims');
     return (json['progress_claims'] as List).cast<Map<String, dynamic>>().map(ProgressClaim.fromJson).toList();
   }
+
+  /// Sprint 4 tedarikçi kataloğu (organizasyon-seviyeli, proje-bağımsız) --
+  /// mobilde tek kullanım yeri: Taşeron Sözleşmesi'nde tedarikçi seçimi
+  /// (bkz. domain/subcontract.dart `Supplier` yorumu). Filtre YOK -- backend
+  /// TÜM tedarikçileri (aktif+pasif) döner, aktiflik istemci tarafında
+  /// süzülür (yeni bir backend sorgu parametresi İCAT EDİLMEDİ).
+  Future<List<Supplier>> suppliers() async {
+    final json = await _client.get<Map<String, dynamic>>('/organization/suppliers');
+    return (json['suppliers'] as List).cast<Map<String, dynamic>>().map(Supplier.fromJson).toList();
+  }
+
+  /// Organizasyon-seviyeli maliyet kodu kataloğu -- SOV kalemi girişinde
+  /// zorunlu `cost_code_id` seçimi için (bkz. `OrgCostCode` yorumu).
+  Future<List<OrgCostCode>> costCodes() async {
+    final json = await _client.get<Map<String, dynamic>>('/organization/cost-codes');
+    return (json['cost_codes'] as List).cast<Map<String, dynamic>>().map(OrgCostCode.fromJson).toList();
+  }
+
+  Map<String, dynamic> _subcontractBody({
+    required String supplierId,
+    required String title,
+    String scopeSummary = '',
+    String? effectiveDate,
+    String? startDate,
+    String? plannedCompletionDate,
+    double? retentionPercent,
+    double? advanceAmount,
+    String paymentTerms = '',
+    String notes = '',
+    required List<SubcontractItem> items,
+  }) =>
+      {
+        'supplier_id': supplierId,
+        'title': title,
+        'scope_summary': scopeSummary,
+        'effective_date': effectiveDate,
+        'start_date': startDate,
+        'planned_completion_date': plannedCompletionDate,
+        'retention_percent': retentionPercent,
+        'advance_amount': advanceAmount,
+        'payment_terms': paymentTerms,
+        'notes': notes,
+        'items': items.map((i) => i.toJson()).toList(),
+      };
+
+  /// Backend ≥1 SOV kalemi ZORUNLU kılar (`items` boşsa 409) -- bkz. backend
+  /// service `ErrSubcontractItemsRequired`.
+  Future<Subcontract> createSubcontract(
+    String projectId, {
+    required String supplierId,
+    required String title,
+    String scopeSummary = '',
+    String? effectiveDate,
+    String? startDate,
+    String? plannedCompletionDate,
+    double? retentionPercent,
+    double? advanceAmount,
+    String paymentTerms = '',
+    String notes = '',
+    required List<SubcontractItem> items,
+  }) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/subcontracts',
+      data: _subcontractBody(
+        supplierId: supplierId, title: title, scopeSummary: scopeSummary, effectiveDate: effectiveDate,
+        startDate: startDate, plannedCompletionDate: plannedCompletionDate, retentionPercent: retentionPercent,
+        advanceAmount: advanceAmount, paymentTerms: paymentTerms, notes: notes, items: items,
+      ),
+    );
+    return Subcontract.fromJson(json);
+  }
+
+  /// Backend YALNIZCA `draft` durumundayken kabul eder (bkz.
+  /// `ErrSubcontractNotEditable`) VE kalem listesini TAMAMEN yeniden yazar --
+  /// çağıran taraf DEĞİŞMEYEN mevcut kalemleri de `items` içinde
+  /// göndermelidir (bkz. `SubcontractItem.toJson` yorumu).
+  Future<Subcontract> updateSubcontract(
+    String projectId,
+    String subcontractId, {
+    required String supplierId,
+    required String title,
+    String scopeSummary = '',
+    String? effectiveDate,
+    String? startDate,
+    String? plannedCompletionDate,
+    double? retentionPercent,
+    double? advanceAmount,
+    String paymentTerms = '',
+    String notes = '',
+    required List<SubcontractItem> items,
+  }) async {
+    final json = await _client.put<Map<String, dynamic>>(
+      '/projects/$projectId/subcontracts/$subcontractId',
+      data: _subcontractBody(
+        supplierId: supplierId, title: title, scopeSummary: scopeSummary, effectiveDate: effectiveDate,
+        startDate: startDate, plannedCompletionDate: plannedCompletionDate, retentionPercent: retentionPercent,
+        advanceAmount: advanceAmount, paymentTerms: paymentTerms, notes: notes, items: items,
+      ),
+    );
+    return Subcontract.fromJson(json);
+  }
+
+  Future<Subcontract> activateSubcontract(String projectId, String subcontractId) async {
+    final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/subcontracts/$subcontractId/activate');
+    return Subcontract.fromJson(json);
+  }
+
+  /// Tamamlanma commitment'a DOKUNMAZ (bkz. backend service yorumu) --
+  /// yalnızca durum geçişi.
+  Future<Subcontract> completeSubcontract(String projectId, String subcontractId) async {
+    final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/subcontracts/$subcontractId/complete');
+    return Subcontract.fromJson(json);
+  }
+
+  /// Backend YALNIZCA `draft`tan kabul eder -- `active`ten iptal DEĞİL,
+  /// FESİH (`terminateSubcontract`) kullanılır.
+  Future<Subcontract> cancelSubcontract(String projectId, String subcontractId, {required String reason}) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/subcontracts/$subcontractId/cancel',
+      data: {'reason': reason},
+    );
+    return Subcontract.fromJson(json);
+  }
+
+  /// Backend YALNIZCA `active`ten kabul eder -- sertifikalı (hakediş
+  /// edilmiş) taahhüt KORUNUR, kalanı serbest bırakılır (bkz. backend
+  /// service yorumu).
+  Future<Subcontract> terminateSubcontract(String projectId, String subcontractId, {required String reason}) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/subcontracts/$subcontractId/terminate',
+      data: {'reason': reason},
+    );
+    return Subcontract.fromJson(json);
+  }
 }
