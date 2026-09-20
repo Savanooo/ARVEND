@@ -46,6 +46,7 @@ class OtherMenuScreen extends ConsumerWidget {
               onTap: () => context.push('/diger/firma-ayarlari'),
             ),
           _MenuTile(icon: Icons.person_outline, label: 'Profil', onTap: () => context.push('/diger/profil')),
+          _MenuTile(icon: Icons.info_outline, label: 'Hakkında', onTap: () => context.push('/diger/hakkinda')),
         ],
       ),
     );

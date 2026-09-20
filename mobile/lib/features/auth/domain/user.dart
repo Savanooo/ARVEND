@@ -35,6 +35,9 @@ class User {
   final bool onboardingCompleted;
   final String onboardingStep;
 
+  /// super_admin'de her zaman boştur (organizasyona bağlı değil).
+  final String organizationName;
+
   /// organizationRoleCode/-Name: RBAC/Project Membership sprint'inin
   /// ince-taneli organizasyon rolüdür (role'den TAMAMEN AYRI eksen --
   /// bkz. backend/internal/domain/authorization.go). super_admin'de her
@@ -58,6 +61,7 @@ class User {
     required this.mustChangePassword,
     required this.onboardingCompleted,
     required this.onboardingStep,
+    this.organizationName = '',
     this.organizationRoleCode = '',
     this.organizationRoleName = '',
     this.permissions = const {},
@@ -75,6 +79,7 @@ class User {
         mustChangePassword: json['must_change_password'] as bool? ?? false,
         onboardingCompleted: json['onboarding_completed'] as bool? ?? true,
         onboardingStep: json['onboarding_step'] as String? ?? 'completed',
+        organizationName: json['organization_name'] as String? ?? '',
         organizationRoleCode: json['organization_role_code'] as String? ?? '',
         organizationRoleName: json['organization_role_name'] as String? ?? '',
         permissions: (json['permissions'] as List<dynamic>?)

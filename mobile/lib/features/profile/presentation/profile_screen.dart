@@ -47,10 +47,21 @@ class ProfileScreen extends ConsumerWidget {
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
-                            user.role == UserRole.admin ? 'Yönetici' : 'Kullanıcı',
+                            _roleLabel(user),
                             style: const TextStyle(color: AppColors.gold, fontWeight: FontWeight.w700, fontSize: 12),
                           ),
                         ),
+                        if (user.organizationName.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.apartment_outlined, size: 16, color: AppColors.textMuted),
+                              const SizedBox(width: 6),
+                              Text(user.organizationName, style: const TextStyle(color: AppColors.textMuted)),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -96,6 +107,18 @@ class ProfileScreen extends ConsumerWidget {
     if (parts.isEmpty || parts.first.isEmpty) return '?';
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
     return (parts.first.substring(0, 1) + parts.last.substring(0, 1)).toUpperCase();
+  }
+
+  /// İnce-taneli organizasyon rolü (owner/admin/finance/vb.) varsa o
+  /// gösterilir -- daha anlamlı ve doğru bilgi. Yoksa (ör. eski roller
+  /// atanmamış) kaba `role` eksenine düşülür.
+  String _roleLabel(User user) {
+    if (user.organizationRoleName.isNotEmpty) return user.organizationRoleName;
+    return switch (user.role) {
+      UserRole.admin => 'Yönetici',
+      UserRole.kullanici => 'Kullanıcı',
+      UserRole.superAdmin => 'Süper Yönetici',
+    };
   }
 
   void _showChangePasswordSheet(BuildContext context, WidgetRef ref) {

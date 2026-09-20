@@ -19,6 +19,7 @@ import '../features/offers/presentation/offers_screen.dart';
 import '../features/onboarding/presentation/onboarding_wizard_screen.dart';
 import '../features/onboarding/presentation/organization_settings_screen.dart';
 import '../features/notifications/presentation/notifications_screen.dart';
+import '../features/profile/presentation/about_screen.dart';
 import '../features/profile/presentation/other_menu_screen.dart';
 import '../features/profile/presentation/profile_screen.dart';
 import '../features/projects/presentation/project_detail_screen.dart';
@@ -372,6 +373,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                   path: 'firma-ayarlari',
                   builder: (context, state) => const OrganizationSettingsScreen(),
                 ),
+                GoRoute(path: 'hakkinda', builder: (context, state) => const AboutScreen()),
               ],
             ),
           ]),

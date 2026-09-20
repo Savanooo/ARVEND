@@ -45,6 +45,10 @@ dependencies:
   # Basit local tercih (aktif sekme vb.) - hassas veri İÇİN DEĞİL
   shared_preferences: ^2.5.5
 
+  # "Hakkında" ekranında sürüm/derleme numarasını pubspec.yaml'dan okur --
+  # sabit kodlanmış bir sürüm string'i YOK.
+  package_info_plus: ^8.3.1
+
   # Müşteri detayında tel:/mailto: aksiyonları için (bkz. customer_detail_screen.dart)
   url_launcher: ^6.3.1
 
