@@ -6,6 +6,7 @@ import '../../../app/app_shell.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../notifications/data/notifications_providers.dart';
 import '../../offers/data/offers_providers.dart';
 import '../../projects/data/projects_providers.dart';
 
@@ -21,9 +22,20 @@ class DashboardScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final activeProjects = ref.watch(projectsListProvider('active'));
     final openOffers = ref.watch(offersListProvider(''));
+    final unreadCount = ref.watch(unreadNotificationCountProvider).maybeWhen(data: (c) => c, orElse: () => 0);
 
     return Scaffold(
-      appBar: buildAppBar('Ana Sayfa'),
+      appBar: buildAppBar('Ana Sayfa', actions: [
+        IconButton(
+          icon: Badge(
+            label: Text('$unreadCount'),
+            isLabelVisible: unreadCount > 0,
+            child: const Icon(Icons.notifications_outlined),
+          ),
+          tooltip: 'Bildirimler',
+          onPressed: () => context.push('/diger/bildirimler'),
+        ),
+      ]),
       body: RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(projectsListProvider('active'));

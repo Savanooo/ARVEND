@@ -26,6 +26,8 @@ class OtherMenuScreen extends ConsumerWidget {
       body: ListView(
         padding: kScreenPadding,
         children: [
+          if (canSee('notifications.read'))
+            _MenuTile(icon: Icons.notifications_outlined, label: 'Bildirimler', onTap: () => context.push('/diger/bildirimler')),
           if (canSee('calculations.read'))
             _MenuTile(icon: Icons.straighten_outlined, label: 'Metraj Hesaplama', onTap: () => context.push('/diger/metraj')),
           if (canSee('customers.read'))

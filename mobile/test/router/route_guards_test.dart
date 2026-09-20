@@ -85,6 +85,7 @@ void main() {
       ],
       '/projects': [(status: 200, body: {'projects': <dynamic>[], 'total': 0})],
       '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
+      '/notifications/unread-count': [(status: 200, body: {'unread_count': 0})],
     });
     await _pumpApp(tester, adapter);
 
@@ -102,6 +103,7 @@ void main() {
       '/auth/me': [(status: 200, body: _meBody(role: 'kullanici'))],
       '/projects': [(status: 200, body: {'projects': <dynamic>[], 'total': 0})],
       '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
+      '/notifications/unread-count': [(status: 200, body: {'unread_count': 0})],
     });
     await _pumpApp(tester, adapter);
 
@@ -115,6 +117,7 @@ void main() {
       '/auth/me': [(status: 200, body: _meBody())],
       '/projects': [(status: 200, body: {'projects': <dynamic>[], 'total': 0})],
       '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
+      '/notifications/unread-count': [(status: 200, body: {'unread_count': 0})],
       '/auth/logout': [(status: 200, body: null)],
     });
     await _pumpApp(tester, adapter);
