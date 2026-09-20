@@ -13,6 +13,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
+import '../../tasks/domain/task_filters.dart';
 import '../data/projects_providers.dart';
 import '../domain/project.dart';
 import 'collection_form_sheet.dart';
@@ -803,61 +804,182 @@ class _PurchaseOrdersList extends ConsumerWidget {
   }
 }
 
-class _OperationsTab extends ConsumerWidget {
+/// Faz 7 — Proje görev listesi. `ListTasks`'ın hiçbir sunucu-taraflı filtre
+/// parametresi YOK (bkz. Phase 1) -- bu yüzden durum/gecikme filtreleri
+/// BURADA istemci tarafında, ZATEN çekilmiş TEK listenin üzerinde
+/// uygulanır (yeni bir ağ isteği İCAT EDİLMEZ). Özet şerit `GET
+/// /operations-summary`den gelir (Faz 7'den beri var olan, mobilde daha
+/// önce hiç tüketilmemiş bir uç).
+class _OperationsTab extends ConsumerStatefulWidget {
   const _OperationsTab({required this.projectId});
   final String projectId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final tasksAsync = ref.watch(projectTasksProvider(projectId));
+  ConsumerState<_OperationsTab> createState() => _OperationsTabState();
+}
+
+class _OperationsTabState extends ConsumerState<_OperationsTab> {
+  TaskStatusFilter _filter = TaskStatusFilter.open;
+  bool _overdueOnly = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final tasksAsync = ref.watch(projectTasksProvider(widget.projectId));
+    final summaryAsync = ref.watch(projectOperationsSummaryProvider(widget.projectId));
+    final user = ref.watch(authControllerProvider).valueOrNull;
+    final canCreate = user == null || user.permissions.isEmpty || user.hasPermission('projects.tasks.create');
+
+    void refreshAll() {
+      ref.invalidate(projectTasksProvider(widget.projectId));
+      ref.invalidate(projectOperationsSummaryProvider(widget.projectId));
+    }
 
     return RefreshIndicator(
-      onRefresh: () async => ref.invalidate(projectTasksProvider(projectId)),
-      child: AsyncStateView(
-        value: tasksAsync,
-        onRetry: () async => ref.invalidate(projectTasksProvider(projectId)),
-        isEmpty: (list) => list.isEmpty,
-        emptyBuilder: (_) => const EmptyStateView(message: 'Görev yok.'),
-        data: (context, tasks) => ListView.separated(
-          padding: const EdgeInsets.all(16),
-          itemCount: tasks.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 8),
-          itemBuilder: (context, i) {
-            final t = tasks[i];
-            return Card(
-              child: ListTile(
-                leading: Checkbox(
-                  value: t.status == 'completed',
-                  onChanged: t.status == 'completed'
-                      ? null
-                      : (_) async {
-                          await ref.read(projectsRepositoryProvider).completeTask(projectId, t.id);
-                          ref.invalidate(projectTasksProvider(projectId));
-                        },
+      onRefresh: () async => refreshAll(),
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          summaryAsync.maybeWhen(
+            data: (s) => _SummaryHeader(summary: s),
+            orElse: () => const SizedBox.shrink(),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Görevler', style: TextStyle(fontWeight: FontWeight.w700)),
+              if (canCreate)
+                TextButton.icon(
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Görev Ekle'),
+                  onPressed: () => context.push('/projeler/${widget.projectId}/gorevler/yeni'),
                 ),
-                title: Text(
-                  t.title,
-                  style: t.status == 'completed' ? const TextStyle(decoration: TextDecoration.lineThrough) : null,
-                ),
-                subtitle: Text([
-                  if (t.assignedName.isNotEmpty) t.assignedName,
-                  if (t.dueDate != null) Formatters.date(t.dueDate),
-                ].join(' · ')),
-                trailing: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    StatusRegistry.build(t.status, StatusRegistry.task),
-                    if (t.isOverdue) const Padding(
-                      padding: EdgeInsets.only(top: 4),
-                      child: Icon(Icons.warning_amber_rounded, size: 16, color: Colors.orange),
-                    ),
-                  ],
-                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SegmentedButton<TaskStatusFilter>(
+                segments: const [
+                  ButtonSegment(value: TaskStatusFilter.open, label: Text('Açık')),
+                  ButtonSegment(value: TaskStatusFilter.all, label: Text('Tümü')),
+                  ButtonSegment(value: TaskStatusFilter.completed, label: Text('Tamamlanan')),
+                ],
+                selected: {_filter},
+                onSelectionChanged: (s) => setState(() => _filter = s.first),
               ),
-            );
-          },
+              FilterChip(
+                label: const Text('Yalnızca gecikmiş'),
+                selected: _overdueOnly,
+                onSelected: (v) => setState(() => _overdueOnly = v),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          AsyncStateView(
+            value: tasksAsync,
+            onRetry: () async => ref.invalidate(projectTasksProvider(widget.projectId)),
+            data: (context, allTasks) {
+              final tasks = allTasks
+                  .where((t) => taskMatchesCommonFilters(t, overdueOnly: _overdueOnly) && taskMatchesStatusFilter(t, _filter))
+                  .toList();
+              if (tasks.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(child: Text('Bu filtreye uyan görev yok.', style: TextStyle(color: Colors.grey))),
+                );
+              }
+              return Column(
+                children: tasks
+                    .map((t) => Card(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: ListTile(
+                            onTap: () => context.push('/projeler/${widget.projectId}/gorevler/${t.id}'),
+                            leading: Checkbox(
+                              value: t.status == ProjectTask.statusCompleted,
+                              onChanged: t.status == ProjectTask.statusCompleted
+                                  ? null
+                                  : (_) async {
+                                      await ref.read(projectsRepositoryProvider).completeTask(widget.projectId, t.id);
+                                      refreshAll();
+                                    },
+                            ),
+                            title: Text(
+                              t.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: t.status == ProjectTask.statusCompleted
+                                  ? const TextStyle(decoration: TextDecoration.lineThrough)
+                                  : null,
+                            ),
+                            subtitle: Text([
+                              if (t.assignedName.isNotEmpty) t.assignedName,
+                              if (t.dueDate != null) Formatters.date(t.dueDate),
+                            ].join(' · ')),
+                            trailing: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                StatusRegistry.build(t.status, StatusRegistry.task),
+                                if (t.isOverdue)
+                                  const Padding(
+                                    padding: EdgeInsets.only(top: 4),
+                                    child: Icon(Icons.warning_amber_rounded, size: 16, color: Colors.orange),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ))
+                    .toList(),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryHeader extends StatelessWidget {
+  const _SummaryHeader({required this.summary});
+  final ProjectOperationsSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            _StatCell('Açık', '${summary.openTaskCount}'),
+            _StatCell('Tamamlanan', '${summary.completedTaskCount}'),
+            _StatCell('Gecikmiş', '${summary.overdueTaskCount}', danger: summary.overdueTaskCount > 0),
+            _StatCell('Ekip', '${summary.activeMemberCount}'),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+class _StatCell extends StatelessWidget {
+  const _StatCell(this.label, this.value, {this.danger = false});
+  final String label;
+  final String value;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(value,
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: danger ? AppColors.danger : null)),
+          Text(label, style: const TextStyle(fontSize: 11.5, color: Colors.grey)),
+        ],
       ),
     );
   }

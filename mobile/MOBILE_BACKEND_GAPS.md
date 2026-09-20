@@ -6,14 +6,14 @@ substitute for any of these — where the backend doesn't support something,
 the mobile app either omits the feature or clearly derives an approximation
 client-side (marked below).
 
-## 1. No cross-project "my tasks" endpoint
-`GET /api/v1/projects/{id}/tasks` exists; nothing returns tasks across
-projects filtered by assignee. The mobile "Görevler" tab works around this
-by fetching `active`+`planned` projects, then calling `.../tasks` per
-project and merging client-side (`features/tasks/data/tasks_providers.dart`).
-This is O(N) requests for N open projects, has no server-side pagination/
-sort by assignee, and is **not equivalent** to a real query. Proposed
-endpoint: `GET /api/v1/tasks/mine?status=open` scoped to the JWT's user id.
+## 1. ~~No cross-project "my tasks" endpoint~~ — RESOLVED
+`GET /api/v1/tasks/mine?status=` now exists (single query, scoped to the
+caller's linked employee, `status` in `open|all|todo|in_progress|
+completed|cancelled`) and the mobile "Görevlerim" screen
+(`features/tasks/data/tasks_providers.dart`) has consumed it — not the O(N)
+per-project loop — since before this entry was last verified. No further
+action needed here; keeping the entry so the history of the gap (and its
+fix) isn't lost.
 
 ## 2. No organization name/id anywhere in the API
 `GET /auth/me` returns `id, username, full_name, role, is_active` only —
@@ -89,3 +89,16 @@ of returning a 400. A round-trip GET after such a POST can show fewer
 populated fields than were sent, with no error surfaced. Documented here
 because it's easy for a client author to miss; not something the mobile
 app can detect without comparing before/after.
+
+## 12. No task-scoped comments/attachments; task creator is tracked but never returned
+`project_tasks` has no comment/note/attachment relation at all — project-
+level notes (`project_notes`) exist but carry no `task_id`, and project-
+level files (`project_files`) likewise aren't linked to a task. Mobile does
+not build a task comment/attachment feature because there is nothing on
+the backend to call. Separately: `project_tasks.created_by` is written on
+insert and present on the raw SQL row, but `repository.ToDomainTask`
+(`internal/repository/project_operations.go`) never copies it into
+`domain.ProjectTask`, so `created_by` — and `created_at`/`updated_at` on
+the task's own row — never reach `taskResponse` at all. The mobile task
+detail screen has no "creator"/"created" fields since the API has none to
+show; not invented client-side.

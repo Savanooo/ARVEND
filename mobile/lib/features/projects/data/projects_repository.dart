@@ -144,6 +144,47 @@ class ProjectsRepository {
     return ProjectTask.fromJson(json);
   }
 
+  /// Backend'de görev güncellemesi TEK bir genel uçtur -- ayrı bir "atama
+  /// değiştir"/"durum değiştir" ucu YOKTUR, hepsi bu PUT üzerinden gider
+  /// (bkz. backend Phase 1: `completed_at`, gönderilen `status`'a göre
+  /// SQL'de otomatik tutarlı tutulur -- `completed`'dan çıkmak onu NULL'a
+  /// döner, yani "yeniden aç" burada bedava). `assignedEmployeeId: ''`
+  /// atamayı KALDIRIR (backend boş string'i NULL'a çözümler). Backend TÜM
+  /// alanları TEK seferde yeniden yazar (partial patch YOK) -- bu yüzden
+  /// [scheduleItemId] mobilde bir seçici SUNULMASA bile mevcut görevin
+  /// değerinden OLDUĞU GİBİ geçirilir, aksi halde web'den kurulmuş bir
+  /// aşama bağlantısı mobil düzenlemede sessizce SİLİNİR.
+  Future<ProjectTask> updateTask(
+    String projectId,
+    String taskId, {
+    required String title,
+    String description = '',
+    String? scheduleItemId,
+    String? assignedEmployeeId,
+    required String priority,
+    required String status,
+    String? dueDate,
+  }) async {
+    final json = await _client.put<Map<String, dynamic>>('/projects/$projectId/tasks/$taskId', data: {
+      'title': title,
+      'description': description,
+      'schedule_item_id': scheduleItemId,
+      'assigned_employee_id': assignedEmployeeId,
+      'priority': priority,
+      'status': status,
+      'due_date': dueDate,
+    });
+    return ProjectTask.fromJson(json);
+  }
+
+  /// Faz 7'den beri var olan ama mobilde şimdiye kadar tüketilmeyen bir
+  /// özet uç -- görev/ekip istatistiklerini TEK istekte döner (bkz.
+  /// backend `CountProjectTaskStats`).
+  Future<ProjectOperationsSummary> operationsSummary(String projectId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/operations-summary');
+    return ProjectOperationsSummary.fromJson(json);
+  }
+
   Future<List<ProjectPhoto>> photos(String projectId) async {
     final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/photos');
     return (json['photos'] as List).cast<Map<String, dynamic>>().map(ProjectPhoto.fromJson).toList();

@@ -34,6 +34,10 @@ final projectTasksProvider = FutureProvider.autoDispose.family<List<ProjectTask>
   (ref, id) => ref.watch(projectsRepositoryProvider).tasks(id),
 );
 
+final projectOperationsSummaryProvider = FutureProvider.autoDispose.family<ProjectOperationsSummary, String>(
+  (ref, id) => ref.watch(projectsRepositoryProvider).operationsSummary(id),
+);
+
 final projectPhotosProvider = FutureProvider.autoDispose.family<List<ProjectPhoto>, String>(
   (ref, id) => ref.watch(projectsRepositoryProvider).photos(id),
 );

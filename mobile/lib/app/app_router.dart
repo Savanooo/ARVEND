@@ -37,6 +37,8 @@ import '../features/projects/presentation/subcontract_change_order_detail_screen
 import '../features/projects/presentation/subcontract_change_order_form_screen.dart';
 import '../features/projects/presentation/subcontract_detail_screen.dart';
 import '../features/projects/presentation/subcontract_form_screen.dart';
+import '../features/projects/presentation/task_detail_screen.dart';
+import '../features/projects/presentation/task_form_screen.dart';
 import '../features/tasks/presentation/tasks_screen.dart';
 import 'app_shell.dart';
 
@@ -126,6 +128,24 @@ final routerProvider = Provider<GoRouter>((ref) {
                   path: ':id',
                   builder: (context, state) => ProjectDetailScreen(projectId: state.pathParameters['id']!),
                   routes: [
+                    GoRoute(
+                      path: 'gorevler/yeni',
+                      builder: (context, state) => TaskFormScreen(projectId: state.pathParameters['id']!),
+                    ),
+                    GoRoute(
+                      path: 'gorevler/:taskId/duzenle',
+                      builder: (context, state) => TaskFormScreen(
+                        projectId: state.pathParameters['id']!,
+                        taskId: state.pathParameters['taskId'],
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'gorevler/:taskId',
+                      builder: (context, state) => TaskDetailScreen(
+                        projectId: state.pathParameters['id']!,
+                        taskId: state.pathParameters['taskId']!,
+                      ),
+                    ),
                     GoRoute(
                       path: 'satin-alma/talepler/yeni',
                       builder: (context, state) =>

@@ -258,6 +258,25 @@ class ProjectTask {
         completedAt: json['completed_at'] as String?,
         isOverdue: json['is_overdue'] as bool? ?? false,
       );
+
+  static const statusTodo = 'todo';
+  static const statusInProgress = 'in_progress';
+  static const statusCompleted = 'completed';
+  static const statusCancelled = 'cancelled';
+
+  static const priorityLow = 'low';
+  static const priorityNormal = 'normal';
+  static const priorityHigh = 'high';
+  static const priorityUrgent = 'urgent';
+
+  /// Backend'de görev durumları için sabit bir GEÇİŞ GRAFİĞİ YOKTUR --
+  /// `UpdateTask` herhangi bir geçerli durumu (`ValidTaskStatus`) herhangi
+  /// bir mevcut durumdan kabul eder (bkz. backend Phase 1 doğrulaması:
+  /// `completed_at`, SQL'de durumla TUTARLI şekilde otomatik ayarlanır/
+  /// temizlenir -- `completed`'dan `todo`'ya dönmek `completed_at`'i NULL'a
+  /// döner, yani "yeniden aç" backend'de zaten bedava). Bu yüzden mobil
+  /// KENDİ ikinci bir durum makinesi İCAT ETMEZ -- düzenleme ekranında
+  /// dört durum da HER ZAMAN seçilebilir.
 }
 
 class ProjectPhoto {
@@ -503,5 +522,36 @@ class ChangeOrder {
         approvedAt: json['approved_at'] as String?,
         rejectedAt: json['rejected_at'] as String?,
         cancelledAt: json['cancelled_at'] as String?,
+      );
+}
+
+/// `GET /projects/{id}/operations-summary` -- Faz 7'den beri backend'de
+/// VAR olan ama mobilde şimdiye kadar HİÇ tüketilmeyen bir uç. Tüm alanlar
+/// backend-hesaplıdır (bkz. `CountProjectTaskStats` SQL) -- mobil bunları
+/// görev listesinden yeniden TOPLAMAZ.
+class ProjectOperationsSummary {
+  final int activeMemberCount;
+  final int totalTaskCount;
+  final int openTaskCount;
+  final int overdueTaskCount;
+  final int completedTaskCount;
+  final double taskCompletionRatio;
+
+  const ProjectOperationsSummary({
+    required this.activeMemberCount,
+    required this.totalTaskCount,
+    required this.openTaskCount,
+    required this.overdueTaskCount,
+    required this.completedTaskCount,
+    required this.taskCompletionRatio,
+  });
+
+  factory ProjectOperationsSummary.fromJson(Map<String, dynamic> json) => ProjectOperationsSummary(
+        activeMemberCount: (json['active_member_count'] as num?)?.toInt() ?? 0,
+        totalTaskCount: (json['total_task_count'] as num?)?.toInt() ?? 0,
+        openTaskCount: (json['open_task_count'] as num?)?.toInt() ?? 0,
+        overdueTaskCount: (json['overdue_task_count'] as num?)?.toInt() ?? 0,
+        completedTaskCount: (json['completed_task_count'] as num?)?.toInt() ?? 0,
+        taskCompletionRatio: (json['task_completion_ratio'] as num?)?.toDouble() ?? 0,
       );
 }
