@@ -4,36 +4,34 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
-import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Card, CardBody } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { apiClient, ApiError } from "@/lib/api";
 import type { Employee, User } from "@/lib/types";
 
-export function EditEmployeeForm({ employee, users }: { employee: Employee; users: User[] }) {
+export function NewEmployeeForm({ users }: { users: User[] }) {
   const router = useRouter();
   const [form, setForm] = useState({
-    full_name: employee.full_name,
-    phone: employee.phone,
-    position: employee.position,
-    daily_wage: employee.daily_wage?.toString() ?? "",
-    salary: employee.salary?.toString() ?? "",
-    start_date: employee.start_date ?? "",
-    description: employee.description,
-    is_active: employee.is_active,
-    user_id: employee.user_id ?? "",
+    full_name: "",
+    phone: "",
+    position: "",
+    daily_wage: "",
+    salary: "",
+    start_date: "",
+    description: "",
+    user_id: "",
   });
-  const [saving, setSaving] = useState(false);
-  const [archiving, setArchiving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setSaving(true);
-    setMessage(null);
+    setError(null);
+    setLoading(true);
     try {
-      await apiClient(`/api/v1/employees/${employee.id}`, {
-        method: "PUT",
+      await apiClient<Employee>("/api/v1/employees", {
+        method: "POST",
         body: JSON.stringify({
           full_name: form.full_name,
           phone: form.phone,
@@ -42,36 +40,19 @@ export function EditEmployeeForm({ employee, users }: { employee: Employee; user
           salary: form.salary ? parseFloat(form.salary) : null,
           start_date: form.start_date || null,
           description: form.description,
-          is_active: form.is_active,
           user_id: form.user_id || "",
         }),
       });
-      setMessage("Kaydedildi.");
-      router.refresh();
-    } catch (err) {
-      setMessage(err instanceof ApiError ? err.message : "Bağlantı hatası");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleArchive() {
-    if (!confirm(`${employee.full_name} pasifleştirilsin mi?`)) return;
-    setArchiving(true);
-    setMessage(null);
-    try {
-      await apiClient(`/api/v1/employees/${employee.id}`, { method: "DELETE" });
       router.push("/admin/personel");
       router.refresh();
     } catch (err) {
-      setMessage(err instanceof ApiError ? err.message : "Bağlantı hatası");
-      setArchiving(false);
+      setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
+      setLoading(false);
     }
   }
 
   return (
-    <Card>
-      <CardHeader>Personel Bilgileri</CardHeader>
+    <Card className="max-w-md">
       <CardBody>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <Input
@@ -137,25 +118,10 @@ export function EditEmployeeForm({ employee, users }: { employee: Employee; user
             Bu personeli bir giriş hesabına bağlarsanız, o kullanıcı mobil uygulamada &quot;Görevlerim&quot;
             altında yalnızca kendisine atanan görevleri görebilir.
           </p>
-          <label className="flex items-center gap-2 text-sm text-text-muted">
-            <input
-              type="checkbox"
-              checked={form.is_active}
-              onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
-            />
-            Aktif
-          </label>
-          {message && <p className="text-xs text-text-muted">{message}</p>}
-          <div className="flex items-center gap-3">
-            <Button type="submit" disabled={saving}>
-              {saving ? "Kaydediliyor…" : "Kaydet"}
-            </Button>
-            {employee.is_active && (
-              <Button type="button" variant="danger" disabled={archiving} onClick={handleArchive}>
-                {archiving ? "Pasifleştiriliyor…" : "Pasifleştir"}
-              </Button>
-            )}
-          </div>
+          {error && <p className="text-xs text-danger">{error}</p>}
+          <Button type="submit" disabled={loading}>
+            {loading ? "Kaydediliyor…" : "Personel Ekle"}
+          </Button>
         </form>
       </CardBody>
     </Card>

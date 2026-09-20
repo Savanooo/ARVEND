@@ -342,6 +342,9 @@ export interface Employee {
   start_date: string | null;
   is_active: boolean;
   description: string;
+  // user_id, bu personelin bağlı olduğu login hesabıdır (nullable) --
+  // GET /tasks/mine'ın "bana ATANAN görevler" anlamının tek kaynağı.
+  user_id: string | null;
 }
 
 export interface SmtpSettings {
