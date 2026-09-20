@@ -350,6 +350,18 @@ func (s *ProjectService) SubmitProgressClaim(ctx context.Context, projectID, cla
 		map[string]any{"progress_claim_id": claimID}); err != nil {
 		return nil, err
 	}
+	approvers, err := resolveProjectApprovers(ctx, txq, orgID, pid, domain.PermProjectsSubcontractClaimsCertify)
+	if err != nil {
+		return nil, err
+	}
+	if err := createNotificationsForUsers(ctx, txq, approvers, CreateNotificationInput{
+		OrganizationID: orgID, Type: domain.NotificationProgressClaimSubmitted,
+		Title: "Onay bekleyen hakediş", Body: row.ClaimNumber,
+		EntityType: domain.NotificationEntityProgressClaim, EntityID: id, ProjectID: pid,
+		ActionTarget: "/projeler/" + pid.String() + "/taseronlar/" + row.SubcontractID.String() + "/hakedisler/" + claimID,
+	}); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -419,6 +431,14 @@ func (s *ProjectService) CertifyProgressClaim(ctx context.Context, projectID, cl
 		map[string]any{"progress_claim_id": claimID, "net_payable": repository.NumericToFloat64(row.NetPayable)}); err != nil {
 		return nil, err
 	}
+	if err := createNotification(ctx, txq, CreateNotificationInput{
+		OrganizationID: orgID, UserID: row.CreatedBy, Type: domain.NotificationProgressClaimCertified,
+		Title: "Hakediş onaylandı", Body: row.ClaimNumber,
+		EntityType: domain.NotificationEntityProgressClaim, EntityID: id, ProjectID: pid,
+		ActionTarget: "/projeler/" + pid.String() + "/taseronlar/" + row.SubcontractID.String() + "/hakedisler/" + claimID,
+	}); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -458,6 +478,14 @@ func (s *ProjectService) RejectProgressClaim(ctx context.Context, projectID, cla
 	}
 	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventProgressClaimRejected, actorUUID(userID),
 		map[string]any{"progress_claim_id": claimID, "reason": reason}); err != nil {
+		return nil, err
+	}
+	if err := createNotification(ctx, txq, CreateNotificationInput{
+		OrganizationID: orgID, UserID: row.CreatedBy, Type: domain.NotificationProgressClaimRejected,
+		Title: "Hakediş reddedildi", Body: row.ClaimNumber,
+		EntityType: domain.NotificationEntityProgressClaim, EntityID: id, ProjectID: pid,
+		ActionTarget: "/projeler/" + pid.String() + "/taseronlar/" + row.SubcontractID.String() + "/hakedisler/" + claimID,
+	}); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {

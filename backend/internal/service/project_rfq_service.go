@@ -469,6 +469,14 @@ func (s *ProjectService) AwardRFQ(ctx context.Context, projectID, rfqID, organiz
 		map[string]any{"rfq_id": rfqID, "quotation_id": quotationID, "supplier_id": quotation.SupplierID.String(), "notes": notes}); err != nil {
 		return nil, err
 	}
+	if err := createNotification(ctx, txq, CreateNotificationInput{
+		OrganizationID: orgID, UserID: row.CreatedBy, Type: domain.NotificationRFQAwarded,
+		Title: "Teklif süreci sonuçlandı", Body: row.RfqNo,
+		EntityType: domain.NotificationEntityRFQ, EntityID: id, ProjectID: pid,
+		ActionTarget: "/projeler/" + pid.String() + "/satin-alma/rfqlar/" + rfqID,
+	}); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}

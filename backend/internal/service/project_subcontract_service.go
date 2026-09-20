@@ -549,6 +549,14 @@ func (s *ProjectService) ActivateSubcontract(ctx context.Context, projectID, sub
 		map[string]any{"subcontract_id": subcontractID}); err != nil {
 		return nil, err
 	}
+	if err := createNotification(ctx, txq, CreateNotificationInput{
+		OrganizationID: orgID, UserID: row.CreatedBy, Type: domain.NotificationSubcontractActivated,
+		Title: "Taşeron sözleşmesi aktifleşti", Body: row.SubcontractNo,
+		EntityType: domain.NotificationEntitySubcontract, EntityID: id, ProjectID: pid,
+		ActionTarget: "/projeler/" + pid.String() + "/taseronlar/" + subcontractID,
+	}); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}

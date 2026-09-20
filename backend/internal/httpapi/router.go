@@ -38,6 +38,7 @@ type Deps struct {
 	AuthorizationSvc  *service.AuthorizationService
 	CostCodes         *handler.CostCodeHandler
 	Suppliers         *handler.SupplierHandler
+	Notifications     *handler.NotificationHandler
 	CORSOrigins       []string
 }
 
@@ -492,6 +493,20 @@ func NewRouter(d Deps) http.Handler {
 		// Org-seviyesinde projects.tasks.read; proje uyelik filtresi handler icinde.
 		r.With(requireAuth, requireOnboarded, loadAuthorization, perm(domain.PermProjectsTasksRead)).
 			Get("/tasks/mine", d.Projects.ListMyTasks)
+
+		// Bildirimler -- her zaman ÇAĞIRANIN KENDİ kaydı (user_id context'ten,
+		// istekten ASLA), bu yüzden proje üyeliği ekseni YOK -- notifications.
+		// read TÜM sistem rollerine verilir (bkz. migration 0042). Yazma
+		// (oluşturma) ucu YOK -- bildirimler yalnızca backend'in kendi iş
+		// akışları tarafından üretilir, bkz. NotificationService.Create
+		// çağrı noktaları.
+		r.Route("/notifications", func(r chi.Router) {
+			r.Use(requireAuth, requireOnboarded, loadAuthorization, perm(domain.PermNotificationsRead))
+			r.Get("/", d.Notifications.List)
+			r.Get("/unread-count", d.Notifications.UnreadCount)
+			r.Post("/{id}/read", d.Notifications.MarkRead)
+			r.Post("/read-all", d.Notifications.MarkAllRead)
+		})
 
 		r.Route("/customers", func(r chi.Router) {
 			r.Use(requireAuth, requireOnboarded, loadAuthorization)

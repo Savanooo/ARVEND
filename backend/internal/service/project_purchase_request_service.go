@@ -258,10 +258,16 @@ func (s *ProjectService) UpdatePurchaseRequestDraft(ctx context.Context, project
 
 // ---------- Durum geçişleri ----------
 
+// notify (nilable), eventType için logProjectEvent'ten HEMEN SONRA, AYNI
+// transaction içinde çağrılır -- bildirim yazımı iş eylemiyle atomik olur.
+// WithdrawPurchaseRequest gibi notify GEÇMEYEN çağıranlar İÇİN bildirim
+// hiç üretilmez (bkz. Faz 1 araştırması: geri çekme kendi eylemini yapan
+// personeli bilgilendirmenin bir anlamı yok).
 func (s *ProjectService) transitionPurchaseRequest(
 	ctx context.Context, projectID, prID, organizationID string,
 	do func(ctx context.Context, txq *sqlc.Queries, id, orgID, pid pgtype.UUID) (sqlc.PurchaseRequest, error),
 	notFoundErr error, eventType string, userID string, extraMeta map[string]any,
+	notify func(ctx context.Context, txq *sqlc.Queries, orgID, pid pgtype.UUID, row sqlc.PurchaseRequest) error,
 ) (*domain.PurchaseRequest, error) {
 	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
@@ -296,6 +302,11 @@ func (s *ProjectService) transitionPurchaseRequest(
 	if err := logProjectEvent(ctx, txq, orgID, pid, eventType, actorUUID(userID), meta); err != nil {
 		return nil, err
 	}
+	if notify != nil {
+		if err := notify(ctx, txq, orgID, pid, row); err != nil {
+			return nil, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -314,21 +325,41 @@ func (s *ProjectService) SubmitPurchaseRequest(ctx context.Context, projectID, p
 	return s.transitionPurchaseRequest(ctx, projectID, prID, organizationID,
 		func(ctx context.Context, txq *sqlc.Queries, id, orgID, pid pgtype.UUID) (sqlc.PurchaseRequest, error) {
 			return txq.SubmitPurchaseRequest(ctx, sqlc.SubmitPurchaseRequestParams{ID: id, OrganizationID: orgID, ProjectID: pid})
-		}, ErrPurchaseRequestNotSubmittable, domain.ProjectEventPurchaseRequestSubmitted, userID, nil)
+		}, ErrPurchaseRequestNotSubmittable, domain.ProjectEventPurchaseRequestSubmitted, userID, nil,
+		func(ctx context.Context, txq *sqlc.Queries, orgID, pid pgtype.UUID, row sqlc.PurchaseRequest) error {
+			approvers, err := resolveProjectApprovers(ctx, txq, orgID, pid, domain.PermProjectsProcurementApprove)
+			if err != nil {
+				return err
+			}
+			return createNotificationsForUsers(ctx, txq, approvers, CreateNotificationInput{
+				OrganizationID: orgID, Type: domain.NotificationPurchaseRequestSubmitted,
+				Title: "Onay bekleyen talep", Body: row.PrNo,
+				EntityType: domain.NotificationEntityPurchaseRequest, EntityID: row.ID, ProjectID: pid,
+				ActionTarget: "/projeler/" + pid.String() + "/satin-alma/talepler/" + prID,
+			})
+		})
 }
 
 func (s *ProjectService) WithdrawPurchaseRequest(ctx context.Context, projectID, prID, organizationID, userID string) (*domain.PurchaseRequest, error) {
 	return s.transitionPurchaseRequest(ctx, projectID, prID, organizationID,
 		func(ctx context.Context, txq *sqlc.Queries, id, orgID, pid pgtype.UUID) (sqlc.PurchaseRequest, error) {
 			return txq.WithdrawPurchaseRequest(ctx, sqlc.WithdrawPurchaseRequestParams{ID: id, OrganizationID: orgID, ProjectID: pid})
-		}, ErrPurchaseRequestNotWithdrawable, domain.ProjectEventPurchaseRequestWithdrawn, userID, nil)
+		}, ErrPurchaseRequestNotWithdrawable, domain.ProjectEventPurchaseRequestWithdrawn, userID, nil, nil)
 }
 
 func (s *ProjectService) ApprovePurchaseRequest(ctx context.Context, projectID, prID, organizationID, userID string) (*domain.PurchaseRequest, error) {
 	return s.transitionPurchaseRequest(ctx, projectID, prID, organizationID,
 		func(ctx context.Context, txq *sqlc.Queries, id, orgID, pid pgtype.UUID) (sqlc.PurchaseRequest, error) {
 			return txq.ApprovePurchaseRequest(ctx, sqlc.ApprovePurchaseRequestParams{ID: id, OrganizationID: orgID, ProjectID: pid, ApprovedBy: actorUUID(userID)})
-		}, ErrPurchaseRequestNotApprovable, domain.ProjectEventPurchaseRequestApproved, userID, nil)
+		}, ErrPurchaseRequestNotApprovable, domain.ProjectEventPurchaseRequestApproved, userID, nil,
+		func(ctx context.Context, txq *sqlc.Queries, orgID, pid pgtype.UUID, row sqlc.PurchaseRequest) error {
+			return createNotification(ctx, txq, CreateNotificationInput{
+				OrganizationID: orgID, UserID: row.RequestedBy, Type: domain.NotificationPurchaseRequestApproved,
+				Title: "Satın alma talebi onaylandı", Body: row.PrNo,
+				EntityType: domain.NotificationEntityPurchaseRequest, EntityID: row.ID, ProjectID: pid,
+				ActionTarget: "/projeler/" + pid.String() + "/satin-alma/talepler/" + prID,
+			})
+		})
 }
 
 func (s *ProjectService) RejectPurchaseRequest(ctx context.Context, projectID, prID, organizationID, userID, reason string) (*domain.PurchaseRequest, error) {
@@ -339,7 +370,15 @@ func (s *ProjectService) RejectPurchaseRequest(ctx context.Context, projectID, p
 	return s.transitionPurchaseRequest(ctx, projectID, prID, organizationID,
 		func(ctx context.Context, txq *sqlc.Queries, id, orgID, pid pgtype.UUID) (sqlc.PurchaseRequest, error) {
 			return txq.RejectPurchaseRequest(ctx, sqlc.RejectPurchaseRequestParams{ID: id, OrganizationID: orgID, ProjectID: pid, RejectedBy: actorUUID(userID), RejectionReason: reason})
-		}, ErrPurchaseRequestNotRejectable, domain.ProjectEventPurchaseRequestRejected, userID, map[string]any{"reason": reason})
+		}, ErrPurchaseRequestNotRejectable, domain.ProjectEventPurchaseRequestRejected, userID, map[string]any{"reason": reason},
+		func(ctx context.Context, txq *sqlc.Queries, orgID, pid pgtype.UUID, row sqlc.PurchaseRequest) error {
+			return createNotification(ctx, txq, CreateNotificationInput{
+				OrganizationID: orgID, UserID: row.RequestedBy, Type: domain.NotificationPurchaseRequestRejected,
+				Title: "Satın alma talebi reddedildi", Body: row.PrNo,
+				EntityType: domain.NotificationEntityPurchaseRequest, EntityID: row.ID, ProjectID: pid,
+				ActionTarget: "/projeler/" + pid.String() + "/satin-alma/talepler/" + prID,
+			})
+		})
 }
 
 func (s *ProjectService) CancelPurchaseRequest(ctx context.Context, projectID, prID, organizationID, userID, reason string) (*domain.PurchaseRequest, error) {
@@ -350,5 +389,5 @@ func (s *ProjectService) CancelPurchaseRequest(ctx context.Context, projectID, p
 	return s.transitionPurchaseRequest(ctx, projectID, prID, organizationID,
 		func(ctx context.Context, txq *sqlc.Queries, id, orgID, pid pgtype.UUID) (sqlc.PurchaseRequest, error) {
 			return txq.CancelPurchaseRequest(ctx, sqlc.CancelPurchaseRequestParams{ID: id, OrganizationID: orgID, ProjectID: pid, CancelledBy: actorUUID(userID), CancelReason: reason})
-		}, ErrPurchaseRequestNotCancellable, domain.ProjectEventPurchaseRequestCancelled, userID, map[string]any{"reason": reason})
+		}, ErrPurchaseRequestNotCancellable, domain.ProjectEventPurchaseRequestCancelled, userID, map[string]any{"reason": reason}, nil)
 }

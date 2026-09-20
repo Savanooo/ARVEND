@@ -66,6 +66,7 @@ func main() {
 	authzSvc := service.NewAuthorizationService(q)
 	costCodeSvc := service.NewCostCodeService(pool, q)
 	supplierSvc := service.NewSupplierService(pool, q, secretBox)
+	notificationSvc := service.NewNotificationService(q)
 
 	jwtIssuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL)
 	authSvc := service.NewAuthService(q, jwtIssuer, cfg.RefreshTTL)
@@ -91,6 +92,7 @@ func main() {
 		AuthorizationSvc:  authzSvc,
 		CostCodes:         handler.NewCostCodeHandler(costCodeSvc),
 		Suppliers:         handler.NewSupplierHandler(supplierSvc),
+		Notifications:     handler.NewNotificationHandler(notificationSvc),
 		CORSOrigins:       cfg.CORSOrigins,
 	})
 

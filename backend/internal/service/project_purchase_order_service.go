@@ -373,6 +373,14 @@ func (s *ProjectService) ApprovePurchaseOrder(ctx context.Context, projectID, po
 		map[string]any{"purchase_order_id": poID, "po_no": row.PoNo, "total": repository.NumericToFloat64(row.Total), "item_count": len(items)}); err != nil {
 		return nil, err
 	}
+	if err := createNotification(ctx, txq, CreateNotificationInput{
+		OrganizationID: orgID, UserID: row.CreatedBy, Type: domain.NotificationPurchaseOrderApproved,
+		Title: "Satın alma siparişi onaylandı", Body: row.PoNo,
+		EntityType: domain.NotificationEntityPurchaseOrder, EntityID: id, ProjectID: pid,
+		ActionTarget: "/projeler/" + pid.String() + "/satin-alma/siparisler/" + poID,
+	}); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -437,6 +445,21 @@ func (s *ProjectService) CancelPurchaseOrder(ctx context.Context, projectID, poI
 	}
 	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventPurchaseOrderCancelled, actorUUID(userID),
 		map[string]any{"purchase_order_id": poID, "reason": reason, "commitments_voided": voidedCount}); err != nil {
+		return nil, err
+	}
+	// Onaylanmışken iptal edilirse, hem PO'yu hazırlayan hem onaylayan kişi
+	// bilgilendirilir (onayları geri alınıyor); yalnızca taslaktaysa tek
+	// alıcı (hazırlayan) yeterlidir.
+	cancelRecipients := []pgtype.UUID{row.CreatedBy}
+	if wasApproved && row.ApprovedBy.Valid && row.ApprovedBy.String() != row.CreatedBy.String() {
+		cancelRecipients = append(cancelRecipients, row.ApprovedBy)
+	}
+	if err := createNotificationsForUsers(ctx, txq, cancelRecipients, CreateNotificationInput{
+		OrganizationID: orgID, Type: domain.NotificationPurchaseOrderCancelled,
+		Title: "Satın alma siparişi iptal edildi", Body: row.PoNo,
+		EntityType: domain.NotificationEntityPurchaseOrder, EntityID: id, ProjectID: pid,
+		ActionTarget: "/projeler/" + pid.String() + "/satin-alma/siparisler/" + poID,
+	}); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {

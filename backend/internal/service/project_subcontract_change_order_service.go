@@ -305,6 +305,18 @@ func (s *ProjectService) SubmitSubcontractChangeOrder(ctx context.Context, proje
 		map[string]any{"change_order_id": changeOrderID}); err != nil {
 		return nil, err
 	}
+	approvers, err := resolveProjectApprovers(ctx, txq, orgID, pid, domain.PermProjectsSubcontractsApprove)
+	if err != nil {
+		return nil, err
+	}
+	if err := createNotificationsForUsers(ctx, txq, approvers, CreateNotificationInput{
+		OrganizationID: orgID, Type: domain.NotificationSubcontractChangeOrderSubmitted,
+		Title: "Onay bekleyen ek iş", Body: row.Number,
+		EntityType: domain.NotificationEntitySubcontractChangeOrder, EntityID: id, ProjectID: pid,
+		ActionTarget: "/projeler/" + pid.String() + "/taseronlar/" + row.SubcontractID.String() + "/degisiklik-emirleri/" + changeOrderID,
+	}); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -377,6 +389,14 @@ func (s *ProjectService) ApproveSubcontractChangeOrder(ctx context.Context, proj
 		map[string]any{"change_order_id": changeOrderID, "subcontract_id": current.SubcontractID.String()}); err != nil {
 		return nil, err
 	}
+	if err := createNotification(ctx, txq, CreateNotificationInput{
+		OrganizationID: orgID, UserID: row.CreatedBy, Type: domain.NotificationSubcontractChangeOrderApproved,
+		Title: "Ek iş onaylandı", Body: row.Number,
+		EntityType: domain.NotificationEntitySubcontractChangeOrder, EntityID: id, ProjectID: pid,
+		ActionTarget: "/projeler/" + pid.String() + "/taseronlar/" + current.SubcontractID.String() + "/degisiklik-emirleri/" + changeOrderID,
+	}); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
@@ -416,6 +436,14 @@ func (s *ProjectService) RejectSubcontractChangeOrder(ctx context.Context, proje
 	}
 	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventSubcontractChangeOrderRejected, actorUUID(userID),
 		map[string]any{"change_order_id": changeOrderID, "reason": reason}); err != nil {
+		return nil, err
+	}
+	if err := createNotification(ctx, txq, CreateNotificationInput{
+		OrganizationID: orgID, UserID: row.CreatedBy, Type: domain.NotificationSubcontractChangeOrderRejected,
+		Title: "Ek iş reddedildi", Body: row.Number,
+		EntityType: domain.NotificationEntitySubcontractChangeOrder, EntityID: id, ProjectID: pid,
+		ActionTarget: "/projeler/" + pid.String() + "/taseronlar/" + row.SubcontractID.String() + "/degisiklik-emirleri/" + changeOrderID,
+	}); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {

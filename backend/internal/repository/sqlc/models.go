@@ -108,6 +108,21 @@ type Employee struct {
 	UserID         pgtype.UUID        `json:"user_id"`
 }
 
+type Notification struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	Type           string             `json:"type"`
+	Title          string             `json:"title"`
+	Body           string             `json:"body"`
+	EntityType     string             `json:"entity_type"`
+	EntityID       pgtype.UUID        `json:"entity_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	ActionTarget   string             `json:"action_target"`
+	ReadAt         pgtype.Timestamptz `json:"read_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type Offer struct {
 	ID                pgtype.UUID        `json:"id"`
 	OfferNo           string             `json:"offer_no"`

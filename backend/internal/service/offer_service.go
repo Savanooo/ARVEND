@@ -764,6 +764,9 @@ func (s *OfferService) UpdateStatus(ctx context.Context, id, organizationID, sta
 	if err := logOfferEvent(ctx, txq, orgID, offerRow.ID, offerRow.CurrentRevisionID, eventType, actorID, nil, "", ""); err != nil {
 		return nil, err
 	}
+	if err := notifyOfferDecision(ctx, txq, orgID, offerRow.ID, offerRow.OfferNo, offerRow.CreatedBy, status); err != nil {
+		return nil, err
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -1325,6 +1328,9 @@ func (s *OfferService) RespondByShareLinkToken(ctx context.Context, token, decis
 		eventType = domain.EventCustomerRejected
 	}
 	if err := logOfferEvent(ctx, txq, link.OrganizationID, link.OfferID, link.RevisionID, eventType, pgtype.UUID{}, nil, ip, userAgent); err != nil {
+		return nil, err
+	}
+	if err := notifyOfferDecision(ctx, txq, link.OrganizationID, offerRow.ID, offerRow.OfferNo, offerRow.CreatedBy, decision); err != nil {
 		return nil, err
 	}
 

@@ -160,6 +160,12 @@ const (
 	// subcontract_claims.* İLE AYNI üçlü DEĞİL, yalnızca ikili (read/manage).
 	PermProjectsSubcontractPaymentsRead   = "projects.subcontract_payments.read"
 	PermProjectsSubcontractPaymentsManage = "projects.subcontract_payments.manage"
+
+	// Bildirimler (Notifications) -- her zaman ÇAĞIRANIN KENDİ kaydı,
+	// proje üyeliği ekseni YOK (bkz. migration 0042). Yalnızca tekli
+	// (read) -- bir "manage" izni yok, bildirimler kullanıcı isteğiyle
+	// DEĞİL yalnızca backend'in kendi iş akışlarıyla üretilir.
+	PermNotificationsRead = "notifications.read"
 )
 
 // ---------- Domain tipleri ----------

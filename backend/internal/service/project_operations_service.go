@@ -401,17 +401,22 @@ type TaskInput struct {
 // resolveTaskRelations, göreve bağlanan aşama ve personelin AYNI
 // organizasyona ve AYNI projeye ait olduğunu doğrular -- başka bir
 // firmanın/projenin kaydına görev bağlanamaz.
-func (s *ProjectService) resolveTaskRelations(ctx context.Context, txq *sqlc.Queries, pid, orgID pgtype.UUID, in TaskInput) (pgtype.UUID, pgtype.UUID, string, error) {
-	var scheduleID, employeeID pgtype.UUID
+// employeeUserID (5. dönüş değeri): atanan personelin BAĞLI kullanıcı
+// hesabı (employees.user_id, nullable -- bkz. migration 0041). "Görev
+// atandı" bildirimi bunu kullanır; personelin bağlı hesabı yoksa
+// pgtype.UUID{Valid:false} döner ve çağıran bunu SESSİZCE atlamalıdır
+// (createNotification zaten bu şekilde davranır).
+func (s *ProjectService) resolveTaskRelations(ctx context.Context, txq *sqlc.Queries, pid, orgID pgtype.UUID, in TaskInput) (pgtype.UUID, pgtype.UUID, string, pgtype.UUID, error) {
+	var scheduleID, employeeID, employeeUserID pgtype.UUID
 	var employeeName string
 
 	if in.ScheduleItemID != nil && *in.ScheduleItemID != "" {
 		sid, err := repository.StringToUUID(*in.ScheduleItemID)
 		if err != nil {
-			return scheduleID, employeeID, "", ErrInvalidSchedule
+			return scheduleID, employeeID, "", employeeUserID, ErrInvalidSchedule
 		}
 		if _, err := txq.GetScheduleItem(ctx, sqlc.GetScheduleItemParams{ID: sid, OrganizationID: orgID, ProjectID: pid}); err != nil {
-			return scheduleID, employeeID, "", ErrInvalidSchedule
+			return scheduleID, employeeID, "", employeeUserID, ErrInvalidSchedule
 		}
 		scheduleID = sid
 	}
@@ -419,16 +424,17 @@ func (s *ProjectService) resolveTaskRelations(ctx context.Context, txq *sqlc.Que
 	if in.AssignedEmployeeID != nil && *in.AssignedEmployeeID != "" {
 		eid, err := repository.StringToUUID(*in.AssignedEmployeeID)
 		if err != nil {
-			return scheduleID, employeeID, "", ErrInvalidEmployee
+			return scheduleID, employeeID, "", employeeUserID, ErrInvalidEmployee
 		}
 		emp, err := txq.GetEmployeeByID(ctx, sqlc.GetEmployeeByIDParams{ID: eid, OrganizationID: orgID})
 		if err != nil {
-			return scheduleID, employeeID, "", ErrInvalidEmployee
+			return scheduleID, employeeID, "", employeeUserID, ErrInvalidEmployee
 		}
 		employeeID = eid
 		employeeName = emp.FullName
+		employeeUserID = emp.UserID
 	}
-	return scheduleID, employeeID, employeeName, nil
+	return scheduleID, employeeID, employeeName, employeeUserID, nil
 }
 
 func (s *ProjectService) CreateTask(ctx context.Context, projectID, organizationID string, in TaskInput) (*domain.ProjectTask, error) {
@@ -470,7 +476,7 @@ func (s *ProjectService) CreateTask(ctx context.Context, projectID, organization
 	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
 		return nil, err
 	}
-	scheduleID, employeeID, employeeName, err := s.resolveTaskRelations(ctx, txq, pid, orgID, in)
+	scheduleID, employeeID, employeeName, employeeUserID, err := s.resolveTaskRelations(ctx, txq, pid, orgID, in)
 	if err != nil {
 		return nil, err
 	}
@@ -498,6 +504,14 @@ func (s *ProjectService) CreateTask(ctx context.Context, projectID, organization
 	if employeeID.Valid {
 		if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventTaskAssigned, actorUUID(in.UserID),
 			map[string]any{"task_id": row.ID.String(), "title": title, "employee_name": employeeName}); err != nil {
+			return nil, err
+		}
+		if err := createNotification(ctx, txq, CreateNotificationInput{
+			OrganizationID: orgID, UserID: employeeUserID, Type: domain.NotificationTaskAssigned,
+			Title: "Yeni görev atandı", Body: title,
+			EntityType: domain.NotificationEntityTask, EntityID: row.ID, ProjectID: pid,
+			ActionTarget: "/projeler/" + pid.String() + "/gorevler/" + row.ID.String(),
+		}); err != nil {
 			return nil, err
 		}
 	}
@@ -660,7 +674,7 @@ func (s *ProjectService) UpdateTask(ctx context.Context, projectID, taskID, orga
 		}
 		return nil, err
 	}
-	scheduleID, employeeID, employeeName, err := s.resolveTaskRelations(ctx, txq, current.ProjectID, orgID, in)
+	scheduleID, employeeID, employeeName, employeeUserID, err := s.resolveTaskRelations(ctx, txq, current.ProjectID, orgID, in)
 	if err != nil {
 		return nil, err
 	}
@@ -693,6 +707,14 @@ func (s *ProjectService) UpdateTask(ctx context.Context, projectID, taskID, orga
 	case employeeID.Valid && employeeID.String() != current.AssignedEmployeeID.String():
 		err = logProjectEvent(ctx, txq, orgID, current.ProjectID, domain.ProjectEventTaskAssigned, actor,
 			map[string]any{"task_id": taskID, "title": title, "employee_name": employeeName})
+		if err == nil {
+			err = createNotification(ctx, txq, CreateNotificationInput{
+				OrganizationID: orgID, UserID: employeeUserID, Type: domain.NotificationTaskAssigned,
+				Title: "Yeni görev atandı", Body: title,
+				EntityType: domain.NotificationEntityTask, EntityID: tid, ProjectID: current.ProjectID,
+				ActionTarget: "/projeler/" + current.ProjectID.String() + "/gorevler/" + taskID,
+			})
+		}
 	default:
 		err = logProjectEvent(ctx, txq, orgID, current.ProjectID, domain.ProjectEventTaskUpdated, actor,
 			map[string]any{"task_id": taskID, "title": title, "status": in.Status})
