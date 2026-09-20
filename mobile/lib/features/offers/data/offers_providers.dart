@@ -34,6 +34,9 @@ final offerRevisionDetailProvider = FutureProvider.autoDispose.family<OfferRevis
   (ref, key) => ref.watch(offersRepositoryProvider).getRevision(key.offerId, key.revisionId),
 );
 
-final offerHasProjectProvider = FutureProvider.autoDispose.family<bool, String>(
-  (ref, id) => ref.watch(offersRepositoryProvider).hasProject(id),
+/// Teklif zaten bir projeye dönüştürülmüşse o projenin id'sini döner, aksi
+/// halde null -- "Projeye Dönüştür" ile "Projeyi Görüntüle" arasında karar
+/// vermek ve tekrar dönüştürmeyi (yinelenen proje) önlemek için kullanılır.
+final offerLinkedProjectIdProvider = FutureProvider.autoDispose.family<String?, String>(
+  (ref, id) => ref.watch(offersRepositoryProvider).linkedProjectId(id),
 );

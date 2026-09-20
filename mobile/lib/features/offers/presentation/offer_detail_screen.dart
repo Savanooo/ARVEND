@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_controller.dart';
+import '../../../core/config/app_config.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/async_state_view.dart';
@@ -10,60 +12,140 @@ import '../../../core/widgets/status_badge.dart';
 import '../data/offers_providers.dart';
 import '../domain/offer.dart';
 
-class OfferDetailScreen extends ConsumerWidget {
+class OfferDetailScreen extends ConsumerStatefulWidget {
   const OfferDetailScreen({super.key, required this.offerId});
   final String offerId;
 
-  Future<void> _setStatus(BuildContext context, WidgetRef ref, String status) async {
+  @override
+  ConsumerState<OfferDetailScreen> createState() => _OfferDetailScreenState();
+}
+
+class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
+  bool _converting = false;
+  bool _creatingLink = false;
+  bool _sendingEmail = false;
+
+  String get offerId => widget.offerId;
+
+  Future<void> _setStatus(String status) async {
     try {
       await ref.read(offersRepositoryProvider).updateStatus(offerId, status);
       ref.invalidate(offerDetailProvider(offerId));
       ref.invalidate(offersListProvider(''));
       ref.invalidate(offerRevisionsProvider(offerId));
     } on ApiException catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
   }
 
-  Future<void> _reviseAndEdit(BuildContext context, WidgetRef ref) async {
+  Future<void> _reviseAndEdit() async {
     try {
       final revised = await ref.read(offersRepositoryProvider).revise(offerId);
       ref.invalidate(offerDetailProvider(offerId));
       ref.invalidate(offersListProvider(''));
       ref.invalidate(offerRevisionsProvider(offerId));
-      if (!context.mounted) return;
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Revizyon #${revised.revisionNo} oluşturuldu')),
       );
       context.push('/teklifler/${revised.id}/duzenle');
     } on ApiException catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
   }
 
-  Future<void> _convert(BuildContext context, WidgetRef ref) async {
+  Future<void> _convert() async {
+    setState(() => _converting = true);
     try {
-      await ref.read(offersRepositoryProvider).convertToProject(offerId);
-      if (!context.mounted) return;
+      final result = await ref.read(offersRepositoryProvider).convertToProject(offerId);
+      ref.invalidate(offerLinkedProjectIdProvider(offerId));
+      if (!mounted) return;
+      final projectId = result['id'] as String?;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Proje oluşturuldu')));
-      context.go('/projeler');
-    } on ApiException catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (projectId != null) {
+        context.go('/projeler/$projectId');
+      } else {
+        context.go('/projeler');
       }
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _converting = false);
+    }
+  }
+
+  Future<void> _createShareLink() async {
+    setState(() => _creatingLink = true);
+    try {
+      final link = await ref.read(offersRepositoryProvider).createShareLink(offerId);
+      if (!mounted) return;
+      final url = '${AppConfig.apiBaseUrl}/paylas/${link.token}';
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Paylaşım Linki'),
+          content: SelectableText(url),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Kapat')),
+            FilledButton.icon(
+              icon: const Icon(Icons.copy_outlined, size: 18),
+              label: const Text('Kopyala'),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: url));
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Link kopyalandı')));
+              },
+            ),
+          ],
+        ),
+      );
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _creatingLink = false);
+    }
+  }
+
+  Future<void> _sendEmail() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Teklifi e-postayla gönder'),
+        content: const Text('Teklif, kayıtlı müşteri e-posta adresine paylaşım linkiyle birlikte gönderilecek.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
+          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Gönder')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    setState(() => _sendingEmail = true);
+    try {
+      await ref.read(offersRepositoryProvider).sendEmail(offerId);
+      ref.invalidate(offerDetailProvider(offerId));
+      ref.invalidate(offersListProvider(''));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('E-posta gönderildi')));
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _sendingEmail = false);
     }
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final offerAsync = ref.watch(offerDetailProvider(offerId));
     final revisionsAsync = ref.watch(offerRevisionsProvider(offerId));
     final user = ref.watch(authControllerProvider).valueOrNull;
     final canReadInternal = user?.hasPermission(kPermOffersInternalPricingRead) ?? false;
+    final canConvert = user?.hasPermission(kPermProjectsCreate) ?? false;
+    // İzni olmayan VEYA henüz "kabul edildi" durumuna gelmemiş bir teklif
+    // İÇİN bu sorgu hiç atılmaz -- yalnızca kabul edilmiş teklifler
+    // dönüştürülebilir, gereksiz bir /offers/{id}/project isteği YOK.
+    final canHaveProject = canConvert && offerAsync.valueOrNull?.status == Offer.statusKabulEdildi;
+    final linkedProjectIdAsync =
+        canHaveProject ? ref.watch(offerLinkedProjectIdProvider(offerId)) : const AsyncValue<String?>.data(null);
 
     return Scaffold(
       appBar: AppBar(
@@ -88,6 +170,7 @@ class OfferDetailScreen extends ConsumerWidget {
           onRefresh: () async {
             ref.invalidate(offerDetailProvider(offerId));
             ref.invalidate(offerRevisionsProvider(offerId));
+            ref.invalidate(offerLinkedProjectIdProvider(offerId));
           },
           child: ListView(
             padding: const EdgeInsets.all(16),
@@ -172,18 +255,18 @@ class OfferDetailScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 8),
                 FilledButton(
-                  onPressed: () => _setStatus(context, ref, Offer.statusGonderildi),
+                  onPressed: () => _setStatus(Offer.statusGonderildi),
                   child: const Text('Gönderildi Olarak İşaretle'),
                 ),
               ],
               if (offer.status == Offer.statusGonderildi) ...[
                 FilledButton(
-                  onPressed: () => _setStatus(context, ref, Offer.statusKabulEdildi),
+                  onPressed: () => _setStatus(Offer.statusKabulEdildi),
                   child: const Text('Kabul Edildi'),
                 ),
                 const SizedBox(height: 8),
                 OutlinedButton(
-                  onPressed: () => _setStatus(context, ref, Offer.statusReddedildi),
+                  onPressed: () => _setStatus(Offer.statusReddedildi),
                   child: const Text('Reddedildi'),
                 ),
               ],
@@ -192,15 +275,38 @@ class OfferDetailScreen extends ConsumerWidget {
                 OutlinedButton.icon(
                   icon: const Icon(Icons.refresh, size: 18),
                   label: const Text('Revize Et ve Düzenle'),
-                  onPressed: () => _reviseAndEdit(context, ref),
+                  onPressed: _reviseAndEdit,
                 ),
               ],
-              if (offer.status == Offer.statusKabulEdildi) ...[
+              if (!offer.isPassive) ...[
                 const SizedBox(height: 8),
-                FilledButton.icon(
-                  icon: const Icon(Icons.business_center_outlined),
-                  label: const Text('Projeye Dönüştür'),
-                  onPressed: () => _convert(context, ref),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.ios_share_outlined, size: 18),
+                  label: const Text('Paylaşım Linki Oluştur'),
+                  onPressed: _creatingLink ? null : _createShareLink,
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.mail_outline, size: 18),
+                  label: const Text('E-posta Gönder'),
+                  onPressed: _sendingEmail ? null : _sendEmail,
+                ),
+              ],
+              if (offer.status == Offer.statusKabulEdildi && canConvert) ...[
+                const SizedBox(height: 8),
+                linkedProjectIdAsync.maybeWhen(
+                  data: (projectId) => projectId != null
+                      ? OutlinedButton.icon(
+                          icon: const Icon(Icons.business_center_outlined),
+                          label: const Text('Projeyi Görüntüle'),
+                          onPressed: () => context.push('/projeler/$projectId'),
+                        )
+                      : FilledButton.icon(
+                          icon: const Icon(Icons.business_center_outlined),
+                          label: const Text('Projeye Dönüştür'),
+                          onPressed: _converting ? null : _convert,
+                        ),
+                  orElse: () => const SizedBox.shrink(),
                 ),
               ],
             ],

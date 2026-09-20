@@ -68,11 +68,12 @@ class OfferRevisionDetailScreen extends ConsumerWidget {
                       child: ListTile(
                         title: Text(item.productName),
                         subtitle: Text(
-                          '${item.quantity} ${item.unit} × ${Formatters.money(item.unitPrice)}'
-                          '${canReadInternal && item.hasInternalPricing && item.internalSubcontractCost != null ? '\nİç maliyet: ${Formatters.money(item.internalSubcontractCost!)}' : ''}',
+                          '${item.quantity} ${item.unit} × ${Formatters.money(item.unitPrice, currency: rev.currency)}'
+                          '${canReadInternal && item.hasInternalPricing && item.internalSubcontractCost != null ? '\nİç maliyet: ${Formatters.money(item.internalSubcontractCost!, currency: rev.currency)}' : ''}',
                         ),
                         isThreeLine: canReadInternal && item.hasInternalPricing,
-                        trailing: Text(Formatters.money(item.lineTotal), style: const TextStyle(fontWeight: FontWeight.w700)),
+                        trailing: Text(Formatters.money(item.lineTotal, currency: rev.currency),
+                            style: const TextStyle(fontWeight: FontWeight.w700)),
                       ),
                     )),
               Card(
@@ -80,10 +81,11 @@ class OfferRevisionDetailScreen extends ConsumerWidget {
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
-                      _row('Ara Toplam', Formatters.money(rev.subtotal)),
-                      _row('KDV (%${rev.vatRate.toStringAsFixed(0)})', Formatters.money(rev.vatAmount)),
+                      _row('Ara Toplam', Formatters.money(rev.subtotal, currency: rev.currency)),
+                      _row('KDV (%${rev.vatRate.toStringAsFixed(0)})',
+                          Formatters.money(rev.vatAmount, currency: rev.currency)),
                       const Divider(),
-                      _row('Genel Toplam', Formatters.money(rev.grandTotal), bold: true),
+                      _row('Genel Toplam', Formatters.money(rev.grandTotal, currency: rev.currency), bold: true),
                     ],
                   ),
                 ),

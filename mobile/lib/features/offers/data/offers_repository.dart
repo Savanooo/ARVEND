@@ -134,13 +134,15 @@ class OffersRepository {
 
   Future<void> delete(String id) => _client.delete<void>('/offers/$id');
 
-  /// Bir teklif zaten projeye dönüştürülmüş mü? 404 => hayır.
-  Future<bool> hasProject(String offerId) async {
+  /// Bir teklif zaten projeye dönüştürülmüş mü? 404 => dönüştürülmemiş (null).
+  /// Var olan projenin id'sini döner ki "Projeyi Görüntüle" doğrudan ona
+  /// gidebilsin -- yalnızca bool dönmek (eski `hasProject`) hedefi kaybettirirdi.
+  Future<String?> linkedProjectId(String offerId) async {
     try {
-      await _client.get<Map<String, dynamic>>('/offers/$offerId/project');
-      return true;
+      final json = await _client.get<Map<String, dynamic>>('/offers/$offerId/project');
+      return json['id'] as String?;
     } on Object {
-      return false;
+      return null;
     }
   }
 
@@ -151,5 +153,33 @@ class OffersRepository {
         'start_date': null,
         'end_date': null,
         'description': description,
+      });
+
+  /// Güncel revizyon için yeni bir paylaşım linki oluşturur. [expiresIn]:
+  /// '' (süresiz) | '7d' | '30d' -- backend sözleşmesiyle birebir.
+  Future<ShareLink> createShareLink(String offerId, {String expiresIn = ''}) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/offers/$offerId/share-links',
+      data: {'expires_in': expiresIn},
+    );
+    return ShareLink.fromJson(json);
+  }
+
+  Future<List<ShareLink>> shareLinks(String offerId) async {
+    final json = await _client.get<Map<String, dynamic>>('/offers/$offerId/share-links');
+    return (json['share_links'] as List).cast<Map<String, dynamic>>().map(ShareLink.fromJson).toList();
+  }
+
+  Future<void> revokeShareLink(String offerId, String linkId) =>
+      _client.delete<void>('/offers/$offerId/share-links/$linkId');
+
+  /// `to`/`subject`/`message` boş bırakılırsa backend varsayılanları
+  /// kullanır: alıcı = teklifin kayıtlı müşteri e-postası, konu/gövde
+  /// hazır Türkçe şablon + paylaşım linki (bkz. OfferService.SendOfferEmail).
+  Future<void> sendEmail(String offerId, {String to = '', String subject = '', String message = ''}) =>
+      _client.post<void>('/offers/$offerId/send-email', data: {
+        'to': to,
+        'subject': subject,
+        'message': message,
       });
 }

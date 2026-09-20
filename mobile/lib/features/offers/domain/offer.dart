@@ -243,4 +243,44 @@ class OfferRevision {
 const kPermOffersInternalPricingRead = 'offers.internal_pricing.read';
 const kPermOffersInternalPricingManage = 'offers.internal_pricing.manage';
 
+/// Teklif → proje dönüştürme, /projects/from-offer/{offerId} üzerinden
+/// bu izni ister (offers.* eksenine değil, projects.create'e bağlı).
+const kPermProjectsCreate = 'projects.create';
+
 const kOfferStatuses = ['taslak', 'gönderildi', 'kabul edildi', 'reddedildi'];
+
+/// backend `shareLinkResponse` — müşteri sayfasına (`/paylas/{token}`)
+/// erişimi sağlayan, revizyona bağlı paylaşım linki. `token` dışında hiçbir
+/// hassas/iç veri taşımaz.
+class ShareLink {
+  final String id;
+  final String offerId;
+  final String revisionId;
+  final String token;
+  final String createdAt;
+  final String? expiresAt;
+  final String? revokedAt;
+  final bool isActive;
+
+  const ShareLink({
+    required this.id,
+    required this.offerId,
+    required this.revisionId,
+    required this.token,
+    required this.createdAt,
+    required this.expiresAt,
+    required this.revokedAt,
+    required this.isActive,
+  });
+
+  factory ShareLink.fromJson(Map<String, dynamic> json) => ShareLink(
+        id: json['id'] as String? ?? '',
+        offerId: json['offer_id'] as String? ?? '',
+        revisionId: json['revision_id'] as String? ?? '',
+        token: json['token'] as String? ?? '',
+        createdAt: json['created_at'] as String? ?? '',
+        expiresAt: json['expires_at'] as String?,
+        revokedAt: json['revoked_at'] as String?,
+        isActive: json['is_active'] as bool? ?? false,
+      );
+}

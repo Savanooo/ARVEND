@@ -8,6 +8,7 @@ import '../../../core/utils/formatters.dart';
 import '../../calculations/presentation/metraj_screen.dart';
 import '../data/offers_providers.dart';
 import '../domain/offer.dart';
+import 'customer_picker_sheet.dart';
 
 class _DraftItem {
   _DraftItem();
@@ -181,6 +182,21 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
     super.dispose();
   }
 
+  /// Mevcut bir müşteriyi arayıp seçtirir ve alanları doldurur --
+  /// müşteri modülünü İÇİNDE TEKRARLAMAZ, yalnızca zaten var olan
+  /// müşteri listesi/arama ucunu kullanır (bkz. customer_picker_sheet.dart).
+  Future<void> _pickCustomer() async {
+    final customer = await showCustomerPickerSheet(context);
+    if (customer == null || !mounted) return;
+    setState(() {
+      _customerId = customer.id;
+      _customerNameController.text = customer.name;
+      _customerPhoneController.text = customer.phone;
+      _customerEmailController.text = customer.email;
+      _customerAddressController.text = customer.address;
+    });
+  }
+
   /// Metraj ekranını "seçici" modda açar ve seçilen kalemleri BU teklif
   /// taslağına ekler -- web'in aynı modalı teklif formunun İÇİNDE tuttuğu
   /// ve birden çok bölüm (Salon/Oda 1/Koridor...) hesaplayıp AYNI teklife
@@ -312,6 +328,14 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      icon: const Icon(Icons.person_search_outlined, size: 18),
+                      label: const Text('Mevcut Müşteriden Seç'),
+                      onPressed: _pickCustomer,
+                    ),
+                  ),
                   TextFormField(
                     controller: _customerNameController,
                     decoration: const InputDecoration(labelText: 'Müşteri Adı'),
@@ -438,6 +462,15 @@ class _ItemRow extends StatelessWidget {
                 ),
                 if (onRemove != null) IconButton(icon: const Icon(Icons.close, size: 18), onPressed: onRemove),
               ],
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              initialValue: item.sectionLabel ?? '',
+              decoration: const InputDecoration(labelText: 'Bölüm / Alan (opsiyonel — Salon, Oda 1, Koridor...)', isDense: true),
+              onChanged: (v) {
+                item.sectionLabel = v.trim().isEmpty ? null : v.trim();
+                onChanged();
+              },
             ),
             const SizedBox(height: 8),
             Row(
