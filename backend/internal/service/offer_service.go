@@ -294,19 +294,19 @@ func insertRevisionItems(ctx context.Context, txq *sqlc.Queries, revisionID, org
 func cloneRevisionItems(ctx context.Context, txq *sqlc.Queries, newRevisionID pgtype.UUID, items []sqlc.OfferRevisionItem) error {
 	for _, it := range items {
 		if _, err := txq.CreateOfferRevisionItem(ctx, sqlc.CreateOfferRevisionItemParams{
-			RevisionID:              newRevisionID,
-			ProductID:               it.ProductID,
-			ProductName:             it.ProductName,
-			Quantity:                it.Quantity,
-			UnitPrice:               it.UnitPrice,
-			DiscountType:            it.DiscountType,
-			DiscountValue:           it.DiscountValue,
-			LineTotal:               it.LineTotal,
-			SortOrder:               it.SortOrder,
-			Unit:                    it.Unit,
-			SectionLabel:            it.SectionLabel,
-			CalcCategoryID:          it.CalcCategoryID,
-			CalcSnapshot:            it.CalcSnapshot,
+			RevisionID:     newRevisionID,
+			ProductID:      it.ProductID,
+			ProductName:    it.ProductName,
+			Quantity:       it.Quantity,
+			UnitPrice:      it.UnitPrice,
+			DiscountType:   it.DiscountType,
+			DiscountValue:  it.DiscountValue,
+			LineTotal:      it.LineTotal,
+			SortOrder:      it.SortOrder,
+			Unit:           it.Unit,
+			SectionLabel:   it.SectionLabel,
+			CalcCategoryID: it.CalcCategoryID,
+			CalcSnapshot:   it.CalcSnapshot,
 			// İç Taşeron Fiyatlama (migration 0040): calc_snapshot İLE AYNI
 			// ilke -- "Revize Et" önceki revizyonun İÇ fiyatlama
 			// varsayımlarını da AYNEN taşır, MUTATE ETMEZ (spec: "Do not

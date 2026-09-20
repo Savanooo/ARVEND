@@ -31,6 +31,10 @@ type employeeResponse struct {
 	StartDate   *string  `json:"start_date"`
 	IsActive    bool     `json:"is_active"`
 	Description string   `json:"description"`
+	// UserID, bağlı login hesabıdır (nullable) -- "Bağlı Kullanıcı Hesabı"
+	// web alanının okuma yönü, bkz. docs/... GET /tasks/mine'ın tek
+	// kaynağı (migration 0041).
+	UserID *string `json:"user_id"`
 }
 
 func toEmployeeResponse(e domain.Employee) employeeResponse {
@@ -43,6 +47,7 @@ func toEmployeeResponse(e domain.Employee) employeeResponse {
 		DailyWage:   e.DailyWage,
 		IsActive:    e.IsActive,
 		Description: e.Description,
+		UserID:      e.UserID,
 	}
 	if e.StartDate != nil {
 		s := e.StartDate.Format("2006-01-02")
@@ -93,6 +98,10 @@ type upsertEmployeeRequest struct {
 	StartDate   *string  `json:"start_date"`
 	Description string   `json:"description"`
 	IsActive    bool     `json:"is_active"`
+	// UserID, nil/boş = bağlantı yok, dolu = bağla/değiştir. Web formu
+	// "Bağlı Kullanıcı Hesabı" alanının TAM DURUMUNU her istekte gönderir
+	// (kısmi PATCH değildir), bkz. service.EmployeeInput.UserID yorumu.
+	UserID *string `json:"user_id"`
 }
 
 func (req upsertEmployeeRequest) toInput() (service.EmployeeInput, error) {
@@ -104,6 +113,7 @@ func (req upsertEmployeeRequest) toInput() (service.EmployeeInput, error) {
 		DailyWage:   req.DailyWage,
 		Description: req.Description,
 		IsActive:    req.IsActive,
+		UserID:      req.UserID,
 	}
 	if req.StartDate != nil && *req.StartDate != "" {
 		t, err := time.Parse("2006-01-02", *req.StartDate)
@@ -169,6 +179,10 @@ func (h *EmployeeHandler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "personel bulunamadı")
+	case errors.Is(err, service.ErrEmployeeUserAlreadyLinked):
+		httpjson.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrEmployeeUserCrossOrg):
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}

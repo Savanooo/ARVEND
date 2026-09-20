@@ -287,16 +287,20 @@ func toMyTaskResponse(t service.MyTask) myTaskResponse {
 	}
 }
 
-// ListMyTasks, GET /api/v1/tasks/mine -- cross-project gorev listesi.
-// Proje uyelik kisiti ListProjects ile ayni (AuthzContext).
+// ListMyTasks, GET /api/v1/tasks/mine -- bana ATANAN görevler (bkz.
+// migration 0041 + ProjectService.ListMyTasks yorumu). callerUserID
+// HER ZAMAN gönderilir (rolden BAĞIMSIZ -- owner/admin DAHİL, "/mine
+// hâlâ BENİM görevlerim" kuralı); restrictToUserID ise AYRI, yalnızca
+// proje-erişim sınırı (ListProjects İLE AYNI, AuthzContext'ten).
 func (h *ProjectHandler) ListMyTasks(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	callerUserID, _ := middleware.UserIDFromContext(r.Context())
 	statusMode := r.URL.Query().Get("status")
 	var restrictToUserID string
 	if authz, ok := middleware.AuthzContextFromRequest(r.Context()); ok && !authz.BypassesProjectMembership() {
 		restrictToUserID = authz.UserID
 	}
-	rows, err := h.svc.ListMyTasks(r.Context(), orgID, statusMode, restrictToUserID)
+	rows, err := h.svc.ListMyTasks(r.Context(), orgID, statusMode, callerUserID, restrictToUserID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -307,7 +311,6 @@ func (h *ProjectHandler) ListMyTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"tasks": out})
 }
-
 
 // ---------- Dosyalar ----------
 

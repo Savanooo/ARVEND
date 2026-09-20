@@ -129,6 +129,10 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM subcontract_change_order_items WHERE organization_id = $1",
 		"DELETE FROM subcontract_change_orders WHERE organization_id = $1",
 		"DELETE FROM subcontract_items WHERE organization_id = $1",
+		// subcontract_payments (Sprint 5 follow-up, migration 0039) --
+		// project_subcontracts'a AYNI CASCADE'siz FK gerekçesiyle ONDAN
+		// ÖNCE temizlenmeli.
+		"DELETE FROM subcontract_payments WHERE organization_id = $1",
 		"DELETE FROM project_subcontracts WHERE organization_id = $1",
 		"DELETE FROM suppliers WHERE organization_id = $1",
 		// projects, teklife/revizyona CASCADE'siz FK ile bağlıdır (kasıtlı:

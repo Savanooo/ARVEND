@@ -347,6 +347,7 @@ func ToDomainEmployee(e sqlc.Employee) domain.Employee {
 		t := e.StartDate.Time
 		de.StartDate = &t
 	}
+	de.UserID = nullableUUIDToPtr(e.UserID)
 	return de
 }
 

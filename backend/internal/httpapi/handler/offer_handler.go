@@ -17,16 +17,16 @@ import (
 
 // canSeeOfferInternalPricing/canManageOfferInternalPricing, GÜVENLİK
 // SINIRININ tam da kendisidir (bkz. migration 0040 dosya başı yorumu):
-// - toOfferResponse/toOfferRevisionResponse (bu dosyanın geri kalanı, VE
-//   PublicOfferHandler'ın TEK kullandığı fonksiyon) internal_pricing
-//   alanını ASLA doldurmaz -- güvenli/sızdırmaz VARSAYILAN budur.
-// - attachInternalPricing, personel uçlarında (List/Get/Create/Update/
-//   Revise/ListRevisions/GetRevision) toOfferResponse'un SONUCUNU mutate
-//   eden AYRI, opt-in bir adımdır -- yalnızca bu iki fonksiyon true
-//   dönerse çağrılır. PublicOfferHandler bu iki fonksiyonu HİÇ ÇAĞIRMAZ,
-//   dolayısıyla public/paylaşım yolunda hiçbir kod yolu bu alana
-//   dokunmaz (bağlama/izin durumuna bağlı bir "if" değil, tamamen AYRI
-//   bir fonksiyon çağrısı).
+//   - toOfferResponse/toOfferRevisionResponse (bu dosyanın geri kalanı, VE
+//     PublicOfferHandler'ın TEK kullandığı fonksiyon) internal_pricing
+//     alanını ASLA doldurmaz -- güvenli/sızdırmaz VARSAYILAN budur.
+//   - attachInternalPricing, personel uçlarında (List/Get/Create/Update/
+//     Revise/ListRevisions/GetRevision) toOfferResponse'un SONUCUNU mutate
+//     eden AYRI, opt-in bir adımdır -- yalnızca bu iki fonksiyon true
+//     dönerse çağrılır. PublicOfferHandler bu iki fonksiyonu HİÇ ÇAĞIRMAZ,
+//     dolayısıyla public/paylaşım yolunda hiçbir kod yolu bu alana
+//     dokunmaz (bağlama/izin durumuna bağlı bir "if" değil, tamamen AYRI
+//     bir fonksiyon çağrısı).
 func canSeeOfferInternalPricing(r *http.Request) bool {
 	return hasOfferPermission(r, domain.PermOffersInternalPricingRead)
 }

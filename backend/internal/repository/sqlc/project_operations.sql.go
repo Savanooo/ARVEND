@@ -754,6 +754,134 @@ func (q *Queries) GetTaskForUpdate(ctx context.Context, arg GetTaskForUpdatePara
 	return i, err
 }
 
+const listMyTasks = `-- name: ListMyTasks :many
+SELECT t.id, t.organization_id, t.project_id, t.schedule_item_id, t.title, t.description, t.assigned_employee_id, t.assigned_name, t.priority, t.status, t.due_date, t.completed_at, t.created_by, t.created_at, t.updated_at, p.name AS project_name
+FROM project_tasks t
+INNER JOIN projects p ON p.id = t.project_id AND p.organization_id = t.organization_id
+WHERE t.organization_id = $1::uuid
+  AND t.assigned_employee_id = $2::uuid
+  AND (
+    CASE
+      WHEN $3::text = 'open' THEN t.status IN ('todo', 'in_progress')
+      WHEN $3::text = 'all' THEN TRUE
+      ELSE t.status = $3::text
+    END
+  )
+  AND (
+    $4::uuid IS NULL
+    OR EXISTS (
+      SELECT 1 FROM project_users pu
+      WHERE pu.project_id = t.project_id
+        AND pu.user_id = $4::uuid
+    )
+  )
+ORDER BY
+  CASE
+    WHEN t.status IN ('todo', 'in_progress')
+         AND t.due_date IS NOT NULL
+         AND t.due_date < CURRENT_DATE THEN 0
+    ELSE 1
+  END,
+  t.due_date ASC NULLS LAST,
+  t.created_at ASC
+`
+
+type ListMyTasksParams struct {
+	OrganizationID     pgtype.UUID `json:"organization_id"`
+	AssignedEmployeeID pgtype.UUID `json:"assigned_employee_id"`
+	StatusMode         string      `json:"status_mode"`
+	RestrictToUserID   pgtype.UUID `json:"restrict_to_user_id"`
+}
+
+type ListMyTasksRow struct {
+	ID                 pgtype.UUID        `json:"id"`
+	OrganizationID     pgtype.UUID        `json:"organization_id"`
+	ProjectID          pgtype.UUID        `json:"project_id"`
+	ScheduleItemID     pgtype.UUID        `json:"schedule_item_id"`
+	Title              string             `json:"title"`
+	Description        string             `json:"description"`
+	AssignedEmployeeID pgtype.UUID        `json:"assigned_employee_id"`
+	AssignedName       string             `json:"assigned_name"`
+	Priority           string             `json:"priority"`
+	Status             string             `json:"status"`
+	DueDate            pgtype.Date        `json:"due_date"`
+	CompletedAt        pgtype.Timestamptz `json:"completed_at"`
+	CreatedBy          pgtype.UUID        `json:"created_by"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	ProjectName        string             `json:"project_name"`
+}
+
+// ============ Cross-project my tasks ============
+// ListMyTasks: GERÇEK "bana ATANAN görevler" (assigned_employee_id ile) --
+// daha önce (migration 0041 ÖNCESİ) bu sorgu yanlışlıkla "erişebildiğim
+// projelerdeki TÜM görevler"i (project_users üyeliği üzerinden,
+// assigned_employee_id'ye HİÇ bakmadan) döndürüyordu. Denetim bulgusu:
+// users<->employees arasında migration 0041'e kadar HİÇBİR bağlantı
+// yoktu. Çağıran (service katmanı), authenticated kullanıcının bağlı
+// employee'sini ÖNCE çözer (GetEmployeeByUserID) — bağlantısız bir
+// kullanıcı için bu sorgu HİÇ ÇAĞRILMAZ, doğrudan boş liste döner (ASLA
+// erişilebilir projelerin tüm görevlerine "geri düşmez").
+//
+// Mobil O(N) proje döngüsünün yerini alma (tek sorgu) özelliği KORUNUR.
+//
+// status_mode:
+//
+//	open  -> todo + in_progress (mobil varsayilan)
+//	all   -> durum filtresi yok
+//	diger -> tam eslesen status (todo|in_progress|completed|cancelled)
+//
+// restrict_to_user_id: ListProjects ile AYNI kural -- proje ERİŞİMİ
+// sınırı (NULL ise owner/admin/legacy_user org daki tüm projelere
+// erişebilir; dolu ise yalnızca project_users üyeliği) -- bu, assigned_
+// employee_id filtresinden BAĞIMSIZ, AYRI bir savunma katmanıdır: bir
+// görev "bana atanmış" olsa bile, artık erişimim olmayan bir projedeyse
+// (üyelikten çıkarıldıysam) YİNE DE görünmemelidir. Owner/admin/legacy_user
+// bu proje-erişim sınırından muaftır (spec: "owner/admin still means MY
+// TASKS" -- bu muafiyet YALNIZCA proje erişimi içindir, assigned_employee_id
+// eşleşmesi HERKES için, roldeb BAĞIMSIZ olarak ZORUNLUDUR).
+func (q *Queries) ListMyTasks(ctx context.Context, arg ListMyTasksParams) ([]ListMyTasksRow, error) {
+	rows, err := q.db.Query(ctx, listMyTasks,
+		arg.OrganizationID,
+		arg.AssignedEmployeeID,
+		arg.StatusMode,
+		arg.RestrictToUserID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMyTasksRow
+	for rows.Next() {
+		var i ListMyTasksRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.ProjectID,
+			&i.ScheduleItemID,
+			&i.Title,
+			&i.Description,
+			&i.AssignedEmployeeID,
+			&i.AssignedName,
+			&i.Priority,
+			&i.Status,
+			&i.DueDate,
+			&i.CompletedAt,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ProjectName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProjectFiles = `-- name: ListProjectFiles :many
 SELECT id, organization_id, project_id, original_name, object_key, mime_type, size_bytes, sha256, category, description, uploaded_by, created_at, deleted_at, deleted_by FROM project_files
 WHERE project_id = $1 AND organization_id = $2 AND deleted_at IS NULL
@@ -1278,98 +1406,3 @@ func (q *Queries) UpdateTask(ctx context.Context, arg UpdateTaskParams) (Project
 	)
 	return i, err
 }
-
-const listMyTasks = `-- name: ListMyTasks :many
-SELECT t.id, t.organization_id, t.project_id, t.schedule_item_id, t.title, t.description, t.assigned_employee_id, t.assigned_name, t.priority, t.status, t.due_date, t.completed_at, t.created_by, t.created_at, t.updated_at, p.name AS project_name
-FROM project_tasks t
-INNER JOIN projects p ON p.id = t.project_id AND p.organization_id = t.organization_id
-WHERE t.organization_id = $1
-  AND (
-    CASE
-      WHEN $2::text = 'open' THEN t.status IN ('todo', 'in_progress')
-      WHEN $2::text = 'all' THEN TRUE
-      ELSE t.status = $2::text
-    END
-  )
-  AND (
-    $3::uuid IS NULL
-    OR EXISTS (
-      SELECT 1 FROM project_users pu
-      WHERE pu.project_id = t.project_id
-        AND pu.user_id = $3::uuid
-    )
-  )
-ORDER BY
-  CASE
-    WHEN t.status IN ('todo', 'in_progress')
-         AND t.due_date IS NOT NULL
-         AND t.due_date < CURRENT_DATE THEN 0
-    ELSE 1
-  END,
-  t.due_date ASC NULLS LAST,
-  t.created_at ASC
-`
-
-type ListMyTasksParams struct {
-	OrganizationID   pgtype.UUID `json:"organization_id"`
-	StatusMode       string      `json:"status_mode"`
-	RestrictToUserID pgtype.UUID `json:"restrict_to_user_id"`
-}
-
-type ListMyTasksRow struct {
-	ID                 pgtype.UUID        `json:"id"`
-	OrganizationID     pgtype.UUID        `json:"organization_id"`
-	ProjectID          pgtype.UUID        `json:"project_id"`
-	ScheduleItemID     pgtype.UUID        `json:"schedule_item_id"`
-	Title              string             `json:"title"`
-	Description        string             `json:"description"`
-	AssignedEmployeeID pgtype.UUID        `json:"assigned_employee_id"`
-	AssignedName       string             `json:"assigned_name"`
-	Priority           string             `json:"priority"`
-	Status             string             `json:"status"`
-	DueDate            pgtype.Date        `json:"due_date"`
-	CompletedAt        pgtype.Timestamptz `json:"completed_at"`
-	CreatedBy          pgtype.UUID        `json:"created_by"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
-	ProjectName        string             `json:"project_name"`
-}
-
-// ListMyTasks returns tasks across projects the caller may access.
-func (q *Queries) ListMyTasks(ctx context.Context, arg ListMyTasksParams) ([]ListMyTasksRow, error) {
-	rows, err := q.db.Query(ctx, listMyTasks, arg.OrganizationID, arg.StatusMode, arg.RestrictToUserID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListMyTasksRow
-	for rows.Next() {
-		var i ListMyTasksRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrganizationID,
-			&i.ProjectID,
-			&i.ScheduleItemID,
-			&i.Title,
-			&i.Description,
-			&i.AssignedEmployeeID,
-			&i.AssignedName,
-			&i.Priority,
-			&i.Status,
-			&i.DueDate,
-			&i.CompletedAt,
-			&i.CreatedBy,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.ProjectName,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-

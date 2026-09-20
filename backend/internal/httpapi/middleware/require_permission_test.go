@@ -107,6 +107,14 @@ func rbacCleanupOrg(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM subcontract_counters WHERE organization_id = $1",
 		"DELETE FROM subcontract_change_order_counters WHERE organization_id = $1",
 		"DELETE FROM subcontract_progress_claim_counters WHERE organization_id = $1",
+		// employees.user_id (migration 0041) -- project_members RESTRICT
+		// FK taşır (employees'ten ÖNCE temizlenmeli), attendance_logs
+		// CASCADE'dir (ayrıca silmeye gerek yok). Bu harness'e Sprint 5
+		// SONRASI eklenen ilk employees-oluşturan test (tasks_mine_
+		// security_test.go) için gerekli -- önceki hiçbir RBAC testi
+		// employees satırı ÜRETMİYORDU.
+		"DELETE FROM project_members WHERE organization_id = $1",
+		"DELETE FROM employees WHERE organization_id = $1",
 		"DELETE FROM role_permissions WHERE organization_role_id IN (SELECT id FROM organization_roles WHERE organization_id = $1)",
 		"UPDATE users SET organization_role_id = NULL WHERE organization_id = $1",
 		"DELETE FROM organization_roles WHERE organization_id = $1",

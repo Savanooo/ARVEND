@@ -207,34 +207,51 @@ RETURNING *;
 DELETE FROM project_notes WHERE id = $1 AND organization_id = $2 AND project_id = $3;
 
 -- ============ Cross-project my tasks ============
--- ListMyTasks: authenticated kullanicinin erisebildigi projelerdeki
--- gorevleri TEK sorguda dondurur. Mobil O(N) proje dongusunun yerini alir.
+-- ListMyTasks: GERÇEK "bana ATANAN görevler" (assigned_employee_id ile) --
+-- daha önce (migration 0041 ÖNCESİ) bu sorgu yanlışlıkla "erişebildiğim
+-- projelerdeki TÜM görevler"i (project_users üyeliği üzerinden,
+-- assigned_employee_id'ye HİÇ bakmadan) döndürüyordu. Denetim bulgusu:
+-- users<->employees arasında migration 0041'e kadar HİÇBİR bağlantı
+-- yoktu. Çağıran (service katmanı), authenticated kullanıcının bağlı
+-- employee'sini ÖNCE çözer (GetEmployeeByUserID) — bağlantısız bir
+-- kullanıcı için bu sorgu HİÇ ÇAĞRILMAZ, doğrudan boş liste döner (ASLA
+-- erişilebilir projelerin tüm görevlerine "geri düşmez").
+--
+-- Mobil O(N) proje döngüsünün yerini alma (tek sorgu) özelliği KORUNUR.
 --
 -- status_mode:
 --   open  -> todo + in_progress (mobil varsayilan)
 --   all   -> durum filtresi yok
 --   diger -> tam eslesen status (todo|in_progress|completed|cancelled)
 --
--- restrict_to_user_id: ListProjects ile AYNI kural -- NULL ise (owner/admin/
--- legacy_user) org daki tum projeler; dolu ise yalnizca project_users uyeligi.
+-- restrict_to_user_id: ListProjects ile AYNI kural -- proje ERİŞİMİ
+-- sınırı (NULL ise owner/admin/legacy_user org daki tüm projelere
+-- erişebilir; dolu ise yalnızca project_users üyeliği) -- bu, assigned_
+-- employee_id filtresinden BAĞIMSIZ, AYRI bir savunma katmanıdır: bir
+-- görev "bana atanmış" olsa bile, artık erişimim olmayan bir projedeyse
+-- (üyelikten çıkarıldıysam) YİNE DE görünmemelidir. Owner/admin/legacy_user
+-- bu proje-erişim sınırından muaftır (spec: "owner/admin still means MY
+-- TASKS" -- bu muafiyet YALNIZCA proje erişimi içindir, assigned_employee_id
+-- eşleşmesi HERKES için, roldeb BAĞIMSIZ olarak ZORUNLUDUR).
 -- name: ListMyTasks :many
 SELECT t.*, p.name AS project_name
 FROM project_tasks t
 INNER JOIN projects p ON p.id = t.project_id AND p.organization_id = t.organization_id
-WHERE t.organization_id = $1
+WHERE t.organization_id = sqlc.arg(organization_id)::uuid
+  AND t.assigned_employee_id = sqlc.arg(assigned_employee_id)::uuid
   AND (
     CASE
-      WHEN $2::text = 'open' THEN t.status IN ('todo', 'in_progress')
-      WHEN $2::text = 'all' THEN TRUE
-      ELSE t.status = $2::text
+      WHEN sqlc.arg(status_mode)::text = 'open' THEN t.status IN ('todo', 'in_progress')
+      WHEN sqlc.arg(status_mode)::text = 'all' THEN TRUE
+      ELSE t.status = sqlc.arg(status_mode)::text
     END
   )
   AND (
-    $3::uuid IS NULL
+    sqlc.arg(restrict_to_user_id)::uuid IS NULL
     OR EXISTS (
       SELECT 1 FROM project_users pu
       WHERE pu.project_id = t.project_id
-        AND pu.user_id = $3::uuid
+        AND pu.user_id = sqlc.arg(restrict_to_user_id)::uuid
     )
   )
 ORDER BY

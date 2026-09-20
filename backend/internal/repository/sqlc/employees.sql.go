@@ -29,9 +29,9 @@ func (q *Queries) ArchiveEmployee(ctx context.Context, arg ArchiveEmployeeParams
 }
 
 const createEmployee = `-- name: CreateEmployee :one
-INSERT INTO employees (organization_id, full_name, phone, position, salary, daily_wage, start_date, description)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id
+INSERT INTO employees (organization_id, full_name, phone, position, salary, daily_wage, start_date, description, user_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id, user_id
 `
 
 type CreateEmployeeParams struct {
@@ -43,6 +43,7 @@ type CreateEmployeeParams struct {
 	DailyWage      pgtype.Numeric `json:"daily_wage"`
 	StartDate      pgtype.Date    `json:"start_date"`
 	Description    string         `json:"description"`
+	UserID         pgtype.UUID    `json:"user_id"`
 }
 
 func (q *Queries) CreateEmployee(ctx context.Context, arg CreateEmployeeParams) (Employee, error) {
@@ -55,6 +56,7 @@ func (q *Queries) CreateEmployee(ctx context.Context, arg CreateEmployeeParams) 
 		arg.DailyWage,
 		arg.StartDate,
 		arg.Description,
+		arg.UserID,
 	)
 	var i Employee
 	err := row.Scan(
@@ -71,12 +73,13 @@ func (q *Queries) CreateEmployee(ctx context.Context, arg CreateEmployeeParams) 
 		&i.UpdatedAt,
 		&i.ArchivedAt,
 		&i.OrganizationID,
+		&i.UserID,
 	)
 	return i, err
 }
 
 const getEmployeeByID = `-- name: GetEmployeeByID :one
-SELECT id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id FROM employees WHERE id = $1 AND organization_id = $2
+SELECT id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id, user_id FROM employees WHERE id = $1 AND organization_id = $2
 `
 
 type GetEmployeeByIDParams struct {
@@ -101,12 +104,49 @@ func (q *Queries) GetEmployeeByID(ctx context.Context, arg GetEmployeeByIDParams
 		&i.UpdatedAt,
 		&i.ArchivedAt,
 		&i.OrganizationID,
+		&i.UserID,
+	)
+	return i, err
+}
+
+const getEmployeeByUserID = `-- name: GetEmployeeByUserID :one
+SELECT id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id, user_id FROM employees WHERE user_id = $1 AND organization_id = $2
+`
+
+type GetEmployeeByUserIDParams struct {
+	UserID         pgtype.UUID `json:"user_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+// GET /tasks/mine'ın "bana ATANAN görevler" çözümlemesinin TEK kaynağı --
+// giriş yapan kullanıcının bağlı olduğu personel kaydını (varsa) bulur.
+// Bağlantısız bir kullanıcı için 0 satır döner (pgx.ErrNoRows) -- çağıran
+// bunu "hiç göreve atanmamış" olarak ele alır (boş liste, ASLA tüm
+// projelerin görevlerine düşmez).
+func (q *Queries) GetEmployeeByUserID(ctx context.Context, arg GetEmployeeByUserIDParams) (Employee, error) {
+	row := q.db.QueryRow(ctx, getEmployeeByUserID, arg.UserID, arg.OrganizationID)
+	var i Employee
+	err := row.Scan(
+		&i.ID,
+		&i.FullName,
+		&i.Phone,
+		&i.Position,
+		&i.Salary,
+		&i.DailyWage,
+		&i.StartDate,
+		&i.IsActive,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ArchivedAt,
+		&i.OrganizationID,
+		&i.UserID,
 	)
 	return i, err
 }
 
 const listEmployees = `-- name: ListEmployees :many
-SELECT id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id FROM employees
+SELECT id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id, user_id FROM employees
 WHERE organization_id = $1
   AND ($2::boolean IS NULL OR is_active = $2::boolean)
 ORDER BY full_name ASC
@@ -140,6 +180,7 @@ func (q *Queries) ListEmployees(ctx context.Context, arg ListEmployeesParams) ([
 			&i.UpdatedAt,
 			&i.ArchivedAt,
 			&i.OrganizationID,
+			&i.UserID,
 		); err != nil {
 			return nil, err
 		}
@@ -154,9 +195,9 @@ func (q *Queries) ListEmployees(ctx context.Context, arg ListEmployeesParams) ([
 const updateEmployee = `-- name: UpdateEmployee :one
 UPDATE employees
 SET full_name = $3, phone = $4, position = $5, salary = $6, daily_wage = $7,
-    start_date = $8, description = $9, is_active = $10
+    start_date = $8, description = $9, is_active = $10, user_id = $11
 WHERE id = $1 AND organization_id = $2
-RETURNING id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id
+RETURNING id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id, user_id
 `
 
 type UpdateEmployeeParams struct {
@@ -170,6 +211,7 @@ type UpdateEmployeeParams struct {
 	StartDate      pgtype.Date    `json:"start_date"`
 	Description    string         `json:"description"`
 	IsActive       bool           `json:"is_active"`
+	UserID         pgtype.UUID    `json:"user_id"`
 }
 
 func (q *Queries) UpdateEmployee(ctx context.Context, arg UpdateEmployeeParams) (Employee, error) {
@@ -184,6 +226,7 @@ func (q *Queries) UpdateEmployee(ctx context.Context, arg UpdateEmployeeParams) 
 		arg.StartDate,
 		arg.Description,
 		arg.IsActive,
+		arg.UserID,
 	)
 	var i Employee
 	err := row.Scan(
@@ -200,6 +243,7 @@ func (q *Queries) UpdateEmployee(ctx context.Context, arg UpdateEmployeeParams) 
 		&i.UpdatedAt,
 		&i.ArchivedAt,
 		&i.OrganizationID,
+		&i.UserID,
 	)
 	return i, err
 }

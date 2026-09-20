@@ -764,6 +764,9 @@ inv AS (
     FROM project_invoices WHERE project_id = $1 AND invoice_type = 'sales'
 ),
 new_sc_value AS (
+    -- Sprint 5 sözleşmelerinin güncel değeri (GetSubcontractCurrentValue
+    -- İLE AYNI formül: original + onaylı ekler - onaylı eksiltmeler),
+    -- proje İÇİNDEKİ TÜM sözleşmeler için TEK sorguda.
     SELECT sc.id,
         (sc.original_amount + COALESCE(coe.approved_additions, 0) - COALESCE(coe.approved_deductions, 0))::numeric(18,2)
             AS current_value
@@ -784,6 +787,9 @@ newsubpay AS (
     FROM subcontract_payments WHERE project_id = $1 AND organization_id = $2 AND voided_at IS NULL
 ),
 newsubremaining AS (
+    -- subremaining İLE AYNI ilke: kalan taahhüt sözleşme BAŞINA hesaplanır
+    -- ve negatife düşürülmez (fazla ödenmiş bir sözleşme diğerlerinin
+    -- kalan taahhüdünü azaltmamalı).
     SELECT COALESCE(sum(GREATEST(v.current_value - COALESCE(p.paid, 0), 0)), 0)::numeric(18,2) AS total
     FROM new_sc_value v
     LEFT JOIN (
@@ -901,6 +907,16 @@ type GetProjectFinancialSummaryRow struct {
 //	realized_cost  = gerçekleşen masraflar + taşerona GERÇEKTEN ödenen
 //	committed_cost = realized_cost + taşeron sözleşmelerinin KALAN taahhüdü
 //
+// Sprint 5 follow-up: "taşerona GERÇEKTEN ödenen" artık İKİ AYRI kaynaktan
+// TOPLANIR -- legacy project_subcontractor_payments (subpay/subremaining,
+// YUKARIDAKİ notta anlatılan orijinal mekanizma) VE yeni Sprint 5
+// subcontract_payments (newsubpay/newsubremaining). Bu iki kaynak FİZİKSEL
+// OLARAK AYRI tablolara, AYRI sözleşme kayıtlarına (project_subcontractors
+// vs project_subcontracts) bağlıdır -- bir proje HER İKİSİNİ de kullansa
+// bile aynı ödeme iki kez sayılamaz, saf toplama güvenlidir (bkz.
+// docs/subcontracts.md, migration 0039 gerekçesi). new_sc_value, draft/
+// cancelled sözleşmeleri HARİÇ TUTAR -- taslağın henüz hiçbir taahhüdü/
+// ödemesi anlamlı değildir (GetSubcontractCurrentValue İLE AYNI ilke).
 // Faz 8: projects.contract_amount ASLA değişmez (ana sözleşme). "Güncel
 // proje bedeli", onaylı ek işler/eksiltmelerden HER SEFERİNDE aggregate
 // edilir -- bir kolon olarak TUTULMAZ (bkz. 0027 migration notu).

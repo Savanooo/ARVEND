@@ -530,12 +530,32 @@ type MyTask struct {
 	ProjectName string
 }
 
-// ListMyTasks, kullanicinin erisebildigi projelerdeki gorevleri TEK sorguda doner.
+// ListMyTasks, GERÇEK "bana ATANAN görevler"i TEK sorguda döner (bkz.
+// migration 0041 + queries/project_operations.sql'deki ListMyTasks
+// yorumu -- BUNDAN ÖNCE bu fonksiyon yanlışlıkla "erişebildiğim
+// projelerdeki TÜM görevler"i dönüyordu, assigned_employee_id'ye HİÇ
+// bakmadan).
+//
+// callerUserID: giriş yapmış kullanıcının KENDİSİ (İSTEMCİDEN GELMEZ,
+// middleware.UserIDFromContext'ten) -- bağlı personel kaydını bulmak için
+// KULLANILIR, rolden BAĞIMSIZ (owner/admin/legacy DAHİL -- spec: "/mine
+// hâlâ BENİM görevlerim demek, owner/admin /mine üzerinden HERKESİN
+// görevini görmemeli").
+//
 // statusMode: "open" (todo+in_progress, varsayilan), "all", veya somut bir status.
-// restrictToUserID, ListProjects ile ayni: owner/admin/legacy icin bos;
-// uyelik-kisitli roller icin cagiranin user id'si.
-func (s *ProjectService) ListMyTasks(ctx context.Context, organizationID, statusMode, restrictToUserID string) ([]MyTask, error) {
+//
+// restrictToUserID, ListProjects ile AYNI, AYRI bir kural -- yalnızca
+// PROJE ERİŞİMİ sınırı (owner/admin/legacy icin bos = tüm projelere
+// erişebilir; üyelik-kısıtlı roller için cagiranin user id'si) --
+// assigned_employee_id filtresinden BAĞIMSIZDIR, callerUserID İLE
+// KARIŞTIRILMAMALI (ikisi aynı kişiyi temsil eder ama FARKLI amaçlar
+// için: biri "hangi projeleri görebilirim", diğeri "bana ne atanmış").
+func (s *ProjectService) ListMyTasks(ctx context.Context, organizationID, statusMode, callerUserID, restrictToUserID string) ([]MyTask, error) {
 	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	callerUID, err := repository.StringToUUID(callerUserID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -556,10 +576,23 @@ func (s *ProjectService) ListMyTasks(ctx context.Context, organizationID, status
 		}
 		restrict = uid
 	}
+
+	// Bağlı personel yoksa (link KURULMAMIŞ), sorguyu HİÇ ÇALIŞTIRMADAN
+	// boş liste dön -- ASLA "erişilebilir projelerin tüm görevleri"ne
+	// GERİ DÜŞME (spec'in en kritik kuralı).
+	linkedEmployee, err := s.q.GetEmployeeByUserID(ctx, sqlc.GetEmployeeByUserIDParams{UserID: callerUID, OrganizationID: orgID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return []MyTask{}, nil
+		}
+		return nil, err
+	}
+
 	rows, err := s.q.ListMyTasks(ctx, sqlc.ListMyTasksParams{
-		OrganizationID:   orgID,
-		StatusMode:       mode,
-		RestrictToUserID: restrict,
+		OrganizationID:     orgID,
+		AssignedEmployeeID: linkedEmployee.ID,
+		StatusMode:         mode,
+		RestrictToUserID:   restrict,
 	})
 	if err != nil {
 		return nil, err

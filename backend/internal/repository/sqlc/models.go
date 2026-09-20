@@ -105,6 +105,7 @@ type Employee struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 	ArchivedAt     pgtype.Timestamptz `json:"archived_at"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`
+	UserID         pgtype.UUID        `json:"user_id"`
 }
 
 type Offer struct {
@@ -179,21 +180,20 @@ type OfferRevision struct {
 }
 
 type OfferRevisionItem struct {
-	ID             pgtype.UUID    `json:"id"`
-	RevisionID     pgtype.UUID    `json:"revision_id"`
-	ProductID      pgtype.UUID    `json:"product_id"`
-	ProductName    string         `json:"product_name"`
-	Quantity       pgtype.Numeric `json:"quantity"`
-	UnitPrice      pgtype.Numeric `json:"unit_price"`
-	DiscountType   string         `json:"discount_type"`
-	DiscountValue  pgtype.Numeric `json:"discount_value"`
-	LineTotal      pgtype.Numeric `json:"line_total"`
-	SortOrder      int32          `json:"sort_order"`
-	Unit           string         `json:"unit"`
-	SectionLabel   *string        `json:"section_label"`
-	CalcCategoryID pgtype.UUID    `json:"calc_category_id"`
-	CalcSnapshot   []byte         `json:"calc_snapshot"`
-	// İç Taşeron Fiyatlama (migration 0040) -- bkz. domain.OfferItem yorumu.
+	ID                      pgtype.UUID    `json:"id"`
+	RevisionID              pgtype.UUID    `json:"revision_id"`
+	ProductID               pgtype.UUID    `json:"product_id"`
+	ProductName             string         `json:"product_name"`
+	Quantity                pgtype.Numeric `json:"quantity"`
+	UnitPrice               pgtype.Numeric `json:"unit_price"`
+	DiscountType            string         `json:"discount_type"`
+	DiscountValue           pgtype.Numeric `json:"discount_value"`
+	LineTotal               pgtype.Numeric `json:"line_total"`
+	SortOrder               int32          `json:"sort_order"`
+	Unit                    string         `json:"unit"`
+	SectionLabel            *string        `json:"section_label"`
+	CalcCategoryID          pgtype.UUID    `json:"calc_category_id"`
+	CalcSnapshot            []byte         `json:"calc_snapshot"`
 	InternalSubcontractCost pgtype.Numeric `json:"internal_subcontract_cost"`
 	PricingMode             *string        `json:"pricing_mode"`
 	MarkupPercent           pgtype.Numeric `json:"markup_percent"`

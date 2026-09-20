@@ -15,6 +15,12 @@ type Employee struct {
 	Description    string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	// UserID, bu personelin bağlı olduğu login hesabıdır (nullable — çoğu
+	// personel kaydı bağlantısız kalabilir). Otomatik ad/e-posta/telefon
+	// eşleştirmesiyle DOLDURULMAZ, yalnızca açık bir yönetici eylemiyle
+	// bağlanır (bkz. EmployeeService.Create/Update). GET /tasks/mine'ın
+	// "bana ATANAN görevler" anlamının TEK kaynağıdır.
+	UserID *string
 }
 
 const (
