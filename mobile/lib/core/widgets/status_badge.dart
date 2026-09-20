@@ -142,6 +142,24 @@ abstract final class StatusRegistry {
     'pasif': ('Pasif', StatusTone.muted),
   };
 
+  /// Backend `project_photos.stage` CHECK kısıtıyla (before|progress|after)
+  /// birebir -- bkz. kPhotoStages.
+  static const photoStage = {
+    'before': ('İş Öncesi', StatusTone.muted),
+    'progress': ('İlerleme', StatusTone.info),
+    'after': ('İş Sonrası', StatusTone.success),
+  };
+
+  /// Backend `project_files.category` CHECK kısıtıyla birebir -- bkz.
+  /// kFileCategories.
+  static const fileCategory = {
+    'contract': ('Sözleşme', StatusTone.gold),
+    'drawing': ('Çizim', StatusTone.info),
+    'invoice': ('Fatura', StatusTone.gold),
+    'report': ('Rapor', StatusTone.muted),
+    'other': ('Diğer', StatusTone.muted),
+  };
+
   static Widget build(String value, Map<String, (String, StatusTone)> registry) {
     final entry = registry[value];
     if (entry == null) return StatusBadge(label: value, tone: StatusTone.muted);

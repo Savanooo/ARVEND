@@ -342,6 +342,16 @@ class ProjectFile {
       );
 }
 
+/// Backend `0025_create_project_operations.up.sql` CHECK kısıtlarıyla
+/// BİREBİR (photos.stage / files.category) -- yeni bir sözlük İCAT EDİLMEZ.
+const kPhotoStages = ['before', 'progress', 'after'];
+const kFileCategories = ['contract', 'drawing', 'invoice', 'report', 'other'];
+
+/// Backend AppConfig.maxUploadBytes ile AYNI sınırı (25 MiB) yalnızca daha
+/// hızlı geri bildirim için istemci tarafında ön-kontrol eder -- gerçek
+/// sınır her zaman backend'de (`ErrFileTooLarge`).
+bool exceedsMaxUploadBytes(int sizeBytes, int maxUploadBytes) => sizeBytes > maxUploadBytes;
+
 /// Proje saha notu - GET/POST /projects/{id}/notes
 /// (backend noteResponse: id, content, created_by_name, created_at).
 class ProjectNote {

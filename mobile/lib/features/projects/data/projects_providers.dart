@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_providers.dart';
@@ -54,6 +56,15 @@ final projectPhotosProvider = FutureProvider.autoDispose.family<List<ProjectPhot
 
 final projectFilesProvider = FutureProvider.autoDispose.family<List<ProjectFile>, String>(
   (ref, id) => ref.watch(projectsRepositoryProvider).files(id),
+);
+
+typedef ProjectPhotoKey = ({String projectId, String photoId});
+
+/// Kimlik doğrulamalı bayt önbelleği -- Riverpod'un family önbelleği
+/// aynı (projectId, photoId) için thumbnail'i ve tam-ekran görüntüleyiciyi
+/// İKİNCİ bir ağ isteği ATMADAN paylaşır.
+final projectPhotoBytesProvider = FutureProvider.autoDispose.family<Uint8List, ProjectPhotoKey>(
+  (ref, key) => ref.watch(projectsRepositoryProvider).photoBytes(key.projectId, key.photoId),
 );
 
 final projectCostControlProvider = FutureProvider.autoDispose

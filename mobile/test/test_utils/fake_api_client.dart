@@ -40,6 +40,15 @@ class FakeHttpClientAdapter implements HttpClientAdapter {
       throw StateError('beklenmeyen istek: ${options.path} (${calls.length}. çağrı)');
     }
     final response = queue.removeAt(0);
+    // Ham bayt gövdesi (ör. bir fotoğraf/dosya indirme yanıtı) -- `body`
+    // bir `List<int>` ise JSON-encode EDİLMEZ, olduğu gibi akıtılır.
+    // Bkz. test/project_files_photos_test.dart (getBytes/photoBytes/
+    // fileBytes testleri).
+    if (response.body is List<int>) {
+      return ResponseBody.fromBytes(response.body as List<int>, response.status, headers: {
+        Headers.contentTypeHeader: ['application/octet-stream'],
+      });
+    }
     final data = response.body == null ? '' : jsonEncode(response.body);
     return ResponseBody.fromString(data, response.status, headers: {
       Headers.contentTypeHeader: [Headers.jsonContentType],

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
@@ -109,6 +110,21 @@ class ApiClient {
     void Function(int sent, int total)? onSendProgress,
   }) =>
       _send<T>(() => _dio.post(path, data: form, onSendProgress: onSendProgress));
+
+  /// İkili (fotoğraf/dosya) indirme -- AYNI Dio örneği üzerinden gider,
+  /// dolayısıyla çerez kavanozu VE tek-uçuş 401->refresh->retry akışı
+  /// otomatik uygulanır. `Image.network`/`NetworkImage` KASITLI OLARAK
+  /// KULLANILMAZ -- onlar bu uygulamanın httpOnly çerez kavanozuna
+  /// erişemeyen AYRI bir HTTP istemcisidir, bu yüzden kimlik doğrulamalı
+  /// uçlarda sessizce 401 alıp hata ikonuna düşerdi.
+  Future<Uint8List> getBytes(String path) async {
+    try {
+      final res = await _dio.get<List<int>>(path, options: Options(responseType: ResponseType.bytes));
+      return Uint8List.fromList(res.data ?? const []);
+    } on DioException catch (e) {
+      throw _mapDioException(e);
+    }
+  }
 
   Future<T> _send<T>(Future<Response<dynamic>> Function() request) async {
     try {

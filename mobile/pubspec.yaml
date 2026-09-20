@@ -36,6 +36,11 @@ dependencies:
   image_picker: ^1.2.0
   file_picker: ^10.3.4
   cached_network_image: ^3.4.1
+  # İndirilen bir belgeyi (PDF/Word/Excel/vb.) OS'un kendi görüntüleyicisiyle
+  # açmak için -- ne url_launcher (file:// URI'leri Android FileProvider
+  # olmadan güvenilir değildir) ne de mevcut hiçbir paket bunu karşılıyor;
+  # bkz. projects_repository.dart fileBytes() + project_detail_screen.dart.
+  open_filex: ^4.7.0
 
   # Basit local tercih (aktif sekme vb.) - hassas veri İÇİN DEĞİL
   shared_preferences: ^2.5.5

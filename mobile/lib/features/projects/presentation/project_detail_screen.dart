@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/config/app_config.dart';
@@ -996,22 +998,32 @@ class _FilesTab extends ConsumerStatefulWidget {
 class _FilesTabState extends ConsumerState<_FilesTab> {
   String get projectId => widget.projectId;
   bool _uploading = false;
+  String? _openingFileId;
+
+  bool get _canManage {
+    final user = ref.read(authControllerProvider).valueOrNull;
+    return user == null || user.permissions.isEmpty || user.hasPermission('projects.operations.manage');
+  }
 
   Future<void> _pickAndUploadPhoto(ImageSource source) async {
     final picked = await ImagePicker().pickImage(source: source, imageQuality: 85);
     if (picked == null) return;
     final file = File(picked.path);
     final size = await file.length();
-    if (size > AppConfig.maxUploadBytes) {
+    if (exceedsMaxUploadBytes(size, AppConfig.maxUploadBytes)) {
       _showError('Fotoğraf 25 MiB sınırını aşıyor (${(size / 1024 / 1024).toStringAsFixed(1)} MB).');
       return;
     }
+    final meta = await _promptPhotoMeta();
+    if (meta == null) return;
     setState(() => _uploading = true);
     try {
       await ref.read(projectsRepositoryProvider).uploadPhoto(
             projectId,
             filePath: picked.path,
             fileName: picked.name,
+            stage: meta.stage,
+            description: meta.description,
           );
       ref.invalidate(projectPhotosProvider(projectId));
     } on ApiException catch (e) {
@@ -1025,22 +1037,176 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
     final result = await FilePicker.platform.pickFiles(withData: false);
     final picked = result?.files.single;
     if (picked == null || picked.path == null) return;
-    if (picked.size > AppConfig.maxUploadBytes) {
+    if (exceedsMaxUploadBytes(picked.size, AppConfig.maxUploadBytes)) {
       _showError('Dosya 25 MiB sınırını aşıyor (${(picked.size / 1024 / 1024).toStringAsFixed(1)} MB).');
       return;
     }
+    final meta = await _promptFileMeta();
+    if (meta == null) return;
     setState(() => _uploading = true);
     try {
       await ref.read(projectsRepositoryProvider).uploadFile(
             projectId,
             filePath: picked.path!,
             fileName: picked.name,
+            category: meta.category,
+            description: meta.description,
           );
       ref.invalidate(projectFilesProvider(projectId));
     } on ApiException catch (e) {
       _showError(e.message);
     } finally {
       if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  Future<({String stage, String description})?> _promptPhotoMeta() {
+    var stage = 'progress';
+    final descController = TextEditingController();
+    return showDialog<({String stage, String description})>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Fotoğraf Bilgisi'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 8,
+                children: kPhotoStages
+                    .map((s) => ChoiceChip(
+                          label: Text(StatusRegistry.photoStage[s]!.$1),
+                          selected: stage == s,
+                          onSelected: (_) => setDialogState(() => stage = s),
+                        ))
+                    .toList(),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: descController,
+                decoration: const InputDecoration(labelText: 'Açıklama (opsiyonel)'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Vazgeç')),
+            ElevatedButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop((stage: stage, description: descController.text.trim())),
+              child: const Text('Yükle'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<({String category, String description})?> _promptFileMeta() {
+    var category = 'other';
+    final descController = TextEditingController();
+    return showDialog<({String category, String description})>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Dosya Bilgisi'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: kFileCategories
+                    .map((c) => ChoiceChip(
+                          label: Text(StatusRegistry.fileCategory[c]!.$1),
+                          selected: category == c,
+                          onSelected: (_) => setDialogState(() => category = c),
+                        ))
+                    .toList(),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: descController,
+                decoration: const InputDecoration(labelText: 'Açıklama (opsiyonel)'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Vazgeç')),
+            ElevatedButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop((category: category, description: descController.text.trim())),
+              child: const Text('Yükle'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _confirm(String title, String message) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Vazgeç')),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Sil')),
+        ],
+      ),
+    );
+    return ok ?? false;
+  }
+
+  Future<void> _deletePhoto(ProjectPhoto photo) async {
+    if (!await _confirm('Fotoğrafı Sil', 'Bu fotoğraf silinsin mi?')) return;
+    try {
+      await ref.read(projectsRepositoryProvider).deletePhoto(projectId, photo.id);
+      ref.invalidate(projectPhotosProvider(projectId));
+    } on ApiException catch (e) {
+      _showError(e.message);
+    }
+  }
+
+  Future<void> _deleteFile(ProjectFile file) async {
+    if (!await _confirm('Dosyayı Sil', '${file.originalName} silinsin mi?')) return;
+    try {
+      await ref.read(projectsRepositoryProvider).deleteFile(projectId, file.id);
+      ref.invalidate(projectFilesProvider(projectId));
+    } on ApiException catch (e) {
+      _showError(e.message);
+    }
+  }
+
+  Future<void> _openPhotoViewer(ProjectPhoto photo) async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => _PhotoViewerScreen(projectId: projectId, photo: photo, canManage: _canManage),
+    ));
+  }
+
+  /// Bayt indirilip geçici dizine yazılır, ardından OS'un kendi
+  /// görüntüleyicisiyle açılır (`open_filex`) -- `Image.network` sorununda
+  /// olduğu gibi, kimlik doğrulaması gerektiren bir uçtan `url_launcher`
+  /// ile doğrudan bir `file://`/uzak URL açmaya ÇALIŞILMAZ.
+  Future<void> _openFile(ProjectFile file) async {
+    setState(() => _openingFileId = file.id);
+    try {
+      final bytes = await ref.read(projectsRepositoryProvider).fileBytes(projectId, file.id);
+      final dir = await getTemporaryDirectory();
+      final safeName = file.originalName.trim().isEmpty ? file.id : file.originalName.trim();
+      final localFile = File('${dir.path}/$safeName');
+      await localFile.writeAsBytes(bytes, flush: true);
+      if (!mounted) return;
+      final result = await OpenFilex.open(localFile.path);
+      if (result.type != ResultType.done) {
+        _showError('Dosya açılamadı: ${result.message}');
+      }
+    } on ApiException catch (e) {
+      _showError(e.message);
+    } finally {
+      if (mounted) setState(() => _openingFileId = null);
     }
   }
 
@@ -1053,6 +1219,7 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
   Widget build(BuildContext context) {
     final photosAsync = ref.watch(projectPhotosProvider(projectId));
     final filesAsync = ref.watch(projectFilesProvider(projectId));
+    final canManage = _canManage;
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -1067,20 +1234,21 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('Şantiye Fotoğrafları', style: TextStyle(fontWeight: FontWeight.w700)),
-              Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.photo_camera_outlined),
-                    tooltip: 'Kameradan çek',
-                    onPressed: _uploading ? null : () => _pickAndUploadPhoto(ImageSource.camera),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.photo_library_outlined),
-                    tooltip: 'Galeriden seç',
-                    onPressed: _uploading ? null : () => _pickAndUploadPhoto(ImageSource.gallery),
-                  ),
-                ],
-              ),
+              if (canManage)
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.photo_camera_outlined),
+                      tooltip: 'Kameradan çek',
+                      onPressed: _uploading ? null : () => _pickAndUploadPhoto(ImageSource.camera),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.photo_library_outlined),
+                      tooltip: 'Galeriden seç',
+                      onPressed: _uploading ? null : () => _pickAndUploadPhoto(ImageSource.gallery),
+                    ),
+                  ],
+                ),
             ],
           ),
           AsyncStateView(
@@ -1096,21 +1264,34 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
                 scrollDirection: Axis.horizontal,
                 itemCount: photos.length,
                 separatorBuilder: (_, _) => const SizedBox(width: 8),
-                itemBuilder: (context, i) => ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    ref.read(projectsRepositoryProvider).photoContentUrl(projectId, photos[i].id),
-                    width: 90,
-                    height: 90,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => Container(
-                      width: 90,
-                      height: 90,
-                      color: Colors.grey.shade200,
-                      child: const Icon(Icons.broken_image_outlined),
+                itemBuilder: (context, i) {
+                  final photo = photos[i];
+                  final bytesAsync = ref.watch(projectPhotoBytesProvider((projectId: projectId, photoId: photo.id)));
+                  return GestureDetector(
+                    onTap: () => _openPhotoViewer(photo),
+                    onLongPress: canManage ? () => _deletePhoto(photo) : null,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: bytesAsync.when(
+                        data: (bytes) => Image.memory(bytes, width: 90, height: 90, fit: BoxFit.cover),
+                        loading: () => Container(
+                          width: 90,
+                          height: 90,
+                          color: Colors.grey.shade200,
+                          child: const Center(
+                            child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                          ),
+                        ),
+                        error: (e, st) => Container(
+                          width: 90,
+                          height: 90,
+                          color: Colors.grey.shade200,
+                          child: const Icon(Icons.broken_image_outlined),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
             ),
           ),
@@ -1119,11 +1300,12 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('Dosyalar', style: TextStyle(fontWeight: FontWeight.w700)),
-              IconButton(
-                icon: const Icon(Icons.upload_file_outlined),
-                tooltip: 'Dosya yükle',
-                onPressed: _uploading ? null : _pickAndUploadFile,
-              ),
+              if (canManage)
+                IconButton(
+                  icon: const Icon(Icons.upload_file_outlined),
+                  tooltip: 'Dosya yükle',
+                  onPressed: _uploading ? null : _pickAndUploadFile,
+                ),
             ],
           ),
           AsyncStateView(
@@ -1138,15 +1320,89 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
                   .map((f) => Card(
                         margin: const EdgeInsets.only(bottom: 6),
                         child: ListTile(
-                          leading: const Icon(Icons.insert_drive_file_outlined),
+                          leading: _openingFileId == f.id
+                              ? const SizedBox(
+                                  width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5))
+                              : const Icon(Icons.insert_drive_file_outlined),
                           title: Text(f.originalName, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: Text('${(f.sizeBytes / 1024).toStringAsFixed(0)} KB'),
+                          subtitle: Text('${Formatters.date(f.createdAt)} · ${(f.sizeBytes / 1024).toStringAsFixed(0)} KB'),
+                          onTap: _openingFileId != null ? null : () => _openFile(f),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              StatusRegistry.build(f.category, StatusRegistry.fileCategory),
+                              if (canManage)
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, size: 20),
+                                  onPressed: () => _deleteFile(f),
+                                ),
+                            ],
+                          ),
                         ),
                       ))
                   .toList(),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PhotoViewerScreen extends ConsumerWidget {
+  const _PhotoViewerScreen({required this.projectId, required this.photo, required this.canManage});
+  final String projectId;
+  final ProjectPhoto photo;
+  final bool canManage;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final bytesAsync = ref.watch(projectPhotoBytesProvider((projectId: projectId, photoId: photo.id)));
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text(
+          photo.description.isEmpty ? photo.originalName : photo.description,
+          style: const TextStyle(fontSize: 14),
+        ),
+        actions: [
+          if (canManage)
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              onPressed: () async {
+                final ok = await showDialog<bool>(
+                  context: context,
+                  builder: (dialogContext) => AlertDialog(
+                    title: const Text('Fotoğrafı Sil'),
+                    content: const Text('Bu fotoğraf silinsin mi?'),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Vazgeç')),
+                      TextButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Sil')),
+                    ],
+                  ),
+                );
+                if (ok != true) return;
+                try {
+                  await ref.read(projectsRepositoryProvider).deletePhoto(projectId, photo.id);
+                  ref.invalidate(projectPhotosProvider(projectId));
+                  if (context.mounted) Navigator.of(context).pop();
+                } on ApiException catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+                  }
+                }
+              },
+            ),
+        ],
+      ),
+      body: Center(
+        child: bytesAsync.when(
+          data: (bytes) => InteractiveViewer(child: Image.memory(bytes)),
+          loading: () => const CircularProgressIndicator(color: Colors.white),
+          error: (e, st) => const Icon(Icons.broken_image_outlined, color: Colors.white, size: 48),
+        ),
       ),
     );
   }

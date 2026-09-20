@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 
 import '../../../core/api/api_client.dart';
@@ -212,8 +214,25 @@ class ProjectsRepository {
     return ProjectNote.fromJson(json);
   }
 
-  String photoContentUrl(String projectId, String photoId) =>
-      '${_client.dio.options.baseUrl}/projects/$projectId/photos/$photoId/content';
+  /// Yetkilendirme çerez kavanozu YALNIZCA `_client` üzerinden erişilebilir
+  /// olduğu için ham bayt (thumbnail/tam-ekran görüntüleme) `ApiClient.
+  /// getBytes` üzerinden alınır -- bir URL string'i döndürüp `Image.network`
+  /// ile göstermek (önceki hatalı yaklaşım) kimlik doğrulamasız 401'e düşer.
+  Future<Uint8List> photoBytes(String projectId, String photoId) =>
+      _client.getBytes('/projects/$projectId/photos/$photoId/content');
+
+  Future<Uint8List> fileBytes(String projectId, String fileId) =>
+      _client.getBytes('/projects/$projectId/files/$fileId/download');
+
+  /// Backend'de bu bir HARD DELETE değil, soft delete'dir (`deleted_at`,
+  /// bkz. backend Phase 1 doğrulaması: `SoftDeleteProjectPhoto`/
+  /// `SoftDeleteProjectFile` -- asla `DELETE FROM`). Bu yüzden mobilde
+  /// güvenle sunulabilir.
+  Future<void> deletePhoto(String projectId, String photoId) =>
+      _client.delete<void>('/projects/$projectId/photos/$photoId');
+
+  Future<void> deleteFile(String projectId, String fileId) =>
+      _client.delete<void>('/projects/$projectId/files/$fileId');
 
   /// bkz. API_CONTRACT.md#operations - multipart alan adı HER İKİ uç için de
   /// `file`; boyut ön-kontrolü (25 MiB) çağıran tarafta (UI) yapılır ki
