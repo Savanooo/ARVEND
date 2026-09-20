@@ -15,6 +15,15 @@ final offerDetailProvider = FutureProvider.autoDispose.family<Offer, String>(
   (ref, id) => ref.watch(offersRepositoryProvider).get(id),
 );
 
+/// Müşteri detay ekranının "Teklifler" bölümü için -- backend'in yeni
+/// eklenen (bkz. bu modülün backend değişikliği) `GET /offers?customer_id=`
+/// filtresini kullanır. `offer_revisions.customer_id` yalnızca teklif bir
+/// müşteri kartından oluşturulduysa dolu olur (serbest metinle girilmiş
+/// eski/manuel teklifler bu listede görünmez -- bkz. backend doğrulaması).
+final customerOffersProvider = FutureProvider.autoDispose.family<({List<Offer> offers, int total}), String>(
+  (ref, customerId) => ref.watch(offersRepositoryProvider).list(customerId: customerId, limit: 200),
+);
+
 final offerRevisionsProvider = FutureProvider.autoDispose.family<List<OfferRevision>, String>(
   (ref, id) => ref.watch(offersRepositoryProvider).revisions(id),
 );

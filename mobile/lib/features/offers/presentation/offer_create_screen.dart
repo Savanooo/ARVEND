@@ -60,11 +60,31 @@ class _DraftItem {
 }
 
 /// Create + Edit aynı ekran. [offerId] doluysa PUT /offers/{id}.
+///
+/// [initialCustomerId] vb. -- "Müşteri → Yeni Teklif" akışı için (bkz.
+/// customer_detail_screen.dart): yalnızca CREATE modunda (offerId == null)
+/// uygulanır, mevcut teklif düzenlemesini asla ezmez. Bu, teklif oluşturma
+/// mantığını müşteri modülü İÇİNDE TEKRARLAMADAN mevcut ekrana müşteri
+/// alanlarını + `customer_id`'yi önceden doldurur.
 class OfferCreateScreen extends ConsumerStatefulWidget {
-  const OfferCreateScreen({super.key, this.initialCalcItems, this.offerId});
+  const OfferCreateScreen({
+    super.key,
+    this.initialCalcItems,
+    this.offerId,
+    this.initialCustomerId,
+    this.initialCustomerName,
+    this.initialCustomerPhone,
+    this.initialCustomerEmail,
+    this.initialCustomerAddress,
+  });
 
   final List<OfferItem>? initialCalcItems;
   final String? offerId;
+  final String? initialCustomerId;
+  final String? initialCustomerName;
+  final String? initialCustomerPhone;
+  final String? initialCustomerEmail;
+  final String? initialCustomerAddress;
 
   bool get isEdit => offerId != null;
 
@@ -102,6 +122,12 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
     if (widget.isEdit) {
       _loading = true;
       WidgetsBinding.instance.addPostFrameCallback((_) => _loadExisting());
+    } else if (widget.initialCustomerId != null) {
+      _customerId = widget.initialCustomerId;
+      _customerNameController.text = widget.initialCustomerName ?? '';
+      _customerPhoneController.text = widget.initialCustomerPhone ?? '';
+      _customerEmailController.text = widget.initialCustomerEmail ?? '';
+      _customerAddressController.text = widget.initialCustomerAddress ?? '';
     }
   }
 

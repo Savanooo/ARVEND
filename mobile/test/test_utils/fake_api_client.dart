@@ -21,6 +21,11 @@ class FakeHttpClientAdapter implements HttpClientAdapter {
   /// içindir (bkz. test/subcontract_form_test.dart).
   final List<Object?> requestBodies = [];
 
+  /// `options.path` ile 1:1 sırada -- GET/DELETE sorgu parametreleri (ör.
+  /// `?filter=aktif&q=ali`), `calls`'ın aksine query string DAHİL. Arama/
+  /// filtre testleri içindir (bkz. test/customers_workflow_test.dart).
+  final List<Map<String, dynamic>> requestQueries = [];
+
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
@@ -29,6 +34,7 @@ class FakeHttpClientAdapter implements HttpClientAdapter {
   ) async {
     calls.add(options.path);
     requestBodies.add(options.data);
+    requestQueries.add(options.queryParameters);
     final queue = _script[options.path];
     if (queue == null || queue.isEmpty) {
       throw StateError('beklenmeyen istek: ${options.path} (${calls.length}. çağrı)');

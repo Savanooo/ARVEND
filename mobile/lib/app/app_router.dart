@@ -315,8 +315,14 @@ final routerProvider = Provider<GoRouter>((ref) {
               routes: [
                 GoRoute(
                   path: 'yeni',
-                  builder: (context, state) =>
-                      OfferCreateScreen(initialCalcItems: state.extra as List<OfferItem>?),
+                  builder: (context, state) => OfferCreateScreen(
+                    initialCalcItems: state.extra as List<OfferItem>?,
+                    initialCustomerId: state.uri.queryParameters['customerId'],
+                    initialCustomerName: state.uri.queryParameters['customerName'],
+                    initialCustomerPhone: state.uri.queryParameters['customerPhone'],
+                    initialCustomerEmail: state.uri.queryParameters['customerEmail'],
+                    initialCustomerAddress: state.uri.queryParameters['customerAddress'],
+                  ),
                 ),
                 GoRoute(
                   path: ':id/duzenle',

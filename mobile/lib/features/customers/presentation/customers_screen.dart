@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-import '../../../core/errors/api_exception.dart';
+import '../../../core/auth/auth_controller.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/status_badge.dart';
 import '../data/customers_providers.dart';
+import 'customer_form_sheet.dart';
 
 class CustomersScreen extends ConsumerStatefulWidget {
   const CustomersScreen({super.key});
@@ -15,6 +18,7 @@ class CustomersScreen extends ConsumerStatefulWidget {
 
 class _CustomersScreenState extends ConsumerState<CustomersScreen> {
   String _query = '';
+  String _filter = '';
   final _searchController = TextEditingController();
 
   @override
@@ -25,14 +29,19 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final customersAsync = ref.watch(customersListProvider(_query));
+    final query = (q: _query, filter: _filter);
+    final customersAsync = ref.watch(customersListProvider(query));
+    final user = ref.watch(authControllerProvider).valueOrNull;
+    final canManage = user == null || user.permissions.isEmpty || user.hasPermission('customers.manage');
 
     return Scaffold(
       appBar: AppBar(title: const Text('Müşteriler')),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showCreateSheet(context),
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: canManage
+          ? FloatingActionButton(
+              onPressed: () => _showFormSheet(context),
+              child: const Icon(Icons.add),
+            )
+          : null,
       body: Column(
         children: [
           Padding(
@@ -43,12 +52,24 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
               onChanged: (v) => setState(() => _query = v.trim()),
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Row(
+              children: [
+                _FilterChip(label: 'Tümü', selected: _filter == '', onTap: () => setState(() => _filter = '')),
+                const SizedBox(width: 8),
+                _FilterChip(label: 'Aktif', selected: _filter == 'aktif', onTap: () => setState(() => _filter = 'aktif')),
+                const SizedBox(width: 8),
+                _FilterChip(label: 'Pasif', selected: _filter == 'pasif', onTap: () => setState(() => _filter = 'pasif')),
+              ],
+            ),
+          ),
           Expanded(
             child: RefreshIndicator(
-              onRefresh: () async => ref.invalidate(customersListProvider(_query)),
+              onRefresh: () async => ref.invalidate(customersListProvider(query)),
               child: AsyncStateView(
                 value: customersAsync,
-                onRetry: () async => ref.invalidate(customersListProvider(_query)),
+                onRetry: () async => ref.invalidate(customersListProvider(query)),
                 isEmpty: (l) => l.isEmpty,
                 data: (context, customers) => ListView.separated(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 88),
@@ -61,6 +82,17 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
                         title: Text(c.name),
                         subtitle: Text(c.phone.isEmpty ? (c.email.isEmpty ? '-' : c.email) : c.phone),
                         onTap: () => context.push('/diger/musteriler/${c.id}'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            StatusRegistry.build(c.isActive ? 'aktif' : 'pasif', StatusRegistry.customer),
+                            if (c.phone.isNotEmpty)
+                              IconButton(
+                                icon: const Icon(Icons.call_outlined, size: 20),
+                                onPressed: () => launchUrl(Uri(scheme: 'tel', path: c.phone)),
+                              ),
+                          ],
+                        ),
                       ),
                     );
                   },
@@ -73,53 +105,24 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
     );
   }
 
-  void _showCreateSheet(BuildContext context) {
-    final nameController = TextEditingController();
-    final phoneController = TextEditingController();
+  void _showFormSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 20,
-          bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('Yeni Müşteri', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
-            const SizedBox(height: 16),
-            TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Ad')),
-            const SizedBox(height: 12),
-            TextField(
-                controller: phoneController,
-                decoration: const InputDecoration(labelText: 'Telefon (opsiyonel)'),
-                keyboardType: TextInputType.phone),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: () async {
-                if (nameController.text.trim().isEmpty) return;
-                try {
-                  await ref
-                      .read(customersRepositoryProvider)
-                      .create(name: nameController.text.trim(), phone: phoneController.text.trim());
-                  ref.invalidate(customersListProvider(_query));
-                  if (sheetContext.mounted) Navigator.of(sheetContext).pop();
-                } on ApiException catch (e) {
-                  if (sheetContext.mounted) {
-                    ScaffoldMessenger.of(sheetContext).showSnackBar(SnackBar(content: Text(e.message)));
-                  }
-                }
-              },
-              child: const Text('Kaydet'),
-            ),
-          ],
-        ),
-      ),
+      builder: (sheetContext) => const CustomerFormSheet(),
     );
+  }
+}
+
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({required this.label, required this.selected, required this.onTap});
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ChoiceChip(label: Text(label), selected: selected, onSelected: (_) => onTap());
   }
 }

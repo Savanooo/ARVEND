@@ -5,9 +5,15 @@ class OffersRepository {
   OffersRepository(this._client);
   final ApiClient _client;
 
-  Future<({List<Offer> offers, int total})> list({String filter = '', int page = 1, int limit = 50}) async {
+  Future<({List<Offer> offers, int total})> list({
+    String filter = '',
+    int page = 1,
+    int limit = 50,
+    String? customerId,
+  }) async {
     final json = await _client.get<Map<String, dynamic>>('/offers/', query: {
       if (filter.isNotEmpty) 'filter': filter,
+      if (customerId != null && customerId.isNotEmpty) 'customer_id': customerId,
       'page': page,
       'limit': limit,
     });

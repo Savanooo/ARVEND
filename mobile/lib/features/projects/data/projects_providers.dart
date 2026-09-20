@@ -18,6 +18,16 @@ final projectDetailProvider = FutureProvider.autoDispose.family<Project, String>
   (ref, id) => ref.watch(projectsRepositoryProvider).get(id),
 );
 
+/// Müşteri detay ekranının "Projeler" bölümü için -- backend'in zaten
+/// var olan `GET /projects?customer_id=` filtresini kullanır (bkz. backend
+/// Phase 1 doğrulaması: `projects.customer_id` gerçek, canlı sorgulanabilir
+/// bir FK'dır), N+1 YOKTUR. Finans alanları (contract/collected/remaining)
+/// bu liste sorgusunda ZATEN dolu gelir -- ayrı bir hesaplama İCAT EDİLMEZ.
+final customerProjectsProvider =
+    FutureProvider.autoDispose.family<({List<Project> projects, int total}), String>(
+  (ref, customerId) => ref.watch(projectsRepositoryProvider).list(customerId: customerId, limit: 200),
+);
+
 final projectFinancialSummaryProvider = FutureProvider.autoDispose.family<FinancialSummary, String>(
   (ref, id) => ref.watch(projectsRepositoryProvider).financialSummary(id),
 );

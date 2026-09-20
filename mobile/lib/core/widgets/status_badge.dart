@@ -134,6 +134,14 @@ abstract final class StatusRegistry {
     'izinli': ('İzinli', StatusTone.info),
   };
 
+  /// `Customer.isActive` (bool) burada backend'in `filter=aktif|pasif`
+  /// sözlüğüyle eşleşen iki anahtarlı bir haritaya çevrilir -- ayrı bir
+  /// enum/durum makinesi İCAT EDİLMEZ, yalnızca görüntüleme.
+  static const customer = {
+    'aktif': ('Aktif', StatusTone.success),
+    'pasif': ('Pasif', StatusTone.muted),
+  };
+
   static Widget build(String value, Map<String, (String, StatusTone)> registry) {
     final entry = registry[value];
     if (entry == null) return StatusBadge(label: value, tone: StatusTone.muted);

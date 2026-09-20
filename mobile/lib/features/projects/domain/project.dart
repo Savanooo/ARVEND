@@ -7,6 +7,7 @@ class Project {
   final String projectNo;
   final String name;
   final String projectType;
+  final String? customerId;
   final String customerName;
   final String customerPhone;
   final String customerEmail;
@@ -27,6 +28,7 @@ class Project {
     required this.projectNo,
     required this.name,
     required this.projectType,
+    this.customerId,
     required this.customerName,
     required this.customerPhone,
     required this.customerEmail,
@@ -47,6 +49,7 @@ class Project {
         projectNo: json['project_no'] as String,
         name: json['name'] as String,
         projectType: json['project_type'] as String? ?? '',
+        customerId: json['customer_id'] as String?,
         customerName: json['customer_name'] as String? ?? '',
         customerPhone: json['customer_phone'] as String? ?? '',
         customerEmail: json['customer_email'] as String? ?? '',

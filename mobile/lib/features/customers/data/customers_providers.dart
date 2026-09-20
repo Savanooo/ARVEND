@@ -7,8 +7,10 @@ import 'customers_repository.dart';
 final customersRepositoryProvider =
     Provider<CustomersRepository>((ref) => CustomersRepository(ref.watch(apiClientProvider)));
 
-final customersListProvider = FutureProvider.autoDispose.family<List<Customer>, String>(
-  (ref, q) => ref.watch(customersRepositoryProvider).list(q: q),
+typedef CustomerListQuery = ({String q, String filter});
+
+final customersListProvider = FutureProvider.autoDispose.family<List<Customer>, CustomerListQuery>(
+  (ref, query) => ref.watch(customersRepositoryProvider).list(q: query.q, filter: query.filter),
 );
 
 final customerDetailProvider = FutureProvider.autoDispose.family<Customer, String>(

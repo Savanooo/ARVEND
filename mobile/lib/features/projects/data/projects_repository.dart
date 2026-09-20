@@ -12,12 +12,14 @@ class ProjectsRepository {
   Future<({List<Project> projects, int total})> list({
     String? status,
     String? q,
+    String? customerId,
     int page = 1,
     int limit = 50,
   }) async {
     final json = await _client.get<Map<String, dynamic>>('/projects', query: {
       if (status != null && status.isNotEmpty) 'status': status,
       if (q != null && q.isNotEmpty) 'q': q,
+      if (customerId != null && customerId.isNotEmpty) 'customer_id': customerId,
       'page': page,
       'limit': limit,
     });

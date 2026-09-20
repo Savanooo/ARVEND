@@ -1,3 +1,5 @@
+import '../../projects/domain/project.dart';
+
 /// backend `customerResponse` - phone/email HER ZAMAN present, null değil
 /// boş string (bkz. API_CONTRACT.md).
 class Customer {
@@ -35,3 +37,45 @@ class Customer {
         isActive: json['is_active'] as bool? ?? true,
       );
 }
+
+/// Bir müşterinin projelerindeki, backend'in ZATEN hesapladığı
+/// (current_contract_value/collected_amount/remaining_receivable, yalnızca
+/// `GET /projects` liste ucunda dolu -- bkz. project.dart yorumu) alanların
+/// para birimine göre toplamı. Yeni bir hesap/formül İCAT EDİLMEZ --
+/// yalnızca aynı para birimindeki, zaten var olan sayılar toplanır. Farklı
+/// para birimleri KARIŞTIRILMAZ; her biri kendi satırında kalır.
+class CustomerReceivablesSummary {
+  final String currency;
+  final double contractValue;
+  final double collected;
+  final double remaining;
+
+  const CustomerReceivablesSummary({
+    required this.currency,
+    required this.contractValue,
+    required this.collected,
+    required this.remaining,
+  });
+}
+
+List<CustomerReceivablesSummary> summarizeProjectReceivables(List<Project> projects) {
+  final byCurrency = <String, (double, double, double)>{};
+  for (final p in projects) {
+    if (p.currentContractValue == null || p.collectedAmount == null || p.remainingReceivable == null) continue;
+    final prev = byCurrency[p.currency] ?? (0.0, 0.0, 0.0);
+    byCurrency[p.currency] = (
+      prev.$1 + p.currentContractValue!,
+      prev.$2 + p.collectedAmount!,
+      prev.$3 + p.remainingReceivable!,
+    );
+  }
+  return byCurrency.entries
+      .map((e) => CustomerReceivablesSummary(
+            currency: e.key,
+            contractValue: e.value.$1,
+            collected: e.value.$2,
+            remaining: e.value.$3,
+          ))
+      .toList();
+}
+
