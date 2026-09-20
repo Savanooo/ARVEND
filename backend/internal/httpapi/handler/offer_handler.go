@@ -184,8 +184,9 @@ func (h *OfferHandler) List(w http.ResponseWriter, r *http.Request) {
 	isPassive := r.URL.Query().Get("filter") == "pasif"
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	customerID := r.URL.Query().Get("customer_id")
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	result, err := h.svc.List(r.Context(), orgID, isPassive, page, limit)
+	result, err := h.svc.List(r.Context(), orgID, isPassive, page, limit, customerID)
 	if err != nil {
 		httpjson.Error(w, http.StatusInternalServerError, "teklifler alınamadı")
 		return

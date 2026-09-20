@@ -371,7 +371,7 @@ func TestTenantIsolation(t *testing.T) {
 		}
 	})
 	t.Run("offer List does not leak", func(t *testing.T) {
-		res, err := offerSvc.List(ctx, orgB.ID, false, 1, 200)
+		res, err := offerSvc.List(ctx, orgB.ID, false, 1, 200, "")
 		if err != nil {
 			t.Fatalf("liste alınamadı: %v", err)
 		}

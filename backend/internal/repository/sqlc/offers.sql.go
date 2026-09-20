@@ -12,16 +12,20 @@ import (
 )
 
 const countOffers = `-- name: CountOffers :one
-SELECT count(*) FROM offers WHERE organization_id = $1 AND is_passive = $2
+SELECT count(*) FROM offers o
+JOIN offer_revisions r ON r.id = o.current_revision_id
+WHERE o.organization_id = $1 AND o.is_passive = $2
+  AND ($3::uuid IS NULL OR r.customer_id = $3::uuid)
 `
 
 type CountOffersParams struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
 	IsPassive      bool        `json:"is_passive"`
+	CustomerID     pgtype.UUID `json:"customer_id"`
 }
 
 func (q *Queries) CountOffers(ctx context.Context, arg CountOffersParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countOffers, arg.OrganizationID, arg.IsPassive)
+	row := q.db.QueryRow(ctx, countOffers, arg.OrganizationID, arg.IsPassive, arg.CustomerID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -105,10 +109,11 @@ func (q *Queries) GetOfferByID(ctx context.Context, arg GetOfferByIDParams) (Off
 }
 
 const listOffers = `-- name: ListOffers :many
-SELECT o.id, o.offer_no, o.offer_date, o.status, o.is_passive, o.created_by, o.created_at, o.updated_at, o.organization_id, o.current_revision_id, r.customer_name, r.grand_total, r.revision_no
+SELECT o.id, o.offer_no, o.offer_date, o.status, o.is_passive, o.created_by, o.created_at, o.updated_at, o.organization_id, o.current_revision_id, r.customer_id, r.customer_name, r.grand_total, r.revision_no
 FROM offers o
 JOIN offer_revisions r ON r.id = o.current_revision_id
 WHERE o.organization_id = $1 AND o.is_passive = $2
+  AND ($5::uuid IS NULL OR r.customer_id = $5::uuid)
 ORDER BY o.created_at DESC
 LIMIT $3 OFFSET $4
 `
@@ -118,6 +123,7 @@ type ListOffersParams struct {
 	IsPassive      bool        `json:"is_passive"`
 	Limit          int32       `json:"limit"`
 	Offset         int32       `json:"offset"`
+	CustomerID     pgtype.UUID `json:"customer_id"`
 }
 
 type ListOffersRow struct {
@@ -131,17 +137,24 @@ type ListOffersRow struct {
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	OrganizationID    pgtype.UUID        `json:"organization_id"`
 	CurrentRevisionID pgtype.UUID        `json:"current_revision_id"`
+	CustomerID        pgtype.UUID        `json:"customer_id"`
 	CustomerName      string             `json:"customer_name"`
 	GrandTotal        pgtype.Numeric     `json:"grand_total"`
 	RevisionNo        int32              `json:"revision_no"`
 }
 
+// customer_id: Müşteri detay ekranının "Teklifler" bölümü için --
+// projects.sql'deki ListProjects'in AYNI nullable-narg deseni (customer_id
+// IS NULL => filtresiz). offers tablosunun kendisinde customer_id YOK
+// (0018 migration'da kaldırıldı) -- canlı değer yalnızca current_revision
+// üzerinden erişilebilir, bu yüzden r.customer_id üzerinden filtrelenir.
 func (q *Queries) ListOffers(ctx context.Context, arg ListOffersParams) ([]ListOffersRow, error) {
 	rows, err := q.db.Query(ctx, listOffers,
 		arg.OrganizationID,
 		arg.IsPassive,
 		arg.Limit,
 		arg.Offset,
+		arg.CustomerID,
 	)
 	if err != nil {
 		return nil, err
@@ -161,6 +174,7 @@ func (q *Queries) ListOffers(ctx context.Context, arg ListOffersParams) ([]ListO
 			&i.UpdatedAt,
 			&i.OrganizationID,
 			&i.CurrentRevisionID,
+			&i.CustomerID,
 			&i.CustomerName,
 			&i.GrandTotal,
 			&i.RevisionNo,

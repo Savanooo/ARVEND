@@ -288,6 +288,10 @@ func ToDomainOfferListItem(r sqlc.ListOffersRow) domain.Offer {
 	if r.CurrentRevisionID.Valid {
 		o.CurrentRevisionID = r.CurrentRevisionID.String()
 	}
+	if r.CustomerID.Valid {
+		s := r.CustomerID.String()
+		o.CustomerID = &s
+	}
 	if r.CreatedBy.Valid {
 		s := r.CreatedBy.String()
 		o.CreatedBy = &s

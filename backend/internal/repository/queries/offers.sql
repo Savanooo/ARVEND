@@ -15,15 +15,24 @@ UPDATE offers SET current_revision_id = $2, status = $3 WHERE id = $1;
 SELECT * FROM offers WHERE id = $1 AND organization_id = $2;
 
 -- name: ListOffers :many
-SELECT o.*, r.customer_name, r.grand_total, r.revision_no
+-- customer_id: Müşteri detay ekranının "Teklifler" bölümü için --
+-- projects.sql'deki ListProjects'in AYNI nullable-narg deseni (customer_id
+-- IS NULL => filtresiz). offers tablosunun kendisinde customer_id YOK
+-- (0018 migration'da kaldırıldı) -- canlı değer yalnızca current_revision
+-- üzerinden erişilebilir, bu yüzden r.customer_id üzerinden filtrelenir.
+SELECT o.*, r.customer_id, r.customer_name, r.grand_total, r.revision_no
 FROM offers o
 JOIN offer_revisions r ON r.id = o.current_revision_id
 WHERE o.organization_id = $1 AND o.is_passive = $2
+  AND (sqlc.narg('customer_id')::uuid IS NULL OR r.customer_id = sqlc.narg('customer_id')::uuid)
 ORDER BY o.created_at DESC
 LIMIT $3 OFFSET $4;
 
 -- name: CountOffers :one
-SELECT count(*) FROM offers WHERE organization_id = $1 AND is_passive = $2;
+SELECT count(*) FROM offers o
+JOIN offer_revisions r ON r.id = o.current_revision_id
+WHERE o.organization_id = $1 AND o.is_passive = $2
+  AND (sqlc.narg('customer_id')::uuid IS NULL OR r.customer_id = sqlc.narg('customer_id')::uuid);
 
 -- name: SetOfferPassive :exec
 UPDATE offers SET is_passive = $3 WHERE id = $1 AND organization_id = $2;

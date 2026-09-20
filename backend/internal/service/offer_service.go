@@ -464,7 +464,7 @@ type OfferListResult struct {
 	Total  int64
 }
 
-func (s *OfferService) List(ctx context.Context, organizationID string, isPassive bool, page, limit int) (*OfferListResult, error) {
+func (s *OfferService) List(ctx context.Context, organizationID string, isPassive bool, page, limit int, customerID string) (*OfferListResult, error) {
 	orgID, err := repository.StringToUUID(organizationID)
 	if err != nil {
 		return nil, domain.ErrNotFound
@@ -475,16 +475,23 @@ func (s *OfferService) List(ctx context.Context, organizationID string, isPassiv
 	if page <= 0 {
 		page = 1
 	}
+	var custID pgtype.UUID
+	if customerID != "" {
+		if cid, err := repository.StringToUUID(customerID); err == nil {
+			custID = cid
+		}
+	}
 	rows, err := s.q.ListOffers(ctx, sqlc.ListOffersParams{
 		OrganizationID: orgID,
 		IsPassive:      isPassive,
 		Limit:          int32(limit),
 		Offset:         int32((page - 1) * limit),
+		CustomerID:     custID,
 	})
 	if err != nil {
 		return nil, err
 	}
-	total, err := s.q.CountOffers(ctx, sqlc.CountOffersParams{OrganizationID: orgID, IsPassive: isPassive})
+	total, err := s.q.CountOffers(ctx, sqlc.CountOffersParams{OrganizationID: orgID, IsPassive: isPassive, CustomerID: custID})
 	if err != nil {
 		return nil, err
 	}
