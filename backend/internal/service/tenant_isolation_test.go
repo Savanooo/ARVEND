@@ -406,8 +406,8 @@ func TestTenantIsolation(t *testing.T) {
 		if _, err := userSvc.Get(ctx, testUser.ID, orgB.ID); !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("Firma B, Firma A'nın kullanıcısını görebildi: err=%v", err)
 		}
-		if _, err := userSvc.Update(ctx, testUser.ID, orgB.ID, "HACKED", domain.RoleAdmin, true); !errors.Is(err, domain.ErrNotFound) {
-			t.Errorf("Firma B, Firma A'nın kullanıcısını güncelleyebildi (rol yükseltme dahil): err=%v", err)
+		if _, err := userSvc.Update(ctx, testUser.ID, orgB.ID, "HACKED", true); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("Firma B, Firma A'nın kullanıcısını güncelleyebildi: err=%v", err)
 		}
 		if err := userSvc.Deactivate(ctx, testUser.ID, orgB.ID); !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("Firma B, Firma A'nın kullanıcısını pasifleştirebildi: err=%v", err)

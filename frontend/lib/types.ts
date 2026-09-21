@@ -1,10 +1,28 @@
 export type Role = "admin" | "kullanici" | "super_admin";
 
+// Kaba users.role etiketleri -- YALNIZCA yedek: tenant kullanıcıları için
+// görünen rol her zaman organizasyon rolüdür (Sahip/Yönetici/Proje
+// Yöneticisi/Finans/Saha/özel), bkz. userRoleLabel. "admin" burada
+// organizasyon yöneticisi demektir, platform yöneticisi DEĞİL.
 export const ROLE_LABELS: Record<Role, string> = {
   admin: "Yönetici",
   kullanici: "Kullanıcı",
   super_admin: "Süper Admin",
 };
+
+export const SUPER_ADMIN_LABEL = "Süper Admin";
+export const PLATFORM_CONTEXT_LABEL = "Platform Yöneticisi";
+
+/**
+ * Kullanıcının UI'da görünen rolü. Platform hesabı her zaman "Süper Admin";
+ * tenant hesapları organizasyon rolünün adını gösterir (users.role'ün
+ * "admin/kullanici" ayrımı ürün kavramı değildir, yalnızca henüz
+ * organizasyon rolü atanmamış nadir kayıtlarda yedek olarak görünür).
+ */
+export function userRoleLabel(user: Pick<User, "role"> & { organization_role_name?: string }): string {
+  if (user.role === "super_admin") return SUPER_ADMIN_LABEL;
+  return user.organization_role_name || ROLE_LABELS[user.role];
+}
 
 export interface User {
   id: string;
@@ -834,6 +852,10 @@ export interface Organization {
   onboarding_step: OnboardingStep;
   created_at: string;
   updated_at: string;
+  // Yalnızca firma DETAYI (GET /platform/organizations/{id}) doldurur --
+  // sayfalanmış kullanıcı listesinden (200 sınırı) BAĞIMSIZ, doğru "aktif
+  // Sahip var mı" cevabı. Liste/oluşturma yanıtlarında yoktur.
+  active_owner_count?: number;
 }
 
 export interface Plan {

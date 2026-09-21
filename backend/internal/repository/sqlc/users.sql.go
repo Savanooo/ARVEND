@@ -406,6 +406,44 @@ func (q *Queries) ListUsersWithOrganizationRole(ctx context.Context, arg ListUse
 	return items, nil
 }
 
+const reactivateUser = `-- name: ReactivateUser :execrows
+UPDATE users SET is_active = true WHERE id = $1 AND organization_id = $2
+`
+
+type ReactivateUserParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) ReactivateUser(ctx context.Context, arg ReactivateUserParams) (int64, error) {
+	result, err := q.db.Exec(ctx, reactivateUser, arg.ID, arg.OrganizationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const resetPasswordRequireChange = `-- name: ResetPasswordRequireChange :execrows
+UPDATE users SET password_hash = $3, must_change_password = true
+WHERE id = $1 AND organization_id = $2
+`
+
+type ResetPasswordRequireChangeParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	PasswordHash   string      `json:"password_hash"`
+}
+
+// Süper Admin'in geçici şifre yeniden vermesi: parola + must_change_password
+// =true tek sorguda -- kullanıcı ilk girişte yeniden şifre belirlemek zorunda.
+func (q *Queries) ResetPasswordRequireChange(ctx context.Context, arg ResetPasswordRequireChangeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, resetPasswordRequireChange, arg.ID, arg.OrganizationID, arg.PasswordHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const setPasswordAndClearMustChange = `-- name: SetPasswordAndClearMustChange :execrows
 UPDATE users SET password_hash = $3, must_change_password = false
 WHERE id = $1 AND organization_id = $2
@@ -425,6 +463,25 @@ func (q *Queries) SetPasswordAndClearMustChange(ctx context.Context, arg SetPass
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setUserCoarseRole = `-- name: SetUserCoarseRole :exec
+UPDATE users SET role = $3
+WHERE id = $1 AND organization_id = $2 AND role <> 'super_admin'
+`
+
+type SetUserCoarseRoleParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Role           string      `json:"role"`
+}
+
+// Organizasyon rolü değiştiğinde kaba users.role'ü (requireAdmin kapısı ve
+// web kabuğu seçimi hâlâ buna bakar) senkron tutar: owner/admin -> 'admin',
+// diğerleri -> 'kullanici'. super_admin satırına ASLA dokunmaz.
+func (q *Queries) SetUserCoarseRole(ctx context.Context, arg SetUserCoarseRoleParams) error {
+	_, err := q.db.Exec(ctx, setUserCoarseRole, arg.ID, arg.OrganizationID, arg.Role)
+	return err
 }
 
 const touchLastLogin = `-- name: TouchLastLogin :exec
@@ -493,4 +550,48 @@ func (q *Queries) UpdateUserPassword(ctx context.Context, arg UpdateUserPassword
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updateUserProfile = `-- name: UpdateUserProfile :one
+UPDATE users
+SET full_name = $3, is_active = $4
+WHERE id = $1 AND organization_id = $2
+RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id
+`
+
+type UpdateUserProfileParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	FullName       string      `json:"full_name"`
+	IsActive       bool        `json:"is_active"`
+}
+
+// Kullanıcının kendi organizasyon-rolünden BAĞIMSIZ profil alanları
+// (ad soyad + aktiflik) -- kaba users.role BİLEREK burada DEĞİŞTİRİLMEZ:
+// o alan artık organizasyon rolünden türetilir (bkz. setUserOrganizationRole/
+// SetUserCoarseRole), bu uçtan bağımsız yazılırsa ikisi birbirinden
+// sapar (requireAdmin kapısı ve /admin vs /panel kabuk seçimi bozulur).
+func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUserProfile,
+		arg.ID,
+		arg.OrganizationID,
+		arg.FullName,
+		arg.IsActive,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.FullName,
+		&i.Role,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LastLoginAt,
+		&i.OrganizationID,
+		&i.MustChangePassword,
+		&i.OrganizationRoleID,
+	)
+	return i, err
 }

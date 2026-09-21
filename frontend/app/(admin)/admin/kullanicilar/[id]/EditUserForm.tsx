@@ -10,7 +10,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { apiClient, ApiError } from "@/lib/api";
-import type { OrganizationRole, Role, User, UserProjectAssignment } from "@/lib/types";
+import type { OrganizationRole, User, UserProjectAssignment } from "@/lib/types";
 import { PROJECT_ROLE_LABELS } from "@/lib/types";
 
 export function EditUserForm({
@@ -25,12 +25,19 @@ export function EditUserForm({
   const router = useRouter();
 
   const [fullName, setFullName] = useState(user.full_name);
-  const [role, setRole] = useState<Role>(user.role);
   const [isActive, setIsActive] = useState(user.is_active ?? true);
   const [savingInfo, setSavingInfo] = useState(false);
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
 
-  const [orgRoleCode, setOrgRoleCode] = useState(user.organization_role_code ?? "");
+  // Yeni Rol seçicisi yalnızca roles listesindeki (atanabilir) kodlardan
+  // biriyle başlatılır -- mevcut rol legacy_user gibi listede OLMAYAN bir
+  // kodsa (yaygın: migration öncesi kullanıcılar) boş bırakılır, aksi
+  // halde denetlenen &lt;select&gt; DOM'da bambaşka bir seçeneği (React'in
+  // eşleşmeyen value için ilk seçeneği işaretlemesi) göstermiş olurdu --
+  // "Mevcut rol" rozeti zaten gerçek değeri ayrıca gösterir.
+  const [orgRoleCode, setOrgRoleCode] = useState(
+    roles.some((r) => r.code === user.organization_role_code) ? (user.organization_role_code ?? "") : ""
+  );
   const [savingOrgRole, setSavingOrgRole] = useState(false);
   const [orgRoleMsg, setOrgRoleMsg] = useState<string | null>(null);
 
@@ -63,7 +70,7 @@ export function EditUserForm({
     try {
       await apiClient(`/api/v1/users/${user.id}`, {
         method: "PUT",
-        body: JSON.stringify({ full_name: fullName, role, is_active: isActive }),
+        body: JSON.stringify({ full_name: fullName, is_active: isActive }),
       });
       setInfoMsg("Kaydedildi.");
       router.refresh();
@@ -104,19 +111,6 @@ export function EditUserForm({
               onChange={(e) => setFullName(e.target.value)}
               required
             />
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold uppercase tracking-widest text-text-muted">
-                Rol
-              </label>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value as Role)}
-                className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-gold"
-              >
-                <option value="kullanici">Kullanıcı</option>
-                <option value="admin">Yönetici</option>
-              </select>
-            </div>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -160,7 +154,9 @@ export function EditUserForm({
               onChange={(e) => setOrgRoleCode(e.target.value)}
               required
             >
-              <option value="">Rol seçin</option>
+              <option value="" disabled>
+                Rol seçin
+              </option>
               {roles.map((r) => (
                 <option key={r.id} value={r.code}>
                   {r.name}

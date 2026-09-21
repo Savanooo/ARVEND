@@ -40,6 +40,44 @@ func (q *Queries) ClearRolePermissions(ctx context.Context, organizationRoleID p
 	return err
 }
 
+const countActiveOwners = `-- name: CountActiveOwners :one
+SELECT count(*)::bigint
+FROM users u
+JOIN organization_roles orole ON orole.id = u.organization_role_id
+WHERE u.organization_id = $1 AND orole.code = 'owner' AND u.is_active = true
+`
+
+// Sayfalanmış kullanıcı listesinden BAĞIMSIZ, doğru "aktif Sahip var mı"
+// cevabı -- 200+ kullanıcılı bir organizasyonda ilk (en eski) Owner
+// sayfanın dışına düşse bile UI'nin "Sahip yok" uyarısı YANLIŞ tetiklenmez.
+func (q *Queries) CountActiveOwners(ctx context.Context, organizationID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveOwners, organizationID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countActiveOwnersExcludingUser = `-- name: CountActiveOwnersExcludingUser :one
+SELECT count(*)::bigint
+FROM users u
+JOIN organization_roles orole ON orole.id = u.organization_role_id
+WHERE u.organization_id = $1 AND orole.code = 'owner' AND u.is_active = true AND u.id <> $2
+`
+
+type CountActiveOwnersExcludingUserParams struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ID             pgtype.UUID `json:"id"`
+}
+
+// Son-Owner koruması (deaktivasyon/rol düşürme): HEDEF kullanıcı DIŞINDAKİ
+// aktif Owner sayısı -- 0 ise hedef son aktif Owner'dır, işlem reddedilir.
+func (q *Queries) CountActiveOwnersExcludingUser(ctx context.Context, arg CountActiveOwnersExcludingUserParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveOwnersExcludingUser, arg.OrganizationID, arg.ID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countOwnersInOrganization = `-- name: CountOwnersInOrganization :one
 
 SELECT count(*)::bigint

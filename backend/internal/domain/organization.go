@@ -27,6 +27,27 @@ func (s OrgStatus) AllowsAccess() bool {
 	return s == OrgStatusActive || s == OrgStatusTrial
 }
 
+// orgStatusTransitions, Süper Admin'in firma yaşam döngüsünde izin verilen
+// geçişlerdir. SİLME YOKTUR: cancelled da bir durumdur -- satır ve tüm
+// tarihçe (kullanıcılar, teklifler, projeler, finans) olduğu gibi korunur;
+// cancelled -> active yeniden aktivasyondur (müşteri geri döndü). trial'a
+// geri dönüş yoktur.
+var orgStatusTransitions = map[OrgStatus][]OrgStatus{
+	OrgStatusTrial:     {OrgStatusActive, OrgStatusSuspended, OrgStatusCancelled},
+	OrgStatusActive:    {OrgStatusSuspended, OrgStatusCancelled},
+	OrgStatusSuspended: {OrgStatusActive, OrgStatusCancelled},
+	OrgStatusCancelled: {OrgStatusActive},
+}
+
+func (s OrgStatus) CanTransitionTo(next OrgStatus) bool {
+	for _, allowed := range orgStatusTransitions[s] {
+		if allowed == next {
+			return true
+		}
+	}
+	return false
+}
+
 type OnboardingStep string
 
 const (

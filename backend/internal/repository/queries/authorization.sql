@@ -144,3 +144,20 @@ SELECT count(*)::bigint
 FROM users u
 JOIN organization_roles orole ON orole.id = u.organization_role_id
 WHERE u.organization_id = $1 AND orole.code = 'owner' AND u.is_active = true;
+
+-- name: CountActiveOwnersExcludingUser :one
+-- Son-Owner koruması (deaktivasyon/rol düşürme): HEDEF kullanıcı DIŞINDAKİ
+-- aktif Owner sayısı -- 0 ise hedef son aktif Owner'dır, işlem reddedilir.
+SELECT count(*)::bigint
+FROM users u
+JOIN organization_roles orole ON orole.id = u.organization_role_id
+WHERE u.organization_id = $1 AND orole.code = 'owner' AND u.is_active = true AND u.id <> $2;
+
+-- name: CountActiveOwners :one
+-- Sayfalanmış kullanıcı listesinden BAĞIMSIZ, doğru "aktif Sahip var mı"
+-- cevabı -- 200+ kullanıcılı bir organizasyonda ilk (en eski) Owner
+-- sayfanın dışına düşse bile UI'nin "Sahip yok" uyarısı YANLIŞ tetiklenmez.
+SELECT count(*)::bigint
+FROM users u
+JOIN organization_roles orole ON orole.id = u.organization_role_id
+WHERE u.organization_id = $1 AND orole.code = 'owner' AND u.is_active = true;

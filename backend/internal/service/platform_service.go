@@ -75,10 +75,13 @@ func (s *PlatformService) CreateOrganizationWithOwner(ctx context.Context, in Cr
 		return nil, errors.New("firma adı ve slug zorunludur")
 	}
 	if ownerUsername == "" || in.OwnerPassword == "" || ownerFullName == "" {
-		return nil, errors.New("ilk kullanıcı için kullanıcı adı, şifre ve ad soyad zorunludur")
+		return nil, errors.New("ilk sahip (owner) için kullanıcı adı, geçici şifre ve ad soyad zorunludur")
+	}
+	if isReservedUsername(ownerUsername) {
+		return nil, domain.ErrReservedUsername
 	}
 	if len(in.OwnerPassword) < 8 {
-		return nil, errors.New("ilk kullanıcı şifresi en az 8 karakter olmalı")
+		return nil, errors.New("ilk sahip (owner) geçici şifresi en az 8 karakter olmalı")
 	}
 	planCode := strings.TrimSpace(in.PlanCode)
 	if planCode == "" {
@@ -88,8 +91,13 @@ func (s *PlatformService) CreateOrganizationWithOwner(ctx context.Context, in Cr
 	if status == "" {
 		status = domain.OrgStatusActive
 	}
-	if !status.Valid() {
-		return nil, errors.New("geçersiz firma durumu")
+	// Oluşturma anında YALNIZCA trial/active kabul edilir -- suspended/
+	// cancelled bir YAŞAM DÖNGÜSÜ SONUCUDUR (bkz. SetStatus + audit trail),
+	// doğrudan istekten geçirilebilecek bir başlangıç değeri DEĞİLDİR. Web
+	// formu zaten yalnızca bu ikisini sunar; burada aynı kısıt backend'de
+	// de zorunlu kılınır.
+	if status != domain.OrgStatusTrial && status != domain.OrgStatusActive {
+		return nil, errors.New("yeni firma yalnızca 'trial' veya 'active' durumuyla oluşturulabilir")
 	}
 
 	var trialEndsAt pgtype.Timestamptz
@@ -197,19 +205,25 @@ func (s *PlatformService) CreateOrganizationWithOwner(ctx context.Context, in Cr
 }
 
 // SetStatus, bir organizasyonun yaşam döngüsü durumunu değiştirir
-// (active/trial/suspended/cancelled). is_active, status.AllowsAccess() ile
-// eşzamanlı güncellenir (backward-compat -- bkz. migration 0030 yorumu).
-// Askıya alma, YALNIZCA yeni login/refresh'i değil (AuthService), zaten
-// geçerli access token'la gelen mid-session istekleri de RequireAuth
+// (active/suspended/cancelled; trial yalnızca oluşturma anında). Geçişler
+// domain.OrgStatus.CanTransitionTo ile sınırlıdır -- silme YOKTUR, cancelled
+// bir durumdur ve satır/tarihçe korunur. is_active, status.AllowsAccess()
+// ile eşzamanlı güncellenir (backward-compat -- bkz. migration 0030 yorumu).
+// Askıya alma/iptal, YALNIZCA yeni login/refresh'i değil (AuthService),
+// zaten geçerli access token'la gelen mid-session istekleri de RequireAuth
 // middleware'i üzerinden hemen keser.
 func (s *PlatformService) SetStatus(ctx context.Context, organizationID, actorUserID string, status domain.OrgStatus) (*domain.Organization, error) {
 	if !status.Valid() {
 		return nil, errors.New("geçersiz firma durumu")
 	}
-	orgID, err := repository.StringToUUID(organizationID)
+	current, err := s.GetOrganization(ctx, organizationID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, err
 	}
+	if !current.Status.CanTransitionTo(status) {
+		return nil, domain.ErrInvalidOrgStatusTransition
+	}
+	orgID, _ := repository.StringToUUID(organizationID)
 	row, err := s.q.UpdateOrganizationStatus(ctx, sqlc.UpdateOrganizationStatusParams{
 		ID: orgID, Status: string(status), IsActive: status.AllowsAccess(),
 	})
@@ -220,10 +234,15 @@ func (s *PlatformService) SetStatus(ctx context.Context, organizationID, actorUs
 		return nil, err
 	}
 	action := domain.AuditActionOrganizationActivated
-	if status == domain.OrgStatusSuspended {
+	switch status {
+	case domain.OrgStatusSuspended:
 		action = domain.AuditActionOrganizationSuspended
+	case domain.OrgStatusCancelled:
+		action = domain.AuditActionOrganizationCancelled
 	}
-	_ = s.writeAuditEvent(ctx, s.q, actorUserID, action, &orgID, nil, map[string]any{"status": string(status)})
+	_ = s.writeAuditEvent(ctx, s.q, actorUserID, action, &orgID, nil, map[string]any{
+		"status": string(status), "from": string(current.Status),
+	})
 	org := repository.ToDomainOrganization(row)
 	return &org, nil
 }
@@ -314,13 +333,50 @@ func (s *PlatformService) GetOrganization(ctx context.Context, organizationID st
 	return &org, nil
 }
 
-// ListOrganizationUsers, UserService.List'i doğrudan yeniden kullanır --
-// Super Admin'in bir firmanın kullanıcılarını görmesi ile o firmanın
-// kendi admin'inin kendi kullanıcılarını görmesi AYNI sorgu, farklı bir
-// izin sınırı arkasında (RequireRole(super_admin) vs. org-scoped requireAuth
-// context'i) -- mantığı tekrar etmenin bir gerekçesi yok.
+// CountActiveOwners, sayfalanmış kullanıcı listesinden BAĞIMSIZ, doğru
+// "bu firmanın aktif bir Sahibi var mı" cevabıdır -- ListOrganizationUsers
+// 200 satırla sınırlıdır ve en eski (ilk oluşturulan) kullanıcı büyük
+// firmalarda sayfanın dışına düşebilir; "Sahip yok" uyarısı bu yüzden
+// TAM listeye değil, bu ayrı sayıma dayanmalıdır.
+func (s *PlatformService) CountActiveOwners(ctx context.Context, organizationID string) (int64, error) {
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return 0, domain.ErrNotFound
+	}
+	return s.q.CountActiveOwners(ctx, orgID)
+}
+
+// ListOrganizationUsers, firmanın kullanıcılarını organizasyon rolüyle
+// (Sahip/Yönetici/Proje Yöneticisi/...) zenginleştirilmiş olarak döner --
+// tenant tarafındaki "Kullanıcılar" ekranının AYNI sorgusu
+// (ListUsersWithOrganizationRole), farklı bir izin sınırı arkasında
+// (RequireRole(super_admin) + URL'deki açık organizasyon kimliği).
 func (s *PlatformService) ListOrganizationUsers(ctx context.Context, organizationID string, page, limit int) (*ListResult, error) {
-	return s.userSvc.List(ctx, organizationID, page, limit)
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	if page <= 0 {
+		page = 1
+	}
+	rows, err := s.q.ListUsersWithOrganizationRole(ctx, sqlc.ListUsersWithOrganizationRoleParams{
+		OrganizationID: orgID, Limit: int32(limit), Offset: int32((page - 1) * limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	total, err := s.q.CountUsers(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	users := make([]domain.User, len(rows))
+	for i, r := range rows {
+		users[i] = repository.ToDomainUserWithRole(r)
+	}
+	return &ListResult{Users: users, Total: total}, nil
 }
 
 func (s *PlatformService) ReprovisionCalcCatalog(ctx context.Context, organizationID, actorUserID string, linkProducts bool) (*CalcCatalogProvisionResult, error) {

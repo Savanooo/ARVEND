@@ -1,4 +1,4 @@
-import { ROLE_LABELS, type User } from "@/lib/types";
+import { userRoleLabel, type User } from "@/lib/types";
 
 import { LogoutButton } from "./LogoutButton";
 import { Logo } from "./Logo";
@@ -50,8 +50,8 @@ export function Sidebar({
           {!collapsed && (
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold">{user.full_name}</div>
-              <div className="text-[11px] uppercase tracking-widest text-sidebar-text-muted">
-                {ROLE_LABELS[user.role]}
+              <div className="truncate text-[11px] uppercase tracking-widest text-sidebar-text-muted">
+                {userRoleLabel(user)}
               </div>
             </div>
           )}

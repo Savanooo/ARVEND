@@ -62,6 +62,26 @@ ve `AuthorizationService.ListOrganizationRoles(..., includeLegacy=false)`
 üyeliğinden muaf olduğunun **tek kaynağıdır** — bu karar başka hiçbir
 yerde tekrarlanmaz.
 
+### 1.3 Kullanıcı yaşam döngüsü ve son-Sahip koruması (`service/user_lifecycle.go`)
+
+- Kullanıcılar **silinmez**: `is_active=false` (pasif) / `true` (aktif).
+  Pasifleştirme açık oturumları (refresh token) iptal eder; pasif
+  kullanıcı giriş yapamaz ve oturum yenileyemez.
+- **Son aktif Sahip** (`owner` rolündeki tek `is_active` kullanıcı) ne
+  pasifleştirilebilir ne başka role düşürülebilir → `domain.ErrLastOwner`
+  (HTTP 409). Kural tenant yolları (`UserService.Deactivate/Update`,
+  `AuthorizationService.SetUserOrganizationRole`) ve platform yolları
+  (`PlatformService.*OrganizationUser*`) için **aynı** fonksiyonlardan
+  uygulanır (`guardLastActiveOwner`).
+- Organizasyon rolü değiştiğinde kaba `users.role` senkronlanır:
+  `owner`/`admin` → `admin`, diğerleri → `kullanici` (super_admin satırına
+  dokunulmaz). `requireAdmin` kapısı ve web kabuğu seçimi hâlâ bu alana
+  baktığı için Sahip yapılan bir kullanıcı kullanıcı yönetimine girebilir.
+- Platform provisioning'inde genel `admin` kullanıcı adı
+  (`ErrReservedUsername`) ve `legacy_user` rolü (`ErrRoleNotAssignable`)
+  reddedilir. Firma yaşam döngüsü geçişleri `domain.OrgStatus.CanTransitionTo`
+  ile sınırlıdır (`ErrInvalidOrgStatusTransition`, HTTP 409).
+
 ## 2. İzin kayıt defteri (`permissions` tablosu)
 
 İzin kodları `domain/authorization.go`'da Go sabitleri olarak

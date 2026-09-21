@@ -1,6 +1,6 @@
 import { Bell, Search } from "lucide-react";
 
-import { ROLE_LABELS, type User } from "@/lib/types";
+import { PLATFORM_CONTEXT_LABEL, userRoleLabel, type User } from "@/lib/types";
 
 // Uygulama kabuğunun (AppShell) üst çubuğu -- sayfaya özel PageHeader'dan
 // farklı olarak her ekranda aynı kalır. Arama ve bildirim, backend'de
@@ -39,8 +39,10 @@ export function Topbar({ user }: { user: User }) {
           <div className="text-right">
             <div className="text-sm font-medium leading-tight">{user.full_name}</div>
             <div className="text-[11px] leading-tight text-text-muted">
-              {ROLE_LABELS[user.role]}
-              {user.organization_name && ` · ${user.organization_name}`}
+              {userRoleLabel(user)}
+              {user.role === "super_admin"
+                ? ` · ${PLATFORM_CONTEXT_LABEL}`
+                : user.organization_name && ` · ${user.organization_name}`}
             </div>
           </div>
         </div>

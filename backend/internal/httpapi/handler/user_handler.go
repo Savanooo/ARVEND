@@ -100,11 +100,14 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateUserRequest struct {
-	FullName string      `json:"full_name"`
-	Role     domain.Role `json:"role"`
-	IsActive bool        `json:"is_active"`
+	FullName string `json:"full_name"`
+	IsActive bool   `json:"is_active"`
 }
 
+// Update, kullanıcının profilini (ad soyad + aktiflik) değiştirir. Rol
+// artık BU uçtan alınmaz -- organizasyon rolü (SetOrganizationRole)
+// kaba users.role'ü de senkronlar (bkz. UserService.Update yorumu);
+// isteğin gövdesinde bir "role" alanı olsa bile YOK SAYILIR.
 func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var req updateUserRequest
 	if err := httpjson.Decode(r, &req); err != nil {
@@ -112,7 +115,7 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	user, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), orgID, req.FullName, req.Role, req.IsActive)
+	user, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), orgID, req.FullName, req.IsActive)
 	if err != nil {
 		h.writeUserError(w, err)
 		return

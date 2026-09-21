@@ -139,7 +139,17 @@ func (s *UserService) Create(ctx context.Context, organizationID, username, pass
 	return &u, nil
 }
 
-func (s *UserService) Update(ctx context.Context, id, organizationID, fullName string, role domain.Role, isActive bool) (*domain.User, error) {
+// Update, kullanıcının profilini (ad soyad + aktiflik) değiştirir. Kaba
+// users.role BİLEREK burada bir parametre DEĞİLDİR: "admin"/"kullanici"
+// artık bağımsız düzenlenebilir bir kavram değil, organizasyon rolünden
+// TÜRETİLEN bir alan (bkz. setUserOrganizationRole/coarseRoleForOrgRole) --
+// bu uç onu bağımsız değiştirebilseydi, ikisi birbirinden sapar (requireAdmin
+// kapısı ve /admin vs /panel kabuk seçimi organizasyon rolüyle tutarsız
+// kalırdı) ve son-Sahip koruması organizasyon rolüne bakan guardLastActiveOwner
+// tarafından bu sapmayı GÖREMEZDİ. Rol değişikliği yalnızca
+// SetOrganizationRole ile yapılır (o hem senkronu hem son-Sahip korumasını
+// uygular).
+func (s *UserService) Update(ctx context.Context, id, organizationID, fullName string, isActive bool) (*domain.User, error) {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
 		return nil, domain.ErrNotFound
@@ -148,14 +158,15 @@ func (s *UserService) Update(ctx context.Context, id, organizationID, fullName s
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	if !role.Valid() {
-		return nil, errors.New("geçersiz rol")
+	if !isActive {
+		if err := guardLastActiveOwner(ctx, s.q, uid, orgID); err != nil {
+			return nil, err
+		}
 	}
-	row, err := s.q.UpdateUser(ctx, sqlc.UpdateUserParams{
+	row, err := s.q.UpdateUserProfile(ctx, sqlc.UpdateUserProfileParams{
 		ID:             uid,
 		OrganizationID: orgID,
 		FullName:       strings.TrimSpace(fullName),
-		Role:           string(role),
 		IsActive:       isActive,
 	})
 	if err != nil {
@@ -163,6 +174,11 @@ func (s *UserService) Update(ctx context.Context, id, organizationID, fullName s
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
+	}
+	if !isActive {
+		if err := s.q.RevokeAllUserRefreshTokens(ctx, uid); err != nil {
+			return nil, err
+		}
 	}
 	u := repository.ToDomainUser(row)
 	return &u, nil
@@ -254,21 +270,9 @@ func (s *UserService) setPassword(ctx context.Context, uid pgtype.UUID, organiza
 	return nil
 }
 
+// Deactivate, kullanıcıyı pasifleştirir -- satır silinmez, son aktif Owner
+// korunur, açık oturumları iptal edilir (bkz. user_lifecycle.go).
 func (s *UserService) Deactivate(ctx context.Context, id, organizationID string) error {
-	uid, err := repository.StringToUUID(id)
-	if err != nil {
-		return domain.ErrNotFound
-	}
-	orgID, err := repository.StringToUUID(organizationID)
-	if err != nil {
-		return domain.ErrNotFound
-	}
-	rows, err := s.q.DeactivateUser(ctx, sqlc.DeactivateUserParams{ID: uid, OrganizationID: orgID})
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+	_, err := deactivateUser(ctx, s.q, id, organizationID)
+	return err
 }

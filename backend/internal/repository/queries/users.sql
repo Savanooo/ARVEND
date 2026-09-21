@@ -83,3 +83,30 @@ SELECT u.must_change_password, o.onboarding_completed
 FROM users u
 JOIN organizations o ON o.id = u.organization_id
 WHERE u.id = $1;
+
+-- name: ReactivateUser :execrows
+UPDATE users SET is_active = true WHERE id = $1 AND organization_id = $2;
+
+-- name: SetUserCoarseRole :exec
+-- Organizasyon rolü değiştiğinde kaba users.role'ü (requireAdmin kapısı ve
+-- web kabuğu seçimi hâlâ buna bakar) senkron tutar: owner/admin -> 'admin',
+-- diğerleri -> 'kullanici'. super_admin satırına ASLA dokunmaz.
+UPDATE users SET role = $3
+WHERE id = $1 AND organization_id = $2 AND role <> 'super_admin';
+
+-- name: ResetPasswordRequireChange :execrows
+-- Süper Admin'in geçici şifre yeniden vermesi: parola + must_change_password
+-- =true tek sorguda -- kullanıcı ilk girişte yeniden şifre belirlemek zorunda.
+UPDATE users SET password_hash = $3, must_change_password = true
+WHERE id = $1 AND organization_id = $2;
+
+-- name: UpdateUserProfile :one
+-- Kullanıcının kendi organizasyon-rolünden BAĞIMSIZ profil alanları
+-- (ad soyad + aktiflik) -- kaba users.role BİLEREK burada DEĞİŞTİRİLMEZ:
+-- o alan artık organizasyon rolünden türetilir (bkz. setUserOrganizationRole/
+-- SetUserCoarseRole), bu uçtan bağımsız yazılırsa ikisi birbirinden
+-- sapar (requireAdmin kapısı ve /admin vs /panel kabuk seçimi bozulur).
+UPDATE users
+SET full_name = $3, is_active = $4
+WHERE id = $1 AND organization_id = $2
+RETURNING *;

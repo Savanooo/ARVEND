@@ -23,7 +23,15 @@ const (
 	AuditActionOrganizationSuspended    = "organization_suspended"
 	AuditActionOrganizationActivated    = "organization_activated"
 	AuditActionOrganizationPlanChanged  = "organization_plan_changed"
+	AuditActionOrganizationCancelled    = "organization_cancelled"
 	AuditActionCalcCatalogReprovisioned = "calc_catalog_reprovisioned"
+	// Süper Admin'in firma kullanıcıları üzerindeki işlemleri -- hepsi
+	// target_user_id ile yazılır; hiçbir şifre/geçici şifre metadata'ya girmez.
+	AuditActionUserProvisioned   = "user_provisioned"
+	AuditActionUserDeactivated   = "user_deactivated"
+	AuditActionUserReactivated   = "user_reactivated"
+	AuditActionUserRoleChanged   = "user_role_changed"
+	AuditActionUserPasswordReset = "user_password_reset"
 )
 
 // AuditEvent, bir Super Admin'in bir organization veya user üzerinde yaptığı

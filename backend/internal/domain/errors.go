@@ -10,4 +10,15 @@ var (
 	ErrInvalidToken          = errors.New("geçersiz veya süresi dolmuş oturum")
 	ErrOrganizationSuspended = errors.New("firma askıya alınmış")
 	ErrForbidden             = errors.New("bu işlem için yetkiniz yok")
+	// ErrInvalidOrgStatusTransition, OrgStatus.CanTransitionTo'nun izin
+	// vermediği bir yaşam döngüsü geçişinde döner (ör. cancelled -> suspended,
+	// ya da zaten bulunulan duruma tekrar geçiş).
+	ErrInvalidOrgStatusTransition = errors.New("bu durum geçişine izin verilmiyor")
+	// ErrReservedUsername, platform provisioning'inde genel "admin" gibi kişiye
+	// ait olmayan bir kullanıcı adı istendiğinde döner -- ürün modeli kişiye
+	// özel hesaplar + organizasyon rolü (Sahip/Yönetici/...) üzerine kuruludur.
+	ErrReservedUsername = errors.New("genel 'admin' kullanıcı adı kullanılamaz; kişiye özel bir kullanıcı adı seçin")
+	// ErrRoleNotAssignable, yeni atama hedefi olamayacak bir organizasyon
+	// rolü (legacy_user -- yalnızca migration artığı) istendiğinde döner.
+	ErrRoleNotAssignable = errors.New("bu rol yeni atama için kullanılamaz")
 )

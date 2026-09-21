@@ -36,6 +36,11 @@ type organizationResponse struct {
 	OnboardingStep        string  `json:"onboarding_step"`
 	CreatedAt             string  `json:"created_at"`
 	UpdatedAt             string  `json:"updated_at"`
+	// ActiveOwnerCount, YALNIZCA GetOrganization (firma detayı) tarafından
+	// doldurulur (0 = alan yok) -- liste/oluşturma yanıtlarında ekstra bir
+	// sorgu gerektirmez, omitempty ile hiç görünmez. Sayfalanmış kullanıcı
+	// listesinden (200 sınırı) BAĞIMSIZDIR, bkz. PlatformService.CountActiveOwners.
+	ActiveOwnerCount int64 `json:"active_owner_count,omitempty"`
 }
 
 func toOrganizationResponse(o domain.Organization) organizationResponse {
@@ -113,12 +118,17 @@ func (h *PlatformHandler) ListOrganizations(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *PlatformHandler) GetOrganization(w http.ResponseWriter, r *http.Request) {
-	org, err := h.svc.GetOrganization(r.Context(), chi.URLParam(r, "id"))
+	id := chi.URLParam(r, "id")
+	org, err := h.svc.GetOrganization(r.Context(), id)
 	if err != nil {
 		h.writePlatformError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toOrganizationResponse(*org))
+	resp := toOrganizationResponse(*org)
+	if count, err := h.svc.CountActiveOwners(r.Context(), id); err == nil {
+		resp.ActiveOwnerCount = count
+	}
+	httpjson.Write(w, http.StatusOK, resp)
 }
 
 type updateOrganizationStatusRequest struct {
@@ -164,7 +174,7 @@ func (h *PlatformHandler) ListOrganizationUsers(w http.ResponseWriter, r *http.R
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	result, err := h.svc.ListOrganizationUsers(r.Context(), chi.URLParam(r, "id"), page, limit)
 	if err != nil {
-		httpjson.Error(w, http.StatusInternalServerError, "kullanıcılar alınamadı")
+		h.writePlatformError(w, err)
 		return
 	}
 	users := make([]userResponse, len(result.Users))
@@ -172,6 +182,99 @@ func (h *PlatformHandler) ListOrganizationUsers(w http.ResponseWriter, r *http.R
 		users[i] = toUserResponse(u)
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"users": users, "total": result.Total})
+}
+
+func (h *PlatformHandler) ListOrganizationRoles(w http.ResponseWriter, r *http.Request) {
+	roles, err := h.svc.ListOrganizationRoles(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		h.writePlatformError(w, err)
+		return
+	}
+	resp := make([]organizationRoleResponse, len(roles))
+	for i, role := range roles {
+		resp[i] = toOrganizationRoleResponse(role)
+	}
+	httpjson.Write(w, http.StatusOK, map[string]any{"roles": resp})
+}
+
+type provisionOrganizationUserRequest struct {
+	Username             string `json:"username"`
+	FullName             string `json:"full_name"`
+	TemporaryPassword    string `json:"temporary_password"`
+	OrganizationRoleCode string `json:"organization_role_code"`
+}
+
+func (h *PlatformHandler) ProvisionOrganizationUser(w http.ResponseWriter, r *http.Request) {
+	var req provisionOrganizationUserRequest
+	if err := httpjson.Decode(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	actorID, _ := middleware.UserIDFromContext(r.Context())
+	user, err := h.svc.ProvisionOrganizationUser(r.Context(), service.ProvisionOrganizationUserInput{
+		OrganizationID: chi.URLParam(r, "id"), Username: req.Username, FullName: req.FullName,
+		TemporaryPassword: req.TemporaryPassword, RoleCode: req.OrganizationRoleCode, ActorUserID: actorID,
+	})
+	if err != nil {
+		h.writePlatformError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusCreated, toUserResponse(*user))
+}
+
+func (h *PlatformHandler) DeactivateOrganizationUser(w http.ResponseWriter, r *http.Request) {
+	actorID, _ := middleware.UserIDFromContext(r.Context())
+	if err := h.svc.DeactivateOrganizationUser(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "userId"), actorID); err != nil {
+		h.writePlatformError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h *PlatformHandler) ReactivateOrganizationUser(w http.ResponseWriter, r *http.Request) {
+	actorID, _ := middleware.UserIDFromContext(r.Context())
+	if err := h.svc.ReactivateOrganizationUser(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "userId"), actorID); err != nil {
+		h.writePlatformError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+type setOrganizationUserRoleRequest struct {
+	RoleCode string `json:"role_code"`
+}
+
+func (h *PlatformHandler) SetOrganizationUserRole(w http.ResponseWriter, r *http.Request) {
+	var req setOrganizationUserRoleRequest
+	if err := httpjson.Decode(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	actorID, _ := middleware.UserIDFromContext(r.Context())
+	role, err := h.svc.SetOrganizationUserRole(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "userId"), req.RoleCode, actorID)
+	if err != nil {
+		h.writePlatformError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, map[string]any{"organization_role_code": role.Code, "organization_role_name": role.Name})
+}
+
+type resetOrganizationUserPasswordRequest struct {
+	TemporaryPassword string `json:"temporary_password"`
+}
+
+func (h *PlatformHandler) ResetOrganizationUserPassword(w http.ResponseWriter, r *http.Request) {
+	var req resetOrganizationUserPasswordRequest
+	if err := httpjson.Decode(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	actorID, _ := middleware.UserIDFromContext(r.Context())
+	if err := h.svc.ResetOrganizationUserPassword(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "userId"), req.TemporaryPassword, actorID); err != nil {
+		h.writePlatformError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 type reprovisionCalcCatalogRequest struct {
@@ -255,9 +358,11 @@ func (h *PlatformHandler) ListPlans(w http.ResponseWriter, r *http.Request) {
 func (h *PlatformHandler) writePlatformError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
-		httpjson.Error(w, http.StatusNotFound, "firma bulunamadı")
+		httpjson.Error(w, http.StatusNotFound, "kayıt bulunamadı")
 	case errors.Is(err, domain.ErrDuplicateUsername):
 		httpjson.Error(w, http.StatusConflict, "bu kullanıcı adı zaten kullanılıyor")
+	case errors.Is(err, domain.ErrLastOwner), errors.Is(err, domain.ErrInvalidOrgStatusTransition):
+		httpjson.Error(w, http.StatusConflict, err.Error())
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}

@@ -189,7 +189,33 @@ rm -f sa.jar owner.jar login-sa.json login-owner.json
 Web: super_admin ile giriş → `/super-admin`; adres çubuğuna `/teklifler`
 yazınca `/super-admin`'e döner. Owner ile `/super-admin` → `/admin`'e döner.
 
-## 6. Bilinen sınırlar / sonraki işler
+## 6. Firma yaşam döngüsü ve firma kullanıcılarının yönetimi (web, `/super-admin/{firma}`)
+
+Süper Admin firma detayında üç sekme görür; hiçbir sekmede **silme** yoktur.
+
+- **Genel**: durum (deneme/aktif/askıda/iptal), plan, oluşturulma, onboarding,
+  kullanıcı ve aktif Sahip sayısı; onaylı yaşam döngüsü işlemleri
+  (`Aktifleştir`, `Askıya Al`, `İptal Et`, `Yeniden Aktifleştir`). İzinli
+  geçişler: `trial → active|suspended|cancelled`, `active → suspended|cancelled`,
+  `suspended → active|cancelled`, `cancelled → active`. Askı ve iptal
+  yalnızca erişimi kapatır (giriş + açık oturumlar), tüm kayıtlar korunur.
+- **Kullanıcılar**: organizasyon rolüyle (Sahip/Yönetici/Proje Yöneticisi/
+  Finans/Saha/özel) listeleme, Sahip rozeti, aktif/pasif, "ilk şifre
+  belirlenmeli" işareti; `Kullanıcı Tanımla` (gerekirse yeni/ilk Sahip,
+  geçici şifre + zorunlu değişiklik), `Rolü Değiştir`, `Geçici Şifre Ver`,
+  `Pasifleştir` / `Aktifleştir`. Genel `admin` kullanıcı adı ve `legacy_user`
+  rolü reddedilir. **Son aktif Sahip pasifleştirilemez ve düşürülemez**
+  (backend `409`); önce ikinci bir Sahip tanımlayın.
+- **Denetim Kayıtları**: platform işlemlerinin (`organization_*`, `user_*`)
+  değişmez kaydı; şifreler asla yazılmaz.
+
+API (hepsi `RequireRole(super_admin)` arkasında, organizasyon kimliği
+URL'den): `GET/POST /platform/organizations/{id}/users`,
+`POST .../users/{userId}/deactivate|reactivate|reset-initial-password`,
+`PUT .../users/{userId}/organization-role`, `GET .../roles`,
+`PATCH .../status` (geçiş kuralları uygulanır).
+
+## 7. Bilinen sınırlar / sonraki işler
 
 - `super_admin` parolasını değiştiren bir API ucu **yoktur** (`/users/me/password`
   tenant kapsamlıdır ve platform hesabına kapalıdır). Parola değişikliği

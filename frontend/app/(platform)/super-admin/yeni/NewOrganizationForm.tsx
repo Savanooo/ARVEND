@@ -49,6 +49,10 @@ export function NewOrganizationForm({ plans }: { plans: Plan[] }) {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    if (ownerUsername.trim().toLowerCase() === "admin") {
+      setError("Genel 'admin' kullanıcı adı kullanılamaz; Sahip için kişiye özel bir kullanıcı adı seçin.");
+      return;
+    }
     setLoading(true);
     try {
       const result = await apiClient<{ organization: Organization; owner: User; calc_catalog_provisioned: boolean }>(
@@ -118,8 +122,10 @@ export function NewOrganizationForm({ plans }: { plans: Plan[] }) {
           )}
 
           <div className="border-t border-border pt-4">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-text-muted">
-              İlk Kullanıcı (Owner)
+            <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-text-muted">İlk Sahip (Owner)</p>
+            <p className="mb-3 text-xs text-text-muted">
+              Firmanın ilk hesabı, tüm yetkilere sahip <strong>Sahip</strong> rolüyle açılır; kişiye özel bir kullanıcı
+              adı verin (genel &quot;admin&quot; hesabı oluşturulmaz).
             </p>
             <div className="flex flex-col gap-4">
               <Input
@@ -131,6 +137,7 @@ export function NewOrganizationForm({ plans }: { plans: Plan[] }) {
               <Input
                 label="Kullanıcı Adı"
                 required
+                autoComplete="off"
                 value={ownerUsername}
                 onChange={(e) => setOwnerUsername(e.target.value)}
               />
@@ -139,12 +146,13 @@ export function NewOrganizationForm({ plans }: { plans: Plan[] }) {
                 type="password"
                 required
                 minLength={8}
+                autoComplete="new-password"
                 value={ownerPassword}
                 onChange={(e) => setOwnerPassword(e.target.value)}
               />
               <p className="text-xs text-text-muted">
-                Owner ilk girişte bu şifreyi değiştirmek zorunda kalır. Şifreyi Owner&apos;a güvenli bir
-                kanaldan iletmeniz gerekir -- sistem otomatik e-posta göndermez.
+                Sahip ilk girişte bu şifreyi değiştirmek zorunda kalır. Şifreyi kendisine güvenli bir kanaldan
+                iletmeniz gerekir -- sistem otomatik e-posta göndermez.
               </p>
             </div>
           </div>

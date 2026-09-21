@@ -6,86 +6,102 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Select } from "@/components/ui/Select";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useToast } from "@/components/ui/Toast";
 import { apiClient, ApiError } from "@/lib/api";
-import { ORG_STATUS_LABELS, type Organization, type OrgStatus, type Plan } from "@/lib/types";
+import { orgLifecycleActions, type OrgLifecycleAction } from "@/lib/org-lifecycle";
+import { ORG_STATUS } from "@/lib/status";
+import { ONBOARDING_STEP_LABELS, type Organization, type Plan } from "@/lib/types";
 
-export function GeneralTab({ organization, plans }: { organization: Organization; plans: Plan[] }) {
+export function GeneralTab({
+  organization,
+  plans,
+  userCount,
+  activeOwnerCount,
+}: {
+  organization: Organization;
+  plans: Plan[];
+  userCount: number;
+  activeOwnerCount: number;
+}) {
   const router = useRouter();
+  const toast = useToast();
   const { confirm, dialog } = useConfirmDialog();
-  const [status, setStatus] = useState<OrgStatus>(organization.status);
   const [planCode, setPlanCode] = useState(organization.plan_code);
-  const [savingStatus, setSavingStatus] = useState(false);
-  const [savingPlan, setSavingPlan] = useState(false);
-  const [reprovisioning, setReprovisioning] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleStatusUpdate() {
+  const planName = plans.find((p) => p.code === organization.plan_code)?.name ?? organization.plan_code;
+  const actions = orgLifecycleActions(organization.status);
+  // GET /platform/plans yalnızca is_active=true planları döner; firma daha
+  // sonra pasifleştirilmiş bir planda kalmış olabilir. Böyle bir kodu
+  // seçenek listesinden düşürmek denetlenen &lt;select&gt;'i value'suyla
+  // eşleşmeyen bir DOM seçimine düşürür (tarayıcı ilk aktif planı
+  // gösterir, "Planı Güncelle" ise "değişmedi" sanıp devre dışı kalır) --
+  // mevcut plan listede yoksa başa EKLENIR ki gerçek durum her zaman
+  // görünür ve seçili kalsın.
+  const planOptions = plans.some((p) => p.code === organization.plan_code)
+    ? plans
+    : [{ code: organization.plan_code, name: `${planName} (pasif plan)`, is_active: false, max_users: 0, max_projects: 0, sort_order: -1 }, ...plans];
+
+  async function runLifecycle(action: OrgLifecycleAction) {
     setError(null);
-    setMessage(null);
-    if (status === "suspended") {
-      const ok = await confirm({
-        title: "Firmayı askıya al",
-        message: `${organization.name} askıya alınacak -- tüm kullanıcıları (halihazırda oturum açmış olanlar dahil) hemen erişimi kaybeder. Devam edilsin mi?`,
-        confirmLabel: "Askıya Al",
-        danger: true,
-      });
-      if (!ok) return;
-    }
-    setSavingStatus(true);
+    const ok = await confirm({
+      title: `${action.label}: ${organization.name}`,
+      message: action.description,
+      confirmLabel: action.label,
+      danger: action.danger,
+    });
+    if (!ok) return;
+    setBusy(action.target);
     try {
       await apiClient<Organization>(`/api/v1/platform/organizations/${organization.id}/status`, {
         method: "PATCH",
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status: action.target }),
       });
-      setMessage("Durum güncellendi.");
+      toast.success(`Firma durumu güncellendi: ${ORG_STATUS[action.target].label}`);
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
     } finally {
-      setSavingStatus(false);
+      setBusy(null);
     }
   }
 
   async function handlePlanUpdate() {
     setError(null);
-    setMessage(null);
-    setSavingPlan(true);
+    setBusy("plan");
     try {
       await apiClient<Organization>(`/api/v1/platform/organizations/${organization.id}/plan`, {
         method: "PATCH",
         body: JSON.stringify({ plan_code: planCode }),
       });
-      setMessage("Plan güncellendi.");
+      toast.success("Plan güncellendi.");
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
     } finally {
-      setSavingPlan(false);
+      setBusy(null);
     }
   }
 
   async function handleReprovision() {
     setError(null);
-    setMessage(null);
-    setReprovisioning(true);
+    setBusy("catalog");
     try {
-      const res = await apiClient<{
-        groups_created: number;
-        categories_created: number;
-        items_created: number;
-      }>(`/api/v1/platform/organizations/${organization.id}/reprovision-calc-catalog`, {
-        method: "POST",
-        body: JSON.stringify({ link_products: false }),
-      });
-      setMessage(
-        `Katalog kontrol edildi: ${res.groups_created} grup, ${res.categories_created} kategori, ${res.items_created} kalem eklendi (zaten var olanlar atlandı).`
+      const res = await apiClient<{ groups_created: number; categories_created: number; items_created: number }>(
+        `/api/v1/platform/organizations/${organization.id}/reprovision-calc-catalog`,
+        { method: "POST", body: JSON.stringify({ link_products: false }) }
       );
+      toast.success(
+        `Katalog kontrol edildi: ${res.groups_created} grup, ${res.categories_created} kategori, ${res.items_created} kalem eklendi.`
+      );
+      router.refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
     } finally {
-      setReprovisioning(false);
+      setBusy(null);
     }
   }
 
@@ -94,46 +110,64 @@ export function GeneralTab({ organization, plans }: { organization: Organization
       <Card>
         <CardHeader>Firma Bilgileri</CardHeader>
         <CardBody className="flex flex-col gap-2 text-sm">
-          <InfoRow label="Slug" value={organization.slug} />
-          <InfoRow
-            label="Onboarding"
-            value={organization.onboarding_completed ? "Tamamlandı" : `Devam ediyor (${organization.onboarding_step})`}
-          />
-          {organization.trial_ends_at && (
-            <InfoRow label="Deneme Bitiş" value={new Date(organization.trial_ends_at).toLocaleDateString("tr-TR")} />
+          <InfoRow label="Durum">
+            <StatusBadge status={organization.status} registry={ORG_STATUS} />
+          </InfoRow>
+          <InfoRow label="Plan">{planName}</InfoRow>
+          <InfoRow label="Slug">{organization.slug}</InfoRow>
+          <InfoRow label="Onboarding">
+            {organization.onboarding_completed
+              ? "Tamamlandı"
+              : `Devam ediyor · ${ONBOARDING_STEP_LABELS[organization.onboarding_step] ?? organization.onboarding_step}`}
+          </InfoRow>
+          <InfoRow label="Kullanıcı">{userCount}</InfoRow>
+          <InfoRow label="Aktif Sahip">
+            {activeOwnerCount > 0 ? (
+              activeOwnerCount
+            ) : (
+              <span className="text-danger">Yok — Kullanıcılar sekmesinden bir Sahip tanımlayın</span>
+            )}
+          </InfoRow>
+          {organization.status === "trial" && organization.trial_ends_at && (
+            <InfoRow label="Deneme Bitiş">{new Date(organization.trial_ends_at).toLocaleDateString("tr-TR")}</InfoRow>
           )}
-          <InfoRow label="Oluşturulma" value={new Date(organization.created_at).toLocaleString("tr-TR")} />
+          <InfoRow label="Oluşturulma">{new Date(organization.created_at).toLocaleString("tr-TR")}</InfoRow>
         </CardBody>
       </Card>
 
       <Card>
-        <CardHeader>Durum ve Plan</CardHeader>
-        <CardBody className="flex flex-col gap-4">
-          <div className="flex items-end gap-3">
-            <Select
-              label="Durum"
-              value={status}
-              onChange={(e) => setStatus(e.target.value as OrgStatus)}
-              className="flex-1"
-            >
-              {(Object.keys(ORG_STATUS_LABELS) as OrgStatus[]).map((s) => (
-                <option key={s} value={s}>
-                  {ORG_STATUS_LABELS[s]}
-                </option>
+        <CardHeader>Yaşam Döngüsü</CardHeader>
+        <CardBody className="flex flex-col gap-3">
+          <p className="text-xs text-text-muted">
+            Firma silinmez; askıya alma ve iptal yalnızca erişimi kapatır, tüm kayıtlar korunur ve her iki
+            durumdan da yeniden aktifleştirilebilir. Her işlem onay ister.
+          </p>
+          {actions.length === 0 ? (
+            <p className="text-xs text-text-muted">Bu durumda yapılabilecek bir işlem yok.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {actions.map((action) => (
+                <Button
+                  key={action.target}
+                  type="button"
+                  variant={action.danger ? "danger" : "primary"}
+                  disabled={busy !== null}
+                  onClick={() => runLifecycle(action)}
+                >
+                  {busy === action.target ? "Uygulanıyor…" : action.label}
+                </Button>
               ))}
-            </Select>
-            <Button
-              type="button"
-              variant={status === "suspended" ? "danger" : "primary"}
-              disabled={savingStatus || status === organization.status}
-              onClick={handleStatusUpdate}
-            >
-              {savingStatus ? "Güncelleniyor…" : "Güncelle"}
-            </Button>
-          </div>
+            </div>
+          )}
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>Plan</CardHeader>
+        <CardBody>
           <div className="flex items-end gap-3">
             <Select label="Plan" value={planCode} onChange={(e) => setPlanCode(e.target.value)} className="flex-1">
-              {plans.map((p) => (
+              {planOptions.map((p) => (
                 <option key={p.code} value={p.code}>
                   {p.name}
                 </option>
@@ -142,10 +176,10 @@ export function GeneralTab({ organization, plans }: { organization: Organization
             <Button
               type="button"
               variant="secondary"
-              disabled={savingPlan || planCode === organization.plan_code}
+              disabled={busy !== null || planCode === organization.plan_code}
               onClick={handlePlanUpdate}
             >
-              {savingPlan ? "Güncelleniyor…" : "Güncelle"}
+              {busy === "plan" ? "Güncelleniyor…" : "Planı Güncelle"}
             </Button>
           </div>
         </CardBody>
@@ -158,24 +192,23 @@ export function GeneralTab({ organization, plans }: { organization: Organization
             Varsayılan grup/kategori/reçete kataloğunu bu firma için yeniden kontrol eder -- zaten var olan
             satırlar atlanır, yalnızca eksik olanlar eklenir (idempotent, güvenle tekrar çalıştırılabilir).
           </p>
-          <Button type="button" variant="secondary" disabled={reprovisioning} onClick={handleReprovision} className="self-start">
-            {reprovisioning ? "Kontrol ediliyor…" : "Kataloğu Kontrol Et / Tamamla"}
+          <Button type="button" variant="secondary" disabled={busy !== null} onClick={handleReprovision} className="self-start">
+            {busy === "catalog" ? "Kontrol ediliyor…" : "Kataloğu Kontrol Et / Tamamla"}
           </Button>
         </CardBody>
       </Card>
 
-      {message && <p className="text-xs text-success">{message}</p>}
       {error && <p className="text-xs text-danger">{error}</p>}
       {dialog}
     </div>
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex items-center justify-between gap-4">
       <span className="text-xs font-semibold uppercase tracking-widest text-text-muted">{label}</span>
-      <span className="text-text">{value}</span>
+      <span className="text-right text-text">{children}</span>
     </div>
   );
 }

@@ -662,6 +662,15 @@ func NewRouter(d Deps) http.Handler {
 				r.Patch("/{id}/status", d.Platform.UpdateOrganizationStatus)
 				r.Patch("/{id}/plan", d.Platform.UpdateOrganizationPlan)
 				r.Get("/{id}/users", d.Platform.ListOrganizationUsers)
+				// Firma kullanıcı yönetimi -- organizasyon kimliği HER ZAMAN
+				// URL'den (super_admin için tenant bağlamı uydurulmaz); hiçbir
+				// uç satır silmez (pasifleştir/aktifleştir/rol/geçici şifre).
+				r.Post("/{id}/users", d.Platform.ProvisionOrganizationUser)
+				r.Post("/{id}/users/{userId}/deactivate", d.Platform.DeactivateOrganizationUser)
+				r.Post("/{id}/users/{userId}/reactivate", d.Platform.ReactivateOrganizationUser)
+				r.Put("/{id}/users/{userId}/organization-role", d.Platform.SetOrganizationUserRole)
+				r.Post("/{id}/users/{userId}/reset-initial-password", d.Platform.ResetOrganizationUserPassword)
+				r.Get("/{id}/roles", d.Platform.ListOrganizationRoles)
 				r.Post("/{id}/reprovision-calc-catalog", d.Platform.ReprovisionCalcCatalog)
 				r.Get("/{id}/audit-events", d.Platform.ListAuditEvents)
 			})

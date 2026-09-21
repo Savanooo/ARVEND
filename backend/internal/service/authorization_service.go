@@ -254,46 +254,10 @@ func (s *AuthorizationService) SetRolePermissions(ctx context.Context, roleID, o
 // tarafından 'super_admin' OLAMAYACAĞI zaten garanti edilir çünkü
 // organization_roles hiçbir zaman 'super_admin' kodlu bir satır İÇERMEZ
 // (yalnızca migration'da seed edilen 6 kod var, hepsi tenant rolü).
+// Son aktif Owner koruması ve kaba rol senkronu user_lifecycle.go'da --
+// platform tarafı (PlatformService) ile AYNI kural.
 func (s *AuthorizationService) SetUserOrganizationRole(ctx context.Context, userID, organizationID, roleCode string) (*domain.OrganizationRole, error) {
-	uid, err := repository.StringToUUID(userID)
-	if err != nil {
-		return nil, domain.ErrNotFound
-	}
-	orgID, err := repository.StringToUUID(organizationID)
-	if err != nil {
-		return nil, domain.ErrNotFound
-	}
-	role, err := s.q.GetOrganizationRoleByCode(ctx, sqlc.GetOrganizationRoleByCodeParams{OrganizationID: orgID, Code: roleCode})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
-		return nil, err
-	}
-
-	// Son-owner koruması: mevcut rolü 'owner' olan TEK aktif kullanıcı,
-	// başka bir role düşürülemez.
-	current, err := s.q.GetUserRoleCode(ctx, sqlc.GetUserRoleCodeParams{ID: uid, OrganizationID: orgID})
-	if err == nil && current.Code == domain.OrgRoleOwner && role.Code != domain.OrgRoleOwner {
-		count, cerr := s.q.CountOwnersInOrganization(ctx, orgID)
-		if cerr != nil {
-			return nil, cerr
-		}
-		if count <= 1 {
-			return nil, domain.ErrLastOwner
-		}
-	}
-
-	if _, err := s.q.UpdateUserOrganizationRole(ctx, sqlc.UpdateUserOrganizationRoleParams{
-		ID: uid, OrganizationID: orgID, OrganizationRoleID: role.ID,
-	}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
-		return nil, err
-	}
-	dr := repository.ToDomainOrganizationRole(role)
-	return &dr, nil
+	return setUserOrganizationRole(ctx, s.q, userID, organizationID, roleCode)
 }
 
 // ---------- Kullanıcı listesi (organizasyon rolüyle zenginleştirilmiş) ----------
