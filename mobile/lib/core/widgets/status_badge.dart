@@ -90,7 +90,10 @@ abstract final class StatusRegistry {
 
   static const purchaseOrder = {
     'draft': ('Taslak', StatusTone.muted),
-    'approved': ('Onaylandı', StatusTone.gold),
+    // "approved" bir onay/olumlu SONUÇTUR -- marka vurgusu (gold) DEĞİL,
+    // diğer tüm "approved" durumlarıyla (Ek İş/Talep/vb.) TUTARLI şekilde
+    // success (bkz. StatusTone doc-comment, Faz 3 durum tutarlılığı).
+    'approved': ('Onaylandı', StatusTone.success),
     'cancelled': ('İptal Edildi', StatusTone.danger),
     'closed': ('Kapatıldı', StatusTone.success),
   };
@@ -165,6 +168,13 @@ abstract final class StatusRegistry {
     'report': ('Rapor', StatusTone.muted),
     'other': ('Diğer', StatusTone.muted),
   };
+
+  /// RFQ'nun ayrı bir "awarded" DURUMU yoktur (bkz. domain/procurement.dart
+  /// `RFQ.isAwarded` getter'ı -- nihai durum her zaman `closed`, kazanan
+  /// yalnızca `awardedQuotationId` alanında tutulur). Bu yüzden value->tuple
+  /// sözlüğü değil, tekil bir paylaşılan rozet -- ekranlar kendi ad-hoc
+  /// (ör. gold renkli) rozetini İCAT ETMEZ, bunu kullanır.
+  static const awardedQuotation = StatusBadge(label: 'Ödüllendirildi', tone: StatusTone.success);
 
   static Widget build(String value, Map<String, (String, StatusTone)> registry) {
     final entry = registry[value];

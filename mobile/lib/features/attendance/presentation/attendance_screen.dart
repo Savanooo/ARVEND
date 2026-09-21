@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../app/app_shell.dart';
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_buttons.dart';
+import '../../../core/widgets/app_data_row.dart';
+import '../../../core/widgets/app_filter_bar.dart';
+import '../../../core/widgets/app_list_card.dart';
+import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../data/attendance_providers.dart';
@@ -13,6 +21,11 @@ String _todayIso() {
   final now = DateTime.now();
   return '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
 }
+
+/// Check-in/check-out yoksa gösterilecek metin -- Bugün/Aylık listelerinde
+/// ORTAK kullanılır (bkz. Faz 3 modül talimatı: "'-' if absent").
+String _timeRange(AttendanceRecord r) =>
+    (r.checkIn.isNotEmpty || r.checkOut.isNotEmpty) ? '${r.checkIn}${r.checkOut.isNotEmpty ? '-${r.checkOut}' : ''}' : '-';
 
 /// Faz "Mesai/Puantaj" — backend'de SAF elle giriş (bkz. domain notu:
 /// GPS/geofence YOK), tek bir `work_hours` alanı var (mesai/fazla mesai
@@ -48,7 +61,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     final canManage = user == null || user.permissions.isEmpty || user.hasPermission('attendance.manage');
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Mesai')),
+      appBar: buildAppBar('Mesai'),
       floatingActionButton: canManage
           ? FloatingActionButton(
               onPressed: () => _showFormSheet(context),
@@ -58,7 +71,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.sm),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -66,8 +79,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
                   icon: const Icon(Icons.chevron_left),
                   onPressed: () => setState(() => _month = DateTime(_month.year, _month.month - 1)),
                 ),
-                Text('${_month.year} / ${_month.month.toString().padLeft(2, '0')}',
-                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                Text('${_month.year} / ${_month.month.toString().padLeft(2, '0')}', style: AppTypography.sectionTitle),
                 IconButton(
                   icon: const Icon(Icons.chevron_right),
                   onPressed: () => setState(() => _month = DateTime(_month.year, _month.month + 1)),
@@ -108,62 +120,70 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     final missingToday = _isCurrentMonth ? missingAttendanceFor(employees, todaysRecords) : const <Employee>[];
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 88),
+      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.xs, AppSpacing.lg, 88),
       children: [
-        if (_isCurrentMonth) _TodaySection(records: todaysRecords, missing: missingToday),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            SizedBox(
-              width: 200,
-              child: DropdownButtonFormField<String>(
-                initialValue: _employeeFilter ?? '',
-                decoration: const InputDecoration(labelText: 'Personel', isDense: true),
-                items: [
-                  const DropdownMenuItem(value: '', child: Text('Tüm personel')),
-                  ...employees.map((e) => DropdownMenuItem(value: e.id, child: Text(e.fullName, overflow: TextOverflow.ellipsis))),
-                ],
-                onChanged: (v) => setState(() => _employeeFilter = (v == null || v.isEmpty) ? null : v),
-              ),
-            ),
-            ...kAttendanceStatuses.map((s) => FilterChip(
-                  label: Text(StatusRegistry.attendance[s]!.$1),
-                  selected: _statusFilter == s,
-                  onSelected: (v) => setState(() => _statusFilter = v ? s : null),
+        if (_isCurrentMonth) ...[
+          const AppSectionHeader(title: 'Bugün'),
+          if (todaysRecords.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+              child: Text('Bugün için kayıt girilmedi.', style: AppTypography.metadata),
+            )
+          else
+            ...todaysRecords.map((r) => AppListCard(
+                  title: r.employeeName.isEmpty ? r.employeeId : r.employeeName,
+                  subtitle: _timeRange(r),
+                  trailing: _AttendanceTrailing(record: r),
                 )),
+          if (missingToday.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            const AppSectionHeader(title: 'Eksik Kayıtlar'),
+            ...missingToday.map((e) => _MissingEmployeeRow(employee: e)),
+          ],
+          const SizedBox(height: AppSpacing.lg),
+        ],
+        const AppSectionHeader(title: 'Aylık / Geçmiş'),
+        const SizedBox(height: AppSpacing.xs),
+        SizedBox(
+          width: 200,
+          child: DropdownButtonFormField<String>(
+            initialValue: _employeeFilter ?? '',
+            decoration: const InputDecoration(labelText: 'Personel', isDense: true),
+            items: [
+              const DropdownMenuItem(value: '', child: Text('Tüm personel')),
+              ...employees.map((e) => DropdownMenuItem(value: e.id, child: Text(e.fullName, overflow: TextOverflow.ellipsis))),
+            ],
+            onChanged: (v) => setState(() => _employeeFilter = (v == null || v.isEmpty) ? null : v),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        AppFilterBar(
+          wrap: true,
+          chips: [
+            for (final s in kAttendanceStatuses)
+              AppFilterChipData(
+                label: StatusRegistry.attendance[s]!.$1,
+                selected: _statusFilter == s,
+                onTap: () => setState(() => _statusFilter = _statusFilter == s ? null : s),
+              ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppSpacing.md),
         if (filtered.isEmpty)
           const Padding(
-            padding: EdgeInsets.symmetric(vertical: 24),
-            child: Center(child: Text('Bu filtreye uyan kayıt yok.', style: TextStyle(color: Colors.grey))),
+            padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
+            child: EmptyStateView(message: 'Bu filtreye uyan kayıt yok.', icon: Icons.event_note_outlined),
           )
         else
-          ...filtered.map((r) => Card(
-                margin: const EdgeInsets.only(bottom: 6),
-                child: ListTile(
-                  onTap: canManage ? () => _showFormSheet(context, existing: r) : null,
-                  title: Text(r.employeeName.isEmpty ? r.employeeId : r.employeeName),
-                  subtitle: Text([
-                    r.date,
-                    if (r.checkIn.isNotEmpty || r.checkOut.isNotEmpty) '${r.checkIn}${r.checkOut.isNotEmpty ? '-${r.checkOut}' : ''}',
-                    if (r.note.isNotEmpty) r.note,
-                  ].join('  ·  '), maxLines: 1, overflow: TextOverflow.ellipsis),
-                  trailing: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      StatusRegistry.build(r.status, StatusRegistry.attendance),
-                      const SizedBox(height: 4),
-                      Text('${r.workHours.toStringAsFixed(r.workHours.truncateToDouble() == r.workHours ? 0 : 1)} sa',
-                          style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted)),
-                    ],
-                  ),
-                ),
+          ...filtered.map((r) => AppListCard(
+                onTap: canManage ? () => _showFormSheet(context, existing: r) : null,
+                title: r.employeeName.isEmpty ? r.employeeId : r.employeeName,
+                subtitle: [
+                  r.date,
+                  _timeRange(r),
+                  if (r.note.isNotEmpty) r.note,
+                ].join('  ·  '),
+                trailing: _AttendanceTrailing(record: r),
               )),
       ],
     );
@@ -179,51 +199,46 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
   }
 }
 
-class _TodaySection extends StatelessWidget {
-  const _TodaySection({required this.records, required this.missing});
-  final List<AttendanceRecord> records;
-  final List<Employee> missing;
+/// Bugün/Aylık listelerinde ORTAK trailing: durum rozeti + çalışma saati
+/// (saat PARA DEĞİL -- bu yüzden MoneyText değil düz Text kullanılır).
+class _AttendanceTrailing extends StatelessWidget {
+  const _AttendanceTrailing({required this.record});
+  final AttendanceRecord record;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Bugün', style: TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 8),
-            if (records.isEmpty)
-              const Text('Bugün için kayıt girilmedi.', style: TextStyle(color: Colors.grey, fontSize: 13))
-            else
-              ...records.map((r) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(
-                      children: [
-                        Expanded(child: Text(r.employeeName.isEmpty ? r.employeeId : r.employeeName)),
-                        StatusRegistry.build(r.status, StatusRegistry.attendance),
-                      ],
-                    ),
-                  )),
-            if (missing.isNotEmpty) ...[
-              const Divider(height: 20),
-              const Text('Kaydı girilmemiş', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5, color: AppColors.danger)),
-              const SizedBox(height: 4),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: missing
-                    .map((e) => Chip(
-                          label: Text(e.fullName, style: const TextStyle(fontSize: 12)),
-                          backgroundColor: AppColors.danger.withValues(alpha: 0.08),
-                          visualDensity: VisualDensity.compact,
-                        ))
-                    .toList(),
-              ),
-            ],
-          ],
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        StatusRegistry.build(record.status, StatusRegistry.attendance),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          '${record.workHours.toStringAsFixed(record.workHours.truncateToDouble() == record.workHours ? 0 : 1)} sa',
+          style: AppTypography.metadata,
         ),
+      ],
+    );
+  }
+}
+
+/// "Eksik Kayıtlar" -- `missingAttendanceFor` sonucunu "Bugün" kayıt
+/// listesinden AÇIKÇA ayırt edilebilir şekilde gösterir (bkz. Faz 3 modül
+/// talimatı). Bu sert bir hata değil, "aksiyon gerekir" durumudur -- bu
+/// yüzden danger değil warning tonu kullanılır (bkz. StatusTone doc-comment).
+class _MissingEmployeeRow extends StatelessWidget {
+  const _MissingEmployeeRow({required this.employee});
+  final Employee employee;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppListCard(
+      leading: const Icon(Icons.warning_amber_rounded, color: AppColors.warning, size: 20),
+      title: employee.fullName,
+      subtitle: employee.position.isEmpty ? null : employee.position,
+      trailing: Text(
+        'Kayıt Yok',
+        style: AppTypography.helper.copyWith(color: AppColors.warning, fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -285,22 +300,24 @@ class _AttendanceFormSheetState extends ConsumerState<_AttendanceFormSheet> {
     final employeesAsync = ref.watch(employeesProvider);
 
     return Padding(
-      padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(context).viewInsets.bottom + 20),
+      padding: EdgeInsets.only(left: AppSpacing.xl, right: AppSpacing.xl, top: AppSpacing.xl, bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.xl),
       child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(widget.isEdit ? 'Mesai Kaydını Düzenle' : 'Mesai Kaydı Ekle',
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
-            const SizedBox(height: 16),
-            if (widget.isEdit)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(widget.existing!.employeeName.isEmpty ? widget.existing!.employeeId : widget.existing!.employeeName),
-                subtitle: Text('${widget.existing!.date} — personel/tarih düzenlenemez'),
-              )
-            else
+                style: AppTypography.pageTitle.copyWith(fontSize: 17)),
+            const SizedBox(height: AppSpacing.lg),
+            if (widget.isEdit) ...[
+              AppDataRow(
+                label: 'Personel',
+                value: widget.existing!.employeeName.isEmpty ? widget.existing!.employeeId : widget.existing!.employeeName,
+              ),
+              AppDataRow(label: 'Tarih', value: widget.existing!.date),
+              const SizedBox(height: AppSpacing.xs),
+              Text('Personel ve tarih düzenlenemez.', style: AppTypography.helper),
+            ] else
               employeesAsync.when(
                 data: (employees) => DropdownButtonFormField<Employee>(
                   initialValue: _employee,
@@ -312,11 +329,12 @@ class _AttendanceFormSheetState extends ConsumerState<_AttendanceFormSheet> {
                 error: (e, st) => const Text('Personel listesi alınamadı'),
               ),
             if (!widget.isEdit) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.md),
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Tarih'),
                 subtitle: Text('${_date.day.toString().padLeft(2, '0')}.${_date.month.toString().padLeft(2, '0')}.${_date.year}'),
+                trailing: const Icon(Icons.calendar_today_outlined, size: 18, color: AppColors.textMuted),
                 onTap: () async {
                   final picked = await showDatePicker(
                       context: context, initialDate: _date, firstDate: DateTime(2020), lastDate: DateTime(2100));
@@ -324,7 +342,7 @@ class _AttendanceFormSheetState extends ConsumerState<_AttendanceFormSheet> {
                 },
               ),
             ],
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             DropdownButtonFormField<String>(
               initialValue: _status,
               decoration: const InputDecoration(labelText: 'Durum'),
@@ -333,40 +351,39 @@ class _AttendanceFormSheetState extends ConsumerState<_AttendanceFormSheet> {
                   .toList(),
               onChanged: (v) => setState(() => _status = v!),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             Row(
               children: [
                 Expanded(
                   child: TextField(controller: _checkInController, decoration: const InputDecoration(labelText: 'Giriş')),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: AppSpacing.md),
                 Expanded(
                   child: TextField(controller: _checkOutController, decoration: const InputDecoration(labelText: 'Çıkış')),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             TextField(
               controller: _hoursController,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(labelText: 'Çalışma Saati'),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             TextField(
               controller: _noteController,
               decoration: const InputDecoration(labelText: 'Not (opsiyonel)'),
               maxLines: 2,
             ),
             if (_error != null) ...[
-              const SizedBox(height: 12),
-              Text(_error!, style: const TextStyle(color: AppColors.danger)),
+              const SizedBox(height: AppSpacing.md),
+              Text(_error!, style: AppTypography.error),
             ],
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _submitting ? null : _submit,
-              child: _submitting
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                  : const Text('Kaydet'),
+            const SizedBox(height: AppSpacing.xl),
+            PrimaryButton(
+              label: 'Kaydet',
+              loading: _submitting,
+              onPressed: _submit,
             ),
           ],
         ),

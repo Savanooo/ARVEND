@@ -12,13 +12,17 @@ import '../../../core/auth/auth_controller.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/app_list_card.dart';
 import '../../../core/widgets/app_page_scaffold.dart';
 import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/money_text.dart';
 import '../../../core/widgets/quick_action_button.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../auth/domain/user.dart';
@@ -887,21 +891,19 @@ class _SubcontractsTab extends ConsumerWidget {
     return RefreshIndicator(
       onRefresh: () async => ref.invalidate(projectSubcontractsProvider(projectId)),
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Expanded(child: Text('Taşeron Sözleşmeleri', style: TextStyle(fontWeight: FontWeight.w700))),
-              if (canCreate)
-                IconButton(
-                  onPressed: () => context.push('/projeler/$projectId/taseronlar/yeni'),
-                  icon: const Icon(Icons.add_circle_outline),
-                  tooltip: 'Taşeron Sözleşmesi Ekle',
-                ),
-            ],
+          AppSectionHeader(
+            title: 'Taşeron Sözleşmeleri',
+            trailing: canCreate
+                ? IconButton(
+                    onPressed: () => context.push('/projeler/$projectId/taseronlar/yeni'),
+                    icon: const Icon(Icons.add_circle_outline),
+                    tooltip: 'Taşeron Sözleşmesi Ekle',
+                  )
+                : null,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.sm),
           AsyncStateView(
             value: subcontractsAsync,
             onRetry: () async => ref.invalidate(projectSubcontractsProvider(projectId)),
@@ -909,15 +911,17 @@ class _SubcontractsTab extends ConsumerWidget {
             emptyBuilder: (_) => const EmptyStateView(message: 'Henüz taşeron sözleşmesi yok.'),
             data: (context, subcontracts) => Column(
               children: subcontracts
-                  .map((sc) => Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          title: Text('${sc.subcontractNo} — ${sc.supplierName ?? sc.supplierCode ?? ''}',
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: StatusRegistry.build(sc.status, StatusRegistry.subcontract),
-                          trailing: Text(Formatters.money(sc.originalAmount, currency: sc.currency),
-                              style: const TextStyle(fontWeight: FontWeight.w700)),
-                          onTap: () => context.push('/projeler/$projectId/taseronlar/${sc.id}'),
+                  .map((sc) => AppListCard(
+                        title: '${sc.subcontractNo} — ${sc.supplierName ?? sc.supplierCode ?? ''}',
+                        onTap: () => context.push('/projeler/$projectId/taseronlar/${sc.id}'),
+                        trailing: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            StatusRegistry.build(sc.status, StatusRegistry.subcontract),
+                            const SizedBox(height: 4),
+                            MoneyText(sc.originalAmount, currency: sc.currency, style: AppTypography.metadata),
+                          ],
                         ),
                       ))
                   .toList(),
@@ -955,7 +959,16 @@ class _ProcurementTabState extends ConsumerState<_ProcurementTab> {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, AppSpacing.xs),
+          child: Text(
+            'Talep  →  RFQ  →  Teklif  →  Karşılaştırma  →  Sipariş',
+            style: AppTypography.helper,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, 0),
           child: SegmentedButton<_ProcurementView>(
             segments: const [
               ButtonSegment(value: _ProcurementView.requests, label: Text('Talepler')),
@@ -990,7 +1003,7 @@ class _PurchaseRequestsList extends ConsumerWidget {
     return RefreshIndicator(
       onRefresh: () async => ref.invalidate(projectPurchaseRequestsProvider(projectId)),
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.lg),
         children: [
           if (canManage)
             Align(
@@ -1008,14 +1021,17 @@ class _PurchaseRequestsList extends ConsumerWidget {
             emptyBuilder: (_) => const EmptyStateView(message: 'Henüz satın alma talebi yok.'),
             data: (context, requests) => Column(
               children: requests
-                  .map((pr) => Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          title: Text('${pr.prNo} — ${pr.title}', maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: StatusRegistry.build(pr.status, StatusRegistry.purchaseRequest),
-                          trailing:
-                              Text(Formatters.money(pr.estimatedTotal), style: const TextStyle(fontWeight: FontWeight.w700)),
-                          onTap: () => context.push('/projeler/$projectId/satin-alma/talepler/${pr.id}'),
+                  .map((pr) => AppListCard(
+                        title: '${pr.prNo} — ${pr.title}',
+                        onTap: () => context.push('/projeler/$projectId/satin-alma/talepler/${pr.id}'),
+                        trailing: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            StatusRegistry.build(pr.status, StatusRegistry.purchaseRequest),
+                            const SizedBox(height: 4),
+                            MoneyText(pr.estimatedTotal, style: AppTypography.metadata),
+                          ],
                         ),
                       ))
                   .toList(),
@@ -1039,7 +1055,7 @@ class _RFQsList extends ConsumerWidget {
     return RefreshIndicator(
       onRefresh: () async => ref.invalidate(projectRFQsProvider(projectId)),
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.lg),
         children: [
           if (canManage)
             Align(
@@ -1057,16 +1073,12 @@ class _RFQsList extends ConsumerWidget {
             emptyBuilder: (_) => const EmptyStateView(message: 'Henüz RFQ yok.'),
             data: (context, rfqs) => Column(
               children: rfqs
-                  .map((r) => Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          title: Text('${r.rfqNo} — ${r.title}', maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: StatusRegistry.build(r.status, StatusRegistry.rfq),
-                          trailing: r.isAwarded
-                              ? const Icon(Icons.emoji_events_outlined, color: AppColors.gold)
-                              : null,
-                          onTap: () => context.push('/projeler/$projectId/satin-alma/rfqlar/${r.id}'),
-                        ),
+                  .map((r) => AppListCard(
+                        title: '${r.rfqNo} — ${r.title}',
+                        onTap: () => context.push('/projeler/$projectId/satin-alma/rfqlar/${r.id}'),
+                        trailing: r.isAwarded
+                            ? StatusRegistry.awardedQuotation
+                            : StatusRegistry.build(r.status, StatusRegistry.rfq),
                       ))
                   .toList(),
             ),
@@ -1089,7 +1101,7 @@ class _PurchaseOrdersList extends ConsumerWidget {
     return RefreshIndicator(
       onRefresh: () async => ref.invalidate(projectPurchaseOrdersProvider(projectId)),
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.lg),
         children: [
           if (canManage)
             Align(
@@ -1107,15 +1119,17 @@ class _PurchaseOrdersList extends ConsumerWidget {
             emptyBuilder: (_) => const EmptyStateView(message: 'Henüz satın alma siparişi yok.'),
             data: (context, orders) => Column(
               children: orders
-                  .map((po) => Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          title: Text('${po.poNo} — ${po.supplierName ?? po.supplierCode ?? ''}',
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: StatusRegistry.build(po.status, StatusRegistry.purchaseOrder),
-                          trailing: Text(Formatters.money(po.total, currency: po.currency),
-                              style: const TextStyle(fontWeight: FontWeight.w700)),
-                          onTap: () => context.push('/projeler/$projectId/satin-alma/siparisler/${po.id}'),
+                  .map((po) => AppListCard(
+                        title: '${po.poNo} — ${po.supplierName ?? po.supplierCode ?? ''}',
+                        onTap: () => context.push('/projeler/$projectId/satin-alma/siparisler/${po.id}'),
+                        trailing: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            StatusRegistry.build(po.status, StatusRegistry.purchaseOrder),
+                            const SizedBox(height: 4),
+                            MoneyText(po.total, currency: po.currency, style: AppTypography.metadata),
+                          ],
                         ),
                       ))
                   .toList(),
@@ -1536,6 +1550,12 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  String _fileType(String originalName) {
+    final dot = originalName.lastIndexOf('.');
+    if (dot < 0 || dot == originalName.length - 1) return '—';
+    return originalName.substring(dot + 1).toUpperCase();
+  }
+
   @override
   Widget build(BuildContext context) {
     final photosAsync = ref.watch(projectPhotosProvider(projectId));
@@ -1548,118 +1568,119 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
         ref.invalidate(projectFilesProvider(projectId));
       },
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
           if (_uploading) const LinearProgressIndicator(),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Expanded(child: Text('Şantiye Fotoğrafları', style: TextStyle(fontWeight: FontWeight.w700))),
-              if (canManage)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.photo_camera_outlined),
-                      tooltip: 'Kameradan çek',
-                      onPressed: _uploading ? null : () => _pickAndUploadPhoto(ImageSource.camera),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.photo_library_outlined),
-                      tooltip: 'Galeriden seç',
-                      onPressed: _uploading ? null : () => _pickAndUploadPhoto(ImageSource.gallery),
-                    ),
-                  ],
+          if (_uploading) const SizedBox(height: AppSpacing.sm),
+          const AppSectionHeader(title: 'Şantiye Fotoğrafları'),
+          if (canManage) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Row(
+              children: [
+                Expanded(
+                  child: SecondaryButton(
+                    icon: Icons.photo_camera_outlined,
+                    label: 'Fotoğraf Çek',
+                    onPressed: _uploading ? null : () => _pickAndUploadPhoto(ImageSource.camera),
+                  ),
                 ),
-            ],
-          ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: SecondaryButton(
+                    icon: Icons.photo_library_outlined,
+                    label: 'Galeriden Seç',
+                    onPressed: _uploading ? null : () => _pickAndUploadPhoto(ImageSource.gallery),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: AppSpacing.sm),
           AsyncStateView(
             value: photosAsync,
             isEmpty: (l) => l.isEmpty,
-            emptyBuilder: (_) => const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Text('Fotoğraf yok.', style: TextStyle(color: Colors.grey)),
-            ),
-            data: (context, photos) => SizedBox(
-              height: 90,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: photos.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 8),
-                itemBuilder: (context, i) {
-                  final photo = photos[i];
-                  final bytesAsync = ref.watch(projectPhotoBytesProvider((projectId: projectId, photoId: photo.id)));
-                  return GestureDetector(
-                    onTap: () => _openPhotoViewer(photo),
-                    onLongPress: canManage ? () => _deletePhoto(photo) : null,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: bytesAsync.when(
-                        data: (bytes) => Image.memory(bytes, width: 90, height: 90, fit: BoxFit.cover),
-                        loading: () => Container(
-                          width: 90,
-                          height: 90,
-                          color: Colors.grey.shade200,
-                          child: const Center(
-                            child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+            emptyBuilder: (_) => const EmptyStateView(message: 'Fotoğraf yok.', icon: Icons.photo_camera_outlined),
+            data: (context, photos) => GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: photos.length,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                mainAxisSpacing: AppSpacing.sm,
+                crossAxisSpacing: AppSpacing.sm,
+              ),
+              itemBuilder: (context, i) {
+                final photo = photos[i];
+                final bytesAsync = ref.watch(projectPhotoBytesProvider((projectId: projectId, photoId: photo.id)));
+                return GestureDetector(
+                  onTap: () => _openPhotoViewer(photo),
+                  onLongPress: canManage ? () => _deletePhoto(photo) : null,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(AppRadius.control),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        bytesAsync.when(
+                          data: (bytes) => Image.memory(bytes, fit: BoxFit.cover),
+                          loading: () => const ColoredBox(
+                            color: AppColors.background,
+                            child: Center(
+                              child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                            ),
+                          ),
+                          error: (e, st) => const ColoredBox(
+                            color: AppColors.background,
+                            child: Icon(Icons.broken_image_outlined, color: AppColors.textMuted),
                           ),
                         ),
-                        error: (e, st) => Container(
-                          width: 90,
-                          height: 90,
-                          color: Colors.grey.shade200,
-                          child: const Icon(Icons.broken_image_outlined),
+                        Positioned(
+                          left: 4,
+                          bottom: 4,
+                          child: StatusRegistry.build(photo.stage, StatusRegistry.photoStage),
                         ),
-                      ),
+                      ],
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              },
             ),
           ),
-          const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Dosyalar', style: TextStyle(fontWeight: FontWeight.w700)),
-              if (canManage)
-                IconButton(
-                  icon: const Icon(Icons.upload_file_outlined),
-                  tooltip: 'Dosya yükle',
-                  onPressed: _uploading ? null : _pickAndUploadFile,
-                ),
-            ],
+          const SizedBox(height: AppSpacing.xl),
+          AppSectionHeader(
+            title: 'Dosyalar',
+            trailing: canManage
+                ? SecondaryButton(
+                    icon: Icons.upload_file_outlined,
+                    label: 'Dosya Seç',
+                    onPressed: _uploading ? null : _pickAndUploadFile,
+                  )
+                : null,
           ),
+          const SizedBox(height: AppSpacing.sm),
           AsyncStateView(
             value: filesAsync,
             isEmpty: (l) => l.isEmpty,
-            emptyBuilder: (_) => const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Text('Dosya yok.', style: TextStyle(color: Colors.grey)),
-            ),
+            emptyBuilder: (_) => const EmptyStateView(message: 'Dosya yok.', icon: Icons.insert_drive_file_outlined),
             data: (context, files) => Column(
               children: files
-                  .map((f) => Card(
-                        margin: const EdgeInsets.only(bottom: 6),
-                        child: ListTile(
-                          leading: _openingFileId == f.id
-                              ? const SizedBox(
-                                  width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5))
-                              : const Icon(Icons.insert_drive_file_outlined),
-                          title: Text(f.originalName, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: Text('${Formatters.date(f.createdAt)} · ${(f.sizeBytes / 1024).toStringAsFixed(0)} KB'),
-                          onTap: _openingFileId != null ? null : () => _openFile(f),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              StatusRegistry.build(f.category, StatusRegistry.fileCategory),
-                              if (canManage)
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline, size: 20),
-                                  onPressed: () => _deleteFile(f),
-                                ),
-                            ],
-                          ),
+                  .map((f) => AppListCard(
+                        onTap: _openingFileId != null ? null : () => _openFile(f),
+                        leading: _openingFileId == f.id
+                            ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5))
+                            : const Icon(Icons.insert_drive_file_outlined, color: AppColors.textMuted),
+                        title: f.originalName,
+                        subtitle:
+                            '${_fileType(f.originalName)} · ${Formatters.date(f.createdAt)} · ${(f.sizeBytes / 1024).toStringAsFixed(0)} KB',
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            StatusRegistry.build(f.category, StatusRegistry.fileCategory),
+                            if (canManage)
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, size: 20),
+                                onPressed: () => _deleteFile(f),
+                              ),
+                          ],
                         ),
                       ))
                   .toList(),

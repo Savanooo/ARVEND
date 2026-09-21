@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/errors/api_exception.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_buttons.dart';
 import '../data/projects_providers.dart';
 import '../domain/subcontract.dart';
 
@@ -85,10 +88,10 @@ class _SubcontractPaymentFormSheetState extends ConsumerState<_SubcontractPaymen
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 20,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+        left: AppSpacing.xl,
+        right: AppSpacing.xl,
+        top: AppSpacing.xl,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.xl,
       ),
       child: Form(
         key: _formKey,
@@ -97,19 +100,27 @@ class _SubcontractPaymentFormSheetState extends ConsumerState<_SubcontractPaymen
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Taşeron Ödemesi Kaydet', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
-              const SizedBox(height: 16),
+              Text('Taşeron Ödemesi Kaydet', style: AppTypography.pageTitle.copyWith(fontSize: 17)),
+              const SizedBox(height: 2),
+              // Ödeme, GERÇEK bir nakit çıkışıdır -- hakedişin (ProgressClaim)
+              // sertifikasyonu İLE KARIŞTIRILMAMALI (bkz. domain/
+              // subcontract.dart `SubcontractPayment` dosya başı notu).
+              Text(
+                'Gerçek bir nakit çıkışını kaydeder -- hakediş sertifikasyonundan ayrıdır.',
+                style: AppTypography.helper,
+              ),
+              const SizedBox(height: AppSpacing.lg),
               TextFormField(
                 controller: _amountController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(labelText: 'Tutar (${widget.currency})'),
+                decoration: InputDecoration(labelText: 'Ödenen Tutar (${widget.currency})'),
                 validator: (v) {
                   final parsed = double.tryParse((v ?? '').replaceAll(',', '.'));
                   if (parsed == null || parsed <= 0) return 'Geçerli bir tutar girin';
                   return null;
                 },
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.md),
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Ödeme Tarihi'),
@@ -126,32 +137,30 @@ class _SubcontractPaymentFormSheetState extends ConsumerState<_SubcontractPaymen
                   if (picked != null) setState(() => _date = picked);
                 },
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: AppSpacing.xs),
               TextFormField(
                 controller: _paymentMethodController,
                 decoration: const InputDecoration(labelText: 'Ödeme Yöntemi (opsiyonel)'),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.md),
               TextFormField(
                 controller: _referenceController,
                 decoration: const InputDecoration(labelText: 'Referans No (opsiyonel)'),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.md),
               TextFormField(
                 controller: _descriptionController,
                 decoration: const InputDecoration(labelText: 'Açıklama (opsiyonel)'),
               ),
               if (_error != null) ...[
-                const SizedBox(height: 12),
-                Text(_error!, style: const TextStyle(color: Colors.red)),
+                const SizedBox(height: AppSpacing.md),
+                Text(_error!, style: AppTypography.error),
               ],
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _submitting ? null : _submit,
-                child: _submitting
-                    ? const SizedBox(
-                        width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                    : const Text('Kaydet'),
+              const SizedBox(height: AppSpacing.xl),
+              PrimaryButton(
+                label: 'Kaydet',
+                loading: _submitting,
+                onPressed: _submit,
               ),
             ],
           ),

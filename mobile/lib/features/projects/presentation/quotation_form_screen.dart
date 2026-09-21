@@ -4,12 +4,25 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_shadows.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_buttons.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/app_data_row.dart';
+import '../../../core/widgets/app_form_section.dart';
+import '../../../core/widgets/app_page_scaffold.dart';
+import '../../../core/widgets/async_state_view.dart';
 import '../data/projects_providers.dart';
 import '../domain/procurement.dart';
 import '../domain/subcontract.dart' show Supplier;
 
 class _DraftItem {
-  _DraftItem({required this.rfqItemId, required this.description, required this.unit});
+  _DraftItem({
+    required this.rfqItemId,
+    required this.description,
+    required this.unit,
+  });
 
   final String rfqItemId;
   final String description;
@@ -40,7 +53,12 @@ DateTime? _parseDate(String? s) {
 /// `subtotal`/`tax`/`total` bu formda HİÇ YOK -- backend hesaplar, mobil
 /// bunları asla göstermeye/göndermeye ÇALIŞMAZ.
 class QuotationFormScreen extends ConsumerStatefulWidget {
-  const QuotationFormScreen({super.key, required this.projectId, required this.rfqId, this.quotationId});
+  const QuotationFormScreen({
+    super.key,
+    required this.projectId,
+    required this.rfqId,
+    this.quotationId,
+  });
 
   final String projectId;
   final String rfqId;
@@ -49,7 +67,8 @@ class QuotationFormScreen extends ConsumerStatefulWidget {
   bool get isEdit => quotationId != null;
 
   @override
-  ConsumerState<QuotationFormScreen> createState() => _QuotationFormScreenState();
+  ConsumerState<QuotationFormScreen> createState() =>
+      _QuotationFormScreenState();
 }
 
 class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
@@ -96,7 +115,11 @@ class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
       }
 
       if (widget.isEdit) {
-        final detail = await repo.quotationDetail(widget.projectId, widget.rfqId, widget.quotationId!);
+        final detail = await repo.quotationDetail(
+          widget.projectId,
+          widget.rfqId,
+          widget.quotationId!,
+        );
         final q = detail.quotation;
         _supplierId = q.supplierId;
         // `GetQuotation` (bare, tek teklif) supplier_name/code TAŞIMAZ (bkz.
@@ -117,9 +140,15 @@ class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
         _deliveryDaysController.text = q.deliveryDays?.toString() ?? '';
         _paymentTermsController.text = q.paymentTerms;
         _notesController.text = q.notes;
-        final existingByRfqItem = {for (final it in detail.items) it.rfqItemId: it};
+        final existingByRfqItem = {
+          for (final it in detail.items) it.rfqItemId: it,
+        };
         for (final rfqItem in rfqDetail.items) {
-          final draft = _DraftItem(rfqItemId: rfqItem.id, description: rfqItem.description, unit: rfqItem.unit);
+          final draft = _DraftItem(
+            rfqItemId: rfqItem.id,
+            description: rfqItem.description,
+            unit: rfqItem.unit,
+          );
           final existing = existingByRfqItem[rfqItem.id];
           if (existing != null) {
             draft.quantity = _DraftItem.numStr(existing.quantity);
@@ -132,8 +161,13 @@ class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
         }
       } else {
         for (final rfqItem in rfqDetail.items) {
-          _items.add(_DraftItem(rfqItemId: rfqItem.id, description: rfqItem.description, unit: rfqItem.unit)
-            ..quantity = _DraftItem.numStr(rfqItem.quantity));
+          _items.add(
+            _DraftItem(
+              rfqItemId: rfqItem.id,
+              description: rfqItem.description,
+              unit: rfqItem.unit,
+            )..quantity = _DraftItem.numStr(rfqItem.quantity),
+          );
         }
       }
       if (!mounted) return;
@@ -165,7 +199,16 @@ class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
       final qty = double.tryParse(i.quantity.replaceAll(',', '.'));
       final price = double.tryParse(i.unitPrice.replaceAll(',', '.'));
       if (qty == null || qty <= 0 || price == null || price <= 0) continue;
-      out.add(QuotationItem(id: '', rfqItemId: i.rfqItemId, quantity: qty, unitPrice: price, lineTotal: 0, notes: i.notes));
+      out.add(
+        QuotationItem(
+          id: '',
+          rfqItemId: i.rfqItemId,
+          quantity: qty,
+          unitPrice: price,
+          lineTotal: 0,
+          notes: i.notes,
+        ),
+      );
     }
     return out;
   }
@@ -178,7 +221,9 @@ class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
     }
     final items = _buildItems();
     if (items.isEmpty) {
-      setState(() => _error = 'En az bir kalem için miktar ve birim fiyat girin.');
+      setState(
+        () => _error = 'En az bir kalem için miktar ve birim fiyat girin.',
+      );
       return;
     }
 
@@ -188,8 +233,10 @@ class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
     });
     try {
       final repo = ref.read(projectsRepositoryProvider);
-      final discount = double.tryParse(_discountController.text.replaceAll(',', '.')) ?? 0;
-      final taxRate = double.tryParse(_taxRateController.text.replaceAll(',', '.')) ?? 0;
+      final discount =
+          double.tryParse(_discountController.text.replaceAll(',', '.')) ?? 0;
+      final taxRate =
+          double.tryParse(_taxRateController.text.replaceAll(',', '.')) ?? 0;
       final deliveryDays = int.tryParse(_deliveryDaysController.text);
       final Quotation q;
       if (widget.isEdit) {
@@ -227,7 +274,13 @@ class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
       ref.invalidate(rfqQuotationsProvider(rfqArgs));
       ref.invalidate(bidComparisonProvider(rfqArgs));
       if (widget.isEdit) {
-        ref.invalidate(quotationDetailProvider((projectId: widget.projectId, rfqId: widget.rfqId, quotationId: widget.quotationId!)));
+        ref.invalidate(
+          quotationDetailProvider((
+            projectId: widget.projectId,
+            rfqId: widget.rfqId,
+            quotationId: widget.quotationId!,
+          )),
+        );
       }
       if (mounted) context.pop(q);
     } on ApiException catch (e) {
@@ -241,127 +294,178 @@ class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
   Widget build(BuildContext context) {
     final suppliersAsync = ref.watch(suppliersProvider);
 
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.isEdit ? 'Teklifi Düzenle' : 'Yeni Teklif')),
+    return AppPageScaffold(
+      title: Text(widget.isEdit ? 'Teklifi Düzenle' : 'Yeni Teklif'),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const LoadingState()
           : (_error != null && _items.isEmpty)
-              ? _RetryView(error: _error!, onRetry: () => setState(() {
-                  _loading = true;
-                  _error = null;
-                  _load();
-                }))
-              : widget.isEdit
-                  ? _buildForm(context, const [])
-                  : suppliersAsync.when(
-                      loading: () => const Center(child: CircularProgressIndicator()),
-                      error: (e, _) => _RetryView(
-                          error: e is ApiException ? e.message : 'Beklenmeyen bir hata oluştu.',
-                          onRetry: () => ref.invalidate(suppliersProvider)),
-                      data: (suppliers) => _buildForm(context, suppliers),
-                    ),
+          ? _BusinessErrorView(
+              message: _error!,
+              onRetry: () => setState(() {
+                _loading = true;
+                _error = null;
+                _load();
+              }),
+            )
+          : widget.isEdit
+          ? _buildForm(context, const [])
+          : suppliersAsync.when(
+              loading: () => const LoadingState(),
+              error: (e, _) => ErrorState(
+                error: e,
+                onRetry: () async => ref.invalidate(suppliersProvider),
+              ),
+              data: (suppliers) => _buildForm(context, suppliers),
+            ),
     );
   }
 
   Widget _buildForm(BuildContext context, List<Supplier> suppliers) {
     return Form(
       key: _formKey,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
+      child: Column(
         children: [
-          if (widget.isEdit)
-            _RowText('Tedarikçi', _supplierLabel ?? '-')
-          else
-            DropdownButtonFormField<String>(
-              initialValue: _supplierId,
-              decoration: const InputDecoration(labelText: 'Tedarikçi'),
-              items: suppliers
-                  .where((s) => s.isActive)
-                  .map((s) => DropdownMenuItem(
-                        value: s.id,
-                        child: Text(s.code.isNotEmpty ? '${s.code} — ${s.displayName}' : s.displayName,
-                            overflow: TextOverflow.ellipsis),
-                      ))
-                  .toList(),
-              onChanged: (v) => setState(() => _supplierId = v),
-              validator: (v) => (v == null || v.isEmpty) ? 'Tedarikçi seçin' : null,
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              children: [
+                AppFormSection(
+                  title: 'Tedarikçi Bilgileri',
+                  children: [
+                    if (widget.isEdit)
+                      AppDataRow(
+                        label: 'Tedarikçi',
+                        value: _supplierLabel ?? '-',
+                      )
+                    else
+                      DropdownButtonFormField<String>(
+                        initialValue: _supplierId,
+                        decoration: const InputDecoration(
+                          labelText: 'Tedarikçi',
+                        ),
+                        items: suppliers
+                            .where((s) => s.isActive)
+                            .map(
+                              (s) => DropdownMenuItem(
+                                value: s.id,
+                                child: Text(
+                                  s.code.isNotEmpty
+                                      ? '${s.code} — ${s.displayName}'
+                                      : s.displayName,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (v) => setState(() => _supplierId = v),
+                        validator: (v) =>
+                            (v == null || v.isEmpty) ? 'Tedarikçi seçin' : null,
+                      ),
+                    TextFormField(
+                      controller: _quotationNumberController,
+                      decoration: const InputDecoration(
+                        labelText: 'Teklif No (opsiyonel)',
+                      ),
+                    ),
+                    _DatePickerTile(
+                      label: 'Teklif Tarihi (opsiyonel)',
+                      value: _quotationDate,
+                      onChanged: (d) => setState(() => _quotationDate = d),
+                    ),
+                    _DatePickerTile(
+                      label: 'Geçerlilik Tarihi (opsiyonel)',
+                      value: _validUntil,
+                      onChanged: (d) => setState(() => _validUntil = d),
+                    ),
+                  ],
+                ),
+                AppFormSection(
+                  title: 'Ticari Bilgiler',
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _discountController,
+                            decoration: const InputDecoration(
+                              labelText: 'İskonto (tutar)',
+                            ),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _taxRateController,
+                            decoration: const InputDecoration(
+                              labelText: 'KDV Oranı (%)',
+                            ),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _deliveryDaysController,
+                            decoration: const InputDecoration(
+                              labelText: 'Teslimat Süresi (gün, opsiyonel)',
+                            ),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _paymentTermsController,
+                            decoration: const InputDecoration(
+                              labelText: 'Ödeme Koşulları (opsiyonel)',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                AppFormSection(
+                  title: 'Kalemler',
+                  spacing: AppSpacing.sm,
+                  children: [
+                    for (final item in _items)
+                      _ItemRow(item: item, onChanged: () => setState(() {})),
+                  ],
+                ),
+                AppFormSection(
+                  title: 'Notlar',
+                  children: [
+                    TextFormField(
+                      controller: _notesController,
+                      decoration: const InputDecoration(
+                        labelText: 'Notlar (opsiyonel)',
+                      ),
+                      maxLines: 3,
+                    ),
+                  ],
+                ),
+                if (_error != null) ...[
+                  Text(_error!, style: AppTypography.error),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
+              ],
             ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _quotationNumberController,
-            decoration: const InputDecoration(labelText: 'Teklif No (opsiyonel)'),
           ),
-          const SizedBox(height: 12),
-          _DatePickerTile(
-            label: 'Teklif Tarihi (opsiyonel)',
-            value: _quotationDate,
-            onChanged: (d) => setState(() => _quotationDate = d),
-          ),
-          _DatePickerTile(
-            label: 'Geçerlilik Tarihi (opsiyonel)',
-            value: _validUntil,
-            onChanged: (d) => setState(() => _validUntil = d),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: TextFormField(
-                  controller: _discountController,
-                  decoration: const InputDecoration(labelText: 'İskonto (tutar)'),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextFormField(
-                  controller: _taxRateController,
-                  decoration: const InputDecoration(labelText: 'KDV Oranı (%)'),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: TextFormField(
-                  controller: _deliveryDaysController,
-                  decoration: const InputDecoration(labelText: 'Teslimat Süresi (gün, opsiyonel)'),
-                  keyboardType: TextInputType.number,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextFormField(
-                  controller: _paymentTermsController,
-                  decoration: const InputDecoration(labelText: 'Ödeme Koşulları (opsiyonel)'),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          const Text('Kalem Fiyatları', style: TextStyle(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          ..._items.map((item) => _ItemRow(item: item, onChanged: () => setState(() {}))),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _notesController,
-            decoration: const InputDecoration(labelText: 'Notlar (opsiyonel)'),
-            maxLines: 3,
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 12),
-            Text(_error!, style: const TextStyle(color: AppColors.danger)),
-          ],
-          const SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: _submitting ? null : _submit,
-            child: _submitting
-                ? const SizedBox(
-                    width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                : Text(widget.isEdit ? 'Kaydet' : 'Teklifi Kaydet'),
+          _StickyActionBar(
+            child: PrimaryButton(
+              label: widget.isEdit ? 'Kaydet' : 'Teklifi Kaydet',
+              loading: _submitting,
+              onPressed: _submit,
+            ),
           ),
         ],
       ),
@@ -369,28 +473,39 @@ class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
   }
 }
 
-class _RowText extends StatelessWidget {
-  const _RowText(this.label, this.value);
-  final String label;
-  final String value;
+/// Formun altına sabitlenmiş aksiyon çubuğu (bkz. offer_create_screen.dart/
+/// rfq_form_screen.dart AYNI kalıp).
+class _StickyActionBar extends StatelessWidget {
+  const _StickyActionBar({required this.child});
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(color: Colors.grey)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
-        ],
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(top: BorderSide(color: AppColors.border)),
+        boxShadow: AppShadows.subtle,
+      ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.md,
+          AppSpacing.lg,
+          AppSpacing.md + MediaQuery.of(context).padding.bottom,
+        ),
+        child: child,
       ),
     );
   }
 }
 
 class _DatePickerTile extends StatelessWidget {
-  const _DatePickerTile({required this.label, required this.value, required this.onChanged});
+  const _DatePickerTile({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
 
   final String label;
   final DateTime? value;
@@ -402,10 +517,15 @@ class _DatePickerTile extends StatelessWidget {
       contentPadding: EdgeInsets.zero,
       title: Text(label),
       subtitle: value != null
-          ? Text('${value!.day.toString().padLeft(2, '0')}.${value!.month.toString().padLeft(2, '0')}.${value!.year}')
+          ? Text(
+              '${value!.day.toString().padLeft(2, '0')}.${value!.month.toString().padLeft(2, '0')}.${value!.year}',
+            )
           : null,
       trailing: value != null
-          ? IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () => onChanged(null))
+          ? IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: () => onChanged(null),
+            )
           : const Icon(Icons.calendar_today_outlined, size: 18),
       onTap: () async {
         final picked = await showDatePicker(
@@ -420,6 +540,10 @@ class _DatePickerTile extends StatelessWidget {
   }
 }
 
+/// Kalem fiyat satırı -- RFQ'nun kendi kalem listesindeki bir satıra
+/// karşılık gelir (dinamik eklenebilir/silinebilir bir liste DEĞİLDİR,
+/// bkz. sınıf yorumu). Miktar + birim fiyat HER ZAMAN doğrudan görünür,
+/// hiçbir alan bir daraltılabilir bölümün arkasına gizlenmez.
 class _ItemRow extends StatelessWidget {
   const _ItemRow({required this.item, required this.onChanged});
 
@@ -428,68 +552,87 @@ class _ItemRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(top: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(item.description, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    initialValue: item.quantity,
-                    decoration: InputDecoration(labelText: 'Miktar (${item.unit})', isDense: true),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    onChanged: (v) {
-                      item.quantity = v;
-                      onChanged();
-                    },
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            item.description,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.cardTitle,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  initialValue: item.quantity,
+                  decoration: InputDecoration(
+                    labelText: 'Miktar (${item.unit})',
+                    isDense: true,
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextFormField(
-                    initialValue: item.unitPrice,
-                    decoration: const InputDecoration(labelText: 'Birim Fiyat', isDense: true),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    onChanged: (v) {
-                      item.unitPrice = v;
-                      onChanged();
-                    },
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
                   ),
+                  onChanged: (v) {
+                    item.quantity = v;
+                    onChanged();
+                  },
                 ),
-              ],
-            ),
-          ],
-        ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: TextFormField(
+                  initialValue: item.unitPrice,
+                  decoration: const InputDecoration(
+                    labelText: 'Birim Fiyat',
+                    isDense: true,
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  onChanged: (v) {
+                    item.unitPrice = v;
+                    onChanged();
+                  },
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 }
 
-class _RetryView extends StatelessWidget {
-  const _RetryView({required this.error, required this.onRetry});
+/// İş kuralı kaynaklı hata mesajları (ör. "RFQ artık açık değil") -- ağ
+/// hatası DEĞİLDİR, bu yüzden ortak `ErrorState`in `ApiException` ayrımı
+/// yerine zaten çözülmüş mesaj OLDUĞU GİBİ gösterilir.
+class _BusinessErrorView extends StatelessWidget {
+  const _BusinessErrorView({required this.message, required this.onRetry});
 
-  final String error;
+  final String message;
   final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(AppSpacing.xl),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.error_outline, color: AppColors.danger, size: 40),
-            const SizedBox(height: 12),
-            Text(error, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textMuted)),
-            const SizedBox(height: 16),
-            OutlinedButton(onPressed: onRetry, child: const Text('Tekrar Dene')),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: AppTypography.body.copyWith(color: AppColors.textMuted),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            SecondaryButton(label: 'Tekrar Dene', onPressed: onRetry),
           ],
         ),
       ),

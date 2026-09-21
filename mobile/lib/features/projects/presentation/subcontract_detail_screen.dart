@@ -4,9 +4,20 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/errors/api_exception.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_status_colors.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/app_data_row.dart';
+import '../../../core/widgets/app_financial_summary.dart';
+import '../../../core/widgets/app_lifecycle_actions.dart';
+import '../../../core/widgets/app_list_card.dart';
+import '../../../core/widgets/app_page_scaffold.dart';
+import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/metric_card.dart';
+import '../../../core/widgets/money_text.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../data/projects_providers.dart';
 import '../domain/subcontract.dart';
@@ -24,7 +35,10 @@ import 'subcontract_payment_form_sheet.dart';
 /// current_value/certified_to_date/remaining_commitment (taahhüt ekseni) ile
 /// paid_to_date/remaining_payable (nakit ekseni) BİLİNÇLİ OLARAK AYRI
 /// gösterilir -- sertifikasyon ödeme DEĞİLDİR, ikisi TEK bir rakamda
-/// BİRLEŞTİRİLMEZ (bkz. backend SubcontractValueSummary yorumu).
+/// BİRLEŞTİRİLMEZ (bkz. backend SubcontractValueSummary yorumu). P3: hiyerarşi
+/// Header -> Ticari Özet -> SOV -> Hakedişler -> Değişiklik Emirleri ->
+/// Ödemeler -> Aksiyonlar (bkz. Faz 3 ürün brief'i) -- yalnızca sunum katmanı,
+/// hiçbir rakam burada yeniden hesaplanmaz.
 class SubcontractDetailScreen extends ConsumerWidget {
   const SubcontractDetailScreen({super.key, required this.projectId, required this.subcontractId});
   final String projectId;
@@ -35,12 +49,10 @@ class SubcontractDetailScreen extends ConsumerWidget {
     final args = (projectId: projectId, subcontractId: subcontractId);
     final detailAsync = ref.watch(subcontractDetailProvider(args));
 
-    return Scaffold(
-      appBar: AppBar(
-        title: detailAsync.maybeWhen(
-          data: (d) => Text(d.subcontract.subcontractNo),
-          orElse: () => const Text('Taşeron Sözleşmesi'),
-        ),
+    return AppPageScaffold(
+      title: detailAsync.maybeWhen(
+        data: (d) => Text(d.subcontract.subcontractNo),
+        orElse: () => const Text('Taşeron Sözleşmesi'),
       ),
       body: AsyncStateView(
         value: detailAsync,
@@ -63,6 +75,11 @@ class _SubcontractDetailBody extends ConsumerWidget {
     final paymentsAsync = ref.watch(subcontractPaymentsProvider(args));
     final claimsAsync = ref.watch(subcontractProgressClaimsProvider(args));
     final changeOrdersAsync = ref.watch(subcontractChangeOrdersProvider(args));
+    // Yalnızca SOV kalemlerinde maliyet kodunu ham id yerine isimle
+    // göstermek için -- zaten formun tedarikçi/maliyet kodu seçicisinde
+    // kullanılan aynı salt-okunur provider, yeni bir repository çağrısı
+    // DEĞİL.
+    final costCodesAsync = ref.watch(orgCostCodesProvider);
     final sc = detail.subcontract;
     final value = detail.value;
     final user = ref.watch(authControllerProvider).valueOrNull;
@@ -71,6 +88,16 @@ class _SubcontractDetailBody extends ConsumerWidget {
         user == null || user.permissions.isEmpty || user.hasPermission('projects.subcontracts.approve');
     final canManageClaims =
         user == null || user.permissions.isEmpty || user.hasPermission('projects.subcontract_claims.manage');
+    final hasLifecycleActions = (sc.isEditable && canManage) ||
+        (sc.canActivate && canApprove) ||
+        (sc.canCancel && canApprove) ||
+        (sc.canComplete && canApprove) ||
+        (sc.canTerminate && canApprove);
+
+    final costCodeLabels = {
+      for (final c in costCodesAsync.valueOrNull ?? const <OrgCostCode>[])
+        c.id: c.code.isNotEmpty ? '${c.code} — ${c.name}' : c.name,
+    };
 
     void refreshAll() {
       ref.invalidate(subcontractDetailProvider(args));
@@ -94,270 +121,330 @@ class _SubcontractDetailBody extends ConsumerWidget {
         refreshAll();
       },
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              StatusRegistry.build(sc.status, StatusRegistry.subcontract),
-              Text(Formatters.money(value.currentValue, currency: sc.currency),
-                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
-            ],
+          _Header(subcontract: sc),
+          const SizedBox(height: AppSpacing.lg),
+          const AppSectionHeader(title: 'Ticari Özet'),
+          const SizedBox(height: AppSpacing.sm),
+          _CommercialSummary(subcontract: sc, value: value),
+          const SizedBox(height: AppSpacing.xl),
+          const AppSectionHeader(title: 'Kalemler (SOV)'),
+          const SizedBox(height: AppSpacing.sm),
+          _SovList(items: detail.items, currency: sc.currency, costCodeLabels: costCodeLabels),
+          const SizedBox(height: AppSpacing.xl),
+          AppSectionHeader(
+            title: 'Hakedişler',
+            trailing: sc.status == Subcontract.statusActive && canManageClaims
+                ? TextButton.icon(
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Hakediş Ekle'),
+                    onPressed: () => context.push('/projeler/$projectId/taseronlar/$subcontractId/hakedisler/yeni'),
+                  )
+                : null,
           ),
-          const SizedBox(height: 12),
-          _LifecycleActionsBar(
-            projectId: projectId,
-            subcontractId: subcontractId,
-            subcontract: sc,
-            canManage: canManage,
-            canApprove: canApprove,
-            onChanged: refreshAll,
-          ),
-          const SizedBox(height: 4),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(sc.supplierName ?? sc.supplierCode ?? '-', style: const TextStyle(fontWeight: FontWeight.w700)),
-                  if (sc.title.isNotEmpty) Text(sc.title, style: const TextStyle(color: Colors.grey)),
-                  const Divider(height: 20),
-                  _Row('Sözleşme Bedeli (Orijinal)', Formatters.money(sc.originalAmount, currency: sc.currency)),
-                  _Row(
-                    'Onaylı Değişiklikler (net)',
-                    '${(value.approvedAdditions - value.approvedDeductions) >= 0 ? '+' : ''}'
-                        '${Formatters.money(value.approvedAdditions - value.approvedDeductions, currency: sc.currency)}',
-                  ),
-                  _Row('Güncel Değer', Formatters.money(value.currentValue, currency: sc.currency)),
-                  if (value.pendingAdditions != 0 || value.pendingDeductions != 0)
-                    _Row(
-                      'Bekleyen Değişiklikler (net, henüz dahil değil)',
-                      '${(value.pendingAdditions - value.pendingDeductions) >= 0 ? '+' : ''}'
-                          '${Formatters.money(value.pendingAdditions - value.pendingDeductions, currency: sc.currency)}',
-                    ),
-                  if (sc.retentionPercent != null)
-                    _Row('Hakediş Kesintisi (Retention)', '%${sc.retentionPercent!.toStringAsFixed(2)}'),
-                  if (sc.advanceAmount != null)
-                    _Row('Avans Tutarı', Formatters.money(sc.advanceAmount!, currency: sc.currency)),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          // Taahhüt ekseni (SOV bazlı, hakediş sertifikasyonuyla değişir).
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Taahhüt', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.grey)),
-                  const SizedBox(height: 4),
-                  _Row('Sertifika Edilen (Hakediş)', Formatters.money(value.certifiedToDate, currency: sc.currency)),
-                  _Row('Kalan Taahhüt', Formatters.money(value.remainingCommitment, currency: sc.currency)),
-                  if (claimsAsync.valueOrNull != null && claimsAsync.valueOrNull!.isNotEmpty) ...[
-                    const Divider(height: 20),
-                    Builder(builder: (context) {
-                      final latest = [...claimsAsync.valueOrNull!]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-                      final c = latest.first;
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 3),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Text('Son Hakediş (${c.claimNumber})', style: const TextStyle(color: Colors.grey)),
-                            ),
-                            StatusRegistry.build(c.status, StatusRegistry.progressClaim),
-                          ],
-                        ),
-                      );
-                    }),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          // Nakit ekseni (GERÇEK ödeme, sertifikasyondan BAĞIMSIZ).
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Ödeme', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.grey)),
-                  const SizedBox(height: 4),
-                  _Row('Ödenen', Formatters.money(value.paidToDate, currency: sc.currency)),
-                  _Row(
-                    'Ödenecek Kalan (Sertifika − Ödenen)',
-                    Formatters.money(value.remainingPayable, currency: sc.currency),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Text('SOV / İş Kalemleri', style: TextStyle(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          if (detail.items.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Text('Kalem yok.', style: TextStyle(color: Colors.grey)),
-            )
-          else
-            ...detail.items.map((item) => Card(
-                  margin: const EdgeInsets.only(bottom: 6),
-                  child: ListTile(
-                    title: Text(item.description, maxLines: 2, overflow: TextOverflow.ellipsis),
-                    subtitle: item.unit.isNotEmpty && item.quantity != null
-                        ? Text('${item.quantity} ${item.unit}')
-                        : null,
-                    trailing: Text(Formatters.money(item.originalAmount, currency: sc.currency),
-                        style: const TextStyle(fontWeight: FontWeight.w700)),
-                  ),
-                )),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Hakedişler', style: TextStyle(fontWeight: FontWeight.w700)),
-              if (sc.status == Subcontract.statusActive && canManageClaims)
-                TextButton.icon(
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Hakediş Ekle'),
-                  onPressed: () => context.push('/projeler/$projectId/taseronlar/$subcontractId/hakedisler/yeni'),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.sm),
           AsyncStateView(
             value: claimsAsync,
             onRetry: () async => ref.invalidate(subcontractProgressClaimsProvider(args)),
             isEmpty: (list) => list.isEmpty,
-            emptyBuilder: (_) => const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Text('Henüz hakediş yok.', style: TextStyle(color: Colors.grey)),
-            ),
+            emptyBuilder: (_) => const _EmptySectionText('Henüz hakediş yok.'),
             data: (context, claims) => Column(
-              children: claims
-                  .map((c) => Card(
-                        margin: const EdgeInsets.only(bottom: 6),
-                        child: ListTile(
-                          title: Text(c.claimNumber),
-                          subtitle: StatusRegistry.build(c.status, StatusRegistry.progressClaim),
-                          trailing: Text(Formatters.money(c.netPayable, currency: sc.currency),
-                              style: const TextStyle(fontWeight: FontWeight.w700)),
-                          onTap: () =>
-                              context.push('/projeler/$projectId/taseronlar/$subcontractId/hakedisler/${c.id}'),
-                        ),
-                      ))
-                  .toList(),
+              children: [
+                for (final c in claims)
+                  AppListCard(
+                    title: c.claimNumber,
+                    trailing: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        StatusRegistry.build(c.status, StatusRegistry.progressClaim),
+                        const SizedBox(height: 2),
+                        MoneyText(c.netPayable, currency: sc.currency, style: AppTypography.body.copyWith(fontWeight: FontWeight.w700)),
+                      ],
+                    ),
+                    onTap: () => context.push('/projeler/$projectId/taseronlar/$subcontractId/hakedisler/${c.id}'),
+                  ),
+              ],
             ),
           ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Değişiklik Emirleri', style: TextStyle(fontWeight: FontWeight.w700)),
-              if (sc.status == Subcontract.statusActive && canManage)
-                TextButton.icon(
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Değişiklik Emri Ekle'),
-                  onPressed: () =>
-                      context.push('/projeler/$projectId/taseronlar/$subcontractId/degisiklik-emirleri/yeni'),
-                ),
-            ],
+          const SizedBox(height: AppSpacing.xl),
+          AppSectionHeader(
+            title: 'Değişiklik Emirleri',
+            trailing: sc.status == Subcontract.statusActive && canManage
+                ? TextButton.icon(
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Değişiklik Emri Ekle'),
+                    onPressed: () =>
+                        context.push('/projeler/$projectId/taseronlar/$subcontractId/degisiklik-emirleri/yeni'),
+                  )
+                : null,
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.sm),
           AsyncStateView(
             value: changeOrdersAsync,
             onRetry: () async => ref.invalidate(subcontractChangeOrdersProvider(args)),
             isEmpty: (list) => list.isEmpty,
-            emptyBuilder: (_) => const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Text('Henüz değişiklik emri yok.', style: TextStyle(color: Colors.grey)),
-            ),
+            emptyBuilder: (_) => const _EmptySectionText('Henüz değişiklik emri yok.'),
             data: (context, changeOrders) => Column(
-              children: changeOrders
-                  .map((co) => Card(
-                        margin: const EdgeInsets.only(bottom: 6),
-                        child: ListTile(
-                          title: Text('${co.number} — ${co.title}', maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: StatusRegistry.build(co.status, StatusRegistry.subcontractChangeOrder),
-                          trailing: Text(
-                            '${co.signedAmount >= 0 ? '+' : ''}${Formatters.money(co.signedAmount, currency: sc.currency)}',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: co.changeType == SubcontractChangeOrder.typeAddition ? Colors.green : Colors.red,
-                            ),
+              children: [
+                for (final co in changeOrders)
+                  AppListCard(
+                    title: '${co.number} — ${co.title}',
+                    trailing: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        StatusRegistry.build(co.status, StatusRegistry.subcontractChangeOrder),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${co.signedAmount >= 0 ? '+' : ''}${Formatters.money(co.signedAmount, currency: sc.currency)}',
+                          style: AppTypography.body.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: co.changeType == SubcontractChangeOrder.typeAddition
+                                ? AppStatusColors.success
+                                : AppStatusColors.error,
+                            fontFeatures: const [FontFeature.tabularFigures()],
                           ),
-                          onTap: () => context
-                              .push('/projeler/$projectId/taseronlar/$subcontractId/degisiklik-emirleri/${co.id}'),
                         ),
-                      ))
-                  .toList(),
+                      ],
+                    ),
+                    onTap: () =>
+                        context.push('/projeler/$projectId/taseronlar/$subcontractId/degisiklik-emirleri/${co.id}'),
+                  ),
+              ],
             ),
           ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Ödemeler', style: TextStyle(fontWeight: FontWeight.w700)),
-              TextButton.icon(
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Ödeme Ekle'),
-                onPressed: () async {
-                  final created = await showSubcontractPaymentFormSheet(
-                    context,
-                    projectId,
-                    subcontractId,
-                    currency: sc.currency,
-                  );
-                  if (created != null) refreshAll();
-                },
-              ),
-            ],
+          const SizedBox(height: AppSpacing.xl),
+          AppSectionHeader(
+            title: 'Ödemeler',
+            trailing: TextButton.icon(
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Ödeme Ekle'),
+              onPressed: () async {
+                final created = await showSubcontractPaymentFormSheet(
+                  context,
+                  projectId,
+                  subcontractId,
+                  currency: sc.currency,
+                );
+                if (created != null) refreshAll();
+              },
+            ),
           ),
+          const SizedBox(height: AppSpacing.sm),
           AsyncStateView(
             value: paymentsAsync,
             onRetry: () async => ref.invalidate(subcontractPaymentsProvider(args)),
             isEmpty: (list) => list.isEmpty,
-            emptyBuilder: (_) => const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Text('Henüz ödeme kaydı yok.', style: TextStyle(color: Colors.grey)),
-            ),
+            emptyBuilder: (_) => const _EmptySectionText('Henüz ödeme kaydı yok.'),
             data: (context, payments) => Column(
-              children: payments
-                  .map((p) => Card(
-                        margin: const EdgeInsets.only(bottom: 6),
-                        child: ListTile(
-                          title: Text(p.paymentMethod.isEmpty ? 'Ödeme' : p.paymentMethod),
-                          subtitle: Text(
-                            [
-                              Formatters.date(p.paidDate),
-                              if (p.description.isNotEmpty) p.description,
-                              if (p.referenceNo.isNotEmpty) p.referenceNo,
-                            ].join(' · '),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          trailing: Text(
-                            Formatters.money(p.amount, currency: sc.currency),
-                            style: TextStyle(
-                              decoration: p.isVoided ? TextDecoration.lineThrough : null,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.green.shade700,
-                            ),
-                          ),
-                        ),
-                      ))
-                  .toList(),
+              children: [
+                for (final p in payments)
+                  AppListCard(
+                    title: p.paymentMethod.isEmpty ? 'Ödeme' : p.paymentMethod,
+                    subtitle: [
+                      Formatters.date(p.paidDate),
+                      if (p.description.isNotEmpty) p.description,
+                      if (p.referenceNo.isNotEmpty) p.referenceNo,
+                    ].join(' · '),
+                    trailing: MoneyText(
+                      p.amount,
+                      currency: sc.currency,
+                      style: AppTypography.body.copyWith(
+                        fontWeight: FontWeight.w700,
+                        decoration: p.isVoided ? TextDecoration.lineThrough : null,
+                      ),
+                      color: p.isVoided ? AppStatusColors.neutral : AppStatusColors.success,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          if (hasLifecycleActions) ...[
+            const SizedBox(height: AppSpacing.xl),
+            const AppSectionHeader(title: 'Aksiyonlar'),
+            const SizedBox(height: AppSpacing.sm),
+            _LifecycleActionsBar(
+              projectId: projectId,
+              subcontractId: subcontractId,
+              subcontract: sc,
+              canManage: canManage,
+              canApprove: canApprove,
+              onChanged: refreshAll,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _Header extends StatelessWidget {
+  const _Header({required this.subcontract});
+  final Subcontract subcontract;
+
+  @override
+  Widget build(BuildContext context) {
+    final sc = subcontract;
+    return AppCard(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  sc.supplierName ?? sc.supplierCode ?? '-',
+                  style: AppTypography.cardTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (sc.title.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(sc.title, style: AppTypography.body, maxLines: 2, overflow: TextOverflow.ellipsis),
+                ],
+                if (sc.scopeSummary.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(sc.scopeSummary, style: AppTypography.metadata, maxLines: 2, overflow: TextOverflow.ellipsis),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          StatusRegistry.build(sc.status, StatusRegistry.subcontract),
+        ],
+      ),
+    );
+  }
+}
+
+/// Ticari özet -- backend `SubcontractValue`'nun (`current_value` alt
+/// nesnesi) HER ZAMAN otoriter rakamlarını yalnızca DÜZENLER, hiçbir
+/// toplam/oran burada yeniden hesaplanmaz. `certifiedUnpaid`/`approvedNet`/
+/// `pendingNet` de yalnızca zaten backend'den gelen iki rakamın GÖSTERİM
+/// AMAÇLI farkıdır (yeni bir formül DEĞİL) -- bkz. Faz 3 ürün brief'i.
+class _CommercialSummary extends StatelessWidget {
+  const _CommercialSummary({required this.subcontract, required this.value});
+  final Subcontract subcontract;
+  final SubcontractValue value;
+
+  @override
+  Widget build(BuildContext context) {
+    final currency = subcontract.currency;
+    final approvedNet = value.approvedAdditions - value.approvedDeductions;
+    final pendingNet = value.pendingAdditions - value.pendingDeductions;
+    final certifiedUnpaid = value.certifiedToDate - value.paidToDate;
+
+    return AppFinancialSummary(
+      headline: Row(
+        children: [
+          Expanded(
+            child: MetricCard(
+              label: 'Güncel Değer',
+              value: Formatters.money(value.currentValue, currency: currency),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: MetricCard(
+              label: 'Kalan Taahhüt',
+              value: Formatters.money(value.remainingCommitment, currency: currency),
+              valueColor: AppStatusColors.info,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: MetricCard(
+              label: 'Sertifikalı, Ödenmemiş',
+              value: Formatters.money(certifiedUnpaid, currency: currency),
+              valueColor: certifiedUnpaid > 0 ? AppStatusColors.warning : null,
             ),
           ),
         ],
       ),
+      rows: [
+        AppDataRow(label: 'Orijinal Sözleşme Değeri', value: Formatters.money(value.originalAmount, currency: currency)),
+        AppDataRow(
+          label: 'Onaylı Ek İşler (net)',
+          value: '${approvedNet >= 0 ? '+' : ''}${Formatters.money(approvedNet, currency: currency)}',
+          valueColor: approvedNet > 0
+              ? AppStatusColors.success
+              : (approvedNet < 0 ? AppStatusColors.error : null),
+        ),
+        if (value.pendingAdditions != 0 || value.pendingDeductions != 0)
+          AppDataRow(
+            label: 'Onay Bekleyen Ek İşler (net)',
+            value: '${pendingNet >= 0 ? '+' : ''}${Formatters.money(pendingNet, currency: currency)}',
+            valueColor: AppStatusColors.warning,
+          ),
+        AppDataRow(label: 'Sertifikalı Toplam', value: Formatters.money(value.certifiedToDate, currency: currency)),
+        AppDataRow(label: 'Ödenen Toplam', value: Formatters.money(value.paidToDate, currency: currency)),
+        AppDataRow(
+          label: 'Kalan Ödenecek',
+          value: Formatters.money(value.remainingPayable, currency: currency),
+          emphasize: true,
+        ),
+        if (subcontract.retentionPercent != null)
+          AppDataRow(
+            label: 'Hakediş Kesintisi (Retention)',
+            value: '%${subcontract.retentionPercent!.toStringAsFixed(2)}',
+          ),
+        if (subcontract.advanceAmount != null)
+          AppDataRow(label: 'Avans Tutarı', value: Formatters.money(subcontract.advanceAmount!, currency: currency)),
+      ],
+    );
+  }
+}
+
+/// SOV/İş kalemleri -- yalnızca tarama için gerekli alanlar (açıklama,
+/// maliyet kodu ADI, tutar, varsa miktar/birim). id/wbsNodeId/budgetLineId
+/// gibi teknik alanlar KASITLI OLARAK gösterilmez (bkz. Faz 3 ürün brief'i
+/// "veritabanı benzeri ID gösterme").
+class _SovList extends StatelessWidget {
+  const _SovList({required this.items, required this.currency, required this.costCodeLabels});
+  final List<SubcontractItem> items;
+  final String currency;
+  final Map<String, String> costCodeLabels;
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) return const _EmptySectionText('Kalem yok.');
+    return Column(
+      children: [
+        for (final item in items)
+          AppListCard(
+            title: item.description,
+            subtitle: _subtitleFor(item),
+            trailing: MoneyText(
+              item.originalAmount,
+              currency: currency,
+              style: AppTypography.body.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ),
+      ],
+    );
+  }
+
+  String? _subtitleFor(SubcontractItem item) {
+    final parts = [
+      if ((costCodeLabels[item.costCodeId] ?? '').isNotEmpty) costCodeLabels[item.costCodeId]!,
+      if (item.unit.isNotEmpty && item.quantity != null) '${item.quantity} ${item.unit}',
+    ];
+    return parts.isEmpty ? null : parts.join(' · ');
+  }
+}
+
+class _EmptySectionText extends StatelessWidget {
+  const _EmptySectionText(this.message);
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      child: Text(message, style: AppTypography.helper),
     );
   }
 }
@@ -368,7 +455,10 @@ class _SubcontractDetailBody extends ConsumerWidget {
 /// durum-korumalı SQL'iyle çalışır). "Düzenle" YALNIZCA `draft`ta ve
 /// `subcontracts.manage` iznine sahipken görünür; diğer dördü
 /// `subcontracts.approve` gerektirir (legacy_user/project_manager bu izne
-/// SAHİP DEĞİL -- bkz. backend migration 0038 rol matrisi).
+/// SAHİP DEĞİL -- bkz. backend migration 0038 rol matrisi). "Aktifleştir"/
+/// "Tamamla" ileri yönlü aksiyonlar `AppLifecycleActions`ta birincil (gold,
+/// tam genişlik) buton olarak işaretlenir -- ikisi asla aynı anda uygun
+/// olamaz (farklı durumlara bağlı), geri kalanı ikincil.
 class _LifecycleActionsBar extends ConsumerStatefulWidget {
   const _LifecycleActionsBar({
     required this.projectId,
@@ -447,21 +537,22 @@ class _LifecycleActionsBarState extends ConsumerState<_LifecycleActionsBar> {
   Widget build(BuildContext context) {
     final repo = ref.read(projectsRepositoryProvider);
     final sc = widget.subcontract;
-    final buttons = <Widget>[];
+    final actions = <AppLifecycleAction>[];
 
     if (sc.isEditable && widget.canManage) {
-      buttons.add(OutlinedButton.icon(
-        icon: const Icon(Icons.edit_outlined, size: 18),
-        label: const Text('Düzenle'),
+      actions.add(AppLifecycleAction(
+        label: 'Düzenle',
+        icon: Icons.edit_outlined,
         onPressed: _busy
             ? null
             : () => context.push('/projeler/${widget.projectId}/taseronlar/${widget.subcontractId}/duzenle'),
       ));
     }
     if (sc.canActivate && widget.canApprove) {
-      buttons.add(FilledButton.tonalIcon(
-        icon: const Icon(Icons.play_arrow, size: 18),
-        label: const Text('Aktifleştir'),
+      actions.add(AppLifecycleAction(
+        label: 'Aktifleştir',
+        icon: Icons.play_arrow,
+        primary: true,
         onPressed: _busy
             ? null
             : () async {
@@ -473,10 +564,9 @@ class _LifecycleActionsBarState extends ConsumerState<_LifecycleActionsBar> {
       ));
     }
     if (sc.canCancel && widget.canApprove) {
-      buttons.add(OutlinedButton.icon(
-        icon: const Icon(Icons.cancel_outlined, size: 18, color: AppColors.danger),
-        label: const Text('İptal Et', style: TextStyle(color: AppColors.danger)),
-        style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.danger)),
+      actions.add(AppLifecycleAction(
+        label: 'İptal Et',
+        icon: Icons.cancel_outlined,
         onPressed: _busy
             ? null
             : () async {
@@ -487,9 +577,10 @@ class _LifecycleActionsBarState extends ConsumerState<_LifecycleActionsBar> {
       ));
     }
     if (sc.canComplete && widget.canApprove) {
-      buttons.add(FilledButton.tonalIcon(
-        icon: const Icon(Icons.check_circle_outline, size: 18),
-        label: const Text('Tamamla'),
+      actions.add(AppLifecycleAction(
+        label: 'Tamamla',
+        icon: Icons.check_circle_outline,
+        primary: true,
         onPressed: _busy
             ? null
             : () async {
@@ -500,10 +591,9 @@ class _LifecycleActionsBarState extends ConsumerState<_LifecycleActionsBar> {
       ));
     }
     if (sc.canTerminate && widget.canApprove) {
-      buttons.add(OutlinedButton.icon(
-        icon: const Icon(Icons.block, size: 18, color: AppColors.danger),
-        label: const Text('Feshet', style: TextStyle(color: AppColors.danger)),
-        style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.danger)),
+      actions.add(AppLifecycleAction(
+        label: 'Feshet',
+        icon: Icons.block,
         onPressed: _busy
             ? null
             : () async {
@@ -514,27 +604,6 @@ class _LifecycleActionsBarState extends ConsumerState<_LifecycleActionsBar> {
       ));
     }
 
-    if (buttons.isEmpty) return const SizedBox.shrink();
-    return Wrap(spacing: 8, runSpacing: 8, children: buttons);
-  }
-}
-
-class _Row extends StatelessWidget {
-  const _Row(this.label, this.value);
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(child: Text(label, style: const TextStyle(color: Colors.grey))),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
-        ],
-      ),
-    );
+    return AppLifecycleActions(actions: actions);
   }
 }

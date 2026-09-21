@@ -3,7 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/api_exception.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_buttons.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/app_form_section.dart';
+import '../../../core/widgets/app_page_scaffold.dart';
+import '../../../core/widgets/async_state_view.dart';
 import '../data/projects_providers.dart';
 import '../domain/subcontract.dart';
 
@@ -219,13 +225,13 @@ class _ProgressClaimFormScreenState extends ConsumerState<ProgressClaimFormScree
     final scArgs = (projectId: widget.projectId, subcontractId: widget.subcontractId);
     final subcontractAsync = ref.watch(subcontractDetailProvider(scArgs));
 
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.isEdit ? 'Hakedişi Düzenle' : 'Yeni Hakediş')),
+    return AppPageScaffold(
+      title: Text(widget.isEdit ? 'Hakedişi Düzenle' : 'Yeni Hakediş'),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const LoadingState()
           : subcontractAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => _RetryView(error: e, onRetry: () => ref.invalidate(subcontractDetailProvider(scArgs))),
+              loading: () => const LoadingState(),
+              error: (e, _) => ErrorState(error: e, onRetry: () async => ref.invalidate(subcontractDetailProvider(scArgs))),
               data: (sc) => _buildForm(context, sc.items),
             ),
     );
@@ -235,79 +241,92 @@ class _ProgressClaimFormScreenState extends ConsumerState<ProgressClaimFormScree
     return Form(
       key: _formKey,
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
-          _DatePickerTile(
-            label: 'Dönem Başı (opsiyonel)',
-            value: _periodStart,
-            onChanged: (d) => setState(() => _periodStart = d),
-          ),
-          _DatePickerTile(
-            label: 'Dönem Sonu',
-            value: _periodEnd,
-            onChanged: (d) => setState(() => _periodEnd = d),
-          ),
-          const SizedBox(height: 8),
-          Row(
+          AppFormSection(
+            title: 'Dönem Bilgileri',
             children: [
-              Expanded(
-                child: TextFormField(
-                  controller: _retentionController,
-                  decoration: const InputDecoration(labelText: 'Hakediş Kesintisi %'),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                ),
+              _DatePickerTile(
+                label: 'Dönem Başı (opsiyonel)',
+                value: _periodStart,
+                onChanged: (d) => setState(() => _periodStart = d),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextFormField(
-                  controller: _advanceController,
-                  decoration: const InputDecoration(labelText: 'Avans Mahsubu (opsiyonel)'),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                ),
+              _DatePickerTile(
+                label: 'Dönem Sonu',
+                value: _periodEnd,
+                onChanged: (d) => setState(() => _periodEnd = d),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _deductionsController,
-            decoration: const InputDecoration(labelText: 'Diğer Kesintiler (opsiyonel)'),
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          ),
-          const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          AppFormSection(
+            title: 'Kesintiler',
             children: [
-              const Text('SOV Kalemleri', style: TextStyle(fontWeight: FontWeight.w700)),
-              TextButton.icon(
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Kalem Ekle'),
-                onPressed: () => setState(() => _items.add(_DraftItem())),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _retentionController,
+                      decoration: const InputDecoration(labelText: 'Hakediş Kesintisi %'),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _advanceController,
+                      decoration: const InputDecoration(labelText: 'Avans Mahsubu (opsiyonel)'),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    ),
+                  ),
+                ],
+              ),
+              TextFormField(
+                controller: _deductionsController,
+                decoration: const InputDecoration(labelText: 'Diğer Kesintiler (opsiyonel)'),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
               ),
             ],
           ),
-          ..._items.asMap().entries.map((entry) => _ItemRow(
-                item: entry.value,
-                subcontractItems: subcontractItems,
-                onChanged: () => setState(() {}),
-                onRemove: _items.length > 1 ? () => setState(() => _items.removeAt(entry.key)) : null,
-              )),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _notesController,
-            decoration: const InputDecoration(labelText: 'Notlar (opsiyonel)'),
-            maxLines: 3,
+          AppFormSection(
+            title: 'Kalemler',
+            subtitle: 'SOV kalemi başına bu dönemin ilerleme tutarı',
+            children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Kalem Ekle'),
+                  onPressed: () => setState(() => _items.add(_DraftItem())),
+                ),
+              ),
+              ..._items.asMap().entries.map((entry) => _ItemRow(
+                    item: entry.value,
+                    subcontractItems: subcontractItems,
+                    onChanged: () => setState(() {}),
+                    onRemove: _items.length > 1 ? () => setState(() => _items.removeAt(entry.key)) : null,
+                  )),
+            ],
+          ),
+          AppFormSection(
+            title: 'Notlar',
+            children: [
+              TextFormField(
+                controller: _notesController,
+                decoration: const InputDecoration(labelText: 'Notlar (opsiyonel)'),
+                maxLines: 3,
+              ),
+            ],
           ),
           if (_error != null) ...[
-            const SizedBox(height: 12),
-            Text(_error!, style: const TextStyle(color: AppColors.danger)),
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+              child: Text(_error!, style: AppTypography.error),
+            ),
           ],
-          const SizedBox(height: 20),
-          ElevatedButton(
+          PrimaryButton(
+            label: widget.isEdit ? 'Kaydet' : 'Hakediş Oluştur',
+            loading: _submitting,
             onPressed: _submitting ? null : _submit,
-            child: _submitting
-                ? const SizedBox(
-                    width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                : Text(widget.isEdit ? 'Kaydet' : 'Hakediş Oluştur'),
           ),
         ],
       ),
@@ -326,9 +345,12 @@ class _DatePickerTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      title: Text(label),
+      title: Text(label, style: AppTypography.body),
       subtitle: value != null
-          ? Text('${value!.day.toString().padLeft(2, '0')}.${value!.month.toString().padLeft(2, '0')}.${value!.year}')
+          ? Text(
+              '${value!.day.toString().padLeft(2, '0')}.${value!.month.toString().padLeft(2, '0')}.${value!.year}',
+              style: AppTypography.metadata,
+            )
           : null,
       trailing: value != null
           ? IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () => onChanged(null))
@@ -356,73 +378,43 @@ class _ItemRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(top: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: item.subcontractItemId.isEmpty ? null : item.subcontractItemId,
-                    decoration: const InputDecoration(labelText: 'SOV Kalemi', isDense: true),
-                    items: subcontractItems
-                        .map((it) => DropdownMenuItem(
-                              value: it.id,
-                              child: Text(it.description, overflow: TextOverflow.ellipsis),
-                            ))
-                        .toList(),
-                    onChanged: (v) {
-                      item.subcontractItemId = v ?? '';
-                      onChanged();
-                    },
-                  ),
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: item.subcontractItemId.isEmpty ? null : item.subcontractItemId,
+                  decoration: const InputDecoration(labelText: 'SOV Kalemi', isDense: true),
+                  items: subcontractItems
+                      .map((it) => DropdownMenuItem(
+                            value: it.id,
+                            child: Text(it.description, overflow: TextOverflow.ellipsis),
+                          ))
+                      .toList(),
+                  onChanged: (v) {
+                    item.subcontractItemId = v ?? '';
+                    onChanged();
+                  },
                 ),
-                if (onRemove != null) IconButton(icon: const Icon(Icons.close, size: 18), onPressed: onRemove),
-              ],
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              initialValue: item.amount,
-              decoration: const InputDecoration(labelText: 'Bu Dönem İlerleme Tutarı', isDense: true),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              onChanged: (v) {
-                item.amount = v;
-                onChanged();
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RetryView extends StatelessWidget {
-  const _RetryView({required this.error, required this.onRetry});
-
-  final Object error;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final message = error is ApiException ? (error as ApiException).message : 'Beklenmeyen bir hata oluştu.';
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, color: AppColors.danger, size: 40),
-            const SizedBox(height: 12),
-            Text(message, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textMuted)),
-            const SizedBox(height: 16),
-            OutlinedButton(onPressed: onRetry, child: const Text('Tekrar Dene')),
-          ],
-        ),
+              ),
+              if (onRemove != null) IconButton(icon: const Icon(Icons.close, size: 18), onPressed: onRemove),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          TextFormField(
+            initialValue: item.amount,
+            decoration: const InputDecoration(labelText: 'Bu Dönem İlerleme Tutarı', isDense: true),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            onChanged: (v) {
+              item.amount = v;
+              onChanged();
+            },
+          ),
+        ],
       ),
     );
   }

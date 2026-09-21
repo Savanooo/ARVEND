@@ -4,6 +4,14 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_shadows.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_buttons.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/app_form_section.dart';
+import '../../../core/widgets/app_page_scaffold.dart';
+import '../../../core/widgets/async_state_view.dart';
 import '../data/projects_providers.dart';
 import '../domain/procurement.dart';
 import '../domain/subcontract.dart' show OrgCostCode, Supplier;
@@ -82,7 +90,9 @@ class _RFQFormScreenState extends ConsumerState<RFQFormScreen> {
 
   Future<void> _loadExisting() async {
     try {
-      final detail = await ref.read(projectsRepositoryProvider).rfqDetail(widget.projectId, widget.rfqId!);
+      final detail = await ref
+          .read(projectsRepositoryProvider)
+          .rfqDetail(widget.projectId, widget.rfqId!);
       if (!mounted) return;
       if (!detail.rfq.isEditable) {
         setState(() {
@@ -126,17 +136,19 @@ class _RFQFormScreenState extends ConsumerState<RFQFormScreen> {
     for (final i in _items) {
       final qty = double.tryParse(i.quantity.replaceAll(',', '.'));
       if (i.description.trim().isEmpty || qty == null || qty <= 0) continue;
-      out.add(RFQItem(
-        id: '',
-        sourcePrItemId: null,
-        wbsNodeId: null,
-        costCodeId: i.costCodeId.isEmpty ? null : i.costCodeId,
-        budgetLineId: null,
-        description: i.description.trim(),
-        quantity: qty,
-        unit: i.unit,
-        sortOrder: 0,
-      ));
+      out.add(
+        RFQItem(
+          id: '',
+          sourcePrItemId: null,
+          wbsNodeId: null,
+          costCodeId: i.costCodeId.isEmpty ? null : i.costCodeId,
+          budgetLineId: null,
+          description: i.description.trim(),
+          quantity: qty,
+          unit: i.unit,
+          sortOrder: 0,
+        ),
+      );
     }
     return out;
   }
@@ -146,7 +158,10 @@ class _RFQFormScreenState extends ConsumerState<RFQFormScreen> {
     final usesPr = _purchaseRequestId != null && _purchaseRequestId!.isNotEmpty;
     final items = usesPr ? const <RFQItem>[] : _buildItems();
     if (!usesPr && items.isEmpty) {
-      setState(() => _error = 'Bir Satın Alma Talebi seçin veya en az bir geçerli kalem girin.');
+      setState(
+        () => _error =
+            'Bir Satın Alma Talebi seçin veya en az bir geçerli kalem girin.',
+      );
       return;
     }
 
@@ -183,9 +198,16 @@ class _RFQFormScreenState extends ConsumerState<RFQFormScreen> {
       }
       ref.invalidate(projectRFQsProvider(widget.projectId));
       if (widget.isEdit) {
-        ref.invalidate(rfqDetailProvider((projectId: widget.projectId, rfqId: widget.rfqId!)));
+        ref.invalidate(
+          rfqDetailProvider((
+            projectId: widget.projectId,
+            rfqId: widget.rfqId!,
+          )),
+        );
       }
-      if (mounted) context.go('/projeler/${widget.projectId}/satin-alma/rfqlar/${rfq.id}');
+      if (mounted) {
+        context.go('/projeler/${widget.projectId}/satin-alma/rfqlar/${rfq.id}');
+      }
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } finally {
@@ -197,27 +219,43 @@ class _RFQFormScreenState extends ConsumerState<RFQFormScreen> {
   Widget build(BuildContext context) {
     final suppliersAsync = ref.watch(suppliersProvider);
     final costCodesAsync = ref.watch(orgCostCodesProvider);
-    final approvedPrsAsync = ref.watch(projectPurchaseRequestsProvider(widget.projectId));
+    final approvedPrsAsync = ref.watch(
+      projectPurchaseRequestsProvider(widget.projectId),
+    );
 
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.isEdit ? 'RFQ Düzenle' : 'Yeni RFQ')),
+    return AppPageScaffold(
+      title: Text(widget.isEdit ? 'RFQ Düzenle' : 'Yeni RFQ'),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const LoadingState()
           : suppliersAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => _RetryView(error: e, onRetry: () => ref.invalidate(suppliersProvider)),
+              loading: () => const LoadingState(),
+              error: (e, _) => ErrorState(
+                error: e,
+                onRetry: () async => ref.invalidate(suppliersProvider),
+              ),
               data: (suppliers) => costCodesAsync.when(
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => _RetryView(error: e, onRetry: () => ref.invalidate(orgCostCodesProvider)),
+                loading: () => const LoadingState(),
+                error: (e, _) => ErrorState(
+                  error: e,
+                  onRetry: () async => ref.invalidate(orgCostCodesProvider),
+                ),
                 data: (costCodes) => approvedPrsAsync.when(
-                  loading: () => const Center(child: CircularProgressIndicator()),
-                  error: (e, _) =>
-                      _RetryView(error: e, onRetry: () => ref.invalidate(projectPurchaseRequestsProvider(widget.projectId))),
+                  loading: () => const LoadingState(),
+                  error: (e, _) => ErrorState(
+                    error: e,
+                    onRetry: () async => ref.invalidate(
+                      projectPurchaseRequestsProvider(widget.projectId),
+                    ),
+                  ),
                   data: (prs) => _buildForm(
                     context,
                     suppliers,
                     costCodes,
-                    prs.where((p) => p.status == PurchaseRequest.statusApproved).toList(),
+                    prs
+                        .where(
+                          (p) => p.status == PurchaseRequest.statusApproved,
+                        )
+                        .toList(),
                   ),
                 ),
               ),
@@ -234,102 +272,144 @@ class _RFQFormScreenState extends ConsumerState<RFQFormScreen> {
     final usesPr = _purchaseRequestId != null && _purchaseRequestId!.isNotEmpty;
     return Form(
       key: _formKey,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
+      child: Column(
         children: [
-          TextFormField(
-            controller: _titleController,
-            decoration: const InputDecoration(labelText: 'Başlık'),
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Başlık gerekli' : null,
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: usesPr ? _purchaseRequestId : '',
-            decoration: const InputDecoration(labelText: 'Kaynak Satın Alma Talebi (opsiyonel)'),
-            items: [
-              const DropdownMenuItem(value: '', child: Text('— Kendi kalemlerimi gireceğim —')),
-              ...approvedPrs.map((p) => DropdownMenuItem(value: p.id, child: Text('${p.prNo} — ${p.title}'))),
-            ],
-            onChanged: (v) => setState(() => _purchaseRequestId = (v == null || v.isEmpty) ? null : v),
-          ),
-          if (usesPr)
-            const Padding(
-              padding: EdgeInsets.only(top: 4),
-              child: Text(
-                'Kalemler seçilen talepten otomatik kopyalanır -- burada ayrıca kalem girilmez.',
-                style: TextStyle(fontSize: 11.5, color: Colors.grey),
-              ),
-            ),
-          const SizedBox(height: 12),
-          _DatePickerTile(
-            label: 'Yayın Tarihi (opsiyonel)',
-            value: _issueDate,
-            onChanged: (d) => setState(() => _issueDate = d),
-          ),
-          _DatePickerTile(
-            label: 'Son Yanıt Tarihi (opsiyonel)',
-            value: _dueDate,
-            onChanged: (d) => setState(() => _dueDate = d),
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _notesController,
-            decoration: const InputDecoration(labelText: 'Notlar (opsiyonel)'),
-            maxLines: 3,
-          ),
-          const SizedBox(height: 20),
-          const Text('Davet Edilecek Tedarikçiler', style: TextStyle(fontWeight: FontWeight.w700)),
-          const Padding(
-            padding: EdgeInsets.only(top: 2, bottom: 4),
-            child: Text(
-              'RFQ oluştururken opsiyonel; Yayınlamak için en az bir tedarikçi gereklidir.',
-              style: TextStyle(fontSize: 11.5, color: Colors.grey),
-            ),
-          ),
-          ...suppliers.where((s) => s.isActive).map((s) => CheckboxListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(s.code.isNotEmpty ? '${s.code} — ${s.displayName}' : s.displayName),
-                value: _supplierIds.contains(s.id),
-                onChanged: (checked) => setState(() {
-                  if (checked ?? false) {
-                    _supplierIds.add(s.id);
-                  } else {
-                    _supplierIds.remove(s.id);
-                  }
-                }),
-              )),
-          if (!usesPr) ...[
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(AppSpacing.lg),
               children: [
-                const Text('Kalemler', style: TextStyle(fontWeight: FontWeight.w700)),
-                TextButton.icon(
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Kalem Ekle'),
-                  onPressed: () => setState(() => _items.add(_DraftItem())),
+                AppFormSection(
+                  title: 'Temel Bilgiler',
+                  children: [
+                    TextFormField(
+                      controller: _titleController,
+                      decoration: const InputDecoration(labelText: 'Başlık'),
+                      validator: (v) => (v == null || v.trim().isEmpty)
+                          ? 'Başlık gerekli'
+                          : null,
+                    ),
+                    DropdownButtonFormField<String>(
+                      initialValue: usesPr ? _purchaseRequestId : '',
+                      decoration: const InputDecoration(
+                        labelText: 'Kaynak Satın Alma Talebi (opsiyonel)',
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                          value: '',
+                          child: Text('— Kendi kalemlerimi gireceğim —'),
+                        ),
+                        ...approvedPrs.map(
+                          (p) => DropdownMenuItem(
+                            value: p.id,
+                            child: Text('${p.prNo} — ${p.title}'),
+                          ),
+                        ),
+                      ],
+                      onChanged: (v) => setState(
+                        () => _purchaseRequestId = (v == null || v.isEmpty)
+                            ? null
+                            : v,
+                      ),
+                    ),
+                    if (usesPr)
+                      Text(
+                        'Kalemler seçilen talepten otomatik kopyalanır -- burada ayrıca kalem girilmez.',
+                        style: AppTypography.helper,
+                      ),
+                    _DatePickerTile(
+                      label: 'Yayın Tarihi (opsiyonel)',
+                      value: _issueDate,
+                      onChanged: (d) => setState(() => _issueDate = d),
+                    ),
+                    _DatePickerTile(
+                      label: 'Son Yanıt Tarihi (opsiyonel)',
+                      value: _dueDate,
+                      onChanged: (d) => setState(() => _dueDate = d),
+                    ),
+                    TextFormField(
+                      controller: _notesController,
+                      decoration: const InputDecoration(
+                        labelText: 'Notlar (opsiyonel)',
+                      ),
+                      maxLines: 3,
+                    ),
+                  ],
                 ),
+                AppFormSection(
+                  title: 'Davet Edilecek Tedarikçiler',
+                  subtitle:
+                      'RFQ oluştururken opsiyonel; Yayınlamak için en az bir tedarikçi gereklidir.',
+                  children: [
+                    AppCard(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.sm,
+                        vertical: AppSpacing.xs,
+                      ),
+                      child: Column(
+                        children: suppliers
+                            .where((s) => s.isActive)
+                            .map(
+                              (s) => CheckboxListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(
+                                  s.code.isNotEmpty
+                                      ? '${s.code} — ${s.displayName}'
+                                      : s.displayName,
+                                ),
+                                value: _supplierIds.contains(s.id),
+                                onChanged: (checked) => setState(() {
+                                  if (checked ?? false) {
+                                    _supplierIds.add(s.id);
+                                  } else {
+                                    _supplierIds.remove(s.id);
+                                  }
+                                }),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ),
+                  ],
+                ),
+                if (!usesPr)
+                  AppFormSection(
+                    title: 'Kalemler',
+                    children: [
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          icon: const Icon(Icons.add, size: 18),
+                          label: const Text('Kalem Ekle'),
+                          onPressed: () =>
+                              setState(() => _items.add(_DraftItem())),
+                        ),
+                      ),
+                      ..._items.asMap().entries.map(
+                        (entry) => _ItemRow(
+                          item: entry.value,
+                          costCodes: costCodes,
+                          onChanged: () => setState(() {}),
+                          onRemove: _items.length > 1
+                              ? () => setState(() => _items.removeAt(entry.key))
+                              : null,
+                        ),
+                      ),
+                    ],
+                  ),
+                if (_error != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(_error!, style: AppTypography.error),
+                ],
               ],
             ),
-            ..._items.asMap().entries.map((entry) => _ItemRow(
-                  item: entry.value,
-                  costCodes: costCodes,
-                  onChanged: () => setState(() {}),
-                  onRemove: _items.length > 1 ? () => setState(() => _items.removeAt(entry.key)) : null,
-                )),
-          ],
-          if (_error != null) ...[
-            const SizedBox(height: 12),
-            Text(_error!, style: const TextStyle(color: AppColors.danger)),
-          ],
-          const SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: _submitting ? null : _submit,
-            child: _submitting
-                ? const SizedBox(
-                    width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                : Text(widget.isEdit ? 'Kaydet' : 'RFQ Oluştur'),
+          ),
+          _StickyActionBar(
+            child: PrimaryButton(
+              label: widget.isEdit ? 'Kaydet' : 'RFQ Oluştur',
+              loading: _submitting,
+              onPressed: _submit,
+            ),
           ),
         ],
       ),
@@ -337,8 +417,40 @@ class _RFQFormScreenState extends ConsumerState<RFQFormScreen> {
   }
 }
 
+/// Formun altına sabitlenmiş aksiyon çubuğu (bkz. offer_create_screen.dart
+/// AYNI kalıp) -- kaydet butonuna ulaşmak için listenin sonuna kadar
+/// kaydırmayı GEREKTİRMEZ.
+class _StickyActionBar extends StatelessWidget {
+  const _StickyActionBar({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(top: BorderSide(color: AppColors.border)),
+        boxShadow: AppShadows.subtle,
+      ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.md,
+          AppSpacing.lg,
+          AppSpacing.md + MediaQuery.of(context).padding.bottom,
+        ),
+        child: child,
+      ),
+    );
+  }
+}
+
 class _DatePickerTile extends StatelessWidget {
-  const _DatePickerTile({required this.label, required this.value, required this.onChanged});
+  const _DatePickerTile({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
 
   final String label;
   final DateTime? value;
@@ -350,10 +462,15 @@ class _DatePickerTile extends StatelessWidget {
       contentPadding: EdgeInsets.zero,
       title: Text(label),
       subtitle: value != null
-          ? Text('${value!.day.toString().padLeft(2, '0')}.${value!.month.toString().padLeft(2, '0')}.${value!.year}')
+          ? Text(
+              '${value!.day.toString().padLeft(2, '0')}.${value!.month.toString().padLeft(2, '0')}.${value!.year}',
+            )
           : null,
       trailing: value != null
-          ? IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () => onChanged(null))
+          ? IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: () => onChanged(null),
+            )
           : const Icon(Icons.calendar_today_outlined, size: 18),
       onTap: () async {
         final picked = await showDatePicker(
@@ -369,7 +486,12 @@ class _DatePickerTile extends StatelessWidget {
 }
 
 class _ItemRow extends StatelessWidget {
-  const _ItemRow({required this.item, required this.costCodes, required this.onChanged, this.onRemove});
+  const _ItemRow({
+    required this.item,
+    required this.costCodes,
+    required this.onChanged,
+    this.onRemove,
+  });
 
   final _DraftItem item;
   final List<OrgCostCode> costCodes;
@@ -378,99 +500,95 @@ class _ItemRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(top: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    initialValue: item.description,
-                    decoration: const InputDecoration(labelText: 'Açıklama', isDense: true),
-                    onChanged: (v) {
-                      item.description = v;
-                      onChanged();
-                    },
+    return AppCard(
+      margin: const EdgeInsets.only(top: AppSpacing.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  initialValue: item.description,
+                  decoration: const InputDecoration(
+                    labelText: 'Açıklama',
+                    isDense: true,
                   ),
+                  onChanged: (v) {
+                    item.description = v;
+                    onChanged();
+                  },
                 ),
-                if (onRemove != null) IconButton(icon: const Icon(Icons.close, size: 18), onPressed: onRemove),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    initialValue: item.quantity,
-                    decoration: const InputDecoration(labelText: 'Miktar', isDense: true),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    onChanged: (v) {
-                      item.quantity = v;
-                      onChanged();
-                    },
+              ),
+              if (onRemove != null)
+                IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  onPressed: onRemove,
+                ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  initialValue: item.quantity,
+                  decoration: const InputDecoration(
+                    labelText: 'Miktar',
+                    isDense: true,
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextFormField(
-                    initialValue: item.unit,
-                    decoration: const InputDecoration(labelText: 'Birim', isDense: true),
-                    onChanged: (v) {
-                      item.unit = v;
-                      onChanged();
-                    },
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
                   ),
+                  onChanged: (v) {
+                    item.quantity = v;
+                    onChanged();
+                  },
                 ),
-              ],
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: TextFormField(
+                  initialValue: item.unit,
+                  decoration: const InputDecoration(
+                    labelText: 'Birim',
+                    isDense: true,
+                  ),
+                  onChanged: (v) {
+                    item.unit = v;
+                    onChanged();
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          DropdownButtonFormField<String>(
+            initialValue: item.costCodeId.isEmpty ? null : item.costCodeId,
+            decoration: const InputDecoration(
+              labelText: 'Maliyet Kodu (opsiyonel)',
+              isDense: true,
             ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              initialValue: item.costCodeId.isEmpty ? null : item.costCodeId,
-              decoration: const InputDecoration(labelText: 'Maliyet Kodu (opsiyonel)', isDense: true),
-              items: [
-                const DropdownMenuItem(value: '', child: Text('— Seçilmedi —')),
-                ...costCodes
-                    .where((c) => c.isActive || c.id == item.costCodeId)
-                    .map((c) => DropdownMenuItem(value: c.id, child: Text('${c.code} — ${c.name}', overflow: TextOverflow.ellipsis))),
-              ],
-              onChanged: (v) {
-                item.costCodeId = v ?? '';
-                onChanged();
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RetryView extends StatelessWidget {
-  const _RetryView({required this.error, required this.onRetry});
-
-  final Object error;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final message = error is ApiException ? (error as ApiException).message : 'Beklenmeyen bir hata oluştu.';
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, color: AppColors.danger, size: 40),
-            const SizedBox(height: 12),
-            Text(message, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textMuted)),
-            const SizedBox(height: 16),
-            OutlinedButton(onPressed: onRetry, child: const Text('Tekrar Dene')),
-          ],
-        ),
+            items: [
+              const DropdownMenuItem(value: '', child: Text('— Seçilmedi —')),
+              ...costCodes
+                  .where((c) => c.isActive || c.id == item.costCodeId)
+                  .map(
+                    (c) => DropdownMenuItem(
+                      value: c.id,
+                      child: Text(
+                        '${c.code} — ${c.name}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+            ],
+            onChanged: (v) {
+              item.costCodeId = v ?? '';
+              onChanged();
+            },
+          ),
+        ],
       ),
     );
   }

@@ -5,8 +5,17 @@ import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/app_data_row.dart';
+import '../../../core/widgets/app_lifecycle_actions.dart';
+import '../../../core/widgets/app_list_card.dart';
+import '../../../core/widgets/app_page_scaffold.dart';
+import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/money_text.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../data/projects_providers.dart';
 import '../domain/subcontract.dart';
@@ -31,12 +40,10 @@ class SubcontractChangeOrderDetailScreen extends ConsumerWidget {
     final args = (projectId: projectId, changeOrderId: changeOrderId);
     final detailAsync = ref.watch(subcontractChangeOrderDetailProvider(args));
 
-    return Scaffold(
-      appBar: AppBar(
-        title: detailAsync.maybeWhen(
-          data: (d) => Text(d.changeOrder.number),
-          orElse: () => const Text('Değişiklik Emri'),
-        ),
+    return AppPageScaffold(
+      title: detailAsync.maybeWhen(
+        data: (d) => Text(d.changeOrder.number),
+        orElse: () => const Text('Değişiklik Emri'),
       ),
       body: AsyncStateView(
         value: detailAsync,
@@ -88,26 +95,56 @@ class _ChangeOrderDetailBody extends ConsumerWidget {
     }
 
     final signed = changeOrder.signedAmount;
+    final isAddition = changeOrder.changeType == SubcontractChangeOrder.typeAddition;
+    final amountColor = isAddition ? AppColors.success : AppColors.danger;
+
     return RefreshIndicator(
       onRefresh: () async => refreshAll(),
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              StatusRegistry.build(changeOrder.status, StatusRegistry.subcontractChangeOrder),
-              Text(
-                '${signed >= 0 ? '+' : ''}${Formatters.money(signed, currency: currency)}',
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 18,
-                  color: changeOrder.changeType == SubcontractChangeOrder.typeAddition ? Colors.green : Colors.red,
+          AppCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        changeOrder.title,
+                        style: AppTypography.cardTitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    StatusRegistry.build(changeOrder.status, StatusRegistry.subcontractChangeOrder),
+                  ],
                 ),
-              ),
-            ],
+                if (changeOrder.description.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(changeOrder.description, style: AppTypography.metadata),
+                ],
+                const SizedBox(height: AppSpacing.md),
+                Align(
+                  alignment: Alignment.centerRight,
+                  // İşaret (+/-) yalnızca GÖRÜNTÜLEME içindir (bkz.
+                  // domain/subcontract.dart `signedAmount` yorumu) -- kart
+                  // yüzeyi/kenarlığı DEĞİL, yalnızca bu metin renklendirilir.
+                  child: Text(
+                    '${signed >= 0 ? '+' : ''}${Formatters.money(signed, currency: currency)}',
+                    style: AppTypography.metricPrimary.copyWith(color: amountColor),
+                  ),
+                ),
+                const Divider(height: AppSpacing.xl),
+                AppDataRow(label: 'Tür', value: isAddition ? 'Ek İş (+)' : 'Kesinti (-)'),
+                AppDataRow(label: 'Toplam Tutar', value: Formatters.money(changeOrder.amount, currency: currency)),
+                if (changeOrder.reason.isNotEmpty) AppDataRow(label: 'Gerekçe', value: changeOrder.reason),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.md),
           _ChangeOrderLifecycleActionsBar(
             projectId: projectId,
             subcontractId: subcontractId,
@@ -117,80 +154,37 @@ class _ChangeOrderDetailBody extends ConsumerWidget {
             canApprove: canApprove,
             onChanged: refreshAll,
           ),
-          const SizedBox(height: 4),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
+          if (changeOrder.status == SubcontractChangeOrder.statusRejected && changeOrder.rejectionReason.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            AppCard(
+              color: AppColors.danger.withValues(alpha: 0.06),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(changeOrder.title, style: const TextStyle(fontWeight: FontWeight.w700)),
-                  if (changeOrder.description.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(changeOrder.description, style: const TextStyle(color: Colors.grey)),
-                  ],
-                  const Divider(height: 20),
-                  _Row('Tür', changeOrder.changeType == SubcontractChangeOrder.typeAddition ? 'Ek İş (+)' : 'Kesinti (-)'),
-                  _Row('Toplam Tutar', Formatters.money(changeOrder.amount, currency: currency)),
-                  if (changeOrder.reason.isNotEmpty) _Row('Gerekçe', changeOrder.reason),
+                  Text('Red Gerekçesi', style: AppTypography.sectionTitle.copyWith(color: AppColors.danger)),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(changeOrder.rejectionReason, style: AppTypography.body),
                 ],
               ),
             ),
-          ),
-          if (changeOrder.status == SubcontractChangeOrder.statusRejected && changeOrder.rejectionReason.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Card(
-              color: AppColors.danger.withValues(alpha: 0.06),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Red Gerekçesi', style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.danger)),
-                    const SizedBox(height: 4),
-                    Text(changeOrder.rejectionReason),
-                  ],
-                ),
-              ),
-            ),
           ],
-          const SizedBox(height: 16),
-          const Text('Kalemler', style: TextStyle(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.xl),
+          const AppSectionHeader(title: 'Kalemler'),
+          const SizedBox(height: AppSpacing.sm),
           if (items.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Text('Kalem yok.', style: TextStyle(color: Colors.grey)),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+              child: Text('Kalem yok.', style: AppTypography.metadata),
             )
           else
-            ...items.map((it) => Card(
-                  margin: const EdgeInsets.only(bottom: 6),
-                  child: ListTile(
-                    title: Text(it.description, maxLines: 2, overflow: TextOverflow.ellipsis),
-                    trailing: Text(Formatters.money(it.amount, currency: currency),
-                        style: const TextStyle(fontWeight: FontWeight.w700)),
+            ...items.map((it) => AppListCard(
+                  title: it.description,
+                  trailing: MoneyText(
+                    it.amount,
+                    currency: currency,
+                    style: AppTypography.body.copyWith(fontWeight: FontWeight.w700),
                   ),
                 )),
-        ],
-      ),
-    );
-  }
-}
-
-class _Row extends StatelessWidget {
-  const _Row(this.label, this.value);
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(child: Text(label, style: const TextStyle(color: Colors.grey))),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
         ],
       ),
     );
@@ -280,22 +274,14 @@ class _ChangeOrderLifecycleActionsBarState extends ConsumerState<_ChangeOrderLif
   Widget build(BuildContext context) {
     final repo = ref.read(projectsRepositoryProvider);
     final co = widget.changeOrder;
-    final buttons = <Widget>[];
+    final actions = <AppLifecycleAction>[];
 
-    if (co.isEditable && widget.canManage) {
-      buttons.add(OutlinedButton.icon(
-        icon: const Icon(Icons.edit_outlined, size: 18),
-        label: const Text('Düzenle'),
-        onPressed: _busy
-            ? null
-            : () => context.push(
-                '/projeler/${widget.projectId}/taseronlar/${widget.subcontractId}/degisiklik-emirleri/${widget.changeOrderId}/duzenle'),
-      ));
-    }
     if (co.canSubmit && widget.canManage) {
-      buttons.add(FilledButton.tonalIcon(
-        icon: const Icon(Icons.send_outlined, size: 18),
-        label: const Text('Gönder'),
+      actions.add(AppLifecycleAction(
+        label: 'Gönder',
+        icon: Icons.send_outlined,
+        primary: true,
+        loading: _busy,
         onPressed: _busy
             ? null
             : () async {
@@ -305,24 +291,12 @@ class _ChangeOrderLifecycleActionsBarState extends ConsumerState<_ChangeOrderLif
               },
       ));
     }
-    if (co.canCancel && widget.canManage) {
-      buttons.add(OutlinedButton.icon(
-        icon: const Icon(Icons.cancel_outlined, size: 18, color: AppColors.danger),
-        label: const Text('İptal Et', style: TextStyle(color: AppColors.danger)),
-        style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.danger)),
-        onPressed: _busy
-            ? null
-            : () async {
-                final ok = await _confirm('İptal Et', 'Bu değişiklik emri iptal edilsin mi?');
-                if (!ok) return;
-                await _run(() => repo.cancelSubcontractChangeOrder(widget.projectId, widget.changeOrderId));
-              },
-      ));
-    }
     if (co.canApprove && widget.canApprove) {
-      buttons.add(FilledButton.tonalIcon(
-        icon: const Icon(Icons.check_circle_outline, size: 18),
-        label: const Text('Onayla'),
+      actions.add(AppLifecycleAction(
+        label: 'Onayla',
+        icon: Icons.check_circle_outline,
+        primary: true,
+        loading: _busy,
         onPressed: _busy
             ? null
             : () async {
@@ -333,11 +307,36 @@ class _ChangeOrderLifecycleActionsBarState extends ConsumerState<_ChangeOrderLif
               },
       ));
     }
+    if (co.isEditable && widget.canManage) {
+      actions.add(AppLifecycleAction(
+        label: 'Düzenle',
+        icon: Icons.edit_outlined,
+        loading: _busy,
+        onPressed: _busy
+            ? null
+            : () => context.push(
+                '/projeler/${widget.projectId}/taseronlar/${widget.subcontractId}/degisiklik-emirleri/${widget.changeOrderId}/duzenle'),
+      ));
+    }
+    if (co.canCancel && widget.canManage) {
+      actions.add(AppLifecycleAction(
+        label: 'İptal Et',
+        icon: Icons.cancel_outlined,
+        loading: _busy,
+        onPressed: _busy
+            ? null
+            : () async {
+                final ok = await _confirm('İptal Et', 'Bu değişiklik emri iptal edilsin mi?');
+                if (!ok) return;
+                await _run(() => repo.cancelSubcontractChangeOrder(widget.projectId, widget.changeOrderId));
+              },
+      ));
+    }
     if (co.canReject && widget.canApprove) {
-      buttons.add(OutlinedButton.icon(
-        icon: const Icon(Icons.thumb_down_outlined, size: 18, color: AppColors.danger),
-        label: const Text('Reddet', style: TextStyle(color: AppColors.danger)),
-        style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.danger)),
+      actions.add(AppLifecycleAction(
+        label: 'Reddet',
+        icon: Icons.thumb_down_outlined,
+        loading: _busy,
         onPressed: _busy
             ? null
             : () async {
@@ -349,7 +348,6 @@ class _ChangeOrderLifecycleActionsBarState extends ConsumerState<_ChangeOrderLif
       ));
     }
 
-    if (buttons.isEmpty) return const SizedBox.shrink();
-    return Wrap(spacing: 8, runSpacing: 8, children: buttons);
+    return AppLifecycleActions(actions: actions);
   }
 }

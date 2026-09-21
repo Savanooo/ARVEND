@@ -4,8 +4,22 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_radius.dart';
+import '../../../core/theme/app_shadows.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/app_buttons.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/app_data_row.dart';
+import '../../../core/widgets/app_financial_summary.dart';
+import '../../../core/widgets/app_form_section.dart';
+import '../../../core/widgets/app_list_card.dart';
+import '../../../core/widgets/app_page_scaffold.dart';
+import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/metric_card.dart';
+import '../../../core/widgets/money_text.dart';
 import '../data/calc_providers.dart';
 import '../domain/calc.dart';
 
@@ -127,123 +141,177 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
   Widget build(BuildContext context) {
     final catalogAsync = ref.watch(calcCatalogProvider);
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Metraj Hesaplama')),
-      body: AsyncStateView(
-        value: catalogAsync,
-        onRetry: () async => ref.invalidate(calcCatalogProvider),
-        data: (context, groups) => ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            DropdownButtonFormField<CalcGroupWithCategories>(
-              initialValue: _group,
-              decoration: const InputDecoration(labelText: 'Grup'),
-              items: groups.map((g) => DropdownMenuItem(value: g, child: Text(g.name))).toList(),
-              onChanged: (g) => setState(() {
-                _group = g;
-                _category = null;
-                _result = null;
-              }),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<CalcCategory>(
-              initialValue: _category,
-              decoration: const InputDecoration(labelText: 'Hesaplama Türü (Kategori)'),
-              items: (_group?.categories ?? [])
-                  .map((c) => DropdownMenuItem(value: c, child: Text(c.name)))
-                  .toList(),
-              onChanged: _group == null
-                  ? null
-                  : (c) => setState(() {
-                        _category = c;
-                        _result = null;
+    return AppPageScaffold(
+      title: const Text('Metraj Hesaplama'),
+      body: Column(
+        children: [
+          Expanded(
+            child: AsyncStateView(
+              value: catalogAsync,
+              onRetry: () async => ref.invalidate(calcCatalogProvider),
+              data: (context, groups) => ListView(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                children: [
+                  AppFormSection(
+                    title: 'Hesaplama Türü',
+                    subtitle: 'Grup ve kategori seçin',
+                    children: [
+                      DropdownButtonFormField<CalcGroupWithCategories>(
+                        initialValue: _group,
+                        decoration: const InputDecoration(labelText: 'Grup'),
+                        items: groups.map((g) => DropdownMenuItem(value: g, child: Text(g.name))).toList(),
+                        onChanged: (g) => setState(() {
+                          _group = g;
+                          _category = null;
+                          _result = null;
+                        }),
+                      ),
+                      if (_group != null) ...[
+                        Text('Kategori', style: AppTypography.metadata),
+                        for (final c in _group!.categories)
+                          _CategoryTile(
+                            category: c,
+                            selected: _category?.id == c.id,
+                            onTap: () => setState(() {
+                              _category = c;
+                              _result = null;
+                            }),
+                          ),
+                      ],
+                    ],
+                  ),
+                  if (_category != null)
+                    AppFormSection(
+                      title: 'Ölçüler',
+                      subtitle: _category!.name,
+                      children: [
+                        SegmentedButton<bool>(
+                          segments: const [
+                            ButtonSegment(value: true, label: Text('Doğrudan Alan')),
+                            ButtonSegment(value: false, label: Text('En × Boy')),
+                          ],
+                          selected: {_useAreaDirectly},
+                          onSelectionChanged: (s) => setState(() => _useAreaDirectly = s.first),
+                        ),
+                        if (_useAreaDirectly)
+                          TextField(
+                            controller: _areaController,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            decoration: const InputDecoration(labelText: 'Alan (m²)'),
+                          )
+                        else
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _widthController,
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  decoration: const InputDecoration(labelText: 'En (m)'),
+                                ),
+                              ),
+                              const SizedBox(width: AppSpacing.md),
+                              Expanded(
+                                child: TextField(
+                                  controller: _heightController,
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  decoration: const InputDecoration(labelText: 'Boy (m)'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        TextField(
+                          controller: _perimeterController,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: const InputDecoration(
+                            labelText: 'Çevre (m) — opsiyonel',
+                            helperText: 'Boş bırakılırsa En×Boy\'dan hesaplanır (yalnızca En×Boy modunda)',
+                          ),
+                        ),
+                        if (_group?.looksLikeRoof ?? false)
+                          TextField(
+                            controller: _pitchController,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            decoration: const InputDecoration(labelText: 'Çatı Eğimi (derece) — opsiyonel'),
+                          ),
+                        PrimaryButton(
+                          label: 'Hesapla',
+                          icon: Icons.calculate_outlined,
+                          loading: _calculating,
+                          onPressed: _calculate,
+                        ),
+                        if (_error != null) Text(_error!, style: AppTypography.error),
+                      ],
+                    ),
+                  if (_result != null)
+                    _ResultSection(
+                      result: _result!,
+                      selected: _selectedForOffer,
+                      onToggle: (id, v) => setState(() {
+                        if (v) {
+                          _selectedForOffer.add(id);
+                        } else {
+                          _selectedForOffer.remove(id);
+                        }
                       }),
-            ),
-            if (_category != null && _category!.description.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(_category!.description, style: const TextStyle(fontSize: 12.5, color: AppColors.textMuted)),
-            ],
-            if (_category != null) ...[
-              const SizedBox(height: 20),
-              SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment(value: true, label: Text('Doğrudan Alan')),
-                  ButtonSegment(value: false, label: Text('En × Boy')),
+                    ),
                 ],
-                selected: {_useAreaDirectly},
-                onSelectionChanged: (s) => setState(() => _useAreaDirectly = s.first),
               ),
-              const SizedBox(height: 12),
-              if (_useAreaDirectly)
-                TextField(
-                  controller: _areaController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Alan (m²)'),
-                )
-              else
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _widthController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(labelText: 'En (m)'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: TextField(
-                        controller: _heightController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(labelText: 'Boy (m)'),
-                      ),
-                    ),
-                  ],
-                ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _perimeterController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
-                  labelText: 'Çevre (m) — opsiyonel',
-                  helperText: 'Boş bırakılırsa En×Boy\'dan hesaplanır (yalnızca En×Boy modunda)',
-                ),
-              ),
-              if (_group?.looksLikeRoof ?? false) ...[
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _pitchController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Çatı Eğimi (derece) — opsiyonel'),
-                ),
-              ],
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _calculating ? null : _calculate,
-                child: _calculating
-                    ? const SizedBox(
-                        width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                    : const Text('Hesapla'),
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                Text(_error!, style: const TextStyle(color: AppColors.danger)),
-              ],
-            ],
-            if (_result != null) _ResultSection(
-              result: _result!,
-              selected: _selectedForOffer,
-              onToggle: (id, v) => setState(() {
-                if (v) {
-                  _selectedForOffer.add(id);
-                } else {
-                  _selectedForOffer.remove(id);
-                }
-              }),
-              onAddToOffer: _addToOffer,
             ),
-          ],
-        ),
+          ),
+          if (_result != null)
+            _StickyAddToOfferBar(count: _selectedForOffer.length, onAdd: _addToOffer),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bir hesaplama kategorisi seçim kartı -- ad + (varsa) açıklama tek
+/// bakışta görünür (bkz. ürün brifingi "Category selection — use clear
+/// names and descriptions"). Seçili durum marka rengiyle (gold) vurgulanır
+/// -- bkz. AppColors "Gold yalnızca vurgu/CTA/seçili durumda kullanılır".
+class _CategoryTile extends StatelessWidget {
+  const _CategoryTile({required this.category, required this.selected, required this.onTap});
+
+  final CalcCategory category;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      onTap: onTap,
+      color: selected ? AppColors.gold.withValues(alpha: 0.06) : null,
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  category.name,
+                  style: AppTypography.cardTitle.copyWith(color: selected ? AppColors.gold : null),
+                ),
+                if (category.description.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    category.description,
+                    style: AppTypography.metadata,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Icon(
+            selected ? Icons.check_circle : Icons.radio_button_unchecked,
+            color: selected ? AppColors.gold : AppColors.border,
+            size: 22,
+          ),
+        ],
       ),
     );
   }
@@ -254,90 +322,80 @@ class _ResultSection extends StatelessWidget {
     required this.result,
     required this.selected,
     required this.onToggle,
-    required this.onAddToOffer,
   });
 
   final CalcRunResult result;
   final Set<String> selected;
   final void Function(String id, bool value) onToggle;
-  final VoidCallback onAddToOffer;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: 24),
-        Card(
-          color: AppColors.background,
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Etkin Alan: ${Formatters.quantityFromString(result.effectiveArea)} m²'),
-                // footprint_area (eğim uygulanmadan önceki taban alan)
-                // yalnızca eğim (pitch) etkin alanı DEĞİŞTİRDİĞİNDE ayrıca
-                // gösterilir -- aksi halde ikisi zaten aynı, tekrar gürültü
-                // olur (bkz. backend ComputeGeometry: pitch yoksa
-                // effective_area == footprint_area).
-                if (result.footprintArea != result.effectiveArea)
-                  Text(
-                    'Taban Alan: ${Formatters.quantityFromString(result.footprintArea)} m² (eğim uygulanmadan önce)',
-                    style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
-                  ),
-                if (result.perimeter != null)
-                  Text('Çevre: ${Formatters.quantityFromString(result.perimeter!)} m'),
-              ],
-            ),
+        const SizedBox(height: AppSpacing.xl),
+        const AppSectionHeader(title: 'Sonuç'),
+        const SizedBox(height: 2),
+        Text(result.categoryName, style: AppTypography.metadata),
+        const SizedBox(height: AppSpacing.sm),
+        AppFinancialSummary(
+          headline: Row(
+            children: [
+              Expanded(
+                child: MetricCard(
+                  icon: Icons.square_foot_outlined,
+                  label: 'Etkin Alan',
+                  value: '${Formatters.quantityFromString(result.effectiveArea)} m²',
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: MetricCard(
+                  icon: Icons.payments_outlined,
+                  label: 'Toplam Maliyet',
+                  value: Formatters.moneyFromString(result.totalCost),
+                ),
+              ),
+            ],
           ),
+          rows: [
+            // footprint_area (eğim uygulanmadan önceki taban alan) yalnızca
+            // eğim (pitch) etkin alanı DEĞİŞTİRDİĞİNDE ayrıca gösterilir --
+            // aksi halde ikisi zaten aynı, tekrar gürültü olur (bkz. backend
+            // ComputeGeometry: pitch yoksa effective_area == footprint_area).
+            if (result.footprintArea != result.effectiveArea)
+              AppDataRow(
+                label: 'Taban Alan (eğim öncesi)',
+                value: '${Formatters.quantityFromString(result.footprintArea)} m²',
+              ),
+            if (result.perimeter != null)
+              AppDataRow(label: 'Çevre', value: '${Formatters.quantityFromString(result.perimeter!)} m'),
+          ],
         ),
-        if (result.warnings.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Column(
-              children: result.warnings
-                  .map((w) => Container(
-                        margin: const EdgeInsets.only(bottom: 6),
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: AppColors.warning.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.warning_amber_rounded, color: AppColors.warning, size: 18),
-                            const SizedBox(width: 8),
-                            Expanded(child: Text(w.message, style: const TextStyle(fontSize: 12.5))),
-                          ],
-                        ),
-                      ))
-                  .toList(),
+        if (result.warnings.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.md),
+          for (final w in result.warnings)
+            Container(
+              margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: AppColors.warning.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(AppRadius.control),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: AppColors.warning, size: 18),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(child: Text(w.message, style: AppTypography.body.copyWith(fontSize: 12.5))),
+                ],
+              ),
             ),
-          ),
-        const SizedBox(height: 8),
-        const Text('Malzeme Listesi', style: TextStyle(fontWeight: FontWeight.w700)),
+        ],
+        const SizedBox(height: AppSpacing.lg),
+        const AppSectionHeader(title: 'Malzeme Listesi'),
+        const SizedBox(height: AppSpacing.sm),
         ..._buildItemRows(),
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Toplam', style: TextStyle(fontWeight: FontWeight.w700)),
-                Text(Formatters.moneyFromString(result.totalCost),
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        ElevatedButton.icon(
-          onPressed: selected.isEmpty ? null : onAddToOffer,
-          icon: const Icon(Icons.add_shopping_cart_outlined),
-          label: Text('Teklife Ekle (${selected.length})'),
-        ),
       ],
     );
   }
@@ -354,32 +412,69 @@ class _ResultSection extends StatelessWidget {
       final group = item.groupName;
       if (group != null && group.isNotEmpty && group != lastGroup) {
         widgets.add(Padding(
-          padding: const EdgeInsets.only(top: 10, bottom: 2),
-          child: Text(group, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.textMuted)),
+          padding: const EdgeInsets.only(top: AppSpacing.sm, bottom: AppSpacing.xs),
+          child: AppSectionHeader(title: group),
         ));
       }
       lastGroup = group;
-      widgets.add(Card(
-        margin: const EdgeInsets.only(top: 6),
-        child: CheckboxListTile(
-          value: selected.contains(item.recipeItemId),
+      final isSelected = selected.contains(item.recipeItemId);
+      widgets.add(AppListCard(
+        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+        onTap: () => onToggle(item.recipeItemId, !isSelected),
+        leading: Checkbox(
+          value: isSelected,
           onChanged: (v) => onToggle(item.recipeItemId, v ?? false),
-          title: Text(item.materialName),
-          subtitle: Text(
-            '${Formatters.quantityFromString(item.quantity)} ${item.unit} × '
-            '${Formatters.moneyFromString(item.unitPrice)}',
-          ),
-          secondary: SizedBox(
-            width: 84,
-            child: Text(
-              Formatters.moneyFromString(item.lineTotal),
-              textAlign: TextAlign.right,
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ),
         ),
+        title: item.materialName,
+        subtitle: '${Formatters.quantityFromString(item.quantity)} ${item.unit} × '
+            '${Formatters.moneyFromString(item.unitPrice)}',
+        trailing: _lineTotalText(item.lineTotal),
       ));
     }
     return widgets;
+  }
+}
+
+/// `line_total` (backend'den STRING) yalnızca görüntüleme için parse edilir
+/// -- `Formatters.moneyFromString` ile AYNI kural (`double.tryParse`,
+/// parse edilemezse ham değeri göster), yalnızca sonuç `MoneyText` ile
+/// (hizalı rakamlar için) biçimlenir.
+Widget _lineTotalText(String raw) {
+  final style = AppTypography.body.copyWith(fontWeight: FontWeight.w700);
+  final parsed = double.tryParse(raw);
+  return parsed == null ? Text(raw, style: style) : MoneyText(parsed, style: style);
+}
+
+/// Formun altına sabitlenmiş "Teklife Ekle" çubuğu -- uzun bir sonuç
+/// listesinde aksiyona ulaşmak için sona kadar kaydırmayı GEREKTİRMEZ
+/// (bkz. offer_create_screen.dart _StickyActionBar, aynı kalıp).
+class _StickyAddToOfferBar extends StatelessWidget {
+  const _StickyAddToOfferBar({required this.count, required this.onAdd});
+
+  final int count;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(top: BorderSide(color: AppColors.border)),
+        boxShadow: AppShadows.subtle,
+      ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.md,
+          AppSpacing.lg,
+          AppSpacing.md + MediaQuery.of(context).padding.bottom,
+        ),
+        child: PrimaryButton(
+          label: 'Teklife Ekle ($count)',
+          icon: Icons.add_shopping_cart_outlined,
+          onPressed: count == 0 ? null : onAdd,
+        ),
+      ),
+    );
   }
 }

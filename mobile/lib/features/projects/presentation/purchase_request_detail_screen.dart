@@ -4,9 +4,18 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/errors/api_exception.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_status_colors.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/app_data_row.dart';
+import '../../../core/widgets/app_lifecycle_actions.dart';
+import '../../../core/widgets/app_list_card.dart';
+import '../../../core/widgets/app_page_scaffold.dart';
+import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/money_text.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../data/projects_providers.dart';
 import '../domain/procurement.dart';
@@ -27,12 +36,10 @@ class PurchaseRequestDetailScreen extends ConsumerWidget {
     final args = (projectId: projectId, prId: prId);
     final detailAsync = ref.watch(purchaseRequestDetailProvider(args));
 
-    return Scaffold(
-      appBar: AppBar(
-        title: detailAsync.maybeWhen(
-          data: (d) => Text(d.request.prNo),
-          orElse: () => const Text('Satın Alma Talebi'),
-        ),
+    return AppPageScaffold(
+      title: detailAsync.maybeWhen(
+        data: (d) => Text(d.request.prNo),
+        orElse: () => const Text('Satın Alma Talebi'),
       ),
       body: AsyncStateView(
         value: detailAsync,
@@ -58,6 +65,24 @@ class _PurchaseRequestDetailBody extends ConsumerWidget {
   final String prId;
   final ({PurchaseRequest request, List<PurchaseRequestItem> items}) detail;
 
+  /// "Sonraki Adım" ipucu -- YALNIZCA zaten var olan `canX` getter'larından
+  /// türetilir, veride olmayan yeni bir adım/kural İCAT EDİLMEZ (bkz. görev
+  /// notu). Onay bekleyen taraf (approve/reject) en öncelikli, ardından
+  /// geri çekme, ardından gönderme -- bunlar birbirini dışlar çünkü hepsi
+  /// farklı `status` değerlerine bağlıdır.
+  String? _nextStepHint(PurchaseRequest pr, {required bool canManage, required bool canApprove}) {
+    if (pr.canApprove && canApprove) {
+      return 'Bu talep onayınızı bekliyor. Onaylayabilir veya reddedebilirsiniz.';
+    }
+    if (pr.canWithdraw && canManage) {
+      return 'Talep onay için gönderildi ve onaylayıcıyı bekliyor. Geri çekerseniz tekrar düzenleyebilirsiniz.';
+    }
+    if (pr.canSubmit && canManage) {
+      return 'Talep taslak durumda. Gönderildiğinde onaya sunulur.';
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final args = (projectId: projectId, prId: prId);
@@ -76,108 +101,110 @@ class _PurchaseRequestDetailBody extends ConsumerWidget {
       ref.invalidate(projectPurchaseRequestsProvider(projectId));
     }
 
+    final pr = detail.request;
+    final nextStepHint = _nextStepHint(pr, canManage: canManage, canApprove: canApprove);
+    final hasApprovalHistory = pr.submittedAt != null ||
+        pr.approvedAt != null ||
+        pr.rejectedAt != null ||
+        pr.cancelledAt != null;
+
     return RefreshIndicator(
       onRefresh: () async => refreshAll(),
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              StatusRegistry.build(
-                detail.request.status,
-                StatusRegistry.purchaseRequest,
-              ),
-              Text(
-                Formatters.money(detail.request.estimatedTotal),
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 18,
-                ),
+              StatusRegistry.build(pr.status, StatusRegistry.purchaseRequest),
+              MoneyText(
+                pr.estimatedTotal,
+                style: AppTypography.metricPrimary,
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.md),
           _LifecycleActionsBar(
             projectId: projectId,
             prId: prId,
-            request: detail.request,
+            request: pr,
             canManage: canManage,
             canApprove: canApprove,
             onChanged: refreshAll,
           ),
-          const SizedBox(height: 4),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
+          const SizedBox(height: AppSpacing.lg),
+
+          const AppSectionHeader(title: 'Talep'),
+          AppCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(pr.title, style: AppTypography.cardTitle),
+                if (pr.description.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(pr.description, style: AppTypography.body),
+                ],
+                const Divider(height: AppSpacing.xl),
+                AppDataRow(label: 'İhtiyaç Tarihi', value: Formatters.date(pr.neededBy)),
+                AppDataRow(label: 'Oluşturulma', value: Formatters.dateTime(pr.createdAt)),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: AppSpacing.xl),
+          const AppSectionHeader(title: 'Kalemler'),
+          if (detail.items.isEmpty)
+            const EmptyStateView(message: 'Kalem yok.', icon: Icons.inventory_2_outlined)
+          else
+            ...detail.items.map((item) => _PurchaseRequestItemTile(item: item)),
+
+          const SizedBox(height: AppSpacing.xl),
+          const AppSectionHeader(title: 'Onay Durumu'),
+          AppCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (hasApprovalHistory) ...[
+                  if (pr.submittedAt != null)
+                    AppDataRow(label: 'Gönderilme', value: Formatters.dateTime(pr.submittedAt)),
+                  if (pr.approvedAt != null)
+                    AppDataRow(label: 'Onaylanma', value: Formatters.dateTime(pr.approvedAt)),
+                  if (pr.rejectedAt != null)
+                    AppDataRow(label: 'Reddedilme', value: Formatters.dateTime(pr.rejectedAt)),
+                  if (pr.cancelledAt != null)
+                    AppDataRow(label: 'İptal', value: Formatters.dateTime(pr.cancelledAt)),
+                ] else
+                  Text('Henüz bir onay işlemi yok.', style: AppTypography.helper),
+                if (pr.rejectionReason.isNotEmpty) ...[
+                  const Divider(height: AppSpacing.xl),
+                  Text('Red Gerekçesi', style: AppTypography.metadata),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(pr.rejectionReason, style: AppTypography.body),
+                ],
+                if (pr.cancelReason.isNotEmpty) ...[
+                  const Divider(height: AppSpacing.xl),
+                  Text('İptal Gerekçesi', style: AppTypography.metadata),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(pr.cancelReason, style: AppTypography.body),
+                ],
+              ],
+            ),
+          ),
+
+          if (nextStepHint != null) ...[
+            const SizedBox(height: AppSpacing.xl),
+            const AppSectionHeader(title: 'Sonraki Adım'),
+            AppCard(
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    detail.request.title,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  if (detail.request.description.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Text(detail.request.description),
-                  ],
-                  const Divider(height: 20),
-                  _Row(
-                    'İhtiyaç Tarihi',
-                    Formatters.date(detail.request.neededBy),
-                  ),
-                  _Row(
-                    'Oluşturulma',
-                    Formatters.dateTime(detail.request.createdAt),
-                  ),
-                  if (detail.request.submittedAt != null)
-                    _Row(
-                      'Gönderilme',
-                      Formatters.dateTime(detail.request.submittedAt),
-                    ),
-                  if (detail.request.approvedAt != null)
-                    _Row(
-                      'Onaylanma',
-                      Formatters.dateTime(detail.request.approvedAt),
-                    ),
-                  if (detail.request.rejectedAt != null)
-                    _Row(
-                      'Reddedilme',
-                      Formatters.dateTime(detail.request.rejectedAt),
-                    ),
-                  if (detail.request.cancelledAt != null)
-                    _Row(
-                      'İptal',
-                      Formatters.dateTime(detail.request.cancelledAt),
-                    ),
+                  const Icon(Icons.info_outline, size: 18, color: AppStatusColors.info),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(child: Text(nextStepHint, style: AppTypography.body)),
                 ],
               ),
             ),
-          ),
-          if (detail.request.rejectionReason.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _ReasonCard(
-              label: 'Red Gerekçesi',
-              reason: detail.request.rejectionReason,
-            ),
           ],
-          if (detail.request.cancelReason.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _ReasonCard(
-              label: 'İptal Gerekçesi',
-              reason: detail.request.cancelReason,
-            ),
-          ],
-          const SizedBox(height: 16),
-          const Text('Kalemler', style: TextStyle(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          if (detail.items.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Text('Kalem yok.', style: TextStyle(color: Colors.grey)),
-            )
-          else
-            ...detail.items.map((item) => _PurchaseRequestItemTile(item: item)),
         ],
       ),
     );
@@ -277,13 +304,13 @@ class _LifecycleActionsBarState extends ConsumerState<_LifecycleActionsBar> {
   Widget build(BuildContext context) {
     final repo = ref.read(projectsRepositoryProvider);
     final pr = widget.request;
-    final buttons = <Widget>[];
+    final actions = <AppLifecycleAction>[];
 
     if (pr.isEditable && widget.canManage) {
-      buttons.add(
-        OutlinedButton.icon(
-          icon: const Icon(Icons.edit_outlined, size: 18),
-          label: const Text('Düzenle'),
+      actions.add(
+        AppLifecycleAction(
+          label: 'Düzenle',
+          icon: Icons.edit_outlined,
           onPressed: _busy
               ? null
               : () => context.push(
@@ -293,10 +320,11 @@ class _LifecycleActionsBarState extends ConsumerState<_LifecycleActionsBar> {
       );
     }
     if (pr.canSubmit && widget.canManage) {
-      buttons.add(
-        FilledButton.tonalIcon(
-          icon: const Icon(Icons.send_outlined, size: 18),
-          label: const Text('Gönder'),
+      actions.add(
+        AppLifecycleAction(
+          label: 'Gönder',
+          icon: Icons.send_outlined,
+          primary: true,
           onPressed: _busy
               ? null
               : () async {
@@ -316,10 +344,10 @@ class _LifecycleActionsBarState extends ConsumerState<_LifecycleActionsBar> {
       );
     }
     if (pr.canWithdraw && widget.canManage) {
-      buttons.add(
-        OutlinedButton.icon(
-          icon: const Icon(Icons.undo, size: 18),
-          label: const Text('Geri Çek'),
+      actions.add(
+        AppLifecycleAction(
+          label: 'Geri Çek',
+          icon: Icons.undo,
           onPressed: _busy
               ? null
               : () async {
@@ -339,10 +367,11 @@ class _LifecycleActionsBarState extends ConsumerState<_LifecycleActionsBar> {
       );
     }
     if (pr.canApprove && widget.canApprove) {
-      buttons.add(
-        FilledButton.tonalIcon(
-          icon: const Icon(Icons.check_circle_outline, size: 18),
-          label: const Text('Onayla'),
+      actions.add(
+        AppLifecycleAction(
+          label: 'Onayla',
+          icon: Icons.check_circle_outline,
+          primary: true,
           onPressed: _busy
               ? null
               : () async {
@@ -362,20 +391,10 @@ class _LifecycleActionsBarState extends ConsumerState<_LifecycleActionsBar> {
       );
     }
     if (pr.canReject && widget.canApprove) {
-      buttons.add(
-        OutlinedButton.icon(
-          icon: const Icon(
-            Icons.thumb_down_outlined,
-            size: 18,
-            color: AppColors.danger,
-          ),
-          label: const Text(
-            'Reddet',
-            style: TextStyle(color: AppColors.danger),
-          ),
-          style: OutlinedButton.styleFrom(
-            side: const BorderSide(color: AppColors.danger),
-          ),
+      actions.add(
+        AppLifecycleAction(
+          label: 'Reddet',
+          icon: Icons.thumb_down_outlined,
           onPressed: _busy
               ? null
               : () async {
@@ -393,20 +412,10 @@ class _LifecycleActionsBarState extends ConsumerState<_LifecycleActionsBar> {
       );
     }
     if (pr.canCancel && widget.canManage) {
-      buttons.add(
-        OutlinedButton.icon(
-          icon: const Icon(
-            Icons.cancel_outlined,
-            size: 18,
-            color: AppColors.danger,
-          ),
-          label: const Text(
-            'İptal Et',
-            style: TextStyle(color: AppColors.danger),
-          ),
-          style: OutlinedButton.styleFrom(
-            side: const BorderSide(color: AppColors.danger),
-          ),
+      actions.add(
+        AppLifecycleAction(
+          label: 'İptal Et',
+          icon: Icons.cancel_outlined,
           onPressed: _busy
               ? null
               : () async {
@@ -424,8 +433,7 @@ class _LifecycleActionsBarState extends ConsumerState<_LifecycleActionsBar> {
       );
     }
 
-    if (buttons.isEmpty) return const SizedBox.shrink();
-    return Wrap(spacing: 8, runSpacing: 8, children: buttons);
+    return AppLifecycleActions(actions: actions);
   }
 }
 
@@ -435,71 +443,13 @@ class _PurchaseRequestItemTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 6),
-      child: ListTile(
-        title: Text(
-          item.description,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Text(
-          '${item.quantity.toStringAsFixed(item.quantity.truncateToDouble() == item.quantity ? 0 : 2)} ${item.unit}'
+    return AppListCard(
+      title: item.description,
+      subtitle: '${item.quantity.toStringAsFixed(item.quantity.truncateToDouble() == item.quantity ? 0 : 2)} ${item.unit}'
           '${item.estimatedUnitCost != null ? '  ×  ${Formatters.money(item.estimatedUnitCost!)}' : ''}',
-        ),
-        trailing: Text(
-          Formatters.money(item.estimatedTotal),
-          style: const TextStyle(fontWeight: FontWeight.w700),
-        ),
-      ),
-    );
-  }
-}
-
-class _ReasonCard extends StatelessWidget {
-  const _ReasonCard({required this.label, required this.reason});
-  final String label;
-  final String reason;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: const TextStyle(
-                fontWeight: FontWeight.w700,
-                color: Colors.grey,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(reason),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Row extends StatelessWidget {
-  const _Row(this.label, this.value);
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(color: Colors.grey)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
-        ],
+      trailing: MoneyText(
+        item.estimatedTotal,
+        style: AppTypography.body.copyWith(fontWeight: FontWeight.w700),
       ),
     );
   }

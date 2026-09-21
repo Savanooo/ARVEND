@@ -3,7 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/api_exception.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_buttons.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/app_form_section.dart';
+import '../../../core/widgets/app_page_scaffold.dart';
+import '../../../core/widgets/async_state_view.dart';
 import '../data/projects_providers.dart';
 import '../domain/subcontract.dart';
 
@@ -47,6 +53,9 @@ DateTime? _parseDate(String? s) {
 /// yeniden-oluştur) -- bu yüzden edit modunda mevcut kalemler yüklenip
 /// `_items`'a önceden doldurulur; kullanıcı dokunmasa bile submit'te
 /// OLDUĞU GİBİ geri gönderilirler (bkz. `SubcontractItem.toJson` yorumu).
+/// P3: form "Tedarikçi ve Kapsam / Ticari Şartlar / Kalemler (SOV) / Notlar"
+/// bölümlerine ayrılır (bkz. Faz 3 ürün brief'i) -- mevcut ekle/düzenle kalem
+/// sınırları (tek seferde tam yeniden yazma, WBS/bütçe seçici YOK) DEĞİŞMEZ.
 class SubcontractFormScreen extends ConsumerStatefulWidget {
   const SubcontractFormScreen({super.key, required this.projectId, this.subcontractId});
 
@@ -227,17 +236,17 @@ class _SubcontractFormScreenState extends ConsumerState<SubcontractFormScreen> {
     final suppliersAsync = ref.watch(suppliersProvider);
     final costCodesAsync = ref.watch(orgCostCodesProvider);
 
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.isEdit ? 'Taşeron Sözleşmesini Düzenle' : 'Yeni Taşeron Sözleşmesi')),
+    return AppPageScaffold(
+      title: Text(widget.isEdit ? 'Taşeron Sözleşmesini Düzenle' : 'Yeni Taşeron Sözleşmesi'),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : suppliersAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => _RetryView(error: e, onRetry: () => ref.invalidate(suppliersProvider)),
-              data: (suppliers) => costCodesAsync.when(
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => _RetryView(error: e, onRetry: () => ref.invalidate(orgCostCodesProvider)),
-                data: (costCodes) => _buildForm(context, suppliers, costCodes),
+          ? const LoadingState()
+          : AsyncStateView<List<Supplier>>(
+              value: suppliersAsync,
+              onRetry: () async => ref.invalidate(suppliersProvider),
+              data: (context, suppliers) => AsyncStateView<List<OrgCostCode>>(
+                value: costCodesAsync,
+                onRetry: () async => ref.invalidate(orgCostCodesProvider),
+                data: (context, costCodes) => _buildForm(context, suppliers, costCodes),
               ),
             ),
     );
@@ -247,112 +256,120 @@ class _SubcontractFormScreenState extends ConsumerState<SubcontractFormScreen> {
     return Form(
       key: _formKey,
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
-          DropdownButtonFormField<String>(
-            initialValue: _supplierId,
-            decoration: const InputDecoration(labelText: 'Tedarikçi (Taşeron)'),
-            items: suppliers
-                .where((s) => s.isActive || s.id == _supplierId)
-                .map((s) => DropdownMenuItem(
-                      value: s.id,
-                      child: Text(
-                        s.code.isNotEmpty ? '${s.code} — ${s.displayName}' : s.displayName,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ))
-                .toList(),
-            onChanged: (v) => setState(() => _supplierId = v),
-            validator: (v) => (v == null || v.isEmpty) ? 'Tedarikçi seçin' : null,
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _titleController,
-            decoration: const InputDecoration(labelText: 'Başlık'),
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Başlık gerekli' : null,
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _scopeController,
-            decoration: const InputDecoration(labelText: 'Kapsam Özeti (opsiyonel)'),
-            maxLines: 3,
-          ),
-          const SizedBox(height: 16),
-          _DatePickerTile(
-            label: 'Yürürlük Tarihi (opsiyonel)',
-            value: _effectiveDate,
-            onChanged: (d) => setState(() => _effectiveDate = d),
-          ),
-          _DatePickerTile(
-            label: 'Başlangıç Tarihi (opsiyonel)',
-            value: _startDate,
-            onChanged: (d) => setState(() => _startDate = d),
-          ),
-          _DatePickerTile(
-            label: 'Planlanan Bitiş Tarihi (opsiyonel)',
-            value: _plannedCompletionDate,
-            onChanged: (d) => setState(() => _plannedCompletionDate = d),
-          ),
-          const SizedBox(height: 8),
-          Row(
+          AppFormSection(
+            title: 'Tedarikçi ve Kapsam',
             children: [
-              Expanded(
-                child: TextFormField(
-                  controller: _retentionController,
-                  decoration: const InputDecoration(labelText: 'Hakediş Kesintisi % (opsiyonel)'),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                ),
+              DropdownButtonFormField<String>(
+                initialValue: _supplierId,
+                decoration: const InputDecoration(labelText: 'Tedarikçi (Taşeron)'),
+                items: suppliers
+                    .where((s) => s.isActive || s.id == _supplierId)
+                    .map((s) => DropdownMenuItem(
+                          value: s.id,
+                          child: Text(
+                            s.code.isNotEmpty ? '${s.code} — ${s.displayName}' : s.displayName,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ))
+                    .toList(),
+                onChanged: (v) => setState(() => _supplierId = v),
+                validator: (v) => (v == null || v.isEmpty) ? 'Tedarikçi seçin' : null,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextFormField(
-                  controller: _advanceController,
-                  decoration: const InputDecoration(labelText: 'Avans Tutarı (opsiyonel)'),
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                ),
+              TextFormField(
+                controller: _titleController,
+                decoration: const InputDecoration(labelText: 'Başlık'),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Başlık gerekli' : null,
+              ),
+              TextFormField(
+                controller: _scopeController,
+                decoration: const InputDecoration(labelText: 'Kapsam Özeti (opsiyonel)'),
+                maxLines: 3,
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _paymentTermsController,
-            decoration: const InputDecoration(labelText: 'Ödeme Koşulları (opsiyonel)'),
-          ),
-          const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          AppFormSection(
+            title: 'Ticari Şartlar',
             children: [
-              const Text('SOV / İş Kalemleri', style: TextStyle(fontWeight: FontWeight.w700)),
-              TextButton.icon(
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Kalem Ekle'),
-                onPressed: () => setState(() => _items.add(_DraftItem())),
+              _DatePickerTile(
+                label: 'Yürürlük Tarihi (opsiyonel)',
+                value: _effectiveDate,
+                onChanged: (d) => setState(() => _effectiveDate = d),
+              ),
+              _DatePickerTile(
+                label: 'Başlangıç Tarihi (opsiyonel)',
+                value: _startDate,
+                onChanged: (d) => setState(() => _startDate = d),
+              ),
+              _DatePickerTile(
+                label: 'Planlanan Bitiş Tarihi (opsiyonel)',
+                value: _plannedCompletionDate,
+                onChanged: (d) => setState(() => _plannedCompletionDate = d),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _retentionController,
+                      decoration: const InputDecoration(labelText: 'Hakediş Kesintisi % (opsiyonel)'),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _advanceController,
+                      decoration: const InputDecoration(labelText: 'Avans Tutarı (opsiyonel)'),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    ),
+                  ),
+                ],
+              ),
+              TextFormField(
+                controller: _paymentTermsController,
+                decoration: const InputDecoration(labelText: 'Ödeme Koşulları (opsiyonel)'),
               ),
             ],
           ),
-          ..._items.asMap().entries.map((entry) => _ItemRow(
-                item: entry.value,
-                costCodes: costCodes,
-                onChanged: () => setState(() {}),
-                onRemove: _items.length > 1 ? () => setState(() => _items.removeAt(entry.key)) : null,
-              )),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _notesController,
-            decoration: const InputDecoration(labelText: 'Notlar (opsiyonel)'),
-            maxLines: 3,
+          AppFormSection(
+            title: 'Kalemler (SOV)',
+            children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Kalem Ekle'),
+                  onPressed: () => setState(() => _items.add(_DraftItem())),
+                ),
+              ),
+              for (final entry in _items.asMap().entries)
+                _ItemRow(
+                  item: entry.value,
+                  costCodes: costCodes,
+                  onChanged: () => setState(() {}),
+                  onRemove: _items.length > 1 ? () => setState(() => _items.removeAt(entry.key)) : null,
+                ),
+            ],
+          ),
+          AppFormSection(
+            title: 'Notlar',
+            children: [
+              TextFormField(
+                controller: _notesController,
+                decoration: const InputDecoration(labelText: 'Notlar (opsiyonel)'),
+                maxLines: 3,
+              ),
+            ],
           ),
           if (_error != null) ...[
-            const SizedBox(height: 12),
-            Text(_error!, style: const TextStyle(color: AppColors.danger)),
+            Text(_error!, style: AppTypography.error),
+            const SizedBox(height: AppSpacing.md),
           ],
-          const SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: _submitting ? null : _submit,
-            child: _submitting
-                ? const SizedBox(
-                    width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                : Text(widget.isEdit ? 'Kaydet' : 'Sözleşmeyi Oluştur'),
+          PrimaryButton(
+            label: widget.isEdit ? 'Kaydet' : 'Sözleşmeyi Oluştur',
+            onPressed: _submit,
+            loading: _submitting,
           ),
         ],
       ),
@@ -371,9 +388,12 @@ class _DatePickerTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      title: Text(label),
+      title: Text(label, style: AppTypography.body),
       subtitle: value != null
-          ? Text('${value!.day.toString().padLeft(2, '0')}.${value!.month.toString().padLeft(2, '0')}.${value!.year}')
+          ? Text(
+              '${value!.day.toString().padLeft(2, '0')}.${value!.month.toString().padLeft(2, '0')}.${value!.year}',
+              style: AppTypography.metadata,
+            )
           : null,
       trailing: value != null
           ? IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () => onChanged(null))
@@ -401,83 +421,53 @@ class _ItemRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(top: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    initialValue: item.costCodeId.isEmpty ? null : item.costCodeId,
-                    decoration: const InputDecoration(labelText: 'Maliyet Kodu', isDense: true),
-                    items: costCodes
-                        .where((c) => c.isActive || c.id == item.costCodeId)
-                        .map((c) => DropdownMenuItem(
-                              value: c.id,
-                              child: Text('${c.code} — ${c.name}', overflow: TextOverflow.ellipsis),
-                            ))
-                        .toList(),
-                    onChanged: (v) {
-                      item.costCodeId = v ?? '';
-                      onChanged();
-                    },
-                  ),
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: item.costCodeId.isEmpty ? null : item.costCodeId,
+                  decoration: const InputDecoration(labelText: 'Maliyet Kodu', isDense: true),
+                  items: costCodes
+                      .where((c) => c.isActive || c.id == item.costCodeId)
+                      .map((c) => DropdownMenuItem(
+                            value: c.id,
+                            child: Text('${c.code} — ${c.name}', overflow: TextOverflow.ellipsis),
+                          ))
+                      .toList(),
+                  onChanged: (v) {
+                    item.costCodeId = v ?? '';
+                    onChanged();
+                  },
                 ),
-                if (onRemove != null) IconButton(icon: const Icon(Icons.close, size: 18), onPressed: onRemove),
-              ],
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              initialValue: item.description,
-              decoration: const InputDecoration(labelText: 'Açıklama', isDense: true),
-              onChanged: (v) {
-                item.description = v;
-                onChanged();
-              },
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              initialValue: item.amount,
-              decoration: const InputDecoration(labelText: 'Tutar', isDense: true),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              onChanged: (v) {
-                item.amount = v;
-                onChanged();
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RetryView extends StatelessWidget {
-  const _RetryView({required this.error, required this.onRetry});
-
-  final Object error;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final message = error is ApiException ? (error as ApiException).message : 'Beklenmeyen bir hata oluştu.';
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, color: AppColors.danger, size: 40),
-            const SizedBox(height: 12),
-            Text(message, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textMuted)),
-            const SizedBox(height: 16),
-            OutlinedButton(onPressed: onRetry, child: const Text('Tekrar Dene')),
-          ],
-        ),
+              ),
+              if (onRemove != null) IconButton(icon: const Icon(Icons.close, size: 18), onPressed: onRemove),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          TextFormField(
+            initialValue: item.description,
+            decoration: const InputDecoration(labelText: 'Açıklama', isDense: true),
+            onChanged: (v) {
+              item.description = v;
+              onChanged();
+            },
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          TextFormField(
+            initialValue: item.amount,
+            decoration: const InputDecoration(labelText: 'Tutar', isDense: true),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            onChanged: (v) {
+              item.amount = v;
+              onChanged();
+            },
+          ),
+        ],
       ),
     );
   }
