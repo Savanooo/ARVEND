@@ -17,10 +17,21 @@ Future<void> main() async {
     overrides: [apiClientProvider.overrideWithValue(apiClient)],
   );
 
-  // Tek uçuş refresh başarısız olduğunda (401/403) oturumu senkron biçimde
-  // temizle - go_router'ın redirect'i authControllerProvider'ı dinlediği
-  // için kullanıcı otomatik olarak /giris'e döner.
+  // Tek uçuş refresh başarısız olduğunda (sınıflandırılamayan bir 401/403)
+  // oturumu senkron biçimde temizle - go_router'ın redirect'i
+  // authControllerProvider'ı dinlediği için kullanıcı otomatik olarak
+  // /giris'e döner.
   apiClient.onSessionExpired = () {
+    container.read(authControllerProvider.notifier).sessionExpired();
+  };
+
+  // Organizasyon/kullanıcı engeli (ya da super_admin'in bir kiracı ucuna
+  // isabet etmesi -- normalde yaşanmamalı) -- sebep ÖNCE yazılır ki
+  // go_router'ın redirect'i AYNI karar turunda doğru hedefi (hesap-engeli
+  // ekranı / bilgilendirilmiş giriş ekranı) seçebilsin, SONRA aynı tek
+  // yetkili sessionExpired() yoluyla oturum temizlenir.
+  apiClient.onAccountAccessBlocked = (issue) {
+    container.read(accountAccessIssueProvider.notifier).state = issue;
     container.read(authControllerProvider.notifier).sessionExpired();
   };
 

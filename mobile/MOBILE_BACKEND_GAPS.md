@@ -15,13 +15,17 @@ per-project loop — since before this entry was last verified. No further
 action needed here; keeping the entry so the history of the gap (and its
 fix) isn't lost.
 
-## 2. No organization name/id anywhere in the API
-`GET /auth/me` returns `id, username, full_name, role, is_active` only —
-no `organization_id`, no org name. `domain.Organization` and
-`organization_service.go` exist server-side but no `/api/v1/organizations*`
-route is registered. The Profile screen cannot show a company name.
-Proposed: add `organization_name` to `userResponse`, or a minimal
-`GET /api/v1/organizations/me`.
+## 2. ~~No organization name/id anywhere in the API~~ — RESOLVED
+`GET /auth/me` (and login/refresh) now returns `organization_id`,
+`organization_name`, `organization_role_code`, `organization_role_name`,
+`must_change_password`, `onboarding_completed`, `onboarding_step`, and
+`permissions` alongside the original fields (super-admin + RBAC/onboarding
+phases) — see `mobile/lib/features/auth/domain/user.dart`. `role` remains a
+coarse platform/tenant axis (`admin|kullanici|super_admin`); it is NOT the
+same axis as `organization_role_code` (`owner|admin|project_manager|
+finance|field|legacy_user|...`) — see API_CONTRACT.md#auth. No further
+action needed here; keeping the entry so the history of the gap (and its
+fix) isn't lost.
 
 ## 3. No server-side search/filter on `GET /offers/`
 Only `filter=pasif`, `page`, `limit` are read. No `q`, `status`, `customer_id`,
@@ -37,13 +41,20 @@ email/tax fields. `GET /employees` has no `q` param at all, only
 (searches name only); no employee search box was built since none would
 work.
 
-## 5. No staff-side approve/reject for change orders
-Change order approval/rejection only happens through the unauthenticated
-public link (`POST /api/v1/public/change-orders/{token}/respond`). There is
-no authenticated "mark as approved" action for staff. Not built into the
-mobile app's Finans tab change-order view (change orders are not yet
-surfaced in the mobile UI at all, beyond the customer link staff already
-send from elsewhere).
+## 5. No staff-side approve/reject for PROJECT-level change orders
+Scope narrowed 2026-09-22 — this gap is specific to **project-level**
+change orders (revenue-side, offer/contract amendments). Approval/rejection
+there only happens through the unauthenticated public link (`POST
+/api/v1/public/change-orders/{token}/respond`); no authenticated "mark as
+approved" action for staff exists. Mobile's Finans tab now DOES surface
+these read-only (`_ChangeOrdersTab` in `project_detail_screen.dart`) — the
+"not yet surfaced" framing this entry originally had is stale, only the
+"no staff approve/reject" part of the gap is still current. Separately,
+**subcontract-level** change orders (cost-side) are a DIFFERENT feature
+with their OWN authenticated staff approve/reject action
+(`POST .../subcontract-change-orders/{id}/approve|reject`, full mobile
+create/edit/detail screens) — do not conflate the two when reasoning about
+this gap.
 
 ## 6. Notes are create+list only
 `internal/repository/queries/project_operations.sql` defines
@@ -51,12 +62,16 @@ send from elsewhere).
 but no service method or route wires them up. `PUT`/`DELETE` on a project
 note is not reachable via HTTP today, even though the DB layer supports it.
 
-## 7. No void-reason field for change orders
-Unlike collections/expenses/subcontractor-payments (which all take
+## 7. No void-reason field for PROJECT-level change orders
+Same scope narrowing as #5 — this is specific to project-level change
+orders. Unlike collections/expenses/subcontractor-payments (which all take
 `{reason}` on void), `CancelChangeOrder` takes no request body at all —
-there is no `VoidedAt`/`VoidReason` on `domain.ChangeOrder`. Not applicable
-to the current mobile UI (change orders aren't yet surfaced), noted for
-when they are.
+there is no `VoidedAt`/`VoidReason` on `domain.ChangeOrder`. Mobile's
+read-only Finans tab view doesn't offer a cancel action at all (staff
+cancellation isn't built for these), so this remains not directly
+applicable today, but the "change orders aren't yet surfaced" premise is
+stale (see #5) — kept accurate for if/when a staff-side cancel action is
+added here.
 
 ## 8. Attendance is pure manual entry — confirmed no GPS/geofence
 `domain.AttendanceLog` has no location fields anywhere. `POST/PUT

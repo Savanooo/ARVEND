@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/auth_controller.dart';
-import '../../../core/errors/api_exception.dart';
+import '../../../core/errors/api_exception.dart' show AccountAccessIssue, ApiException;
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -23,6 +23,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _obscurePassword = true;
   bool _submitting = false;
   String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    // Kullanıcı pasif/silinmiş olduğu için oturum az önce ApiClient
+    // tarafından düşürüldüyse (bkz. AccountAccessIssue.userBlocked,
+    // main.dart onAccountAccessBlocked) -- organizasyon engelinin AKSİNE
+    // (bkz. AccountAccessBlockedScreen) bu durum kendi özel ekranını HAK
+    // ETMEZ, burada tek seferlik bir bilgi mesajıyla ele alınır. Sebep bir
+    // sonraki girişte zaten temizlenir (bkz. AuthController.login), burada
+    // AYRICA temizlenir ki ekran yeniden build olduğunda mesaj tekrarlamasın.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final issue = ref.read(accountAccessIssueProvider);
+      if (issue == AccountAccessIssue.userBlocked) {
+        setState(() => _errorMessage = 'Hesabınıza erişiminiz kapatılmıştır. Bilgi için yöneticinizle görüşün.');
+      }
+      ref.read(accountAccessIssueProvider.notifier).state = null;
+    });
+  }
 
   @override
   void dispose() {

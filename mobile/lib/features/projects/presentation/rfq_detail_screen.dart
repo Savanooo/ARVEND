@@ -252,7 +252,7 @@ class _RFQDetailBody extends ConsumerWidget {
               canManage: canManage,
               onChanged: refreshAll,
             ),
-            if (rfq.isAwarded) ...[
+            if (rfq.isAwarded && canManage) ...[
               const SizedBox(height: AppSpacing.sm),
               PrimaryButton(
                 icon: Icons.add_shopping_cart_outlined,

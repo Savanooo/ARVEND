@@ -68,7 +68,14 @@ class OtherMenuScreen extends ConsumerWidget {
     // /organization/settings/*) -- kullanici rolüne 403 ile sonuçlanacak
     // bir ekranı göstermemek için yalnızca admin'e gösterilir (Super Admin
     // mobilde bu ekranı kullanmaz, bkz. MOBILE_BACKEND_GAPS.md - platform
-    // yönetimi web'e özeldir).
+    // yönetimi web'e özeldir). BİLİNÇLİ OLARAK `user.role` (kaba platform/
+    // kiracı ekseni) kontrol edilir, `hasPermission` (ince RBAC ekseni)
+    // DEĞİL -- backend'in kendisi bu ucu requireAdmin ile korur, perm()
+    // ile DEĞİL, bu yüzden mobil kontrol GERÇEK sunucu davranışını birebir
+    // yansıtır. app_router.dart'taki super_admin yönlendirmesi sayesinde
+    // super_admin zaten bu ekrana hiç gelmez -- ama `role == admin` yanlışça
+    // `hasPermission(...)`'a "düzeltilmeye" çalışılırsa DİKKAT: bu ekranın
+    // gerçek koruması RBAC izin kodu DEĞİL, kaba admin rolüdür.
     final managementItems = [
       if (user?.role == UserRole.admin)
         _MenuItem(

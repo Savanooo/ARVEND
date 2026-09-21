@@ -3,9 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/auth/auth_controller.dart';
+import '../core/errors/api_exception.dart';
 import '../features/auth/domain/user.dart';
+import '../features/auth/presentation/account_access_blocked_screen.dart';
 import '../features/auth/presentation/login_screen.dart';
 import '../features/auth/presentation/set_initial_password_screen.dart';
+import '../features/auth/presentation/super_admin_unsupported_screen.dart';
 import '../features/calculations/presentation/metraj_screen.dart';
 import '../features/customers/presentation/customer_detail_screen.dart';
 import '../features/customers/presentation/customers_screen.dart';
@@ -46,13 +49,18 @@ import 'app_shell.dart';
 
 const _passwordSetupRoute = '/sifre-belirle';
 const _onboardingRoute = '/kurulum';
+const _superAdminUnsupportedRoute = '/hesap-yonetim-web';
+const _accountBlockedRoute = '/hesap-erisimi-kapali';
 
 /// Kullanıcının BULUNMASI GEREKEN zorunlu rota (varsa) -- yoksa null
-/// (serbest gezinme). Sıra: must-change-password ÖNCE, onboarding SONRA
-/// (super_admin onboarding'den muaftır, organizasyonu yoktur).
+/// (serbest gezinme). Sıra: super_admin ÖNCE (organizasyonu YOKTUR, bu
+/// yüzden aşağıdaki iki kiracı-özel kontrolden HİÇBİRİNE asla girmemeli --
+/// ARVEND Mobile TAMAMEN bir kiracı uygulamasıdır, bkz. dosya başı yorumu),
+/// SONRA must-change-password, SONRA onboarding.
 String? _forcedRouteFor(User user) {
+  if (user.role == UserRole.superAdmin) return _superAdminUnsupportedRoute;
   if (user.mustChangePassword) return _passwordSetupRoute;
-  if (user.role != UserRole.superAdmin && !user.onboardingCompleted) return _onboardingRoute;
+  if (!user.onboardingCompleted) return _onboardingRoute;
   return null;
 }
 
@@ -85,10 +93,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       // TEK seferde hesaplar (ara "/ana-sayfa" durağından geçmeden) --
       // "zaten oradaysa null, değilse doğrudan oraya" deseni.
       //
-      // Sıra ÖNEMLİ (spec: must-change-password onboarding'den ÖNCE
-      // sıralanır): 1) giriş yapılmış mı, 2) şifre değiştirilmeli mi,
-      // 3) onboarding tamamlanmış mı (super_admin bundan muaftır -- hiçbir
-      // organizasyona bağlı değildir).
+      // Sıra ÖNEMLİ: 1) giriş yapılmış mı (değilse -- organizasyon engeli
+      // yüzünden mi düşürüldü, bkz. aşağıdaki blok), 2) super_admin mi
+      // (bkz. _forcedRouteFor -- kiracı akışlarının TAMAMINDAN muaf, mobilde
+      // hiçbir organizasyona bağlı değildir), 3) şifre değiştirilmeli mi,
+      // 4) onboarding tamamlanmış mı.
     redirect: (context, state) {
       final authState = ref.read(authControllerProvider);
       final user = authState.valueOrNull;
@@ -97,7 +106,18 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (authState.isLoading) return null;
 
       if (user == null) {
-        return currentLocation == '/giris' ? null : '/giris';
+        // Organizasyon askıya alınmış/iptal edilmiş/silinmiş olduğu için
+        // oturum az önce ApiClient tarafından düşürüldüyse (bkz.
+        // accountAccessIssueProvider, main.dart onAccountAccessBlocked)
+        // düz /giris yerine bunu açıklayan özel ekrana gidilir; diğer TÜM
+        // durumlarda (sıradan çıkış/süresi dolma/kullanıcı engeli -- bu
+        // sonuncusu LoginScreen'de bilgilendirici bir mesajla ele alınır)
+        // /giris'e düşülür.
+        final blockedRoute =
+            ref.read(accountAccessIssueProvider) == AccountAccessIssue.organizationBlocked
+                ? _accountBlockedRoute
+                : '/giris';
+        return currentLocation == blockedRoute ? null : blockedRoute;
       }
 
       final forcedRoute = _forcedRouteFor(user);
@@ -115,6 +135,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/giris', builder: (context, state) => const LoginScreen()),
       GoRoute(path: _passwordSetupRoute, builder: (context, state) => const SetInitialPasswordScreen()),
       GoRoute(path: _onboardingRoute, builder: (context, state) => const OnboardingWizardScreen()),
+      GoRoute(
+        path: _superAdminUnsupportedRoute,
+        builder: (context, state) => const SuperAdminUnsupportedScreen(),
+      ),
+      GoRoute(
+        path: _accountBlockedRoute,
+        builder: (context, state) => const AccountAccessBlockedScreen(),
+      ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) => AppShell(navigationShell: navigationShell),
         branches: [

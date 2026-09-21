@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:arvend/app/app.dart';
 import 'package:arvend/core/api/api_providers.dart';
+import 'package:arvend/core/auth/auth_controller.dart';
 
 import '../test_utils/fake_api_client.dart';
 
@@ -78,24 +79,46 @@ void main() {
     expect(find.text('Teklif'), findsOneWidget);
   });
 
-  testWidgets('super_admin: organizasyonu olmadığı için onboarding kontrolünden muaftır', (tester) async {
+  testWidgets(
+      'super_admin: kiracı akışlarının (onboarding/dashboard) TAMAMINDAN muaftır, '
+      'web-only hesap ekranına yönlendirilir ve HİÇBİR kiracı ucu çağrılmaz', (tester) async {
     final adapter = FakeHttpClientAdapter(script: {
       '/auth/me': [
         (status: 200, body: _meBody(role: 'super_admin', onboardingCompleted: false, onboardingStep: 'company')),
       ],
-      '/projects': [(status: 200, body: {'projects': <dynamic>[], 'total': 0})],
-      '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
-      '/tasks/mine': [(status: 200, body: {'tasks': <dynamic>[]})],
-      '/notifications/unread-count': [(status: 200, body: {'unread_count': 0})],
+      // ARVEND Mobile TAMAMEN bir kiracı uygulamasıdır -- super_admin
+      // giriş yapar yapmaz web-only ekrana düşmeli, /projects, /offers/,
+      // /tasks/mine, /notifications/unread-count gibi HİÇBİR kiracı ucu
+      // ÇAĞRILMAMALI (bkz. app_router.dart _forcedRouteFor). Script'te bu
+      // yollar KASITLI OLARAK tanımsız bırakıldı -- adapter, script'te
+      // olmayan bir yola istek gelirse StateError fırlatır, bu yüzden
+      // testin kendisi "hiç çağrılmadı" iddiasını doğal olarak da kanıtlar.
     });
     await _pumpApp(tester, adapter);
 
-    // 'Ana Sayfa' hem AppBar başlığında hem alt gezinme etiketinde
-    // göründüğü için ekranın kendine özgü içeriğiyle (Dashboard'un statik
-    // "Aktif Projeler" başlığı) doğrulanır.
-    expect(find.text('Aktif Projeler'), findsOneWidget);
+    expect(find.text('Bu hesap platform yönetimi içindir. Yönetim panelini web üzerinden kullanın.'),
+        findsOneWidget);
+    expect(find.text('Hesap: test_kullanici'), findsOneWidget);
+    expect(find.text('Aktif Projeler'), findsNothing);
     expect(find.text('Firma Kurulumu'), findsNothing);
     expect(find.text('Yeni Şifre Belirleyin'), findsNothing);
+    expect(adapter.calls, ['/auth/me']);
+  });
+
+  testWidgets('super_admin: web-only ekrandan çıkış yapınca giriş ekranına döner', (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/auth/me': [(status: 200, body: _meBody(role: 'super_admin'))],
+      '/auth/logout': [(status: 200, body: null)],
+    });
+    await _pumpApp(tester, adapter);
+    expect(find.text('Bu hesap platform yönetimi içindir. Yönetim panelini web üzerinden kullanın.'),
+        findsOneWidget);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Çıkış Yap'));
+    await tester.pumpAndSettle();
+
+    expect(adapter.calls, contains('/auth/logout'));
+    expect(find.byType(TextFormField), findsWidgets);
   });
 
   testWidgets('normal, zaten onboarding tamamlamış kullanıcı: hiçbir zorunlu ekranla karşılaşmadan ana sayfaya gider',
@@ -141,5 +164,77 @@ void main() {
     expect(adapter.calls, contains('/auth/logout'));
     expect(find.byType(TextFormField), findsWidgets); // Giriş ekranındaki kullanıcı adı/şifre alanları
     expect(find.text('Aktif Projeler'), findsNothing);
+  });
+
+  group('oturum-içi organizasyon/kullanıcı engeli (FINAL entegrasyon fazı)', () {
+    // main.dart'ın `apiClient.onSessionExpired`/`onAccountAccessBlocked`
+    // kablosunu BİREBİR tekrarlar -- `_pumpApp`'ın aksine, ArvendApp
+    // KENDİSİ bu kabloyu kurmaz (bkz. app/app.dart), yalnızca main() kurar.
+    Future<void> pumpWithHooks(WidgetTester tester, FakeHttpClientAdapter adapter) async {
+      final client = await buildFakeApiClient(adapter);
+      final container = ProviderContainer(overrides: [apiClientProvider.overrideWithValue(client)]);
+      addTearDown(container.dispose);
+      client.onSessionExpired = () => container.read(authControllerProvider.notifier).sessionExpired();
+      client.onAccountAccessBlocked = (issue) {
+        container.read(accountAccessIssueProvider.notifier).state = issue;
+        container.read(authControllerProvider.notifier).sessionExpired();
+      };
+      await tester.pumpWidget(UncontrolledProviderScope(container: container, child: const ArvendApp()));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+        'organizasyon askıya alınmış/iptal edilmiş/silinmiş: oturum-içi bir kiracı isteği 403 alınca '
+        'özel hesap-engeli ekranına düşülür, istek TEKRARLANMAZ', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meBody(role: 'kullanici'))],
+        '/projects': [(status: 403, body: {'error': 'firma askıya alınmış veya erişilemiyor'})],
+        '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
+        '/tasks/mine': [(status: 200, body: {'tasks': <dynamic>[]})],
+        '/notifications/unread-count': [(status: 200, body: {'unread_count': 0})],
+      });
+      await pumpWithHooks(tester, adapter);
+
+      expect(find.text('Firmanızın platform erişimi şu anda kapalı.'), findsOneWidget);
+      expect(find.text('Aktif Projeler'), findsNothing);
+      expect(adapter.calls.where((p) => p == '/projects').length, 1);
+    });
+
+    testWidgets('organizasyon engeli ekranından çıkış yapınca düz giriş ekranına dönülür (döngüye girmez)',
+        (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meBody(role: 'kullanici'))],
+        '/projects': [(status: 403, body: {'error': 'firma askıya alınmış veya erişilemiyor'})],
+        '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
+        '/tasks/mine': [(status: 200, body: {'tasks': <dynamic>[]})],
+        '/notifications/unread-count': [(status: 200, body: {'unread_count': 0})],
+        '/auth/logout': [(status: 200, body: null)],
+      });
+      await pumpWithHooks(tester, adapter);
+      expect(find.text('Firmanızın platform erişimi şu anda kapalı.'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Çıkış Yap'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TextFormField), findsWidgets);
+      expect(find.text('Firmanızın platform erişimi şu anda kapalı.'), findsNothing);
+    });
+
+    testWidgets(
+        'kullanıcı pasif/silinmiş: oturum-içi bir kiracı isteği 403 alınca giriş ekranına döner VE '
+        'bilgilendirici mesaj gösterilir', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meBody(role: 'kullanici'))],
+        '/projects': [(status: 403, body: {'error': 'kullanıcı pasif durumda'})],
+        '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
+        '/tasks/mine': [(status: 200, body: {'tasks': <dynamic>[]})],
+        '/notifications/unread-count': [(status: 200, body: {'unread_count': 0})],
+      });
+      await pumpWithHooks(tester, adapter);
+
+      expect(find.byType(TextFormField), findsWidgets);
+      expect(find.text('Hesabınıza erişiminiz kapatılmıştır. Bilgi için yöneticinizle görüşün.'), findsOneWidget);
+      expect(find.text('Aktif Projeler'), findsNothing);
+    });
   });
 }

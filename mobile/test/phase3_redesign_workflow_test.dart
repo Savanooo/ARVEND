@@ -10,6 +10,7 @@ import 'package:arvend/core/widgets/status_badge.dart';
 import 'package:arvend/features/attendance/presentation/attendance_screen.dart';
 import 'package:arvend/features/calculations/domain/calc.dart';
 import 'package:arvend/features/calculations/presentation/metraj_screen.dart';
+import 'package:arvend/features/offers/presentation/offers_screen.dart';
 import 'package:arvend/features/projects/presentation/bid_comparison_screen.dart';
 import 'package:arvend/features/projects/presentation/progress_claim_detail_screen.dart';
 import 'package:arvend/features/projects/presentation/purchase_order_detail_screen.dart';
@@ -192,6 +193,146 @@ void main() {
       expect(certified.value, contains('80.000'));
       expect(paid.value, contains('50.000'));
       expect(certified.value, isNot(equals(paid.value)));
+    });
+  });
+
+  group('İzin-tabanlı yazma aksiyonu görünürlüğü (FINAL mobil entegrasyon fazı regresyon düzeltmesi)', () {
+    testWidgets(
+        'SubcontractDetailScreen: projects.subcontract_payments.manage OLMADAN "Ödeme Ekle" gösterilmez, '
+        'VARKEN gösterilir', (tester) async {
+      // FONKSİYON olarak tanımlanır (paylaşılan bir Map DEĞİL) -- her çağrı
+      // TAZE List örnekleri üretir. FakeHttpClientAdapter kendi Map'ini
+      // sığ (`Map.of`) kopyalar, iç List'leri KOPYALAMAZ; aynı List nesnesi
+      // iki adaptöre paylaştırılsaydı birincisinin `removeAt(0)`'ı ikincinin
+      // kuyruğunu da tüketirdi (bu hatayla bir kez karşılaşıldı, düzeltildi).
+      Map<String, List<ScriptedResponse>> sharedScript() => {
+        '/projects/p1/subcontracts/sc1': [
+          (
+            status: 200,
+            body: {
+              'subcontract': {
+                'id': 'sc1', 'subcontract_no': 'TAS-1', 'supplier_id': 's1', 'supplier_name': 'Taşeron A',
+                'title': 'Elektrik Tesisatı', 'scope_summary': '', 'original_amount': 100000, 'currency': 'TRY',
+                'status': 'active', 'created_at': '2026-01-01T00:00:00Z',
+              },
+              'items': <dynamic>[],
+              'current_value': {
+                'original_amount': 100000, 'approved_additions': 0, 'approved_deductions': 0,
+                'pending_additions': 0, 'pending_deductions': 0, 'current_value': 100000,
+                'certified_to_date': 0, 'remaining_commitment': 100000,
+                'paid_to_date': 0, 'remaining_payable': 0,
+              },
+            },
+          ),
+        ],
+        '/projects/p1/subcontracts/sc1/payments': [(status: 200, body: {'payments': <dynamic>[]})],
+        '/projects/p1/subcontracts/sc1/progress-claims': [(status: 200, body: {'progress_claims': <dynamic>[]})],
+        '/projects/p1/subcontracts/sc1/change-orders': [(status: 200, body: {'change_orders': <dynamic>[]})],
+        '/organization/cost-codes': [(status: 200, body: {'cost_codes': <dynamic>[]})],
+      };
+
+      final noPaymentsAdapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['projects.subcontracts.manage']))],
+        ...sharedScript(),
+      });
+      await _pump(
+        tester,
+        noPaymentsAdapter,
+        const SubcontractDetailScreen(projectId: 'p1', subcontractId: 'sc1'),
+        size: const Size(400, 2400),
+      );
+      expect(find.text('Ödeme Ekle'), findsNothing);
+
+      final withPaymentsAdapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [
+          (status: 200, body: _meJson(permissions: ['projects.subcontracts.manage', 'projects.subcontract_payments.manage']))
+        ],
+        ...sharedScript(),
+      });
+      await _pump(
+        tester,
+        withPaymentsAdapter,
+        const SubcontractDetailScreen(projectId: 'p1', subcontractId: 'sc1'),
+        size: const Size(400, 2400),
+      );
+      expect(find.text('Ödeme Ekle'), findsOneWidget);
+    });
+
+    testWidgets('OffersScreen: offers.create OLMADAN "Yeni Teklif" FAB\'ı gösterilmez', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['offers.read']))],
+        '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
+      });
+      await _pump(tester, adapter, const OffersScreen());
+
+      expect(find.byType(FloatingActionButton), findsNothing);
+    });
+
+    testWidgets('OffersScreen: offers.create VARKEN "Yeni Teklif" FAB\'ı gösterilir', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['offers.read', 'offers.create']))],
+        '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
+      });
+      await _pump(tester, adapter, const OffersScreen());
+
+      expect(find.byType(FloatingActionButton), findsOneWidget);
+    });
+
+    testWidgets(
+        'MetrajScreen (bağımsız, pickMode=false): offers.create OLMADAN hesap sonrası "Teklife Ekle" '
+        'çubuğu gösterilmez', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['calculations.read']))],
+        '/calculations/categories': [
+          (
+            status: 200,
+            body: {
+              'groups': [
+                {
+                  'id': 'g1', 'slug': 'duvar', 'name': 'Duvar',
+                  'categories': [
+                    {'id': 'c1', 'group_id': 'g1', 'slug': 'sivali-duvar', 'name': 'Sıvalı Duvar', 'description': ''},
+                  ],
+                },
+              ],
+            },
+          ),
+        ],
+        '/calculations/run': [
+          (
+            status: 200,
+            body: {
+              'category': {'id': 'c1', 'slug': 'sivali-duvar', 'name': 'Sıvalı Duvar'},
+              'input': {'footprint_area': '10', 'effective_area': '10', 'perimeter': null},
+              'items': [
+                {
+                  'recipe_item_id': 'r1', 'material_name': 'Sıva', 'unit': 'kg', 'quantity': '10.00',
+                  'unit_price': '5.00', 'line_total': '50.00', 'calculation_type': 'area_based', 'factor': '1',
+                  'waste_percent': '0', 'rounding_type': 'none',
+                },
+              ],
+              'total_cost': '50.00',
+              'warnings': <dynamic>[],
+            },
+          ),
+        ],
+      });
+      await _pump(tester, adapter, const MetrajScreen(), size: const Size(400, 1800));
+
+      // Grup seçimi bir DropdownButtonFormField'dır (bkz. yukarıdaki
+      // "kategori kartı ad + açıklama" testi, AYNI etkileşim deseni).
+      await tester.tap(find.byType(DropdownButtonFormField<CalcGroupWithCategories>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Duvar').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sıvalı Duvar'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, '10');
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Hesapla'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Sıva'), findsOneWidget);
+      expect(find.textContaining('Teklife Ekle'), findsNothing);
     });
   });
 

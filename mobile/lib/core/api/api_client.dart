@@ -44,11 +44,37 @@ class ApiClient {
 
   Completer<bool>? _refreshCompleter;
 
-  /// Refresh başarısız olduğunda (401/403 - token geçersiz/kullanıcı pasif)
-  /// tetiklenir; AuthController bunu dinleyip oturumu temizler ve
+  /// Refresh başarısız olduğunda (401/403 - token geçersiz, sınıflandırılamayan
+  /// bir sebep) tetiklenir; AuthController bunu dinleyip oturumu temizler ve
   /// go_router'ın auth redirect'i /giris'e yönlendirir. Ağ hatası/5xx'te
   /// TETİKLENMEZ (geçici kesintide oturum düşürülmez).
   void Function()? onSessionExpired;
+
+  /// `classifyAccountAccessIssue` sabit imzalarından biri (tenant_context_
+  /// required / organizationBlocked / userBlocked) -- refresh başarısızlığı
+  /// SIRASINDA ya da herhangi bir sıradan istek 403'ünde tetiklenebilir.
+  /// AuthController bunu dinleyip oturumu temizler VE hangi mesajın
+  /// gösterileceğini bilmesi için sebebi ayrıca saklar (bkz. app_router.dart
+  /// accountAccessIssueProvider). `onSessionExpired` İLE AYNI anda ASLA
+  /// çağrılmaz -- ikisi karşılıklı dışlayıcıdır (bkz. _notifyAccountAccessBlocked/
+  /// _refreshOnce).
+  void Function(AccountAccessIssue issue)? onAccountAccessBlocked;
+
+  /// Aynı organizasyon/kullanıcı engelinin PARALEL uçan birden fazla
+  /// isteğin her biri tarafından ayrı ayrı bildirilmesini (ve gereksiz
+  /// tekrar tekrar clearSession çağrısını -- "istek fırtınası") önler.
+  /// Yalnızca EXPLICIT yeni bir girişte (bkz. resetAccountAccessGuard,
+  /// AuthController.login) tekrar açılır.
+  bool _accountBlockNotified = false;
+
+  void resetAccountAccessGuard() => _accountBlockNotified = false;
+
+  Future<void> _notifyAccountAccessBlocked(AccountAccessIssue issue) async {
+    if (_accountBlockNotified) return;
+    _accountBlockNotified = true;
+    await clearSession();
+    onAccountAccessBlocked?.call(issue);
+  }
 
   static Future<ApiClient> create() async {
     final supportDir = await getApplicationSupportDirectory();
@@ -164,6 +190,19 @@ class ApiClient {
     return null;
   }
 
+  /// `code` alanı yalnızca ÜÇ backend ucunda bulunur (tenant_context_required/
+  /// permission_denied/project_access_denied, bkz. classifyAccountAccessIssue
+  /// yorumu) -- diğer TÜM hata gövdelerinde yoktur, bu yüzden `null` normaldir.
+  String? _extractCode(dynamic data) {
+    try {
+      final map = data is String ? jsonDecode(data) : data;
+      if (map is Map && map['code'] is String) return map['code'] as String;
+    } catch (_) {
+      // bkz. _extractError.
+    }
+    return null;
+  }
+
   Future<void> clearSession() => _cookieJar.deleteAll();
 
   /// 401 -> tek uçuş refresh -> orijinal isteği bir kez retry. Yalnızca
@@ -175,6 +214,19 @@ class ApiClient {
   Interceptor _buildAuthRefreshInterceptor() {
     return InterceptorsWrapper(
       onError: (error, handler) async {
+        // 401 refresh akışından BAĞIMSIZ: organizasyon/kullanıcı engeli HER
+        // yoldaki isteğin cevabında (tenant_context_required dahil, o da 403)
+        // ortaya çıkabilir -- token'ın kendisi hâlâ "geçerli" olsa bile.
+        final issue = classifyAccountAccessIssue(
+          statusCode: error.response?.statusCode,
+          code: _extractCode(error.response?.data),
+          rawMessage: _extractError(error.response?.data),
+        );
+        if (issue != null) {
+          await _notifyAccountAccessBlocked(issue);
+          return handler.next(error);
+        }
+
         final path = error.requestOptions.path;
         final alreadyRetried = error.requestOptions.extra['_retried'] == true;
 
@@ -209,7 +261,15 @@ class ApiClient {
     _dio.post<dynamic>('/auth/refresh').then((_) {
       completer.complete(true);
     }).catchError((Object err) {
-      if (err is DioException &&
+      // `onError` interceptor'ı (yukarıda) BU isteğin cevabını da görür ve
+      // sınıflandırılabilir bir organizasyon/kullanıcı engeli varsa
+      // `_accountBlockNotified`'ı ÇOKTAN true yapıp onAccountAccessBlocked'ı
+      // ÇOKTAN tetiklemiştir -- burada TEKRAR (bu sefer onSessionExpired ile)
+      // bildirmek "tek yetkili oturum-sıfırlama yolu" ilkesini bozar, bu
+      // yüzden yalnızca guard hâlâ açıksa (sınıflandırılamayan -- ör. sıradan
+      // geçersiz/süresi dolmuş refresh token -- bir 401/403 ise) düşülür.
+      if (!_accountBlockNotified &&
+          err is DioException &&
           (err.response?.statusCode == 401 || err.response?.statusCode == 403)) {
         onSessionExpired?.call();
       }

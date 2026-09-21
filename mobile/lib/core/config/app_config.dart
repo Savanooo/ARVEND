@@ -2,8 +2,8 @@
 ///
 /// API_BASE_URL yalnızca `--dart-define=API_BASE_URL=...` ile build-time'da
 /// verilir. Production fallback DAİMA production domain'idir; localhost/
-/// 127.0.0.1 hiçbir zaman release build'e gömülmez (bkz. AppConfig.isProduction
-/// ve core/api/dio_client.dart'taki debug-only logging guard'ı).
+/// 127.0.0.1 hiçbir zaman release build'e gömülmez (bkz. core/api/api_client.dart
+/// `_RedactingLogInterceptor` -- `dart.vm.product` sabitiyle debug-only).
 class AppConfig {
   const AppConfig._();
 

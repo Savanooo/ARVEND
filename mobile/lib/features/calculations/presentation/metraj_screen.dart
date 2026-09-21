@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/auth/auth_controller.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
@@ -140,6 +141,15 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
   @override
   Widget build(BuildContext context) {
     final catalogAsync = ref.watch(calcCatalogProvider);
+    // `pickMode`de "Teklife Ekle" YENİ bir teklif OLUŞTURMAZ -- yalnızca
+    // seçili kalemleri çağıran ekrana (ör. zaten var olan bir teklifi
+    // düzenleyen OfferCreateScreen) geri döndürür, bu yüzden `offers.create`
+    // GEREKMEZ (çağıranın kendi izni -- update/create -- zaten geçerlidir).
+    // Yalnızca bağımsız açıldığında (`/teklifler/yeni`'ye YENİ taslak
+    // oluşturarak gittiğinde) bu izin gerçekten gerekir.
+    final user = ref.watch(authControllerProvider).valueOrNull;
+    final canCreateOffer = user == null || user.permissions.isEmpty || user.hasPermission('offers.create');
+    final canAddToOffer = widget.pickMode || canCreateOffer;
 
     return AppPageScaffold(
       title: const Text('Metraj Hesaplama'),
@@ -258,7 +268,7 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
               ),
             ),
           ),
-          if (_result != null)
+          if (_result != null && canAddToOffer)
             _StickyAddToOfferBar(count: _selectedForOffer.length, onAdd: _addToOffer),
         ],
       ),

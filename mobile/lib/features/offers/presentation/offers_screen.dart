@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/app_shell.dart';
+import '../../../core/auth/auth_controller.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
@@ -40,14 +41,18 @@ class _OffersScreenState extends ConsumerState<OffersScreen> {
   @override
   Widget build(BuildContext context) {
     final offersAsync = ref.watch(offersListProvider(_passive ? 'pasif' : ''));
+    final user = ref.watch(authControllerProvider).valueOrNull;
+    final canCreateOffer = user == null || user.permissions.isEmpty || user.hasPermission('offers.create');
 
     return Scaffold(
       appBar: buildAppBar('Teklifler'),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/teklifler/yeni'),
-        icon: const Icon(Icons.add),
-        label: const Text('Yeni Teklif'),
-      ),
+      floatingActionButton: canCreateOffer
+          ? FloatingActionButton.extended(
+              onPressed: () => context.push('/teklifler/yeni'),
+              icon: const Icon(Icons.add),
+              label: const Text('Yeni Teklif'),
+            )
+          : null,
       body: Column(
         children: [
           Padding(

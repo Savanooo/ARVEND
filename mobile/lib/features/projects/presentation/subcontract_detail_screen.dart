@@ -88,6 +88,8 @@ class _SubcontractDetailBody extends ConsumerWidget {
         user == null || user.permissions.isEmpty || user.hasPermission('projects.subcontracts.approve');
     final canManageClaims =
         user == null || user.permissions.isEmpty || user.hasPermission('projects.subcontract_claims.manage');
+    final canManagePayments =
+        user == null || user.permissions.isEmpty || user.hasPermission('projects.subcontract_payments.manage');
     final hasLifecycleActions = (sc.isEditable && canManage) ||
         (sc.canActivate && canApprove) ||
         (sc.canCancel && canApprove) ||
@@ -218,19 +220,21 @@ class _SubcontractDetailBody extends ConsumerWidget {
           const SizedBox(height: AppSpacing.xl),
           AppSectionHeader(
             title: 'Ödemeler',
-            trailing: TextButton.icon(
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('Ödeme Ekle'),
-              onPressed: () async {
-                final created = await showSubcontractPaymentFormSheet(
-                  context,
-                  projectId,
-                  subcontractId,
-                  currency: sc.currency,
-                );
-                if (created != null) refreshAll();
-              },
-            ),
+            trailing: canManagePayments
+                ? TextButton.icon(
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Ödeme Ekle'),
+                    onPressed: () async {
+                      final created = await showSubcontractPaymentFormSheet(
+                        context,
+                        projectId,
+                        subcontractId,
+                        currency: sc.currency,
+                      );
+                      if (created != null) refreshAll();
+                    },
+                  )
+                : null,
           ),
           const SizedBox(height: AppSpacing.sm),
           AsyncStateView(

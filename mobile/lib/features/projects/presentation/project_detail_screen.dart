@@ -150,6 +150,10 @@ class _OverviewTab extends ConsumerWidget {
     }
 
     final canFinance = _failOpen(user, 'projects.finance.read');
+    // Masraf/tahsilat EKLEME (yazma) `projects.finance.manage` ister --
+    // `projects.finance.read` yalnızca GÖRÜNTÜLEMEYİ (özet/liste) yetkilendirir,
+    // ikisi backend'de AYRI iki izin kodu (bkz. router.go finans grubu).
+    final canManageFinance = _failOpen(user, 'projects.finance.manage');
     final canCreateTask = _failOpen(user, 'projects.tasks.create');
     final canManageFiles = _failOpen(user, 'projects.operations.manage');
     final canSeeCostControl = _failOpen(user, 'projects.cost_control.read');
@@ -234,9 +238,9 @@ class _OverviewTab extends ConsumerWidget {
           scrollDirection: Axis.horizontal,
           child: Row(
             children: [
-              if (canFinance)
+              if (canManageFinance)
                 QuickActionButton(icon: Icons.receipt_long_outlined, label: 'Masraf Ekle', onPressed: addExpense),
-              if (canFinance) ...[
+              if (canManageFinance) ...[
                 const SizedBox(width: AppSpacing.sm),
                 QuickActionButton(
                     icon: Icons.payments_outlined, label: 'Tahsilat Ekle', onPressed: addCollection),
@@ -509,6 +513,12 @@ class _FinanceTab extends ConsumerWidget {
     // atılmaz.
     final canSeeCostControl = user == null || user.permissions.isEmpty || user.hasPermission('projects.cost_control.read');
     final costControlAsync = canSeeCostControl ? ref.watch(projectCostControlProvider(projectId)) : null;
+    // Masraf/tahsilat EKLEME `projects.finance.manage` ister -- bu sekmenin
+    // KENDİSİ yalnızca `projects.finance.read` ile açılır (bkz. tab
+    // görünürlüğü), bu yüzden salt-okunur finans erişimi olan bir
+    // kullanıcının "Ekle" düğmelerini GÖRMEMESİ gerekir.
+    final canManageFinance =
+        user == null || user.permissions.isEmpty || user.hasPermission('projects.finance.manage');
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -530,18 +540,19 @@ class _FinanceTab extends ConsumerWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Expanded(child: Text('Masraflar', style: TextStyle(fontWeight: FontWeight.w700))),
-              TextButton.icon(
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Masraf Ekle'),
-                onPressed: () async {
-                  final created = await showExpenseFormSheet(context, projectId, currency: project.currency);
-                  if (created != null) {
-                    ref.invalidate(projectExpensesProvider(projectId));
-                    ref.invalidate(projectFinancialSummaryProvider(projectId));
-                    if (canSeeCostControl) ref.invalidate(projectCostControlProvider(projectId));
-                  }
-                },
-              ),
+              if (canManageFinance)
+                TextButton.icon(
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Masraf Ekle'),
+                  onPressed: () async {
+                    final created = await showExpenseFormSheet(context, projectId, currency: project.currency);
+                    if (created != null) {
+                      ref.invalidate(projectExpensesProvider(projectId));
+                      ref.invalidate(projectFinancialSummaryProvider(projectId));
+                      if (canSeeCostControl) ref.invalidate(projectCostControlProvider(projectId));
+                    }
+                  },
+                ),
             ],
           ),
           AsyncStateView(
@@ -580,18 +591,19 @@ class _FinanceTab extends ConsumerWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Expanded(child: Text('Tahsilatlar', style: TextStyle(fontWeight: FontWeight.w700))),
-              TextButton.icon(
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Tahsilat Ekle'),
-                onPressed: () async {
-                  final created = await showCollectionFormSheet(context, projectId, currency: project.currency);
-                  if (created != null) {
-                    ref.invalidate(projectCollectionsProvider(projectId));
-                    ref.invalidate(projectFinancialSummaryProvider(projectId));
-                    if (canSeeCostControl) ref.invalidate(projectCostControlProvider(projectId));
-                  }
-                },
-              ),
+              if (canManageFinance)
+                TextButton.icon(
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Tahsilat Ekle'),
+                  onPressed: () async {
+                    final created = await showCollectionFormSheet(context, projectId, currency: project.currency);
+                    if (created != null) {
+                      ref.invalidate(projectCollectionsProvider(projectId));
+                      ref.invalidate(projectFinancialSummaryProvider(projectId));
+                      if (canSeeCostControl) ref.invalidate(projectCostControlProvider(projectId));
+                    }
+                  },
+                ),
             ],
           ),
           AsyncStateView(

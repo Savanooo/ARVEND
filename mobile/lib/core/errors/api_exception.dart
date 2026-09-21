@@ -69,3 +69,45 @@ ApiException mapHttpError(int? statusCode, String? serverMessage) {
     kind: kind,
   );
 }
+
+/// Oturumu SONLANDIRAN 403 sınıfları -- normal `ApiErrorKind.forbidden`
+/// (ör. tek bir aksiyon için yetki yok) İLE KARIŞTIRILMAMALI: bunlar
+/// "bu hesap artık kiracı uygulamasını hiç kullanamaz" anlamına gelir.
+/// Backend bu üçünü sabit, belgelenen imzalarla döner (bkz. API_CONTRACT.md
+/// #hesap-erişim-durumları) -- mobil YALNIZCA bu sabitlere göre sınıflandırır.
+enum AccountAccessIssue {
+  /// `super_admin` bir kiracı (tenant) ucuna istek attı --
+  /// `{"code":"tenant_context_required"}`. Normalde YAŞANMAMALI (router
+  /// super_admin'i hiçbir kiracı ekranına sokmuyor) -- burada yalnızca
+  /// savunma amaçlı yakalanır.
+  tenantContextRequired,
+
+  /// Organizasyon suspended/cancelled/deleted -- backend ÜÇÜNÜ DE aynı sabit
+  /// mesajla döner, mobil bunları birbirinden AYIRT EDEMEZ (ve etmemeli).
+  organizationBlocked,
+
+  /// Kullanıcı is_active=false VEYA soft-deleted -- backend İKİSİNİ DE aynı
+  /// sabit mesajla döner, mobil bunları birbirinden AYIRT EDEMEZ.
+  userBlocked,
+}
+
+const _kOrgBlockedMessage = 'firma askıya alınmış veya erişilemiyor';
+const _kUserBlockedMessage = 'kullanıcı pasif durumda';
+
+/// Yalnızca backend'in BELGELENMİŞ, sabit imzalarına göre sınıflandırır --
+/// serbest metin/heuristik eşleştirme YOK. `code` alanı varsa ona öncelik
+/// verilir (tek güvenilir makine-okunur sinyal); yoksa `rawMessage`'ın TAM
+/// eşleştiği iki sabit mesajdan biri kontrol edilir. Diğer TÜM 403'ler
+/// (ör. tek bir yazma işlemi için izin eksikliği) null döner -- normal
+/// `ApiException(kind: forbidden)` akışına bırakılır.
+AccountAccessIssue? classifyAccountAccessIssue({
+  required int? statusCode,
+  required String? code,
+  required String? rawMessage,
+}) {
+  if (statusCode != 403) return null;
+  if (code == 'tenant_context_required') return AccountAccessIssue.tenantContextRequired;
+  if (rawMessage == _kOrgBlockedMessage) return AccountAccessIssue.organizationBlocked;
+  if (rawMessage == _kUserBlockedMessage) return AccountAccessIssue.userBlocked;
+  return null;
+}

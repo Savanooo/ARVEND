@@ -8,6 +8,14 @@ yalnızca ne yapılması gerektiğini ve nereden geleceğini anlatır.
 Son denetim: bu commit ile (`chore(mobile): prepare production release
 configuration`). Flutter 3.44.8 / Dart 3.12.2 / macOS geliştirme makinesi.
 
+Yeniden doğrulandı (2026-09-22, FINAL mobil entegrasyon/production-hardening
+fazı — süper admin/RBAC/onboarding/soft-delete backend değişikliklerinden
+sonra): §1 (Android imzalama), §2 (kimlik/marka), §3 (API URL/HTTPS), §4
+(iOS — Xcode hâlâ eksik kurulu, aynı ortam kısıtı), §11 (oturum güvenliği,
+bkz. güncellenen madde) — hepsi AYNI, değişiklik gerekmedi. `flutter
+analyze`/`flutter test`/`flutter build apk --debug`/`--release`/`appbundle
+--release` bu fazda TEKRAR çalıştırıldı, hepsi temiz/başarılı.
+
 ---
 
 ## 1. Android Production Signing
@@ -317,9 +325,18 @@ kaynak olarak kullanılabilir.
 - **Refresh**: tek-uçuş (single-flight) 401→refresh→retry akışı,
   backend'in tek-kullanımlık rotasyonlu refresh token'ıyla uyumlu
   (`lib/core/api/api_client.dart`).
-- **Oturum sona erme**: refresh başarısız olursa (401/403)
-  `onSessionExpired` çağrılır, `AuthController` oturumu temizler,
-  router `/giris`'e yönlendirir.
+- **Oturum sona erme**: sınıflandırılamayan bir 401/403 refresh
+  başarısızlığında `onSessionExpired` çağrılır, `AuthController` oturumu
+  temizler, router `/giris`'e yönlendirir. AYRICA (FINAL entegrasyon fazı,
+  2026-09-22): organizasyon askıya alınmış/iptal edilmiş/silinmiş VEYA
+  kullanıcı pasif/silinmiş olduğu için gelen 403 -- refresh SIRASINDA veya
+  SIRADAN herhangi bir API çağrısında -- merkezi olarak sınıflandırılır
+  (`classifyAccountAccessIssue`, bkz. API_CONTRACT.md#account-access-
+  issues), oturum AYNI tek yetkili yoldan temizlenir ve kullanıcı duruma
+  göre özel bir "hesap erişimi kapalı" ekranına ya da bilgilendirilmiş
+  giriş ekranına yönlendirilir -- hiçbir ekran tenant API'lerini tekrar
+  tekrar ÇAĞIRMAZ (istek fırtınası koruması, bkz. ApiClient
+  `_accountBlockNotified`).
 - **Loglama**: `_RedactingLogInterceptor`, YALNIZCA
   `!const bool.fromEnvironment('dart.vm.product')` iken (yani
   yalnızca debug/profile build'lerde) eklenir — **release build'de bu
