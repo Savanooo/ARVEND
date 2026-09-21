@@ -6,6 +6,7 @@ import { FormEvent, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { Drawer } from "@/components/ui/Drawer";
 import { DropdownMenu, DropdownMenuItem } from "@/components/ui/DropdownMenu";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
@@ -55,18 +56,18 @@ export function UsersTab({
     setError(null);
     const deactivating = user.is_active !== false;
     const ok = await confirm({
-      title: deactivating ? "Kullanıcıyı pasifleştir" : "Kullanıcıyı aktifleştir",
+      title: deactivating ? "Kullanıcıyı pasife al" : "Kullanıcıyı aktifleştir",
       message: deactivating
-        ? `${user.full_name} (${user.username}) pasifleştirilecek: yeniden giriş yapamaz ve mevcut oturumu en geç birkaç dakika içinde (bir sonraki oturum yenilemesinde) sona erer. Kayıt silinmez, istendiğinde yeniden aktifleştirilebilir.`
+        ? `${user.full_name} (${user.username}) pasife alınacak: yeniden giriş yapamaz ve mevcut oturumu en geç birkaç dakika içinde (bir sonraki oturum yenilemesinde) sona erer. Kayıt silinmez, istendiğinde yeniden aktifleştirilebilir.`
         : `${user.full_name} (${user.username}) yeniden aktifleştirilecek ve giriş yapabilecek.`,
-      confirmLabel: deactivating ? "Pasifleştir" : "Aktifleştir",
+      confirmLabel: deactivating ? "Pasife Al" : "Aktifleştir",
       danger: deactivating,
     });
     if (!ok) return;
     setBusyUserId(user.id);
     try {
       await apiClient(`${base}/${user.id}/${deactivating ? "deactivate" : "reactivate"}`, { method: "POST" });
-      toast.success(deactivating ? "Kullanıcı pasifleştirildi." : "Kullanıcı aktifleştirildi.");
+      toast.success(deactivating ? "Kullanıcı pasife alındı." : "Kullanıcı aktifleştirildi.");
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
@@ -82,7 +83,7 @@ export function UsersTab({
           {users.length} kullanıcı · {activeOwnerCount} aktif Sahip
         </p>
         <Button type="button" onClick={() => setModal({ kind: "provision" })}>
-          + Kullanıcı Tanımla
+          + Kullanıcı Oluştur
         </Button>
       </div>
 
@@ -90,36 +91,46 @@ export function UsersTab({
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-danger/40 bg-danger/5 px-4 py-3 text-sm">
           <span>
             Bu firmanın <strong>aktif bir Sahibi yok</strong>. Firma ayarlarını ve kullanıcılarını yönetebilmesi için bir
-            Sahip tanımlayın ya da mevcut bir kullanıcıyı Sahip yapın.
+            Sahip oluşturun ya da mevcut bir kullanıcıyı Sahip yapın.
           </span>
           <Button type="button" variant="secondary" onClick={() => setModal({ kind: "provision", presetRole: "owner" })}>
-            Sahip Tanımla
+            Sahip Oluştur
           </Button>
         </div>
       )}
 
       {users.length === 0 ? (
-        <EmptyState title="Henüz kullanıcı yok" description="Bu firma için ilk Sahibi tanımlayın." />
+        <EmptyState title="Henüz kullanıcı yok" description="Bu firma için ilk Sahibi oluşturun." />
       ) : (
         <Table>
           <thead>
             <tr>
-              <Th>Ad Soyad</Th>
-              <Th>Kullanıcı Adı</Th>
-              <Th>Organizasyon Rolü</Th>
-              <Th>Durum</Th>
-              <Th>İlk Şifre</Th>
-              <Th />
+              <Th className="w-[26%]">Ad Soyad</Th>
+              <Th className="w-[18%]">Kullanıcı Adı</Th>
+              <Th className="w-[20%]">Rol</Th>
+              <Th className="w-[12%]">Durum</Th>
+              <Th className="w-[16%]">İlk Giriş / Şifre</Th>
+              <Th className="w-[8%]" />
             </tr>
           </thead>
           <tbody>
             {users.map((u) => {
               const isOwner = u.organization_role_code === "owner";
               const active = u.is_active !== false;
+              // Firmanın SON aktif Sahibi -- pasifleştirme ve (rol
+              // değişikliği modalındaki AYRI uyarıyla) rol düşürme backend'de
+              // zaten reddedilir; burada eylemi baştan devre dışı bırakıp
+              // NEDENİNİ bir tooltip'te açıklamak, kullanıcıyı bir 409
+              // hatasıyla karşılaşmadan önce bilgilendirir.
+              const isSoleActiveOwner = isOwner && active && activeOwnerCount <= 1;
               return (
                 <Tr key={u.id}>
                   <Td className="font-medium">{u.full_name}</Td>
-                  <Td className="text-text-muted">{u.username}</Td>
+                  <Td>
+                    <span className="rounded bg-surface-hover px-1.5 py-0.5 font-mono text-xs text-text-muted">
+                      {u.username}
+                    </span>
+                  </Td>
                   <Td>
                     {isOwner ? (
                       <Badge tone="gold">Sahip</Badge>
@@ -130,7 +141,13 @@ export function UsersTab({
                   <Td>
                     <Badge tone={active ? "success" : "danger"}>{active ? "Aktif" : "Pasif"}</Badge>
                   </Td>
-                  <Td>{u.must_change_password && <Badge tone="info">Belirlenmeli</Badge>}</Td>
+                  <Td>
+                    {u.must_change_password ? (
+                      <Badge tone="info">Belirlenmeli</Badge>
+                    ) : (
+                      <span className="text-text-muted">Belirlendi</span>
+                    )}
+                  </Td>
                   <Td className="text-right">
                     <DropdownMenu
                       triggerLabel={`${u.full_name} için işlemler`}
@@ -138,14 +155,15 @@ export function UsersTab({
                     >
                       <DropdownMenuItem onClick={() => setModal({ kind: "role", user: u })}>Rolü Değiştir…</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => setModal({ kind: "password", user: u })}>
-                        Geçici Şifre Ver…
+                        İlk Şifreyi Yenile…
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        disabled={busyUserId === u.id}
+                        disabled={busyUserId === u.id || isSoleActiveOwner}
+                        title={isSoleActiveOwner ? "Firmanın son aktif Sahibi pasifleştirilemez." : undefined}
                         onClick={() => toggleActive(u)}
-                        className={active ? "text-danger" : ""}
+                        className={active && !isSoleActiveOwner ? "text-danger" : ""}
                       >
-                        {active ? "Pasifleştir" : "Aktifleştir"}
+                        {active ? "Pasife Al" : "Aktifleştir"}
                       </DropdownMenuItem>
                     </DropdownMenu>
                   </Td>
@@ -266,7 +284,7 @@ function ProvisionUserModal({
           organization_role_code: roleCode,
         }),
       });
-      onDone(`${created.full_name} tanımlandı (${created.organization_role_name ?? roleCode}). İlk girişte şifresini değiştirmesi istenecek.`);
+      onDone(`${created.full_name} oluşturuldu (${created.organization_role_name ?? roleCode}). İlk girişte şifresini değiştirmesi istenecek.`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
       setLoading(false);
@@ -274,46 +292,73 @@ function ProvisionUserModal({
   }
 
   return (
-    <Modal open onClose={onClose} title="Kullanıcı Tanımla">
-      <form id="provision-user-form" onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <Input label="Ad Soyad" required value={fullName} onChange={(e) => setFullName(e.target.value)} />
-        <Input
-          label="Kullanıcı Adı"
-          required
-          autoComplete="off"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-        />
-        <Select label="Organizasyon Rolü" value={roleCode} onChange={(e) => setRoleCode(e.target.value)} required>
-          <option value="" disabled>
-            Rol seçin
-          </option>
-          {roleOptions(roles)}
-        </Select>
-        <Input
-          label="Geçici Şifre"
-          type="password"
-          required
-          minLength={8}
-          autoComplete="new-password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        <p className="text-xs text-text-muted">
-          Kullanıcı ilk girişte bu şifreyi değiştirmek zorunda kalır. Şifreyi kendisine güvenli bir kanaldan iletmeniz
-          gerekir -- sistem otomatik e-posta göndermez.
-        </p>
-        {error && <p className="text-xs text-danger">{error}</p>}
-        <div className="flex justify-end gap-2">
+    <Drawer
+      open
+      onClose={onClose}
+      title={presetRole === "owner" ? "Sahip Oluştur" : "Yeni Kullanıcı Oluştur"}
+      footer={
+        <>
           <Button type="button" variant="ghost" onClick={onClose}>
             Vazgeç
           </Button>
-          <Button type="submit" disabled={loading || !roleCode}>
-            {loading ? "Tanımlanıyor…" : "Tanımla"}
+          <Button type="submit" form="provision-user-form" disabled={loading || !roleCode}>
+            {loading ? "Oluşturuluyor…" : "Kullanıcı Oluştur"}
           </Button>
-        </div>
+        </>
+      }
+    >
+      <form id="provision-user-form" onSubmit={handleSubmit} className="flex flex-col gap-6">
+        <section className="flex flex-col gap-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-text-muted">Kimlik</p>
+          <Input label="Ad Soyad" required value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          <div className="flex flex-col gap-1.5">
+            <Input
+              label="Kullanıcı Adı"
+              required
+              autoComplete="off"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+            <p className="text-xs text-text-muted">Giriş için kullanılır; kişiye özel olmalı, sonradan değiştirilemez.</p>
+          </div>
+        </section>
+
+        <section className="flex flex-col gap-4 border-t border-border pt-5">
+          <p className="text-xs font-semibold uppercase tracking-widest text-text-muted">Yetki</p>
+          <div className="flex flex-col gap-1.5">
+            <Select label="Organizasyon Rolü" value={roleCode} onChange={(e) => setRoleCode(e.target.value)} required>
+              <option value="" disabled>
+                Rol seçin
+              </option>
+              {roleOptions(roles)}
+            </Select>
+            <p className="text-xs text-text-muted">
+              Sahip/Yönetici tüm projeleri koşulsuz görür. Proje Yöneticisi/Finans/Saha yalnızca atandıkları projelere
+              erişir.
+            </p>
+          </div>
+        </section>
+
+        <section className="flex flex-col gap-4 border-t border-border pt-5">
+          <p className="text-xs font-semibold uppercase tracking-widest text-text-muted">Geçici Şifre</p>
+          <Input
+            label="Geçici Şifre"
+            type="password"
+            required
+            minLength={8}
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <p className="text-xs text-text-muted">
+            Kullanıcı ilk girişte bu şifreyi değiştirmek zorunda kalır. Şifreyi kendisine güvenli bir kanaldan iletmeniz
+            gerekir -- sistem otomatik e-posta göndermez.
+          </p>
+        </section>
+
+        {error && <p className="text-xs text-danger">{error}</p>}
       </form>
-    </Modal>
+    </Drawer>
   );
 }
 
@@ -413,7 +458,7 @@ function ResetPasswordModal({
         method: "POST",
         body: JSON.stringify({ temporary_password: password }),
       });
-      onDone(`${user.full_name} için geçici şifre verildi; ilk girişte değiştirmesi istenecek.`);
+      onDone(`${user.full_name} için ilk şifre yenilendi; ilk girişte değiştirmesi istenecek.`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
       setLoading(false);
@@ -421,7 +466,7 @@ function ResetPasswordModal({
   }
 
   return (
-    <Modal open onClose={onClose} title={`Geçici Şifre Ver: ${user.full_name}`}>
+    <Modal open onClose={onClose} title={`İlk Şifreyi Yenile: ${user.full_name}`}>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <p className="text-xs text-text-muted">
           Mevcut şifre geçersiz olur, kullanıcının mevcut oturumu en geç birkaç dakika içinde (bir sonraki oturum
@@ -443,7 +488,7 @@ function ResetPasswordModal({
             Vazgeç
           </Button>
           <Button type="submit" variant="danger" disabled={loading}>
-            {loading ? "Veriliyor…" : "Geçici Şifre Ver"}
+            {loading ? "Yenileniyor…" : "İlk Şifreyi Yenile"}
           </Button>
         </div>
       </form>

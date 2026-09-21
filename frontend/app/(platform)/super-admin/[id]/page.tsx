@@ -21,17 +21,20 @@ export default async function FirmaDetailPage({ params }: { params: Promise<{ id
     apiServer<{ events: AuditEvent[] }>(`${base}/audit-events?limit=100`, cookieHeader).then((r) => r.events),
   ]);
 
+  const planName = plans.find((p) => p.code === organization.plan_code)?.name ?? organization.plan_code;
+
   return (
     <>
       <PageHeader
         title={
-          <span className="flex items-center gap-3">
+          <span className="flex flex-wrap items-center gap-3">
             {organization.name}
             <StatusBadge status={organization.status} registry={ORG_STATUS} />
+            <span className="text-sm font-normal text-text-muted">{planName}</span>
           </span>
         }
       />
-      <div className="max-w-4xl p-8">
+      <div className="p-8">
         <OrganizationDetailTabs
           organization={organization}
           plans={plans}

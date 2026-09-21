@@ -45,7 +45,7 @@ export function Modal({
       onClose={onClose}
       onCancel={onClose}
       onClick={handleBackdropClick}
-      className={`w-full ${widthClassName} rounded-lg border border-border bg-surface p-0 text-text shadow-lg backdrop:bg-black/40`}
+      className={`m-auto w-full ${widthClassName} rounded-lg border border-border bg-surface p-0 text-text shadow-xl backdrop:bg-black/40`}
     >
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
         {title && <h2 className="text-sm font-semibold">{title}</h2>}

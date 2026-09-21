@@ -30,7 +30,15 @@ export async function PlatformShell({ user, children }: { user: User; children: 
         <Sidebar user={user} items={getPlatformNavItems()} collapsed={collapsed} brand={PLATFORM_BRAND} />
         <div className="flex min-w-0 flex-1 flex-col">
           <Topbar user={user} />
-          <main className="flex-1">{children}</main>
+          {/* Platform içeriği geniş masaüstü ekranlarda sınırsız
+              genişlemez -- profesyonel bir yönetim konsolu genişliğinde
+              (1180-1360px) ortalanır; sayfaların kendi px-8/p-8
+              boşlukları bu sütunun İÇİNDE değişmeden kalır, burada ek bir
+              yatay boşluk EKLENMEZ (çift boşluk olmasın diye). Laptop/
+              tablet genişliklerinde (viewport bu değerden darsa) mx-auto
+              hiçbir şey yapmaz, içerik doğal olarak mevcut genişliği
+              doldurur. */}
+          <main className="mx-auto w-full max-w-[1320px] flex-1">{children}</main>
         </div>
       </div>
     </ToastProvider>

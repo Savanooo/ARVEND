@@ -35,6 +35,16 @@ describe("firma yaşam döngüsü (backend CanTransitionTo aynası)", () => {
     }
   });
 
+  it("kalıcı kart düğmesi hiyerarşisi: yalnızca İptal Et 'danger' görünür, Askıya Al nötr kalır", () => {
+    for (const s of ALL) {
+      for (const a of orgLifecycleActions(s)) {
+        if (a.target === "active") assert.equal(a.buttonVariant, "primary", a.label);
+        if (a.target === "suspended") assert.equal(a.buttonVariant, "secondary", a.label);
+        if (a.target === "cancelled") assert.equal(a.buttonVariant, "danger", a.label);
+      }
+    }
+  });
+
   it("askı/iptalden çıkış 'Yeniden Aktifleştir', denemeden çıkış 'Aktifleştir'", () => {
     assert.equal(orgLifecycleActions("suspended").find((a) => a.target === "active")?.label, "Yeniden Aktifleştir");
     assert.equal(orgLifecycleActions("cancelled").find((a) => a.target === "active")?.label, "Yeniden Aktifleştir");
