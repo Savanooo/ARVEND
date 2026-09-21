@@ -5,6 +5,9 @@ import 'package:go_router/go_router.dart';
 import '../../../app/app_shell.dart';
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/widgets/app_list_card.dart';
+import '../../../core/widgets/app_section_header.dart';
 import '../../auth/domain/user.dart';
 
 class OtherMenuScreen extends ConsumerWidget {
@@ -21,54 +24,108 @@ class OtherMenuScreen extends ConsumerWidget {
     final noPermissionData = user == null || user.permissions.isEmpty;
     bool canSee(String code) => noPermissionData || user.hasPermission(code);
 
+    final toolItems = [
+      if (canSee('customers.read'))
+        _MenuItem(
+          icon: Icons.people_outline,
+          label: 'Müşteriler',
+          onTap: () => context.push('/diger/musteriler'),
+        ),
+      if (canSee('calculations.read'))
+        _MenuItem(
+          icon: Icons.straighten_outlined,
+          label: 'Metraj Hesaplama',
+          onTap: () => context.push('/diger/metraj'),
+        ),
+      if (canSee('attendance.read'))
+        _MenuItem(
+          icon: Icons.access_time_outlined,
+          label: 'Mesai',
+          onTap: () => context.push('/diger/mesai'),
+        ),
+    ];
+
+    final accountItems = [
+      _MenuItem(
+        icon: Icons.person_outline,
+        label: 'Profil',
+        onTap: () => context.push('/diger/profil'),
+      ),
+      if (canSee('notifications.read'))
+        _MenuItem(
+          icon: Icons.notifications_outlined,
+          label: 'Bildirimler',
+          onTap: () => context.push('/diger/bildirimler'),
+        ),
+      _MenuItem(
+        icon: Icons.info_outline,
+        label: 'Hakkında',
+        onTap: () => context.push('/diger/hakkinda'),
+      ),
+    ];
+
+    // Firma Ayarları backend'de requireAdmin arkasındadır (bkz. router.go:
+    // /organization/settings/*) -- kullanici rolüne 403 ile sonuçlanacak
+    // bir ekranı göstermemek için yalnızca admin'e gösterilir (Super Admin
+    // mobilde bu ekranı kullanmaz, bkz. MOBILE_BACKEND_GAPS.md - platform
+    // yönetimi web'e özeldir).
+    final managementItems = [
+      if (user?.role == UserRole.admin)
+        _MenuItem(
+          icon: Icons.apartment_outlined,
+          label: 'Firma Ayarları',
+          onTap: () => context.push('/diger/firma-ayarlari'),
+        ),
+    ];
+
     return Scaffold(
       appBar: buildAppBar('Diğer'),
       body: ListView(
         padding: kScreenPadding,
         children: [
-          if (canSee('notifications.read'))
-            _MenuTile(icon: Icons.notifications_outlined, label: 'Bildirimler', onTap: () => context.push('/diger/bildirimler')),
-          if (canSee('calculations.read'))
-            _MenuTile(icon: Icons.straighten_outlined, label: 'Metraj Hesaplama', onTap: () => context.push('/diger/metraj')),
-          if (canSee('customers.read'))
-            _MenuTile(icon: Icons.people_outline, label: 'Müşteriler', onTap: () => context.push('/diger/musteriler')),
-          if (canSee('attendance.read'))
-            _MenuTile(icon: Icons.access_time_outlined, label: 'Mesai', onTap: () => context.push('/diger/mesai')),
-          // Firma Ayarları backend'de requireAdmin arkasındadır (bkz.
-          // router.go: /organization/settings/*) -- kullanici rolüne 403
-          // ile sonuçlanacak bir ekranı göstermemek için yalnızca admin'e
-          // gösterilir (Super Admin mobilde bu ekranı kullanmaz, bkz.
-          // MOBILE_BACKEND_GAPS.md - platform yönetimi web'e özeldir).
-          if (user?.role == UserRole.admin)
-            _MenuTile(
-              icon: Icons.apartment_outlined,
-              label: 'Firma Ayarları',
-              onTap: () => context.push('/diger/firma-ayarlari'),
-            ),
-          _MenuTile(icon: Icons.person_outline, label: 'Profil', onTap: () => context.push('/diger/profil')),
-          _MenuTile(icon: Icons.info_outline, label: 'Hakkında', onTap: () => context.push('/diger/hakkinda')),
+          if (toolItems.isNotEmpty) ...[
+            const AppSectionHeader(title: 'İş Araçları'),
+            const SizedBox(height: AppSpacing.sm),
+            for (final item in toolItems) _MenuTile(item: item),
+            const SizedBox(height: AppSpacing.md),
+          ],
+          const AppSectionHeader(title: 'Hesap'),
+          const SizedBox(height: AppSpacing.sm),
+          for (final item in accountItems) _MenuTile(item: item),
+          if (managementItems.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            const AppSectionHeader(title: 'Yönetim'),
+            const SizedBox(height: AppSpacing.sm),
+            for (final item in managementItems) _MenuTile(item: item),
+          ],
         ],
       ),
     );
   }
 }
 
-class _MenuTile extends StatelessWidget {
-  const _MenuTile({required this.icon, required this.label, required this.onTap});
+class _MenuItem {
+  const _MenuItem({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+}
+
+class _MenuTile extends StatelessWidget {
+  const _MenuTile({required this.item});
+  final _MenuItem item;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Icon(icon, color: AppColors.gold),
-        title: Text(label),
-        trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
-        onTap: onTap,
-      ),
+    return AppListCard(
+      title: item.label,
+      leading: Icon(item.icon, color: AppColors.gold),
+      trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
+      onTap: item.onTap,
     );
   }
 }

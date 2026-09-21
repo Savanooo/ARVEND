@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/app_shell.dart';
-import '../../../core/utils/formatters.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/widgets/app_filter_bar.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../data/projects_providers.dart';
+import 'project_list_card.dart';
 
 class ProjectsScreen extends ConsumerStatefulWidget {
   const ProjectsScreen({super.key});
@@ -18,6 +20,7 @@ class ProjectsScreen extends ConsumerStatefulWidget {
 class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
   String? _status;
   final _searchController = TextEditingController();
+  String _query = '';
 
   @override
   void dispose() {
@@ -34,80 +37,89 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: SizedBox(
-              height: 36,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
-                  _FilterChip(label: 'Tümü', selected: _status == null, onTap: () => setState(() => _status = null)),
-                  for (final entry in StatusRegistry.project.entries)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 8),
-                      child: _FilterChip(
-                        label: entry.value.$1,
-                        selected: _status == entry.key,
-                        onTap: () => setState(() => _status = entry.key),
-                      ),
-                    ),
-                ],
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.md,
+              AppSpacing.lg,
+              0,
+            ),
+            child: TextField(
+              controller: _searchController,
+              decoration: const InputDecoration(
+                hintText: 'Proje adı veya müşteri ara',
+                prefixIcon: Icon(Icons.search),
+                isDense: true,
               ),
+              onChanged: (v) => setState(() => _query = v.trim().toLowerCase()),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.sm,
+              AppSpacing.lg,
+              AppSpacing.xs,
+            ),
+            child: AppFilterBar(
+              chips: [
+                AppFilterChipData(
+                  label: 'Tümü',
+                  selected: _status == null,
+                  onTap: () => setState(() => _status = null),
+                ),
+                for (final entry in StatusRegistry.project.entries)
+                  AppFilterChipData(
+                    label: entry.value.$1,
+                    selected: _status == entry.key,
+                    onTap: () => setState(() => _status = entry.key),
+                  ),
+              ],
             ),
           ),
           Expanded(
             child: RefreshIndicator(
-              onRefresh: () async => ref.invalidate(projectsListProvider(_status)),
+              onRefresh: () async =>
+                  ref.invalidate(projectsListProvider(_status)),
               child: AsyncStateView(
                 value: projectsAsync,
-                onRetry: () async => ref.invalidate(projectsListProvider(_status)),
+                onRetry: () async =>
+                    ref.invalidate(projectsListProvider(_status)),
                 isEmpty: (r) => r.projects.isEmpty,
-                data: (context, r) => ListView.separated(
-                  padding: kScreenPadding,
-                  itemCount: r.projects.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 8),
-                  itemBuilder: (context, i) {
-                    final p = r.projects[i];
-                    return Card(
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                        title: Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                        subtitle: Text('${p.projectNo} · ${p.customerName}',
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
-                        trailing: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            StatusRegistry.build(p.status, StatusRegistry.project),
-                            const SizedBox(height: 4),
-                            Text(
-                              Formatters.money(p.currentContractValue ?? p.contractAmount, currency: p.currency),
-                              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
-                            ),
-                          ],
-                        ),
-                        onTap: () => context.push('/projeler/${p.id}'),
-                      ),
+                data: (context, r) {
+                  final filtered = _query.isEmpty
+                      ? r.projects
+                      : r.projects
+                            .where(
+                              (p) =>
+                                  p.name.toLowerCase().contains(_query) ||
+                                  p.customerName.toLowerCase().contains(
+                                    _query,
+                                  ) ||
+                                  p.projectNo.toLowerCase().contains(_query),
+                            )
+                            .toList();
+                  if (filtered.isEmpty) {
+                    return const EmptyStateView(
+                      message: 'Bu filtreye uyan proje yok.',
+                      icon: Icons.business_outlined,
                     );
-                  },
-                ),
+                  }
+                  return ListView(
+                    padding: kScreenPadding,
+                    children: [
+                      for (final p in filtered)
+                        ProjectListCard(
+                          project: p,
+                          onTap: () => context.push('/projeler/${p.id}'),
+                        ),
+                    ],
+                  );
+                },
               ),
             ),
           ),
         ],
       ),
     );
-  }
-}
-
-class _FilterChip extends StatelessWidget {
-  const _FilterChip({required this.label, required this.selected, required this.onTap});
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return ChoiceChip(label: Text(label), selected: selected, onSelected: (_) => onTap());
   }
 }

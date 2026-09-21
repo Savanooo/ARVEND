@@ -4,7 +4,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/app_shell.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/app_filter_bar.dart';
+import '../../../core/widgets/app_list_card.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../projects/data/projects_providers.dart';
@@ -52,45 +56,51 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
               segments: const [
                 ButtonSegment(value: 'open', label: Text('Açık')),
                 ButtonSegment(value: 'all', label: Text('Tümü')),
-                ButtonSegment(value: ProjectTask.statusCompleted, label: Text('Tamamlanan')),
+                ButtonSegment(
+                  value: ProjectTask.statusCompleted,
+                  label: Text('Tamamlanan'),
+                ),
               ],
               selected: {_statusMode},
               onSelectionChanged: (s) => setState(() => _statusMode = s.first),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpacing.sm),
             TextField(
               controller: _searchController,
               decoration: const InputDecoration(
                 isDense: true,
                 prefixIcon: Icon(Icons.search, size: 20),
                 hintText: 'Başlık veya proje ara',
-                border: OutlineInputBorder(),
               ),
               onChanged: (_) => setState(() {}),
             ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                FilterChip(
-                  label: const Text('Yalnızca gecikmiş'),
+            const SizedBox(height: AppSpacing.sm),
+            AppFilterBar(
+              wrap: true,
+              chips: [
+                AppFilterChipData(
+                  label: 'Yalnızca gecikmiş',
                   selected: _overdueOnly,
-                  onSelected: (v) => setState(() => _overdueOnly = v),
+                  onTap: () => setState(() => _overdueOnly = !_overdueOnly),
                 ),
-                ...const [
+                for (final p in const [
                   (ProjectTask.priorityUrgent, 'Acil'),
                   (ProjectTask.priorityHigh, 'Yüksek'),
                   (ProjectTask.priorityNormal, 'Normal'),
                   (ProjectTask.priorityLow, 'Düşük'),
-                ].map((p) => FilterChip(
-                      label: Text(p.$2),
-                      selected: _priorityFilter == p.$1,
-                      onSelected: (v) => setState(() => _priorityFilter = v ? p.$1 : null),
-                    )),
+                ])
+                  AppFilterChipData(
+                    label: p.$2,
+                    selected: _priorityFilter == p.$1,
+                    onTap: () => setState(
+                      () => _priorityFilter = _priorityFilter == p.$1
+                          ? null
+                          : p.$1,
+                    ),
+                  ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             AsyncStateView(
               value: tasksAsync,
               onRetry: () async => ref.invalidate(myTasksProvider(_statusMode)),
@@ -100,27 +110,29 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                   projects[item.$2] = item.$3;
                 }
                 final items = allItems
-                    .where((item) => myTaskMatchesFilters(
-                          item.$1,
-                          item.$2,
-                          item.$3,
-                          overdueOnly: _overdueOnly,
-                          priority: _priorityFilter,
-                          projectFilter: _projectFilter,
-                          searchQuery: _searchController.text,
-                        ))
+                    .where(
+                      (item) => myTaskMatchesFilters(
+                        item.$1,
+                        item.$2,
+                        item.$3,
+                        overdueOnly: _overdueOnly,
+                        priority: _priorityFilter,
+                        projectFilter: _projectFilter,
+                        searchQuery: _searchController.text,
+                      ),
+                    )
                     .toList();
 
                 if (allItems.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 24),
-                    child: Center(child: Text('Görev yok.', style: TextStyle(color: Colors.grey))),
+                  return const EmptyStateView(
+                    message: 'Görev yok.',
+                    icon: Icons.checklist_outlined,
                   );
                 }
                 if (items.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 24),
-                    child: Center(child: Text('Bu filtreye uyan görev yok.', style: TextStyle(color: Colors.grey))),
+                  return const EmptyStateView(
+                    message: 'Bu filtreye uyan görev yok.',
+                    icon: Icons.checklist_outlined,
                   );
                 }
                 return Column(
@@ -128,60 +140,102 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                   children: [
                     if (projects.length > 1)
                       Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                         child: DropdownButtonFormField<String>(
                           initialValue: _projectFilter ?? '',
-                          decoration: const InputDecoration(labelText: 'Proje', isDense: true),
+                          decoration: const InputDecoration(
+                            labelText: 'Proje',
+                            isDense: true,
+                          ),
                           items: [
-                            const DropdownMenuItem(value: '', child: Text('Tüm projeler')),
-                            ...projects.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))),
+                            const DropdownMenuItem(
+                              value: '',
+                              child: Text('Tüm projeler'),
+                            ),
+                            ...projects.entries.map(
+                              (e) => DropdownMenuItem(
+                                value: e.key,
+                                child: Text(e.value),
+                              ),
+                            ),
                           ],
-                          onChanged: (v) => setState(() => _projectFilter = (v == null || v.isEmpty) ? null : v),
+                          onChanged: (v) => setState(
+                            () => _projectFilter = (v == null || v.isEmpty)
+                                ? null
+                                : v,
+                          ),
                         ),
                       ),
-                    ...items.map((item) {
-                      final (task, projectId, projectName) = item;
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          onTap: () => context.push('/projeler/$projectId/gorevler/${task.id}'),
-                          leading: Checkbox(
-                            value: task.status == ProjectTask.statusCompleted,
-                            onChanged: task.status == ProjectTask.statusCompleted
-                                ? null
-                                : (_) async {
-                                    await ref.read(projectsRepositoryProvider).completeTask(projectId, task.id);
-                                    ref.invalidate(myTasksProvider(_statusMode));
-                                  },
-                          ),
-                          title: Text(task.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: Text(projectName, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          trailing: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              StatusRegistry.build(task.priority, StatusRegistry.taskPriority),
-                              const SizedBox(height: 4),
-                              if (task.dueDate != null)
-                                Text(
-                                  Formatters.date(task.dueDate),
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    color: task.isOverdue ? AppColors.danger : AppColors.textMuted,
-                                    fontWeight: task.isOverdue ? FontWeight.w700 : FontWeight.w400,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }),
+                    for (final item in items)
+                      _TaskRow(item: item, statusMode: _statusMode),
                   ],
                 );
               },
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _TaskRow extends ConsumerWidget {
+  const _TaskRow({required this.item, required this.statusMode});
+  final ProjectTaskWithProject item;
+  final String statusMode;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final (task, projectId, projectName) = item;
+    return AppListCard(
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      onTap: () => context.push('/projeler/$projectId/gorevler/${task.id}'),
+      leading: Checkbox(
+        value: task.status == ProjectTask.statusCompleted,
+        onChanged: task.status == ProjectTask.statusCompleted
+            ? null
+            : (_) async {
+                await ref
+                    .read(projectsRepositoryProvider)
+                    .completeTask(projectId, task.id);
+                ref.invalidate(myTasksProvider(statusMode));
+              },
+      ),
+      title: task.title,
+      subtitle: projectName,
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          StatusRegistry.build(task.priority, StatusRegistry.taskPriority),
+          if (task.dueDate != null) ...[
+            const SizedBox(height: 4),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (task.isOverdue) ...[
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    size: 12,
+                    color: AppColors.danger,
+                  ),
+                  const SizedBox(width: 2),
+                ],
+                Text(
+                  Formatters.date(task.dueDate),
+                  style: AppTypography.helper.copyWith(
+                    color: task.isOverdue
+                        ? AppColors.danger
+                        : AppColors.textMuted,
+                    fontWeight: task.isOverdue
+                        ? FontWeight.w700
+                        : FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }

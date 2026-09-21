@@ -3,8 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/app_shell.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/app_filter_bar.dart';
+import '../../../core/widgets/app_list_card.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/money_text.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../data/offers_providers.dart';
 
@@ -46,7 +51,12 @@ class _OffersScreenState extends ConsumerState<OffersScreen> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.md,
+              AppSpacing.lg,
+              0,
+            ),
             child: TextField(
               controller: _searchController,
               decoration: const InputDecoration(
@@ -58,76 +68,84 @@ class _OffersScreenState extends ConsumerState<OffersScreen> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-            child: SizedBox(
-              height: 36,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
-                  ChoiceChip(
-                      label: const Text('Tümü'),
-                      selected: _statusFilter.isEmpty,
-                      onSelected: (_) => setState(() => _statusFilter = '')),
-                  for (final entry in StatusRegistry.offer.entries)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 8),
-                      child: ChoiceChip(
-                        label: Text(entry.value.$1),
-                        selected: _statusFilter == entry.key,
-                        onSelected: (_) => setState(() => _statusFilter = entry.key),
-                      ),
-                    ),
-                  const SizedBox(width: 8),
-                  FilterChip(
-                    label: const Text('Pasif'),
-                    selected: _passive,
-                    onSelected: (v) => setState(() => _passive = v),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.sm,
+              AppSpacing.lg,
+              AppSpacing.xs,
+            ),
+            child: AppFilterBar(
+              chips: [
+                AppFilterChipData(
+                  label: 'Tümü',
+                  selected: _statusFilter.isEmpty,
+                  onTap: () => setState(() => _statusFilter = ''),
+                ),
+                for (final entry in StatusRegistry.offer.entries)
+                  AppFilterChipData(
+                    label: entry.value.$1,
+                    selected: _statusFilter == entry.key,
+                    onTap: () => setState(() => _statusFilter = entry.key),
                   ),
-                ],
-              ),
+                AppFilterChipData(
+                  label: 'Pasif',
+                  selected: _passive,
+                  onTap: () => setState(() => _passive = !_passive),
+                ),
+              ],
             ),
           ),
           Expanded(
             child: RefreshIndicator(
-              onRefresh: () async => ref.invalidate(offersListProvider(_passive ? 'pasif' : '')),
+              onRefresh: () async =>
+                  ref.invalidate(offersListProvider(_passive ? 'pasif' : '')),
               child: AsyncStateView(
                 value: offersAsync,
-                onRetry: () async => ref.invalidate(offersListProvider(_passive ? 'pasif' : '')),
+                onRetry: () async =>
+                    ref.invalidate(offersListProvider(_passive ? 'pasif' : '')),
                 data: (context, r) {
                   final filtered = r.offers.where((o) {
-                    if (_statusFilter.isNotEmpty && o.status != _statusFilter) return false;
+                    if (_statusFilter.isNotEmpty && o.status != _statusFilter) {
+                      return false;
+                    }
                     if (_query.isEmpty) return true;
                     return o.offerNo.toLowerCase().contains(_query) ||
                         o.customerName.toLowerCase().contains(_query);
                   }).toList();
                   if (filtered.isEmpty) {
-                    return const EmptyStateView(message: 'Teklif bulunamadı.');
+                    return const EmptyStateView(
+                      message: 'Teklif bulunamadı.',
+                      icon: Icons.description_outlined,
+                    );
                   }
-                  return ListView.separated(
+                  return ListView(
                     padding: kScreenPadding.copyWith(bottom: 88),
-                    itemCount: filtered.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 8),
-                    itemBuilder: (context, i) {
-                      final o = filtered[i];
-                      return Card(
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                          title: Text(o.offerNo),
-                          subtitle: Text(o.customerName, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    children: [
+                      for (final o in filtered)
+                        AppListCard(
+                          title: o.offerNo,
+                          subtitle:
+                              '${o.customerName} · ${Formatters.date(o.offerDate)}',
                           trailing: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              StatusRegistry.build(o.status, StatusRegistry.offer),
+                              StatusRegistry.build(
+                                o.status,
+                                StatusRegistry.offer,
+                              ),
                               const SizedBox(height: 4),
-                              Text(Formatters.money(o.grandTotal),
-                                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                              MoneyText(
+                                o.grandTotal,
+                                style: AppTypography.metadata.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ],
                           ),
                           onTap: () => context.push('/teklifler/${o.id}'),
                         ),
-                      );
-                    },
+                    ],
                   );
                 },
               ),

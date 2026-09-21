@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_providers.dart';
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/app_list_card.dart';
+import '../../../core/widgets/app_page_scaffold.dart';
+import '../../../core/widgets/status_badge.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/domain/user.dart';
 
@@ -16,79 +23,109 @@ class ProfileScreen extends ConsumerWidget {
     final authState = ref.watch(authControllerProvider);
     final user = authState.valueOrNull;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Profil')),
+    return AppPageScaffold(
+      title: const Text('Profil'),
       body: user == null
           ? const Center(child: CircularProgressIndicator())
           : ListView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(AppSpacing.lg),
               children: [
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      children: [
-                        CircleAvatar(
-                          radius: 32,
-                          backgroundColor: AppColors.navDark,
-                          child: Text(
-                            _initials(user.fullName),
-                            style: const TextStyle(color: AppColors.gold, fontWeight: FontWeight.w800, fontSize: 20),
+                AppCard(
+                  child: Column(
+                    children: [
+                      CircleAvatar(
+                        radius: 32,
+                        backgroundColor: AppColors.navDark,
+                        child: Text(
+                          _initials(user.fullName),
+                          style: const TextStyle(
+                            color: AppColors.gold,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 20,
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        Text(user.fullName, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
-                        Text('@${user.username}', style: const TextStyle(color: AppColors.textMuted)),
-                        const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: AppColors.gold.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            _roleLabel(user),
-                            style: const TextStyle(color: AppColors.gold, fontWeight: FontWeight.w700, fontSize: 12),
-                          ),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      Text(user.fullName, style: AppTypography.pageTitle),
+                      Text('@${user.username}', style: AppTypography.metadata),
+                      const SizedBox(height: AppSpacing.sm),
+                      StatusBadge(
+                        label: _roleLabel(user),
+                        tone: StatusTone.gold,
+                      ),
+                      if (user.organizationName.isNotEmpty) ...[
+                        const SizedBox(height: AppSpacing.sm),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.apartment_outlined,
+                              size: 16,
+                              color: AppColors.textMuted,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              user.organizationName,
+                              style: AppTypography.metadata,
+                            ),
+                          ],
                         ),
-                        if (user.organizationName.isNotEmpty) ...[
-                          const SizedBox(height: 10),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.apartment_outlined, size: 16, color: AppColors.textMuted),
-                              const SizedBox(width: 6),
-                              Text(user.organizationName, style: const TextStyle(color: AppColors.textMuted)),
-                            ],
-                          ),
-                        ],
                       ],
-                    ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 20),
-                Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.lock_outline),
-                    title: const Text('Şifre Değiştir'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => _showChangePasswordSheet(context, ref),
+                const SizedBox(height: AppSpacing.xl),
+                AppListCard(
+                  title: 'Şifre Değiştir',
+                  leading: const Icon(
+                    Icons.lock_outline,
+                    color: AppColors.gold,
                   ),
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: AppColors.textMuted,
+                  ),
+                  onTap: () => _showChangePasswordSheet(context, ref),
                 ),
-                const SizedBox(height: 20),
+                AppListCard(
+                  title: 'Hakkında',
+                  leading: const Icon(
+                    Icons.info_outline,
+                    color: AppColors.gold,
+                  ),
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: AppColors.textMuted,
+                  ),
+                  onTap: () => context.push('/diger/hakkinda'),
+                ),
+                const SizedBox(height: AppSpacing.lg),
                 OutlinedButton.icon(
                   icon: const Icon(Icons.logout, color: AppColors.danger),
-                  label: const Text('Çıkış Yap', style: TextStyle(color: AppColors.danger)),
-                  style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.danger)),
+                  label: const Text(
+                    'Çıkış Yap',
+                    style: TextStyle(color: AppColors.danger),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppColors.danger),
+                  ),
                   onPressed: () async {
                     final confirmed = await showDialog<bool>(
                       context: context,
                       builder: (context) => AlertDialog(
                         title: const Text('Çıkış yap'),
-                        content: const Text('Oturumu kapatmak istediğinize emin misiniz?'),
+                        content: const Text(
+                          'Oturumu kapatmak istediğinize emin misiniz?',
+                        ),
                         actions: [
-                          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
-                          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Çıkış Yap')),
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(false),
+                            child: const Text('Vazgeç'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(true),
+                            child: const Text('Çıkış Yap'),
+                          ),
                         ],
                       ),
                     );
@@ -106,7 +143,8 @@ class ProfileScreen extends ConsumerWidget {
     final parts = fullName.trim().split(RegExp(r'\s+'));
     if (parts.isEmpty || parts.first.isEmpty) return '?';
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-    return (parts.first.substring(0, 1) + parts.last.substring(0, 1)).toUpperCase();
+    return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
+        .toUpperCase();
   }
 
   /// İnce-taneli organizasyon rolü (owner/admin/finance/vb.) varsa o
@@ -126,7 +164,9 @@ class ProfileScreen extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (context) => _ChangePasswordSheet(authRepository: ref.read(authRepositoryProvider)),
+      builder: (context) => _ChangePasswordSheet(
+        authRepository: ref.read(authRepositoryProvider),
+      ),
     );
   }
 }
@@ -178,37 +218,60 @@ class _ChangePasswordSheetState extends State<_ChangePasswordSheet> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(context).viewInsets.bottom + 20),
+      padding: EdgeInsets.only(
+        left: AppSpacing.xl,
+        right: AppSpacing.xl,
+        top: AppSpacing.xl,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.xl,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text('Şifre Değiştir', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
-          const SizedBox(height: 16),
+          Text(
+            'Şifre Değiştir',
+            style: AppTypography.pageTitle.copyWith(fontSize: 17),
+          ),
+          const SizedBox(height: AppSpacing.lg),
           TextField(
             controller: _currentController,
             obscureText: true,
             decoration: const InputDecoration(labelText: 'Mevcut Şifre'),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.md),
           TextField(
             controller: _newController,
             obscureText: true,
-            decoration: const InputDecoration(labelText: 'Yeni Şifre (en az 8 karakter)'),
+            decoration: const InputDecoration(
+              labelText: 'Yeni Şifre (en az 8 karakter)',
+            ),
           ),
           if (_error != null) ...[
-            const SizedBox(height: 12),
-            Text(_error!, style: const TextStyle(color: AppColors.danger)),
+            const SizedBox(height: AppSpacing.md),
+            Text(_error!, style: AppTypography.error),
           ],
           if (_success != null) ...[
-            const SizedBox(height: 12),
-            Text(_success!, style: const TextStyle(color: AppColors.success)),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              _success!,
+              style: AppTypography.body.copyWith(
+                color: AppColors.success,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
-          const SizedBox(height: 20),
+          const SizedBox(height: AppSpacing.xl),
           ElevatedButton(
             onPressed: _submitting ? null : _submit,
             child: _submitting
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: Colors.white,
+                    ),
+                  )
                 : const Text('Kaydet'),
           ),
         ],

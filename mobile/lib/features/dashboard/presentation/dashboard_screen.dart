@@ -14,13 +14,11 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/metric_card.dart';
-import '../../../core/widgets/money_text.dart';
 import '../../../core/widgets/quick_action_button.dart';
-import '../../../core/widgets/status_badge.dart';
 import '../../customers/presentation/customer_form_sheet.dart';
 import '../../notifications/data/notifications_providers.dart';
 import '../../projects/data/projects_providers.dart';
-import '../../projects/domain/project.dart';
+import '../../projects/presentation/project_list_card.dart';
 import '../../tasks/data/tasks_providers.dart';
 
 /// Backend'de özel bir dashboard/özet ucu YOK (bkz. MOBILE_BACKEND_GAPS.md).
@@ -128,7 +126,7 @@ class DashboardScreen extends ConsumerWidget {
               data: (context, r) => Column(
                 children: r.projects
                     .take(5)
-                    .map((p) => _ActiveProjectCard(project: p, onTap: () => context.push('/projeler/${p.id}')))
+                    .map((p) => ProjectListCard(project: p, onTap: () => context.push('/projeler/${p.id}')))
                     .toList(),
               ),
             ),
@@ -223,72 +221,6 @@ class _BrandDayCard extends StatelessWidget {
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ActiveProjectCard extends StatelessWidget {
-  const _ActiveProjectCard({required this.project, required this.onTap});
-  final Project project;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final contractValue = project.currentContractValue ?? project.contractAmount;
-    final collected = project.collectedAmount;
-    final progress = (collected != null && contractValue > 0) ? (collected / contractValue).clamp(0.0, 1.0) : null;
-
-    return AppCard(
-      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-      onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(project.name, style: AppTypography.cardTitle, maxLines: 1, overflow: TextOverflow.ellipsis),
-                    const SizedBox(height: 2),
-                    Text(
-                      project.customerName.isEmpty ? project.projectNo : project.customerName,
-                      style: AppTypography.metadata,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  StatusRegistry.build(project.status, StatusRegistry.project),
-                  const SizedBox(height: 4),
-                  MoneyText(contractValue, currency: project.currency, style: AppTypography.metadata),
-                ],
-              ),
-            ],
-          ),
-          if (progress != null) ...[
-            const SizedBox(height: AppSpacing.sm),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: progress,
-                minHeight: 4,
-                backgroundColor: AppColors.border,
-                valueColor: const AlwaysStoppedAnimation(AppColors.gold),
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text('Tahsilat: %${(progress * 100).toStringAsFixed(0)}', style: AppTypography.helper),
-          ],
         ],
       ),
     );
