@@ -12,7 +12,7 @@ import (
 )
 
 const advanceOnboardingStep = `-- name: AdvanceOnboardingStep :one
-UPDATE organizations SET onboarding_step = $2 WHERE id = $1 RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code
+UPDATE organizations SET onboarding_step = $2 WHERE id = $1 RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code, deleted_at, deleted_by
 `
 
 type AdvanceOnboardingStepParams struct {
@@ -36,6 +36,8 @@ func (q *Queries) AdvanceOnboardingStep(ctx context.Context, arg AdvanceOnboardi
 		&i.OnboardingCompletedAt,
 		&i.OnboardingStep,
 		&i.PlanCode,
+		&i.DeletedAt,
+		&i.DeletedBy,
 	)
 	return i, err
 }
@@ -44,7 +46,7 @@ const completeOnboarding = `-- name: CompleteOnboarding :one
 UPDATE organizations
 SET onboarding_step = 'completed', onboarding_completed = true, onboarding_completed_at = now()
 WHERE id = $1
-RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code
+RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code, deleted_at, deleted_by
 `
 
 func (q *Queries) CompleteOnboarding(ctx context.Context, id pgtype.UUID) (Organization, error) {
@@ -63,12 +65,25 @@ func (q *Queries) CompleteOnboarding(ctx context.Context, id pgtype.UUID) (Organ
 		&i.OnboardingCompletedAt,
 		&i.OnboardingStep,
 		&i.PlanCode,
+		&i.DeletedAt,
+		&i.DeletedBy,
 	)
 	return i, err
 }
 
+const countDeletedOrganizations = `-- name: CountDeletedOrganizations :one
+SELECT count(*) FROM organizations WHERE deleted_at IS NOT NULL
+`
+
+func (q *Queries) CountDeletedOrganizations(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countDeletedOrganizations)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countOrganizationsFiltered = `-- name: CountOrganizationsFiltered :one
-SELECT count(*) FROM organizations WHERE ($1::text = '' OR status = $1::text)
+SELECT count(*) FROM organizations WHERE ($1::text = '' OR status = $1::text) AND deleted_at IS NULL
 `
 
 func (q *Queries) CountOrganizationsFiltered(ctx context.Context, dollar_1 string) (int64, error) {
@@ -81,7 +96,7 @@ func (q *Queries) CountOrganizationsFiltered(ctx context.Context, dollar_1 strin
 const createOrganization = `-- name: CreateOrganization :one
 INSERT INTO organizations (name, slug)
 VALUES ($1, $2)
-RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code
+RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code, deleted_at, deleted_by
 `
 
 type CreateOrganizationParams struct {
@@ -105,6 +120,8 @@ func (q *Queries) CreateOrganization(ctx context.Context, arg CreateOrganization
 		&i.OnboardingCompletedAt,
 		&i.OnboardingStep,
 		&i.PlanCode,
+		&i.DeletedAt,
+		&i.DeletedBy,
 	)
 	return i, err
 }
@@ -112,7 +129,7 @@ func (q *Queries) CreateOrganization(ctx context.Context, arg CreateOrganization
 const createOrganizationWithLifecycle = `-- name: CreateOrganizationWithLifecycle :one
 INSERT INTO organizations (name, slug, status, plan_code, trial_ends_at)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code
+RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code, deleted_at, deleted_by
 `
 
 type CreateOrganizationWithLifecycleParams struct {
@@ -148,12 +165,14 @@ func (q *Queries) CreateOrganizationWithLifecycle(ctx context.Context, arg Creat
 		&i.OnboardingCompletedAt,
 		&i.OnboardingStep,
 		&i.PlanCode,
+		&i.DeletedAt,
+		&i.DeletedBy,
 	)
 	return i, err
 }
 
 const getOrganizationByID = `-- name: GetOrganizationByID :one
-SELECT id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code FROM organizations WHERE id = $1
+SELECT id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code, deleted_at, deleted_by FROM organizations WHERE id = $1
 `
 
 func (q *Queries) GetOrganizationByID(ctx context.Context, id pgtype.UUID) (Organization, error) {
@@ -172,12 +191,14 @@ func (q *Queries) GetOrganizationByID(ctx context.Context, id pgtype.UUID) (Orga
 		&i.OnboardingCompletedAt,
 		&i.OnboardingStep,
 		&i.PlanCode,
+		&i.DeletedAt,
+		&i.DeletedBy,
 	)
 	return i, err
 }
 
 const getOrganizationBySlug = `-- name: GetOrganizationBySlug :one
-SELECT id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code FROM organizations WHERE slug = $1
+SELECT id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code, deleted_at, deleted_by FROM organizations WHERE slug = $1
 `
 
 func (q *Queries) GetOrganizationBySlug(ctx context.Context, slug string) (Organization, error) {
@@ -196,26 +217,86 @@ func (q *Queries) GetOrganizationBySlug(ctx context.Context, slug string) (Organ
 		&i.OnboardingCompletedAt,
 		&i.OnboardingStep,
 		&i.PlanCode,
+		&i.DeletedAt,
+		&i.DeletedBy,
 	)
 	return i, err
 }
 
 const getOrganizationStatus = `-- name: GetOrganizationStatus :one
-SELECT status FROM organizations WHERE id = $1
+SELECT status, deleted_at FROM organizations WHERE id = $1
 `
 
+type GetOrganizationStatusRow struct {
+	Status    string             `json:"status"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+}
+
 // RequireAuth middleware'inin her istekte çağırdığı hafif sorgu -- askıya
-// alınmış bir firmanın hâlâ geçerli bir access token'ı olan kullanıcısını
-// da mid-session engelleyebilmek için.
-func (q *Queries) GetOrganizationStatus(ctx context.Context, id pgtype.UUID) (string, error) {
+// alınmış VEYA SİLİNMİŞ bir firmanın hâlâ geçerli bir access token'ı olan
+// kullanıcısını da mid-session engelleyebilmek için (bkz. migration 0043:
+// silme, status'ten BAĞIMSIZ bir erişim engelidir -- ikisi de kontrol
+// edilir).
+func (q *Queries) GetOrganizationStatus(ctx context.Context, id pgtype.UUID) (GetOrganizationStatusRow, error) {
 	row := q.db.QueryRow(ctx, getOrganizationStatus, id)
-	var status string
-	err := row.Scan(&status)
-	return status, err
+	var i GetOrganizationStatusRow
+	err := row.Scan(&i.Status, &i.DeletedAt)
+	return i, err
+}
+
+const listDeletedOrganizations = `-- name: ListDeletedOrganizations :many
+SELECT id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code, deleted_at, deleted_by FROM organizations
+WHERE deleted_at IS NOT NULL
+ORDER BY deleted_at DESC
+LIMIT $1 OFFSET $2
+`
+
+type ListDeletedOrganizationsParams struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+// Süper Admin'in "Silinenler" (Arşiv) görünümü -- status'ten BAĞIMSIZ
+// (silinen bir firma HANGİ durumdaysa o durumda kalır, bkz. domain/
+// organization.go Organization.DeletedAt yorumu), yalnızca deleted_at
+// DOLU satırlar.
+func (q *Queries) ListDeletedOrganizations(ctx context.Context, arg ListDeletedOrganizationsParams) ([]Organization, error) {
+	rows, err := q.db.Query(ctx, listDeletedOrganizations, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Organization
+	for rows.Next() {
+		var i Organization
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Slug,
+			&i.IsActive,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Status,
+			&i.TrialEndsAt,
+			&i.OnboardingCompleted,
+			&i.OnboardingCompletedAt,
+			&i.OnboardingStep,
+			&i.PlanCode,
+			&i.DeletedAt,
+			&i.DeletedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listOrganizations = `-- name: ListOrganizations :many
-SELECT id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code FROM organizations ORDER BY created_at DESC
+SELECT id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code, deleted_at, deleted_by FROM organizations ORDER BY created_at DESC
 `
 
 func (q *Queries) ListOrganizations(ctx context.Context) ([]Organization, error) {
@@ -240,6 +321,8 @@ func (q *Queries) ListOrganizations(ctx context.Context) ([]Organization, error)
 			&i.OnboardingCompletedAt,
 			&i.OnboardingStep,
 			&i.PlanCode,
+			&i.DeletedAt,
+			&i.DeletedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -252,8 +335,8 @@ func (q *Queries) ListOrganizations(ctx context.Context) ([]Organization, error)
 }
 
 const listOrganizationsPaged = `-- name: ListOrganizationsPaged :many
-SELECT id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code FROM organizations
-WHERE ($1::text = '' OR status = $1::text)
+SELECT id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code, deleted_at, deleted_by FROM organizations
+WHERE ($1::text = '' OR status = $1::text) AND deleted_at IS NULL
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
 `
@@ -264,6 +347,9 @@ type ListOrganizationsPagedParams struct {
 	Offset  int32  `json:"offset"`
 }
 
+// Silinmiş firmalar normal listeden HER ZAMAN dışarıda kalır (status
+// filtresinden BAĞIMSIZ olarak -- bkz. migration 0043 başlık notu);
+// ayrı bir "Silinenler" görünümü için ListDeletedOrganizations kullanılır.
 func (q *Queries) ListOrganizationsPaged(ctx context.Context, arg ListOrganizationsPagedParams) ([]Organization, error) {
 	rows, err := q.db.Query(ctx, listOrganizationsPaged, arg.Column1, arg.Limit, arg.Offset)
 	if err != nil {
@@ -286,6 +372,8 @@ func (q *Queries) ListOrganizationsPaged(ctx context.Context, arg ListOrganizati
 			&i.OnboardingCompletedAt,
 			&i.OnboardingStep,
 			&i.PlanCode,
+			&i.DeletedAt,
+			&i.DeletedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -297,8 +385,44 @@ func (q *Queries) ListOrganizationsPaged(ctx context.Context, arg ListOrganizati
 	return items, nil
 }
 
+const restoreOrganization = `-- name: RestoreOrganization :execrows
+UPDATE organizations
+SET deleted_at = NULL, deleted_by = NULL
+WHERE id = $1 AND deleted_at IS NOT NULL
+`
+
+func (q *Queries) RestoreOrganization(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, restoreOrganization, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const softDeleteOrganization = `-- name: SoftDeleteOrganization :execrows
+UPDATE organizations
+SET deleted_at = now(), deleted_by = $2
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+type SoftDeleteOrganizationParams struct {
+	ID        pgtype.UUID `json:"id"`
+	DeletedBy pgtype.UUID `json:"deleted_by"`
+}
+
+// status'e DOKUNULMAZ (bkz. Organization.DeletedAt yorumu) -- yalnızca
+// deleted_at/deleted_by yazılır. Zaten silinmiş bir satırda 0 satır
+// günceller (servis katmanı ErrAlreadyDeleted'e çevirir).
+func (q *Queries) SoftDeleteOrganization(ctx context.Context, arg SoftDeleteOrganizationParams) (int64, error) {
+	result, err := q.db.Exec(ctx, softDeleteOrganization, arg.ID, arg.DeletedBy)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateOrganizationPlan = `-- name: UpdateOrganizationPlan :one
-UPDATE organizations SET plan_code = $2 WHERE id = $1 RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code
+UPDATE organizations SET plan_code = $2 WHERE id = $1 RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code, deleted_at, deleted_by
 `
 
 type UpdateOrganizationPlanParams struct {
@@ -322,12 +446,14 @@ func (q *Queries) UpdateOrganizationPlan(ctx context.Context, arg UpdateOrganiza
 		&i.OnboardingCompletedAt,
 		&i.OnboardingStep,
 		&i.PlanCode,
+		&i.DeletedAt,
+		&i.DeletedBy,
 	)
 	return i, err
 }
 
 const updateOrganizationStatus = `-- name: UpdateOrganizationStatus :one
-UPDATE organizations SET status = $2, is_active = $3 WHERE id = $1 RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code
+UPDATE organizations SET status = $2, is_active = $3 WHERE id = $1 RETURNING id, name, slug, is_active, created_at, updated_at, status, trial_ends_at, onboarding_completed, onboarding_completed_at, onboarding_step, plan_code, deleted_at, deleted_by
 `
 
 type UpdateOrganizationStatusParams struct {
@@ -352,6 +478,8 @@ func (q *Queries) UpdateOrganizationStatus(ctx context.Context, arg UpdateOrgani
 		&i.OnboardingCompletedAt,
 		&i.OnboardingStep,
 		&i.PlanCode,
+		&i.DeletedAt,
+		&i.DeletedBy,
 	)
 	return i, err
 }

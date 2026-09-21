@@ -12,6 +12,7 @@ export function OrganizationDetailTabs({
   plans,
   users,
   usersTotal,
+  deletedUsers,
   activeOwnerCount,
   roles,
   auditEvents,
@@ -20,6 +21,7 @@ export function OrganizationDetailTabs({
   plans: Plan[];
   users: User[];
   usersTotal: number;
+  deletedUsers: User[];
   activeOwnerCount: number;
   roles: OrganizationRole[];
   auditEvents: AuditEvent[];
@@ -37,7 +39,13 @@ export function OrganizationDetailTabs({
         <GeneralTab organization={organization} plans={plans} userCount={usersTotal} activeOwnerCount={activeOwnerCount} />
       </ControlledTabPanel>
       <ControlledTabPanel tab="users">
-        <UsersTab organization={organization} users={users} roles={roles} activeOwnerCount={activeOwnerCount} />
+        <UsersTab
+          organization={organization}
+          users={users}
+          deletedUsers={deletedUsers}
+          roles={roles}
+          activeOwnerCount={activeOwnerCount}
+        />
       </ControlledTabPanel>
       <ControlledTabPanel tab="audit">
         <AuditTab events={auditEvents} />

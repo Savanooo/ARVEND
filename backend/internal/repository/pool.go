@@ -59,6 +59,14 @@ func ToDomainOrganization(o sqlc.Organization) domain.Organization {
 		t := o.OnboardingCompletedAt.Time
 		do.OnboardingCompletedAt = &t
 	}
+	if o.DeletedAt.Valid {
+		t := o.DeletedAt.Time
+		do.DeletedAt = &t
+	}
+	if o.DeletedBy.Valid {
+		id := o.DeletedBy.String()
+		do.DeletedBy = &id
+	}
 	return do
 }
 
@@ -82,6 +90,14 @@ func ToDomainUser(u sqlc.User) domain.User {
 		t := u.LastLoginAt.Time
 		du.LastLoginAt = &t
 	}
+	if u.DeletedAt.Valid {
+		t := u.DeletedAt.Time
+		du.DeletedAt = &t
+	}
+	if u.DeletedBy.Valid {
+		id := u.DeletedBy.String()
+		du.DeletedBy = &id
+	}
 	return du
 }
 
@@ -90,6 +106,26 @@ func ToDomainUserWithRole(u sqlc.ListUsersWithOrganizationRoleRow) domain.User {
 		ID: u.ID, Username: u.Username, PasswordHash: u.PasswordHash, FullName: u.FullName,
 		Role: u.Role, IsActive: u.IsActive, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
 		LastLoginAt: u.LastLoginAt, OrganizationID: u.OrganizationID, MustChangePassword: u.MustChangePassword,
+		DeletedAt: u.DeletedAt, DeletedBy: u.DeletedBy,
+	})
+	if u.OrganizationRoleCode != nil {
+		du.OrganizationRoleCode = *u.OrganizationRoleCode
+	}
+	if u.OrganizationRoleName != nil {
+		du.OrganizationRoleName = *u.OrganizationRoleName
+	}
+	return du
+}
+
+// ToDomainDeletedUserWithRole, ListDeletedUsersWithOrganizationRoleRow İÇİN
+// -- sqlc her sorgu için AYRI bir satır tipi ürettiğinden (aynı SELECT
+// şekli olsa bile) ToDomainUserWithRole'den ayrı bir dönüştürücü gerekir.
+func ToDomainDeletedUserWithRole(u sqlc.ListDeletedUsersWithOrganizationRoleRow) domain.User {
+	du := ToDomainUser(sqlc.User{
+		ID: u.ID, Username: u.Username, PasswordHash: u.PasswordHash, FullName: u.FullName,
+		Role: u.Role, IsActive: u.IsActive, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
+		LastLoginAt: u.LastLoginAt, OrganizationID: u.OrganizationID, MustChangePassword: u.MustChangePassword,
+		DeletedAt: u.DeletedAt, DeletedBy: u.DeletedBy,
 	})
 	if u.OrganizationRoleCode != nil {
 		du.OrganizationRoleCode = *u.OrganizationRoleCode
@@ -105,6 +141,7 @@ func ToDomainSingleUserWithRole(u sqlc.GetUserWithOrganizationRoleRow) domain.Us
 		ID: u.ID, Username: u.Username, PasswordHash: u.PasswordHash, FullName: u.FullName,
 		Role: u.Role, IsActive: u.IsActive, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
 		LastLoginAt: u.LastLoginAt, OrganizationID: u.OrganizationID, MustChangePassword: u.MustChangePassword,
+		DeletedAt: u.DeletedAt, DeletedBy: u.DeletedBy,
 	})
 	if u.OrganizationRoleCode != nil {
 		du.OrganizationRoleCode = *u.OrganizationRoleCode

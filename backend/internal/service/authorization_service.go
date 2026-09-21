@@ -355,6 +355,11 @@ func (s *AuthorizationService) AddProjectUser(ctx context.Context, projectID, or
 	if target.Role == string(domain.RoleSuperAdmin) {
 		return nil, domain.ErrCrossOrgMembership
 	}
+	// Pasif (ve silinmiş -- deleteUser is_active'i de false yapar, bkz.
+	// migration 0043) bir kullanıcı YENİ bir proje ataması alamaz.
+	if !target.IsActive {
+		return nil, domain.ErrInactiveUser
+	}
 	if _, err := s.q.GetProjectByID(ctx, sqlc.GetProjectByIDParams{ID: pid, OrganizationID: orgID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound

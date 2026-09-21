@@ -162,6 +162,20 @@ func (s *UserService) Update(ctx context.Context, id, organizationID, fullName s
 		if err := guardLastActiveOwner(ctx, s.q, uid, orgID); err != nil {
 			return nil, err
 		}
+	} else {
+		// Silinmiş bir kullanıcı bu yoldan doğrudan aktifleştirilemez --
+		// önce restore edilmeli (bkz. user_lifecycle.go reactivateUser'daki
+		// AYNI kural; bu, tenant tarafının reaktivasyon yoludur).
+		current, cerr := s.q.GetUserByIDInOrg(ctx, sqlc.GetUserByIDInOrgParams{ID: uid, OrganizationID: orgID})
+		if cerr != nil {
+			if errors.Is(cerr, pgx.ErrNoRows) {
+				return nil, domain.ErrNotFound
+			}
+			return nil, cerr
+		}
+		if current.DeletedAt.Valid {
+			return nil, domain.ErrUserDeleted
+		}
 	}
 	row, err := s.q.UpdateUserProfile(ctx, sqlc.UpdateUserProfileParams{
 		ID:             uid,

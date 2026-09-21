@@ -1,8 +1,8 @@
 "use client";
 
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, RotateCcw, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -13,18 +13,21 @@ import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
+import { Tabs } from "@/components/ui/Tabs";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { apiClient, ApiError } from "@/lib/api";
 import type { Organization, OrganizationRole, User } from "@/lib/types";
 
-// Süper Admin'in firma kullanıcı yönetimi -- hiçbir işlem kullanıcı SİLMEZ:
-// pasifleştir/aktifleştir (kayıt kalır), organizasyon rolü, geçici şifre
-// (ilk şifre akışını yeniden başlatır) ve yeni kullanıcı/Sahip tanımlama.
-// Görünen rol her zaman ORGANİZASYON rolüdür (Sahip/Yönetici/Proje
-// Yöneticisi/Finans/Saha/özel) -- users.role'ün admin/kullanici ayrımı
-// burada gösterilmez. Son aktif Sahip koruması backend'de uygulanır; UI
-// yalnızca anlaşılır bir hata gösterir.
+// Süper Admin'in firma kullanıcı yönetimi. "Kullanıcıyı Sil" DAHİL hiçbir
+// işlem kullanıcı satırını fiziksel olarak KALDIRMAZ -- Sil bile bir
+// YUMUŞAK silmedir (deleted_at + eşzamanlı pasifleştirme, bkz.
+// backend/db/migrations/0043): erişimi kapatır, aktif/pasif listelerden
+// kaybolur, Silinenler (Arşiv) görünümünde kalır ve Geri Yükle ile geri
+// alınabilir. Görünen rol her zaman ORGANİZASYON rolüdür (Sahip/Yönetici/
+// Proje Yöneticisi/Finans/Saha/özel). Son aktif Sahip koruması (hem
+// pasifleştirme hem silme için) backend'de uygulanır; UI önceden
+// devre dışı bırakıp tooltip'le açıklar.
 
 type ModalState =
   | { kind: "provision"; presetRole?: string }
@@ -32,14 +35,18 @@ type ModalState =
   | { kind: "password"; user: User }
   | null;
 
+type ViewFilter = "active" | "inactive" | "deleted";
+
 export function UsersTab({
   organization,
   users,
+  deletedUsers,
   roles,
   activeOwnerCount,
 }: {
   organization: Organization;
   users: User[];
+  deletedUsers: User[];
   roles: OrganizationRole[];
   activeOwnerCount: number;
 }) {
@@ -49,8 +56,15 @@ export function UsersTab({
   const [modal, setModal] = useState<ModalState>(null);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<ViewFilter>("active");
 
   const base = `/api/v1/platform/organizations/${organization.id}/users`;
+
+  const visibleUsers = useMemo(() => {
+    if (filter === "deleted") return deletedUsers;
+    if (filter === "inactive") return users.filter((u) => u.is_active === false);
+    return users.filter((u) => u.is_active !== false);
+  }, [filter, users, deletedUsers]);
 
   async function toggleActive(user: User) {
     setError(null);
@@ -68,6 +82,41 @@ export function UsersTab({
     try {
       await apiClient(`${base}/${user.id}/${deactivating ? "deactivate" : "reactivate"}`, { method: "POST" });
       toast.success(deactivating ? "Kullanıcı pasife alındı." : "Kullanıcı aktifleştirildi.");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
+    } finally {
+      setBusyUserId(null);
+    }
+  }
+
+  async function deleteUser(user: User) {
+    setError(null);
+    const ok = await confirm({
+      title: "Kullanıcı silinsin mi?",
+      message: `${user.full_name} (${user.username}) silinecek: erişimi kaldırılır ve aktif kullanıcı listelerinden kaybolur. Geçmiş kayıtlar (denetim, atamalar) SİLİNMEZ; gerekirse Silinenler görünümünden geri yüklenebilir.`,
+      confirmLabel: "Kullanıcıyı Sil",
+      danger: true,
+    });
+    if (!ok) return;
+    setBusyUserId(user.id);
+    try {
+      await apiClient(`${base}/${user.id}/delete`, { method: "POST" });
+      toast.success("Kullanıcı silindi.");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
+    } finally {
+      setBusyUserId(null);
+    }
+  }
+
+  async function restoreUser(user: User) {
+    setError(null);
+    setBusyUserId(user.id);
+    try {
+      await apiClient(`${base}/${user.id}/restore`, { method: "POST" });
+      toast.success(`${user.full_name} geri yüklendi (Pasif olarak listeye döndü).`);
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
@@ -99,8 +148,26 @@ export function UsersTab({
         </div>
       )}
 
-      {users.length === 0 ? (
-        <EmptyState title="Henüz kullanıcı yok" description="Bu firma için ilk Sahibi oluşturun." />
+      <Tabs
+        items={[
+          { key: "active", label: "Aktif Kullanıcılar", active: filter === "active", onClick: () => setFilter("active") },
+          { key: "inactive", label: "Pasif", active: filter === "inactive", onClick: () => setFilter("inactive") },
+          {
+            key: "deleted",
+            label: `Silinenler${deletedUsers.length > 0 ? ` (${deletedUsers.length})` : ""}`,
+            active: filter === "deleted",
+            onClick: () => setFilter("deleted"),
+          },
+        ]}
+      />
+
+      {visibleUsers.length === 0 ? (
+        <EmptyState
+          title={
+            filter === "deleted" ? "Silinmiş kullanıcı yok" : filter === "inactive" ? "Pasif kullanıcı yok" : "Henüz kullanıcı yok"
+          }
+          description={filter === "active" ? "Bu firma için ilk Sahibi oluşturun." : undefined}
+        />
       ) : (
         <Table>
           <thead>
@@ -109,15 +176,16 @@ export function UsersTab({
               <Th className="w-[18%]">Kullanıcı Adı</Th>
               <Th className="w-[20%]">Rol</Th>
               <Th className="w-[12%]">Durum</Th>
-              <Th className="w-[16%]">İlk Giriş / Şifre</Th>
+              <Th className="w-[16%]">{filter === "deleted" ? "Silinme Tarihi" : "İlk Giriş / Şifre"}</Th>
               <Th className="w-[8%]" />
             </tr>
           </thead>
           <tbody>
-            {users.map((u) => {
+            {visibleUsers.map((u) => {
               const isOwner = u.organization_role_code === "owner";
               const active = u.is_active !== false;
-              // Firmanın SON aktif Sahibi -- pasifleştirme ve (rol
+              const deleted = filter === "deleted";
+              // Firmanın SON aktif Sahibi -- pasifleştirme/silme ve (rol
               // değişikliği modalındaki AYRI uyarıyla) rol düşürme backend'de
               // zaten reddedilir; burada eylemi baştan devre dışı bırakıp
               // NEDENİNİ bir tooltip'te açıklamak, kullanıcıyı bir 409
@@ -139,33 +207,60 @@ export function UsersTab({
                     )}
                   </Td>
                   <Td>
-                    <Badge tone={active ? "success" : "danger"}>{active ? "Aktif" : "Pasif"}</Badge>
+                    {deleted ? (
+                      <Badge tone="muted">Silindi</Badge>
+                    ) : (
+                      <Badge tone={active ? "success" : "danger"}>{active ? "Aktif" : "Pasif"}</Badge>
+                    )}
                   </Td>
                   <Td>
-                    {u.must_change_password ? (
+                    {deleted ? (
+                      <span className="text-text-muted">{u.deleted_at ? new Date(u.deleted_at).toLocaleString("tr-TR") : "—"}</span>
+                    ) : u.must_change_password ? (
                       <Badge tone="info">Belirlenmeli</Badge>
                     ) : (
                       <span className="text-text-muted">Belirlendi</span>
                     )}
                   </Td>
                   <Td className="text-right">
-                    <DropdownMenu
-                      triggerLabel={`${u.full_name} için işlemler`}
-                      trigger={<MoreHorizontal size={16} strokeWidth={1.75} />}
-                    >
-                      <DropdownMenuItem onClick={() => setModal({ kind: "role", user: u })}>Rolü Değiştir…</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setModal({ kind: "password", user: u })}>
-                        İlk Şifreyi Yenile…
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={busyUserId === u.id || isSoleActiveOwner}
-                        title={isSoleActiveOwner ? "Firmanın son aktif Sahibi pasifleştirilemez." : undefined}
-                        onClick={() => toggleActive(u)}
-                        className={active && !isSoleActiveOwner ? "text-danger" : ""}
+                    {deleted ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={busyUserId === u.id}
+                        onClick={() => restoreUser(u)}
                       >
-                        {active ? "Pasife Al" : "Aktifleştir"}
-                      </DropdownMenuItem>
-                    </DropdownMenu>
+                        <RotateCcw size={14} strokeWidth={1.75} />
+                        Geri Yükle
+                      </Button>
+                    ) : (
+                      <DropdownMenu
+                        triggerLabel={`${u.full_name} için işlemler`}
+                        trigger={<MoreHorizontal size={16} strokeWidth={1.75} />}
+                      >
+                        <DropdownMenuItem onClick={() => setModal({ kind: "role", user: u })}>Rolü Değiştir…</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setModal({ kind: "password", user: u })}>
+                          İlk Şifreyi Yenile…
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={busyUserId === u.id || isSoleActiveOwner}
+                          title={isSoleActiveOwner ? "Firmanın son aktif Sahibi pasifleştirilemez." : undefined}
+                          onClick={() => toggleActive(u)}
+                        >
+                          {active ? "Pasife Al" : "Aktifleştir"}
+                        </DropdownMenuItem>
+                        <div className="my-1 border-t border-border" />
+                        <DropdownMenuItem
+                          disabled={busyUserId === u.id || isSoleActiveOwner}
+                          title={isSoleActiveOwner ? "Firmanın son aktif Sahibi silinemez." : undefined}
+                          onClick={() => deleteUser(u)}
+                          className={!isSoleActiveOwner ? "text-danger" : ""}
+                        >
+                          <Trash2 size={14} strokeWidth={1.75} />
+                          Kullanıcıyı Sil
+                        </DropdownMenuItem>
+                      </DropdownMenu>
+                    )}
                   </Td>
                 </Tr>
               );

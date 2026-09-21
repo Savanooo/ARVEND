@@ -52,8 +52,11 @@ func RequireAuth(issuer *auth.JWTIssuer, q *sqlc.Queries) func(http.Handler) htt
 					http.Error(w, `{"error":"oturum geçersiz veya süresi dolmuş"}`, http.StatusUnauthorized)
 					return
 				}
-				status, err := q.GetOrganizationStatus(r.Context(), orgUUID)
-				if err != nil || !domain.OrgStatus(status).AllowsAccess() {
+				state, err := q.GetOrganizationStatus(r.Context(), orgUUID)
+				// Silme, status'ten BAĞIMSIZ bir erişim engelidir (bkz.
+				// migration 0043 başlık notu) -- AllowsAccess() true olsa
+				// bile deleted_at doluysa istek reddedilir.
+				if err != nil || !domain.OrgStatus(state.Status).AllowsAccess() || state.DeletedAt.Valid {
 					http.Error(w, `{"error":"firma askıya alınmış veya erişilemiyor"}`, http.StatusForbidden)
 					return
 				}

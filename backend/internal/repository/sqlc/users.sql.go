@@ -12,7 +12,7 @@ import (
 )
 
 const countActiveUsers = `-- name: CountActiveUsers :one
-SELECT count(*) FROM users WHERE organization_id = $1 AND is_active = true
+SELECT count(*) FROM users WHERE organization_id = $1 AND is_active = true AND deleted_at IS NULL
 `
 
 func (q *Queries) CountActiveUsers(ctx context.Context, organizationID pgtype.UUID) (int64, error) {
@@ -22,8 +22,19 @@ func (q *Queries) CountActiveUsers(ctx context.Context, organizationID pgtype.UU
 	return count, err
 }
 
+const countDeletedUsers = `-- name: CountDeletedUsers :one
+SELECT count(*) FROM users WHERE organization_id = $1 AND deleted_at IS NOT NULL
+`
+
+func (q *Queries) CountDeletedUsers(ctx context.Context, organizationID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countDeletedUsers, organizationID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUsers = `-- name: CountUsers :one
-SELECT count(*) FROM users WHERE organization_id = $1
+SELECT count(*) FROM users WHERE organization_id = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) CountUsers(ctx context.Context, organizationID pgtype.UUID) (int64, error) {
@@ -36,7 +47,7 @@ func (q *Queries) CountUsers(ctx context.Context, organizationID pgtype.UUID) (i
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (organization_id, username, password_hash, full_name, role)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id
+RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id, deleted_at, deleted_by
 `
 
 type CreateUserParams struct {
@@ -69,6 +80,8 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.OrganizationID,
 		&i.MustChangePassword,
 		&i.OrganizationRoleID,
+		&i.DeletedAt,
+		&i.DeletedBy,
 	)
 	return i, err
 }
@@ -76,7 +89,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 const createUserWithOptions = `-- name: CreateUserWithOptions :one
 INSERT INTO users (organization_id, username, password_hash, full_name, role, must_change_password)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id
+RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id, deleted_at, deleted_by
 `
 
 type CreateUserWithOptionsParams struct {
@@ -115,6 +128,8 @@ func (q *Queries) CreateUserWithOptions(ctx context.Context, arg CreateUserWithO
 		&i.OrganizationID,
 		&i.MustChangePassword,
 		&i.OrganizationRoleID,
+		&i.DeletedAt,
+		&i.DeletedBy,
 	)
 	return i, err
 }
@@ -162,7 +177,7 @@ func (q *Queries) GetOnboardingGateStatus(ctx context.Context, id pgtype.UUID) (
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id FROM users WHERE id = $1
+SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id, deleted_at, deleted_by FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error) {
@@ -181,12 +196,14 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (User, error)
 		&i.OrganizationID,
 		&i.MustChangePassword,
 		&i.OrganizationRoleID,
+		&i.DeletedAt,
+		&i.DeletedBy,
 	)
 	return i, err
 }
 
 const getUserByIDInOrg = `-- name: GetUserByIDInOrg :one
-SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id FROM users WHERE id = $1 AND organization_id = $2
+SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id, deleted_at, deleted_by FROM users WHERE id = $1 AND organization_id = $2
 `
 
 type GetUserByIDInOrgParams struct {
@@ -210,12 +227,14 @@ func (q *Queries) GetUserByIDInOrg(ctx context.Context, arg GetUserByIDInOrgPara
 		&i.OrganizationID,
 		&i.MustChangePassword,
 		&i.OrganizationRoleID,
+		&i.DeletedAt,
+		&i.DeletedBy,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id FROM users WHERE username = $1
+SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id, deleted_at, deleted_by FROM users WHERE username = $1
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
@@ -234,12 +253,14 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.OrganizationID,
 		&i.MustChangePassword,
 		&i.OrganizationRoleID,
+		&i.DeletedAt,
+		&i.DeletedBy,
 	)
 	return i, err
 }
 
 const getUserWithOrganizationRole = `-- name: GetUserWithOrganizationRole :one
-SELECT u.id, u.username, u.password_hash, u.full_name, u.role, u.is_active, u.created_at, u.updated_at, u.last_login_at, u.organization_id, u.must_change_password, u.organization_role_id, orole.code AS organization_role_code, orole.name AS organization_role_name
+SELECT u.id, u.username, u.password_hash, u.full_name, u.role, u.is_active, u.created_at, u.updated_at, u.last_login_at, u.organization_id, u.must_change_password, u.organization_role_id, u.deleted_at, u.deleted_by, orole.code AS organization_role_code, orole.name AS organization_role_name
 FROM users u
 LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
 WHERE u.id = $1 AND u.organization_id = $2
@@ -263,6 +284,8 @@ type GetUserWithOrganizationRoleRow struct {
 	OrganizationID       pgtype.UUID        `json:"organization_id"`
 	MustChangePassword   bool               `json:"must_change_password"`
 	OrganizationRoleID   pgtype.UUID        `json:"organization_role_id"`
+	DeletedAt            pgtype.Timestamptz `json:"deleted_at"`
+	DeletedBy            pgtype.UUID        `json:"deleted_by"`
 	OrganizationRoleCode *string            `json:"organization_role_code"`
 	OrganizationRoleName *string            `json:"organization_role_name"`
 }
@@ -283,15 +306,90 @@ func (q *Queries) GetUserWithOrganizationRole(ctx context.Context, arg GetUserWi
 		&i.OrganizationID,
 		&i.MustChangePassword,
 		&i.OrganizationRoleID,
+		&i.DeletedAt,
+		&i.DeletedBy,
 		&i.OrganizationRoleCode,
 		&i.OrganizationRoleName,
 	)
 	return i, err
 }
 
+const listDeletedUsersWithOrganizationRole = `-- name: ListDeletedUsersWithOrganizationRole :many
+SELECT u.id, u.username, u.password_hash, u.full_name, u.role, u.is_active, u.created_at, u.updated_at, u.last_login_at, u.organization_id, u.must_change_password, u.organization_role_id, u.deleted_at, u.deleted_by, orole.code AS organization_role_code, orole.name AS organization_role_name
+FROM users u
+LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
+WHERE u.organization_id = $1 AND u.deleted_at IS NOT NULL
+ORDER BY u.deleted_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListDeletedUsersWithOrganizationRoleParams struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Limit          int32       `json:"limit"`
+	Offset         int32       `json:"offset"`
+}
+
+type ListDeletedUsersWithOrganizationRoleRow struct {
+	ID                   pgtype.UUID        `json:"id"`
+	Username             string             `json:"username"`
+	PasswordHash         string             `json:"password_hash"`
+	FullName             string             `json:"full_name"`
+	Role                 string             `json:"role"`
+	IsActive             bool               `json:"is_active"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+	LastLoginAt          pgtype.Timestamptz `json:"last_login_at"`
+	OrganizationID       pgtype.UUID        `json:"organization_id"`
+	MustChangePassword   bool               `json:"must_change_password"`
+	OrganizationRoleID   pgtype.UUID        `json:"organization_role_id"`
+	DeletedAt            pgtype.Timestamptz `json:"deleted_at"`
+	DeletedBy            pgtype.UUID        `json:"deleted_by"`
+	OrganizationRoleCode *string            `json:"organization_role_code"`
+	OrganizationRoleName *string            `json:"organization_role_name"`
+}
+
+// Süper Admin'in "Silinenler" (Arşiv) görünümü -- ListUsersWithOrganizationRole
+// İLE AYNI şekil, yalnızca WHERE koşulu ters (deleted_at DOLU).
+func (q *Queries) ListDeletedUsersWithOrganizationRole(ctx context.Context, arg ListDeletedUsersWithOrganizationRoleParams) ([]ListDeletedUsersWithOrganizationRoleRow, error) {
+	rows, err := q.db.Query(ctx, listDeletedUsersWithOrganizationRole, arg.OrganizationID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDeletedUsersWithOrganizationRoleRow
+	for rows.Next() {
+		var i ListDeletedUsersWithOrganizationRoleRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.PasswordHash,
+			&i.FullName,
+			&i.Role,
+			&i.IsActive,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastLoginAt,
+			&i.OrganizationID,
+			&i.MustChangePassword,
+			&i.OrganizationRoleID,
+			&i.DeletedAt,
+			&i.DeletedBy,
+			&i.OrganizationRoleCode,
+			&i.OrganizationRoleName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUsers = `-- name: ListUsers :many
-SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id FROM users
-WHERE organization_id = $1
+SELECT id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id, deleted_at, deleted_by FROM users
+WHERE organization_id = $1 AND deleted_at IS NULL
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
 `
@@ -302,6 +400,9 @@ type ListUsersParams struct {
 	Offset         int32       `json:"offset"`
 }
 
+// Silinmiş kullanıcılar normal listeden HER ZAMAN dışarıda kalır (bkz.
+// migration 0043 başlık notu) -- ayrı bir "Silinenler" görünümü için
+// ListDeletedUsersWithOrganizationRole kullanılır.
 func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error) {
 	rows, err := q.db.Query(ctx, listUsers, arg.OrganizationID, arg.Limit, arg.Offset)
 	if err != nil {
@@ -324,6 +425,8 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 			&i.OrganizationID,
 			&i.MustChangePassword,
 			&i.OrganizationRoleID,
+			&i.DeletedAt,
+			&i.DeletedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -336,10 +439,10 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 }
 
 const listUsersWithOrganizationRole = `-- name: ListUsersWithOrganizationRole :many
-SELECT u.id, u.username, u.password_hash, u.full_name, u.role, u.is_active, u.created_at, u.updated_at, u.last_login_at, u.organization_id, u.must_change_password, u.organization_role_id, orole.code AS organization_role_code, orole.name AS organization_role_name
+SELECT u.id, u.username, u.password_hash, u.full_name, u.role, u.is_active, u.created_at, u.updated_at, u.last_login_at, u.organization_id, u.must_change_password, u.organization_role_id, u.deleted_at, u.deleted_by, orole.code AS organization_role_code, orole.name AS organization_role_name
 FROM users u
 LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
-WHERE u.organization_id = $1
+WHERE u.organization_id = $1 AND u.deleted_at IS NULL
 ORDER BY u.created_at DESC
 LIMIT $2 OFFSET $3
 `
@@ -363,6 +466,8 @@ type ListUsersWithOrganizationRoleRow struct {
 	OrganizationID       pgtype.UUID        `json:"organization_id"`
 	MustChangePassword   bool               `json:"must_change_password"`
 	OrganizationRoleID   pgtype.UUID        `json:"organization_role_id"`
+	DeletedAt            pgtype.Timestamptz `json:"deleted_at"`
+	DeletedBy            pgtype.UUID        `json:"deleted_by"`
 	OrganizationRoleCode *string            `json:"organization_role_code"`
 	OrganizationRoleName *string            `json:"organization_role_name"`
 }
@@ -370,7 +475,8 @@ type ListUsersWithOrganizationRoleRow struct {
 // "Kullanıcılar" ekranının RBAC/Project Membership sprint'iyle
 // genişletilmiş listesi -- her kullanıcının organizasyon rol kodu/adı da
 // AYNI sorguda (N+1 yok). super_admin bu listede HİÇ görünmez zaten
-// (organization_id filtresiyle doğal olarak dışarıda kalır).
+// (organization_id filtresiyle doğal olarak dışarıda kalır). Silinmiş
+// kullanıcılar HER ZAMAN dışarıda -- bkz. ListDeletedUsersWithOrganizationRole.
 func (q *Queries) ListUsersWithOrganizationRole(ctx context.Context, arg ListUsersWithOrganizationRoleParams) ([]ListUsersWithOrganizationRoleRow, error) {
 	rows, err := q.db.Query(ctx, listUsersWithOrganizationRole, arg.OrganizationID, arg.Limit, arg.Offset)
 	if err != nil {
@@ -393,6 +499,8 @@ func (q *Queries) ListUsersWithOrganizationRole(ctx context.Context, arg ListUse
 			&i.OrganizationID,
 			&i.MustChangePassword,
 			&i.OrganizationRoleID,
+			&i.DeletedAt,
+			&i.DeletedBy,
 			&i.OrganizationRoleCode,
 			&i.OrganizationRoleName,
 		); err != nil {
@@ -444,6 +552,29 @@ func (q *Queries) ResetPasswordRequireChange(ctx context.Context, arg ResetPassw
 	return result.RowsAffected(), nil
 }
 
+const restoreUser = `-- name: RestoreUser :execrows
+UPDATE users
+SET deleted_at = NULL, deleted_by = NULL
+WHERE id = $1 AND organization_id = $2 AND deleted_at IS NOT NULL
+`
+
+type RestoreUserParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+// Yalnızca silme durumunu geri alır -- is_active BİLİNÇLİ OLARAK
+// dokunulmadan false kalır (bkz. service/user_lifecycle.go restoreUser
+// yorumu): geri yüklenen kullanıcı "Pasif" olarak listeye döner, giriş
+// erişimi AYRI ve açık bir "Aktifleştir" eylemiyle verilir.
+func (q *Queries) RestoreUser(ctx context.Context, arg RestoreUserParams) (int64, error) {
+	result, err := q.db.Exec(ctx, restoreUser, arg.ID, arg.OrganizationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const setPasswordAndClearMustChange = `-- name: SetPasswordAndClearMustChange :execrows
 UPDATE users SET password_hash = $3, must_change_password = false
 WHERE id = $1 AND organization_id = $2
@@ -484,6 +615,31 @@ func (q *Queries) SetUserCoarseRole(ctx context.Context, arg SetUserCoarseRolePa
 	return err
 }
 
+const softDeleteUser = `-- name: SoftDeleteUser :execrows
+UPDATE users
+SET deleted_at = now(), deleted_by = $3, is_active = false
+WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL
+`
+
+type SoftDeleteUserParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	DeletedBy      pgtype.UUID `json:"deleted_by"`
+}
+
+// Yumuşak silme: is_active de AYNI anda false yapılır (bkz. migration
+// 0043 başlık notu -- "silinmiş kullanıcı giriş yapamaz" garantisi
+// HALİHAZIRDA var olan is_active kontrolünden bedava gelir). Zaten
+// silinmiş bir satırda 0 satır günceller (idempotent-safe: servis
+// katmanı bunu ErrAlreadyDeleted'e çevirir).
+func (q *Queries) SoftDeleteUser(ctx context.Context, arg SoftDeleteUserParams) (int64, error) {
+	result, err := q.db.Exec(ctx, softDeleteUser, arg.ID, arg.OrganizationID, arg.DeletedBy)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const touchLastLogin = `-- name: TouchLastLogin :exec
 UPDATE users SET last_login_at = now() WHERE id = $1
 `
@@ -497,7 +653,7 @@ const updateUser = `-- name: UpdateUser :one
 UPDATE users
 SET full_name = $3, role = $4, is_active = $5
 WHERE id = $1 AND organization_id = $2
-RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id
+RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id, deleted_at, deleted_by
 `
 
 type UpdateUserParams struct {
@@ -530,6 +686,8 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.OrganizationID,
 		&i.MustChangePassword,
 		&i.OrganizationRoleID,
+		&i.DeletedAt,
+		&i.DeletedBy,
 	)
 	return i, err
 }
@@ -556,7 +714,7 @@ const updateUserProfile = `-- name: UpdateUserProfile :one
 UPDATE users
 SET full_name = $3, is_active = $4
 WHERE id = $1 AND organization_id = $2
-RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id
+RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id, deleted_at, deleted_by
 `
 
 type UpdateUserProfileParams struct {
@@ -592,6 +750,8 @@ func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfilePa
 		&i.OrganizationID,
 		&i.MustChangePassword,
 		&i.OrganizationRoleID,
+		&i.DeletedAt,
+		&i.DeletedBy,
 	)
 	return i, err
 }

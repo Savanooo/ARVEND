@@ -42,6 +42,10 @@ export interface User {
   organization_role_code?: string;
   organization_role_name?: string;
   permissions?: string[];
+  // deleted_at, is_active'den TAMAMEN AYRI bir eksendir (bkz. backend
+  // migration 0043 -- "yumuşak silme") -- yalnızca Süper Admin'in
+  // Silinenler/Arşiv görünümündeki kayıtlarda dolu gelir.
+  deleted_at?: string | null;
 }
 
 export interface ApiErrorBody {
@@ -856,6 +860,10 @@ export interface Organization {
   // sayfalanmış kullanıcı listesinden (200 sınırı) BAĞIMSIZ, doğru "aktif
   // Sahip var mı" cevabı. Liste/oluşturma yanıtlarında yoktur.
   active_owner_count?: number;
+  // deleted_at, Status'ten TAMAMEN AYRI bir eksendir (bkz. backend
+  // migration 0043) -- "Askıya Al"/"İptal Et" İLE KARIŞTIRILMAMALI. Firma
+  // silindiğinde status DOKUNULMADAN kalır; bu alan ayrıca dolar.
+  deleted_at?: string | null;
 }
 
 export interface Plan {

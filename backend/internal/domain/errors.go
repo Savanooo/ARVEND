@@ -21,4 +21,21 @@ var (
 	// ErrRoleNotAssignable, yeni atama hedefi olamayacak bir organizasyon
 	// rolü (legacy_user -- yalnızca migration artığı) istendiğinde döner.
 	ErrRoleNotAssignable = errors.New("bu rol yeni atama için kullanılamaz")
+	// ErrAlreadyDeleted, zaten silinmiş bir kullanıcı/firma tekrar
+	// silinmeye çalışıldığında döner (deleted_at IS NULL koşulu WHERE'de
+	// zaten 0 satır günceller -- bu, o durumun net bir hataya çevrilmiş
+	// hâlidir).
+	ErrAlreadyDeleted = errors.New("kayıt zaten silinmiş")
+	// ErrNotDeleted, silinmemiş bir kayıt geri yüklenmeye çalışıldığında
+	// döner.
+	ErrNotDeleted = errors.New("kayıt silinmemiş")
+	// ErrOrganizationDeleted, silinmiş bir firma üzerinde -- geri yükleme
+	// DIŞINDA -- herhangi bir platform mutasyonu (durum/plan/kullanıcı
+	// yönetimi) denendiğinde döner: silinen bir firma önce geri
+	// yüklenmeden değiştirilemez.
+	ErrOrganizationDeleted = errors.New("firma silinmiş -- önce geri yükleyin")
+	// ErrUserDeleted, silinmiş bir kullanıcı -- geri yükleme DIŞINDA --
+	// aktifleştirilmeye/atanmaya çalışıldığında döner: silinmiş bir
+	// kullanıcı önce restore edilmeden aktifleştirilemez.
+	ErrUserDeleted = errors.New("kullanıcı silinmiş -- önce geri yükleyin")
 )

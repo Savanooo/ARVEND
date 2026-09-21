@@ -158,7 +158,10 @@ func (s *AuthService) loadOrgForAccess(ctx context.Context, user domain.User) (*
 		return nil, err
 	}
 	org := repository.ToDomainOrganization(row)
-	if !org.Status.AllowsAccess() {
+	// Silme, status'ten BAĞIMSIZ bir erişim engelidir (bkz. migration 0043
+	// başlık notu) -- status.AllowsAccess() true olsa bile (ör. "active"
+	// kalmış silinmiş bir firma) erişim reddedilir.
+	if !org.Status.AllowsAccess() || org.IsDeleted() {
 		return nil, domain.ErrOrganizationSuspended
 	}
 	return &org, nil

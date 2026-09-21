@@ -73,7 +73,7 @@ func (s *PlatformService) ProvisionOrganizationUser(ctx context.Context, in Prov
 	if roleCode == domain.OrgRoleLegacyUser {
 		return nil, domain.ErrRoleNotAssignable
 	}
-	if _, err := s.GetOrganization(ctx, in.OrganizationID); err != nil {
+	if _, err := s.requireLiveOrganization(ctx, in.OrganizationID); err != nil {
 		return nil, err
 	}
 	orgID, _ := repository.StringToUUID(in.OrganizationID)
@@ -133,7 +133,7 @@ func (s *PlatformService) ProvisionOrganizationUser(ctx context.Context, in Prov
 }
 
 func (s *PlatformService) DeactivateOrganizationUser(ctx context.Context, organizationID, userID, actorUserID string) error {
-	if _, err := s.GetOrganization(ctx, organizationID); err != nil {
+	if _, err := s.requireLiveOrganization(ctx, organizationID); err != nil {
 		return err
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -165,7 +165,7 @@ func userAuditMetadata(ctx context.Context, q *sqlc.Queries, uid, orgID pgtype.U
 }
 
 func (s *PlatformService) ReactivateOrganizationUser(ctx context.Context, organizationID, userID, actorUserID string) error {
-	if _, err := s.GetOrganization(ctx, organizationID); err != nil {
+	if _, err := s.requireLiveOrganization(ctx, organizationID); err != nil {
 		return err
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -193,7 +193,7 @@ func (s *PlatformService) SetOrganizationUserRole(ctx context.Context, organizat
 	if strings.TrimSpace(roleCode) == domain.OrgRoleLegacyUser {
 		return nil, domain.ErrRoleNotAssignable
 	}
-	if _, err := s.GetOrganization(ctx, organizationID); err != nil {
+	if _, err := s.requireLiveOrganization(ctx, organizationID); err != nil {
 		return nil, err
 	}
 	tx, err := s.pool.Begin(ctx)
@@ -230,7 +230,7 @@ func (s *PlatformService) ResetOrganizationUserPassword(ctx context.Context, org
 	if len(temporaryPassword) < 8 {
 		return errors.New("geçici şifre en az 8 karakter olmalı")
 	}
-	if _, err := s.GetOrganization(ctx, organizationID); err != nil {
+	if _, err := s.requireLiveOrganization(ctx, organizationID); err != nil {
 		return err
 	}
 	uid, err := repository.StringToUUID(userID)
@@ -261,6 +261,91 @@ func (s *PlatformService) ResetOrganizationUserPassword(ctx context.Context, org
 		return err
 	}
 	if err := s.writeAuditEvent(ctx, txq, actorUserID, domain.AuditActionUserPasswordReset, &orgID, &uid, userAuditMetadata(ctx, txq, uid, orgID)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// ListDeletedOrganizationUsers, Süper Admin'in "Silinenler" (Arşiv)
+// görünümüdür -- normal ListOrganizationUsers'ın TERSİ filtresi.
+func (s *PlatformService) ListDeletedOrganizationUsers(ctx context.Context, organizationID string, page, limit int) (*ListResult, error) {
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	if page <= 0 {
+		page = 1
+	}
+	rows, err := s.q.ListDeletedUsersWithOrganizationRole(ctx, sqlc.ListDeletedUsersWithOrganizationRoleParams{
+		OrganizationID: orgID, Limit: int32(limit), Offset: int32((page - 1) * limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	total, err := s.q.CountDeletedUsers(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	users := make([]domain.User, len(rows))
+	for i, r := range rows {
+		users[i] = repository.ToDomainDeletedUserWithRole(r)
+	}
+	return &ListResult{Users: users, Total: total}, nil
+}
+
+// DeleteOrganizationUser, kullanıcıyı YUMUŞAK siler (deleteUser, bkz.
+// user_lifecycle.go) -- son aktif Owner korumasından geçer, açık
+// oturumları iptal eder, satırı SİLMEZ. Firma zaten silinmişse önce
+// RestoreOrganization gerekir (requireLiveOrganization).
+func (s *PlatformService) DeleteOrganizationUser(ctx context.Context, organizationID, userID, actorUserID string) error {
+	if _, err := s.requireLiveOrganization(ctx, organizationID); err != nil {
+		return err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	// Denetim kaydına yazılacak kullanıcı adı, SİLİNMEDEN ÖNCE okunur --
+	// deleteUser sonrası userAuditMetadata'nın ayrıca sorgulamasına gerek
+	// yok (silinmiş satır hâlâ ID ile bulunur ama okumayı tek sorguda
+	// toplamak daha sade).
+	orgID, _ := repository.StringToUUID(organizationID)
+	uidParsed, _ := repository.StringToUUID(userID)
+	meta := userAuditMetadata(ctx, txq, uidParsed, orgID)
+
+	uid, err := deleteUser(ctx, txq, userID, organizationID, actorUserID)
+	if err != nil {
+		return err
+	}
+	if err := s.writeAuditEvent(ctx, txq, actorUserID, domain.AuditActionUserDeleted, &orgID, &uid, meta); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *PlatformService) RestoreOrganizationUser(ctx context.Context, organizationID, userID, actorUserID string) error {
+	if _, err := s.requireLiveOrganization(ctx, organizationID); err != nil {
+		return err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	uid, err := restoreUser(ctx, txq, userID, organizationID)
+	if err != nil {
+		return err
+	}
+	orgID, _ := repository.StringToUUID(organizationID)
+	if err := s.writeAuditEvent(ctx, txq, actorUserID, domain.AuditActionUserRestored, &orgID, &uid, userAuditMetadata(ctx, txq, uid, orgID)); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

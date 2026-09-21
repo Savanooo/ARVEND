@@ -1,10 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { FormEvent, useState } from "react";
 
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { Input } from "@/components/ui/Input";
+import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -31,7 +34,9 @@ export function GeneralTab({
   const [planCode, setPlanCode] = useState(organization.plan_code);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
+  const deleted = Boolean(organization.deleted_at);
   const planName = plans.find((p) => p.code === organization.plan_code)?.name ?? organization.plan_code;
   const actions = orgLifecycleActions(organization.status);
   // GET /platform/plans yalnızca is_active=true planları döner; firma daha
@@ -105,6 +110,39 @@ export function GeneralTab({
     }
   }
 
+  // Restore, silme ile TAMAMEN AYRI bir eksendir (durum/plan işlemleri
+  // İLE karıştırılmamalı) -- "Firmayı Geri Yükle" kasıtlı olarak Tehlikeli
+  // İşlemler kartında, "Firmayı Sil"in yerini alarak gösterilir: ikisi de
+  // AYNI danger-zone konumunda ama Geri Yükle yıkıcı DEĞİLDİR (primary).
+  async function handleRestore() {
+    setError(null);
+    setBusy("restore");
+    try {
+      await apiClient(`/api/v1/platform/organizations/${organization.id}/restore`, { method: "POST" });
+      toast.success("Firma geri yüklendi.");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleDelete() {
+    setBusy("delete");
+    try {
+      await apiClient(`/api/v1/platform/organizations/${organization.id}/delete`, { method: "POST" });
+      setShowDeleteDialog(false);
+      toast.success("Firma silindi.");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
+      throw err;
+    } finally {
+      setBusy(null);
+    }
+  }
+
   // İptal Et (yalnızca gerçekten "danger" olan aksiyon) diğerlerinden
   // ayrı, alttaki bir bölüme render edilir -- "visually separated"
   // gerekliliği; Askıya Al/Aktifleştir/Yeniden Aktifleştir üstteki normal
@@ -114,6 +152,17 @@ export function GeneralTab({
 
   return (
     <div className="flex flex-col gap-5 pt-2">
+      {deleted && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-danger/40 bg-danger/5 px-4 py-3 text-sm">
+          <span>
+            Bu firma <strong>silinmiş</strong>: erişimi kapalı ve normal listelerde görünmüyor. Tüm verileri
+            korunuyor. Durum/plan/kullanıcı işlemleri için önce geri yükleyin.
+          </span>
+          <Button type="button" disabled={busy !== null} onClick={handleRestore}>
+            {busy === "restore" ? "Geri yükleniyor…" : "Firmayı Geri Yükle"}
+          </Button>
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:items-start">
         <Card>
           <CardHeader>Firma Bilgileri</CardHeader>
@@ -154,7 +203,7 @@ export function GeneralTab({
                 <Button
                   type="button"
                   variant="secondary"
-                  disabled={busy !== null || planCode === organization.plan_code}
+                  disabled={deleted || busy !== null || planCode === organization.plan_code}
                   onClick={handlePlanUpdate}
                 >
                   {busy === "plan" ? "Güncelleniyor…" : "Güncelle"}
@@ -174,7 +223,11 @@ export function GeneralTab({
                 Firma silinmez; askıya alma ve iptal yalnızca erişimi kapatır, tüm kayıtlar korunur ve her iki
                 durumdan da yeniden aktifleştirilebilir.
               </p>
-              {actions.length === 0 ? (
+              {deleted ? (
+                <p className="text-xs text-text-muted">
+                  Firma silinmiş durumda -- yaşam döngüsü işlemleri için önce geri yükleyin (yukarıdaki uyarı).
+                </p>
+              ) : actions.length === 0 ? (
                 <p className="text-xs text-text-muted">Bu durumda yapılabilecek bir işlem yok.</p>
               ) : (
                 <>
@@ -222,15 +275,106 @@ export function GeneralTab({
               satırlar atlanır, yalnızca eksik olanlar eklenir (idempotent, güvenle tekrar çalıştırılabilir).
             </p>
           </div>
-          <Button type="button" variant="secondary" disabled={busy !== null} onClick={handleReprovision}>
+          <Button type="button" variant="secondary" disabled={deleted || busy !== null} onClick={handleReprovision}>
             {busy === "catalog" ? "Kontrol ediliyor…" : "Kataloğu Kontrol Et / Tamamla"}
           </Button>
         </CardBody>
       </Card>
 
+      {/* Tehlikeli İşlemler -- BİLİNÇLİ OLARAK durum/plan düğmelerinden
+          UZAK, en altta, ayrı ve kırmızı çerçeveli kendi kartında (bkz.
+          görev notu: "Do not place it next to normal plan/status
+          buttons"). Firma zaten silinmişse Geri Yükle üstteki uyarı
+          bandında yaşar -- burada tekrarlanmaz. */}
+      {!deleted && (
+        <Card className="border-danger/40">
+          <CardHeader className="text-danger">Tehlikeli İşlemler</CardHeader>
+          <CardBody className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium">Firmayı Sil</p>
+              <p className="max-w-xl text-xs text-text-muted">
+                Firma normal listelerden kaldırılır ve kullanıcılarının erişimi kapatılır. Proje/teklif/finans ve
+                diğer geçmiş kayıtlar fiziksel olarak SİLİNMEZ; işlem geri alınabilir.
+              </p>
+            </div>
+            <Button type="button" variant="danger" onClick={() => setShowDeleteDialog(true)}>
+              Firmayı Sil
+            </Button>
+          </CardBody>
+        </Card>
+      )}
+
       {error && <p className="text-xs text-danger">{error}</p>}
       {dialog}
+      {showDeleteDialog && (
+        <DeleteOrganizationDialog
+          organization={organization}
+          busy={busy === "delete"}
+          onClose={() => setShowDeleteDialog(false)}
+          onConfirm={handleDelete}
+        />
+      )}
     </div>
+  );
+}
+
+// DeleteOrganizationDialog, firma adının AYNEN yazılmasını zorunlu kılar --
+// "Require the organization name to be typed before confirming if
+// practical" (görev notu). Kalıcı bir silme İZLENİMİ vermemek için metin
+// her zaman "veriler korunur/geri alınabilir" der; buton yine de kırmızı
+// (danger) kalır çünkü erişimi HEMEN kapatan, kolayca fark edilmesi
+// gereken bir eylemdir.
+function DeleteOrganizationDialog({
+  organization,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  organization: Organization;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const [typed, setTyped] = useState("");
+  const matches = typed.trim() === organization.name;
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!matches) return;
+    try {
+      await onConfirm();
+    } catch {
+      // Hata GeneralTab'in kendi {error} satırında zaten gösterilir --
+      // diyalog burada kasıtlı olarak açık kalır (kullanıcı tekrar
+      // deneyebilsin, girdiği ismi kaybetmesin).
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title={`${organization.name} silinsin mi?`}>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <ul className="list-disc space-y-1 pl-5 text-xs text-text-muted">
+          <li>Firma normal listelerden kaldırılacak.</li>
+          <li>Firma kullanıcılarının erişimi kapatılacak.</li>
+          <li>Proje, teklif, finans ve diğer geçmiş kayıtlar fiziksel olarak silinmeyecek.</li>
+          <li>İşlem platform kayıtlarına yazılacak.</li>
+        </ul>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs text-text-muted">
+            Onaylamak için firma adını yazın: <Badge tone="muted">{organization.name}</Badge>
+          </label>
+          <Input value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" autoFocus />
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Vazgeç
+          </Button>
+          <Button type="submit" variant="danger" disabled={!matches || busy}>
+            {busy ? "Siliniyor…" : "Firmayı Sil"}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

@@ -239,6 +239,8 @@ type Organization struct {
 	OnboardingCompletedAt pgtype.Timestamptz `json:"onboarding_completed_at"`
 	OnboardingStep        string             `json:"onboarding_step"`
 	PlanCode              string             `json:"plan_code"`
+	DeletedAt             pgtype.Timestamptz `json:"deleted_at"`
+	DeletedBy             pgtype.UUID        `json:"deleted_by"`
 }
 
 type OrganizationCommercialSetting struct {
@@ -1233,4 +1235,6 @@ type User struct {
 	OrganizationID     pgtype.UUID        `json:"organization_id"`
 	MustChangePassword bool               `json:"must_change_password"`
 	OrganizationRoleID pgtype.UUID        `json:"organization_role_id"`
+	DeletedAt          pgtype.Timestamptz `json:"deleted_at"`
+	DeletedBy          pgtype.UUID        `json:"deleted_by"`
 }

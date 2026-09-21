@@ -115,7 +115,16 @@ type Organization struct {
 	OnboardingStep        OnboardingStep
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
+	// DeletedAt/DeletedBy, Status'ten TAMAMEN AYRI bir eksendir (bkz.
+	// migration 0043 başlık notu) -- silinen bir firma status'ünü KORUR
+	// (ör. "cancelled" iken silinebilir, silindiğinde "cancelled" kalır);
+	// erişim engeli status.AllowsAccess() İLE BİRLİKTE, ayrıca kontrol
+	// edilir (bkz. AuthService.loadOrgForAccess, middleware/auth.go).
+	DeletedAt *time.Time
+	DeletedBy *string
 }
+
+func (o Organization) IsDeleted() bool { return o.DeletedAt != nil }
 
 // DefaultOrganizationID, mevcut tek-firmalı veri için 0009 migration'ında
 // oluşturulan sabit organizasyon kimliğidir (seedAdmin ve tek seferlik

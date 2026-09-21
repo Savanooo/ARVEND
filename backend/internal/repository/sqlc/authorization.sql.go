@@ -601,7 +601,7 @@ const updateUserOrganizationRole = `-- name: UpdateUserOrganizationRole :one
 
 UPDATE users SET organization_role_id = $3
 WHERE id = $1 AND organization_id = $2
-RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id
+RETURNING id, username, password_hash, full_name, role, is_active, created_at, updated_at, last_login_at, organization_id, must_change_password, organization_role_id, deleted_at, deleted_by
 `
 
 type UpdateUserOrganizationRoleParams struct {
@@ -632,6 +632,8 @@ func (q *Queries) UpdateUserOrganizationRole(ctx context.Context, arg UpdateUser
 		&i.OrganizationID,
 		&i.MustChangePassword,
 		&i.OrganizationRoleID,
+		&i.DeletedAt,
+		&i.DeletedBy,
 	)
 	return i, err
 }

@@ -41,6 +41,10 @@ type organizationResponse struct {
 	// sorgu gerektirmez, omitempty ile hiç görünmez. Sayfalanmış kullanıcı
 	// listesinden (200 sınırı) BAĞIMSIZDIR, bkz. PlatformService.CountActiveOwners.
 	ActiveOwnerCount int64 `json:"active_owner_count,omitempty"`
+	// DeletedAt, Status'ten TAMAMEN AYRI bir eksendir (bkz. migration 0043
+	// -- "Askıya Al"/"İptal Et" İLE KARIŞTIRILMAMALI). Yalnızca Silinenler/
+	// Arşiv görünümündeki ve tek firma detayındaki kayıtlarda dolu gelir.
+	DeletedAt *string `json:"deleted_at,omitempty"`
 }
 
 func toOrganizationResponse(o domain.Organization) organizationResponse {
@@ -58,6 +62,10 @@ func toOrganizationResponse(o domain.Organization) organizationResponse {
 	if o.OnboardingCompletedAt != nil {
 		s := o.OnboardingCompletedAt.Format("2006-01-02T15:04:05Z07:00")
 		resp.OnboardingCompletedAt = &s
+	}
+	if o.DeletedAt != nil {
+		s := o.DeletedAt.Format("2006-01-02T15:04:05Z07:00")
+		resp.DeletedAt = &s
 	}
 	return resp
 }
@@ -101,11 +109,24 @@ func (h *PlatformHandler) CreateOrganization(w http.ResponseWriter, r *http.Requ
 	httpjson.Write(w, http.StatusCreated, resp)
 }
 
+// ListOrganizations, ?status=deleted için AYRI bir servis metoduna
+// (ListDeletedOrganizations) yönlendirir -- "deleted" GERÇEK bir
+// domain.OrgStatus değeri DEĞİLDİR (bkz. domain/organization.go
+// Organization.DeletedAt yorumu: silme, status'ten BAĞIMSIZ bir eksendir),
+// bu yüzden servis katmanına sahte bir status string'i olarak asla
+// geçirilmez.
 func (h *PlatformHandler) ListOrganizations(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	status := r.URL.Query().Get("status")
-	result, err := h.svc.ListOrganizations(r.Context(), status, page, limit)
+
+	var result *service.OrganizationListResult
+	var err error
+	if status == "deleted" {
+		result, err = h.svc.ListDeletedOrganizations(r.Context(), page, limit)
+	} else {
+		result, err = h.svc.ListOrganizations(r.Context(), status, page, limit)
+	}
 	if err != nil {
 		httpjson.Error(w, http.StatusInternalServerError, "firmalar alınamadı")
 		return
@@ -115,6 +136,24 @@ func (h *PlatformHandler) ListOrganizations(w http.ResponseWriter, r *http.Reque
 		orgs[i] = toOrganizationResponse(o)
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"organizations": orgs, "total": result.Total})
+}
+
+func (h *PlatformHandler) DeleteOrganization(w http.ResponseWriter, r *http.Request) {
+	actorID, _ := middleware.UserIDFromContext(r.Context())
+	if err := h.svc.DeleteOrganization(r.Context(), chi.URLParam(r, "id"), actorID); err != nil {
+		h.writePlatformError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h *PlatformHandler) RestoreOrganization(w http.ResponseWriter, r *http.Request) {
+	actorID, _ := middleware.UserIDFromContext(r.Context())
+	if err := h.svc.RestoreOrganization(r.Context(), chi.URLParam(r, "id"), actorID); err != nil {
+		h.writePlatformError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (h *PlatformHandler) GetOrganization(w http.ResponseWriter, r *http.Request) {
@@ -169,10 +208,20 @@ func (h *PlatformHandler) UpdateOrganizationPlan(w http.ResponseWriter, r *http.
 	httpjson.Write(w, http.StatusOK, toOrganizationResponse(*org))
 }
 
+// ListOrganizationUsers, ?view=deleted için AYRI bir servis metoduna
+// (ListDeletedOrganizationUsers) yönlendirir -- UsersTab.tsx yorumu ile
+// AYNI ilke: normal görünüm silinmiş kullanıcıları HİÇ döndürmez.
 func (h *PlatformHandler) ListOrganizationUsers(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	result, err := h.svc.ListOrganizationUsers(r.Context(), chi.URLParam(r, "id"), page, limit)
+
+	var result *service.ListResult
+	var err error
+	if r.URL.Query().Get("view") == "deleted" {
+		result, err = h.svc.ListDeletedOrganizationUsers(r.Context(), chi.URLParam(r, "id"), page, limit)
+	} else {
+		result, err = h.svc.ListOrganizationUsers(r.Context(), chi.URLParam(r, "id"), page, limit)
+	}
 	if err != nil {
 		h.writePlatformError(w, err)
 		return
@@ -182,6 +231,24 @@ func (h *PlatformHandler) ListOrganizationUsers(w http.ResponseWriter, r *http.R
 		users[i] = toUserResponse(u)
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"users": users, "total": result.Total})
+}
+
+func (h *PlatformHandler) DeleteOrganizationUser(w http.ResponseWriter, r *http.Request) {
+	actorID, _ := middleware.UserIDFromContext(r.Context())
+	if err := h.svc.DeleteOrganizationUser(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "userId"), actorID); err != nil {
+		h.writePlatformError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h *PlatformHandler) RestoreOrganizationUser(w http.ResponseWriter, r *http.Request) {
+	actorID, _ := middleware.UserIDFromContext(r.Context())
+	if err := h.svc.RestoreOrganizationUser(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "userId"), actorID); err != nil {
+		h.writePlatformError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (h *PlatformHandler) ListOrganizationRoles(w http.ResponseWriter, r *http.Request) {
@@ -361,7 +428,9 @@ func (h *PlatformHandler) writePlatformError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusNotFound, "kayıt bulunamadı")
 	case errors.Is(err, domain.ErrDuplicateUsername):
 		httpjson.Error(w, http.StatusConflict, "bu kullanıcı adı zaten kullanılıyor")
-	case errors.Is(err, domain.ErrLastOwner), errors.Is(err, domain.ErrInvalidOrgStatusTransition):
+	case errors.Is(err, domain.ErrLastOwner), errors.Is(err, domain.ErrInvalidOrgStatusTransition),
+		errors.Is(err, domain.ErrAlreadyDeleted), errors.Is(err, domain.ErrNotDeleted),
+		errors.Is(err, domain.ErrOrganizationDeleted), errors.Is(err, domain.ErrUserDeleted):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())

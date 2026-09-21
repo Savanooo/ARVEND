@@ -13,16 +13,19 @@ SELECT * FROM users WHERE id = $1 AND organization_id = $2;
 SELECT * FROM users WHERE username = $1;
 
 -- name: ListUsers :many
+-- Silinmiş kullanıcılar normal listeden HER ZAMAN dışarıda kalır (bkz.
+-- migration 0043 başlık notu) -- ayrı bir "Silinenler" görünümü için
+-- ListDeletedUsersWithOrganizationRole kullanılır.
 SELECT * FROM users
-WHERE organization_id = $1
+WHERE organization_id = $1 AND deleted_at IS NULL
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3;
 
 -- name: CountUsers :one
-SELECT count(*) FROM users WHERE organization_id = $1;
+SELECT count(*) FROM users WHERE organization_id = $1 AND deleted_at IS NULL;
 
 -- name: CountActiveUsers :one
-SELECT count(*) FROM users WHERE organization_id = $1 AND is_active = true;
+SELECT count(*) FROM users WHERE organization_id = $1 AND is_active = true AND deleted_at IS NULL;
 
 -- name: UpdateUser :one
 UPDATE users
@@ -58,13 +61,27 @@ WHERE id = $1 AND organization_id = $2;
 -- "Kullanıcılar" ekranının RBAC/Project Membership sprint'iyle
 -- genişletilmiş listesi -- her kullanıcının organizasyon rol kodu/adı da
 -- AYNI sorguda (N+1 yok). super_admin bu listede HİÇ görünmez zaten
--- (organization_id filtresiyle doğal olarak dışarıda kalır).
+-- (organization_id filtresiyle doğal olarak dışarıda kalır). Silinmiş
+-- kullanıcılar HER ZAMAN dışarıda -- bkz. ListDeletedUsersWithOrganizationRole.
 SELECT u.*, orole.code AS organization_role_code, orole.name AS organization_role_name
 FROM users u
 LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
-WHERE u.organization_id = $1
+WHERE u.organization_id = $1 AND u.deleted_at IS NULL
 ORDER BY u.created_at DESC
 LIMIT $2 OFFSET $3;
+
+-- name: ListDeletedUsersWithOrganizationRole :many
+-- Süper Admin'in "Silinenler" (Arşiv) görünümü -- ListUsersWithOrganizationRole
+-- İLE AYNI şekil, yalnızca WHERE koşulu ters (deleted_at DOLU).
+SELECT u.*, orole.code AS organization_role_code, orole.name AS organization_role_name
+FROM users u
+LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
+WHERE u.organization_id = $1 AND u.deleted_at IS NOT NULL
+ORDER BY u.deleted_at DESC
+LIMIT $2 OFFSET $3;
+
+-- name: CountDeletedUsers :one
+SELECT count(*) FROM users WHERE organization_id = $1 AND deleted_at IS NOT NULL;
 
 -- name: GetUserWithOrganizationRole :one
 SELECT u.*, orole.code AS organization_role_code, orole.name AS organization_role_name
@@ -110,3 +127,22 @@ UPDATE users
 SET full_name = $3, is_active = $4
 WHERE id = $1 AND organization_id = $2
 RETURNING *;
+
+-- name: SoftDeleteUser :execrows
+-- Yumuşak silme: is_active de AYNI anda false yapılır (bkz. migration
+-- 0043 başlık notu -- "silinmiş kullanıcı giriş yapamaz" garantisi
+-- HALİHAZIRDA var olan is_active kontrolünden bedava gelir). Zaten
+-- silinmiş bir satırda 0 satır günceller (idempotent-safe: servis
+-- katmanı bunu ErrAlreadyDeleted'e çevirir).
+UPDATE users
+SET deleted_at = now(), deleted_by = $3, is_active = false
+WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL;
+
+-- name: RestoreUser :execrows
+-- Yalnızca silme durumunu geri alır -- is_active BİLİNÇLİ OLARAK
+-- dokunulmadan false kalır (bkz. service/user_lifecycle.go restoreUser
+-- yorumu): geri yüklenen kullanıcı "Pasif" olarak listeye döner, giriş
+-- erişimi AYRI ve açık bir "Aktifleştir" eylemiyle verilir.
+UPDATE users
+SET deleted_at = NULL, deleted_by = NULL
+WHERE id = $1 AND organization_id = $2 AND deleted_at IS NOT NULL;

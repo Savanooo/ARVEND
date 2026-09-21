@@ -6,9 +6,13 @@ import { describe, it } from "node:test";
 import { userRoleLabel } from "./types.ts";
 
 // Platform (Süper Admin) arayüzünün kaynak dosyaları üzerinde statik
-// koruma: hiçbir kalıcı silme aksiyonu ve hiçbir tenant operasyon
-// navigasyonu içermez. Bu, ürün kuralının ("kayıtlar silinmez, yaşam
-// döngüsü durumlarıyla yönetilir") regresyona karşı testidir.
+// koruma: hiçbir tenant operasyon navigasyonu içermez ve "Sil" aksiyonları
+// (bilinçli olarak MEVCUTTUR -- "Kullanıcıyı Sil"/"Firmayı Sil", bkz.
+// backend/db/migrations/0043) HER ZAMAN YUMUŞAK silmedir: gerçek bir HTTP
+// DELETE isteği ASLA kullanılmaz (yalnızca POST .../delete eylem-fiili) ve
+// hiçbir etiket "kalıcı"/fiziksel bir kaldırma ima ETMEZ. Bu, ürün
+// kuralının ("kayıtlar fiziksel olarak silinmez, yumuşak silme + geri
+// yükleme ile yönetilir") regresyona karşı testidir.
 
 const PLATFORM_DIR = resolve(import.meta.dirname, "..", "app", "(platform)");
 const SHELL_FILE = resolve(import.meta.dirname, "..", "components", "layout", "PlatformShell.tsx");
@@ -27,12 +31,32 @@ describe("platform arayüzü koruma kuralları", () => {
     assert.ok(files.length >= 5, `bulunan: ${files.length}`);
   });
 
-  it("hiçbir platform ekranı HTTP DELETE çağırmaz ve 'Sil' aksiyonu sunmaz", () => {
+  it("hiçbir platform ekranı HTTP DELETE metodunu çağırmaz ve hiçbir etiket 'kalıcı' silme ima etmez", () => {
     for (const f of files) {
       const src = readFileSync(f, "utf8");
-      assert.equal(/method:\s*["']DELETE["']/.test(src), false, `${f}: DELETE isteği`);
-      assert.equal(/>\s*(Sil|Kalıcı Olarak Sil|Firmayı Sil|Kullanıcıyı Sil)\s*</.test(src), false, `${f}: silme düğmesi`);
+      assert.equal(/method:\s*["']DELETE["']/.test(src), false, `${f}: HTTP DELETE isteği (yalnızca POST .../delete kullanılmalı)`);
+      assert.equal(/kalıcı(\s+olarak)?\s+sil/i.test(src), false, `${f}: "kalıcı sil" ima eden etiket -- silme her zaman yumuşaktır`);
     }
+  });
+
+  it("kullanıcı ve firma silme aksiyonları MEVCUTTUR ve her ikisi de bir Geri Yükle karşılığına sahiptir", () => {
+    const usersSrc = readFileSync(join(PLATFORM_DIR, "super-admin", "[id]", "UsersTab.tsx"), "utf8");
+    assert.ok(/Kullanıcıyı Sil/.test(usersSrc), "UsersTab.tsx: 'Kullanıcıyı Sil' aksiyonu yok");
+    assert.ok(usersSrc.includes("/delete`"), "UsersTab.tsx: /delete eylem ucu çağrılmıyor");
+    assert.ok(usersSrc.includes("/restore`"), "UsersTab.tsx: /restore eylem ucu çağrılmıyor");
+    assert.ok(/Geri Yükle/.test(usersSrc), "UsersTab.tsx: 'Geri Yükle' aksiyonu yok");
+
+    const generalSrc = readFileSync(join(PLATFORM_DIR, "super-admin", "[id]", "GeneralTab.tsx"), "utf8");
+    assert.ok(/Firmayı Sil/.test(generalSrc), "GeneralTab.tsx: 'Firmayı Sil' aksiyonu yok");
+    assert.ok(generalSrc.includes("/delete`"), "GeneralTab.tsx: /delete eylem ucu çağrılmıyor");
+    assert.ok(generalSrc.includes("/restore`"), "GeneralTab.tsx: /restore eylem ucu çağrılmıyor");
+    assert.ok(/Geri Yükle/.test(generalSrc), "GeneralTab.tsx: 'Geri Yükle' aksiyonu yok");
+    // Tehlikeli İşlemler, görev gereği durum/plan düğmelerinden AYRI,
+    // kendi kartında olmalı (bkz. GeneralTab.tsx "Do not place it next to
+    // normal plan/status buttons" yorumu) -- görsel ayrım tarayıcı
+    // ekran görüntüleriyle doğrulanır, burada yalnızca kendi başlığının
+    // gerçekten var olduğu doğrulanır.
+    assert.ok(/CardHeader className="text-danger">Tehlikeli İşlemler/.test(generalSrc), "GeneralTab.tsx: ayrı bir 'Tehlikeli İşlemler' kartı yok");
   });
 
   it("platform ekranları tenant operasyon rotalarına link vermez", () => {

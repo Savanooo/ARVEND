@@ -60,6 +60,11 @@ type userResponse struct {
 	OrganizationRoleCode string   `json:"organization_role_code,omitempty"`
 	OrganizationRoleName string   `json:"organization_role_name,omitempty"`
 	Permissions          []string `json:"permissions,omitempty"`
+	// DeletedAt, is_active'den TAMAMEN AYRI bir eksendir (bkz. migration
+	// 0043) -- yalnızca Süper Admin'in Silinenler/Arşiv görünümünde dolu
+	// gelir, normal listelerde zaten hiç görünmeyen kullanıcılar için
+	// anlamsızdır.
+	DeletedAt *string `json:"deleted_at,omitempty"`
 }
 
 // toUserResponse, organizasyon (onboarding) bağlamı olmayan çağrı
@@ -67,7 +72,7 @@ type userResponse struct {
 // onboarding alanları bu bağlamda anlamsız olduğu için sabit "tamamlanmış"
 // değerine düşer (ekstra bir organizasyon sorgusu gerektirmez).
 func toUserResponse(u domain.User) userResponse {
-	return userResponse{
+	resp := userResponse{
 		ID:                   u.ID,
 		OrganizationID:       u.OrganizationID,
 		Username:             u.Username,
@@ -80,6 +85,11 @@ func toUserResponse(u domain.User) userResponse {
 		OrganizationRoleCode: u.OrganizationRoleCode,
 		OrganizationRoleName: u.OrganizationRoleName,
 	}
+	if u.DeletedAt != nil {
+		s := u.DeletedAt.Format("2006-01-02T15:04:05Z07:00")
+		resp.DeletedAt = &s
+	}
+	return resp
 }
 
 // toSessionResponse, giriş/refresh/me akışları içindir -- kullanıcının

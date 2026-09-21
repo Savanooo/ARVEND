@@ -670,9 +670,19 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/users/{userId}/reactivate", d.Platform.ReactivateOrganizationUser)
 				r.Put("/{id}/users/{userId}/organization-role", d.Platform.SetOrganizationUserRole)
 				r.Post("/{id}/users/{userId}/reset-initial-password", d.Platform.ResetOrganizationUserPassword)
+				// Yumuşak silme -- users/organizations satırları ASLA
+				// fiziksel DELETE ile kaldırılmaz (bkz. migration 0043,
+				// PlatformService.DeleteOrganizationUser/DeleteOrganization
+				// yorumları). "delete"/"restore" eylem-fiilleridir, HTTP
+				// DELETE metodu KASITLI OLARAK kullanılmaz (bu router'ın
+				// deactivate/reactivate ile AYNI POST-eylem sözleşmesi).
+				r.Post("/{id}/users/{userId}/delete", d.Platform.DeleteOrganizationUser)
+				r.Post("/{id}/users/{userId}/restore", d.Platform.RestoreOrganizationUser)
 				r.Get("/{id}/roles", d.Platform.ListOrganizationRoles)
 				r.Post("/{id}/reprovision-calc-catalog", d.Platform.ReprovisionCalcCatalog)
 				r.Get("/{id}/audit-events", d.Platform.ListAuditEvents)
+				r.Post("/{id}/delete", d.Platform.DeleteOrganization)
+				r.Post("/{id}/restore", d.Platform.RestoreOrganization)
 			})
 		})
 

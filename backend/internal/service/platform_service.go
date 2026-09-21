@@ -216,7 +216,7 @@ func (s *PlatformService) SetStatus(ctx context.Context, organizationID, actorUs
 	if !status.Valid() {
 		return nil, errors.New("geçersiz firma durumu")
 	}
-	current, err := s.GetOrganization(ctx, organizationID)
+	current, err := s.requireLiveOrganization(ctx, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -251,6 +251,9 @@ func (s *PlatformService) UpdatePlan(ctx context.Context, organizationID, actorU
 	planCode = strings.TrimSpace(planCode)
 	if planCode == "" {
 		return nil, errors.New("plan kodu zorunludur")
+	}
+	if _, err := s.requireLiveOrganization(ctx, organizationID); err != nil {
+		return nil, err
 	}
 	orgID, err := repository.StringToUUID(organizationID)
 	if err != nil {
@@ -301,6 +304,109 @@ func (s *PlatformService) ListOrganizations(ctx context.Context, statusFilter st
 	return &OrganizationListResult{Organizations: orgs, Total: total}, nil
 }
 
+// ListDeletedOrganizations, Süper Admin'in "Silinenler" (Arşiv) görünümüdür
+// -- status filtresinden BAĞIMSIZDIR (bkz. domain/organization.go
+// Organization.DeletedAt yorumu: silinen bir firma HANGİ durumdaysa o
+// durumda kalır).
+func (s *PlatformService) ListDeletedOrganizations(ctx context.Context, page, limit int) (*OrganizationListResult, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if page <= 0 {
+		page = 1
+	}
+	rows, err := s.q.ListDeletedOrganizations(ctx, sqlc.ListDeletedOrganizationsParams{Limit: int32(limit), Offset: int32((page - 1) * limit)})
+	if err != nil {
+		return nil, err
+	}
+	total, err := s.q.CountDeletedOrganizations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	orgs := make([]domain.Organization, len(rows))
+	for i, r := range rows {
+		orgs[i] = repository.ToDomainOrganization(r)
+	}
+	return &OrganizationListResult{Organizations: orgs, Total: total}, nil
+}
+
+// DeleteOrganization, firmayı YUMUŞAK siler: satır ve TÜM tarihçesi
+// (kullanıcılar/projeler/teklifler/finans/denetim) OLDUĞU GİBİ kalır,
+// yalnızca deleted_at/deleted_by yazılır -- status'e DOKUNULMAZ (bkz.
+// domain/organization.go Organization.DeletedAt yorumu: "Askıya Al"/
+// "İptal Et" ile KASITLI OLARAK aynı şey değildir). Erişim engeli status'ten
+// BAĞIMSIZ olarak RequireAuth/AuthService'in mevcut organizasyon-durumu
+// kontrolüne deleted_at eklenerek sağlanır (bkz. middleware/auth.go,
+// AuthService.loadOrgForAccess) -- kullanıcı satırlarına TEK TEK
+// dokunulmaz, mevcut oturumlar bir sonraki istekte/yenilemede otomatik
+// reddedilir (askıya almanın ZATEN çalıştığı AYNI mekanizma).
+func (s *PlatformService) DeleteOrganization(ctx context.Context, organizationID, actorUserID string) error {
+	org, err := s.GetOrganization(ctx, organizationID)
+	if err != nil {
+		return err
+	}
+	if org.IsDeleted() {
+		return domain.ErrAlreadyDeleted
+	}
+	orgID, _ := repository.StringToUUID(organizationID)
+	var deletedBy pgtype.UUID
+	if actorUserID != "" {
+		if aid, aerr := repository.StringToUUID(actorUserID); aerr == nil {
+			deletedBy = aid
+		}
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	rows, err := txq.SoftDeleteOrganization(ctx, sqlc.SoftDeleteOrganizationParams{ID: orgID, DeletedBy: deletedBy})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrAlreadyDeleted
+	}
+	if err := s.writeAuditEvent(ctx, txq, actorUserID, domain.AuditActionOrganizationDeleted, &orgID, nil, map[string]any{
+		"organization_name": org.Name, "status": string(org.Status),
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *PlatformService) RestoreOrganization(ctx context.Context, organizationID, actorUserID string) error {
+	org, err := s.GetOrganization(ctx, organizationID)
+	if err != nil {
+		return err
+	}
+	orgID, _ := repository.StringToUUID(organizationID)
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	rows, err := txq.RestoreOrganization(ctx, orgID)
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotDeleted
+	}
+	if err := s.writeAuditEvent(ctx, txq, actorUserID, domain.AuditActionOrganizationRestored, &orgID, nil, map[string]any{
+		"organization_name": org.Name,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // ListPlans, Super Admin'in firma oluşturma/plan değiştirme formlarında
 // gösterdiği plan listesidir -- bu fazda plan CRUD YOK (migration 0031'de
 // seed edilen trial/starter/pro/business sabit), yalnızca aktif olanlar
@@ -317,6 +423,10 @@ func (s *PlatformService) ListPlans(ctx context.Context) ([]domain.Plan, error) 
 	return plans, nil
 }
 
+// GetOrganization, silinmiş firmaları da döner (Süper Admin'in Silinenler/
+// Arşiv görünümünden detaya girebilmesi VE Geri Yükle'nin hedefi bulabilmesi
+// için BİLİNÇLİ OLARAK filtrelenmez) -- yalnızca LİSTELER (ListOrganizations)
+// varsayılan olarak dışarıda bırakır.
 func (s *PlatformService) GetOrganization(ctx context.Context, organizationID string) (*domain.Organization, error) {
 	orgID, err := repository.StringToUUID(organizationID)
 	if err != nil {
@@ -331,6 +441,23 @@ func (s *PlatformService) GetOrganization(ctx context.Context, organizationID st
 	}
 	org := repository.ToDomainOrganization(row)
 	return &org, nil
+}
+
+// requireLiveOrganization, GetOrganization'ın "silinmemiş" garantili
+// versiyonudur -- durum/plan/kullanıcı yönetimi gibi HER mutasyonun ortak
+// ön kontrolü: silinmiş bir firma önce RestoreOrganization ile geri
+// yüklenmeden hiçbir şekilde değiştirilemez (yaşam döngüsü durumu dahil --
+// "aktifleştir" bile anlamsızdır, firma zaten listelerden/erişimden
+// tamamen dışarıdadır).
+func (s *PlatformService) requireLiveOrganization(ctx context.Context, organizationID string) (*domain.Organization, error) {
+	org, err := s.GetOrganization(ctx, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	if org.IsDeleted() {
+		return nil, domain.ErrOrganizationDeleted
+	}
+	return org, nil
 }
 
 // CountActiveOwners, sayfalanmış kullanıcı listesinden BAĞIMSIZ, doğru
@@ -380,7 +507,7 @@ func (s *PlatformService) ListOrganizationUsers(ctx context.Context, organizatio
 }
 
 func (s *PlatformService) ReprovisionCalcCatalog(ctx context.Context, organizationID, actorUserID string, linkProducts bool) (*CalcCatalogProvisionResult, error) {
-	if _, err := s.GetOrganization(ctx, organizationID); err != nil {
+	if _, err := s.requireLiveOrganization(ctx, organizationID); err != nil {
 		return nil, err
 	}
 	res, err := ProvisionCalcCatalog(ctx, s.calcSvc, s.productSvc, s.q, organizationID, linkProducts, nil)

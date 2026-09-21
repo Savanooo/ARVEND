@@ -13,10 +13,11 @@ export default async function FirmaDetailPage({ params }: { params: Promise<{ id
   const cookieHeader = (await cookies()).toString();
   const base = `/api/v1/platform/organizations/${id}`;
 
-  const [organization, plans, usersResult, roles, auditResult] = await Promise.all([
+  const [organization, plans, usersResult, deletedUsersResult, roles, auditResult] = await Promise.all([
     apiServer<Organization>(base, cookieHeader),
     apiServer<{ plans: Plan[] }>("/api/v1/platform/plans", cookieHeader).then((r) => r.plans),
     apiServer<{ users: User[]; total: number }>(`${base}/users?limit=200`, cookieHeader),
+    apiServer<{ users: User[]; total: number }>(`${base}/users?view=deleted&limit=200`, cookieHeader),
     apiServer<{ roles: OrganizationRole[] }>(`${base}/roles`, cookieHeader).then((r) => r.roles),
     apiServer<{ events: AuditEvent[] }>(`${base}/audit-events?limit=100`, cookieHeader).then((r) => r.events),
   ]);
@@ -40,6 +41,7 @@ export default async function FirmaDetailPage({ params }: { params: Promise<{ id
           plans={plans}
           users={usersResult.users}
           usersTotal={usersResult.total}
+          deletedUsers={deletedUsersResult.users}
           activeOwnerCount={organization.active_owner_count ?? 0}
           roles={roles}
           auditEvents={auditResult}

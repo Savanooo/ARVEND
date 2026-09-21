@@ -40,4 +40,13 @@ type User struct {
 	// temel UserService.List/Get/Create/Update boş bırakır.
 	OrganizationRoleCode string
 	OrganizationRoleName string
+	// DeletedAt/DeletedBy, is_active'den TAMAMEN AYRI bir eksendir --
+	// "normal listelerden kaldırıldı" (bkz. migration 0043 başlık notu).
+	// Silinen bir kullanıcı HER ZAMAN is_active=false'dur da (deleteUser
+	// ikisini birlikte yazar) ama tersi doğru değildir: pasif bir
+	// kullanıcı silinmiş OLMAYABİLİR.
+	DeletedAt *time.Time
+	DeletedBy *string
 }
+
+func (u User) IsDeleted() bool { return u.DeletedAt != nil }
