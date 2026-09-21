@@ -18,17 +18,13 @@ const ctxAuthzContext ctxKey = iota + 100 // auth.go'daki iota bloğuyla ÇAKIŞ
 // yükler ve request context'ine koyar -- ardından gelen RequirePermission/
 // RequireProjectPermission bunu okur, TEKRAR sorgu ATMAZ (spec §12).
 //
-// super_admin İÇİN HİÇBİR ŞEY YAPMAZ (context'e AuthzContext KOYMAZ) --
-// RequirePermission/RequireProjectPermission onu RoleFromContext ile ayrıca
-// ve ÖNCELİKLE kontrol eder (RequireOnboarded'daki AYNI muafiyet deseni).
-// Bu nedenle LoadAuthorization'ın kendisi super_admin için sorgu ATLAMAZ
-// hatasına düşmez -- rol kontrolü middleware'in en başında yapılır.
+// super_admin (veya org bağlamı olmayan her oturum) BURADA DA reddedilir
+// (bkz. rejectPlatformAccount) -- platform hesabı için ASLA bir tenant
+// AuthzContext üretilmez, bir organizasyon çıkarsanmaz.
 func LoadAuthorization(authzSvc *service.AuthorizationService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			role, ok := RoleFromContext(r.Context())
-			if ok && role == domain.RoleSuperAdmin {
-				next.ServeHTTP(w, r)
+			if rejectPlatformAccount(w, r) {
 				return
 			}
 			userID, ok := UserIDFromContext(r.Context())
@@ -58,16 +54,15 @@ func AuthzContextFromRequest(ctx context.Context) (*service.AuthzContext, bool) 
 }
 
 // RequirePermission, LoadAuthorization'dan SONRA zincirlenmeli.
-// super_admin HER ZAMAN muaftır (platform rolü, tenant izin sistemine hiç
-// girmez). Diğer kullanıcılar için AuthzContext'teki (ÖNCEDEN yüklenmiş,
-// bu istekte TEKRAR sorgu atılmadan) izin kümesine bakılır -- tanımsız/
-// eksik izin = 403 "permission_denied" (deny-by-default).
+// super_admin HER ZAMAN reddedilir (platform rolü, tenant izin sistemine
+// hiç girmez -- muafiyet DEĞİL, ret). Tenant kullanıcıları için
+// AuthzContext'teki (ÖNCEDEN yüklenmiş, bu istekte TEKRAR sorgu atılmadan)
+// izin kümesine bakılır -- tanımsız/eksik izin = 403 "permission_denied"
+// (deny-by-default).
 func RequirePermission(code string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			role, ok := RoleFromContext(r.Context())
-			if ok && role == domain.RoleSuperAdmin {
-				next.ServeHTTP(w, r)
+			if rejectPlatformAccount(w, r) {
 				return
 			}
 			authz, ok := AuthzContextFromRequest(r.Context())
@@ -89,9 +84,7 @@ func RequirePermission(code string) func(http.Handler) http.Handler {
 func RequireProjectPermission(authzSvc *service.AuthorizationService, code string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			role, ok := RoleFromContext(r.Context())
-			if ok && role == domain.RoleSuperAdmin {
-				next.ServeHTTP(w, r)
+			if rejectPlatformAccount(w, r) {
 				return
 			}
 			authz, ok := AuthzContextFromRequest(r.Context())

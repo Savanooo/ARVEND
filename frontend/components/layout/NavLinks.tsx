@@ -7,6 +7,7 @@ import {
   Coins,
   FileText,
   HardHat,
+  Layers,
   LayoutDashboard,
   type LucideIcon,
   Package,
@@ -32,6 +33,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/admin": LayoutDashboard,
   "/panel": LayoutDashboard,
   "/super-admin": Building2,
+  "/super-admin/planlar": Layers,
   "/teklifler": FileText,
   "/projeler": Building2,
   "/mesai": Clock,
@@ -50,10 +52,18 @@ const ICONS: Record<string, LucideIcon> = {
 
 export function NavLinks({ items, collapsed = false }: { items: NavItem[]; collapsed?: boolean }) {
   const pathname = usePathname();
+  // En uzun eşleşen href aktif sayılır -- "/super-admin" ile
+  // "/super-admin/planlar" (ya da "/admin" ile "/admin/urunler") aynı anda
+  // vurgulanmasın.
+  const activeHref = items.reduce<string | null>((best, item) => {
+    const matches = pathname === item.href || pathname.startsWith(`${item.href}/`);
+    if (!matches) return best;
+    return best === null || item.href.length > best.length ? item.href : best;
+  }, null);
   return (
     <nav className="flex flex-col gap-1">
       {items.map((item) => {
-        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+        const active = item.href === activeHref;
         const Icon = ICONS[item.href];
         return (
           <Link

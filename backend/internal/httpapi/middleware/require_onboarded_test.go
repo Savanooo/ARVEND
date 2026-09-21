@@ -181,14 +181,17 @@ func TestRequireOnboarded_BusinessEndpointGate(t *testing.T) {
 		}
 	})
 
-	t.Run("super_admin gate'ten muaf", func(t *testing.T) {
+	t.Run("super_admin business uçlarından reddedilir", func(t *testing.T) {
+		// Eski davranış "gate'ten muaf" (200) idi -- bu, platform hesabının
+		// tenant uçlarına org bağlamı olmadan girebilmesi demekti. Artık
+		// RequireOnboarded da (RequireTenant'tan bağımsız olarak) reddeder.
 		superAdminToken, err := issuer.IssueAccessToken("00000000-0000-0000-0000-0000000000dd", domain.RoleSuperAdmin, "")
 		if err != nil {
 			t.Fatalf("token üretilemedi: %v", err)
 		}
 		h := chainOnboarded(issuer, q)
-		if code := doRequest(t, h, superAdminToken); code != http.StatusOK {
-			t.Errorf("super_admin status = %d, want 200 (gate'ten muaf)", code)
+		if code := doRequest(t, h, superAdminToken); code != http.StatusForbidden {
+			t.Errorf("super_admin status = %d, want 403 (tenant bağlamı yok)", code)
 		}
 	})
 

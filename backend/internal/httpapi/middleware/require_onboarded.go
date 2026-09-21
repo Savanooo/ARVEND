@@ -3,7 +3,6 @@ package middleware
 import (
 	"net/http"
 
-	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/repository"
 	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
 )
@@ -23,19 +22,17 @@ import (
 // durdurmazdı (RequireAuth yalnızca kimlik doğrular + askıya alınmışlığı
 // kontrol eder, onboarding/şifre durumuna bakmaz).
 //
-// SÜPER ADMIN MUAFTIR (organizasyonu yok, onboarding kavramı ona
-// uygulanmaz) -- rol kontrolüyle DB sorgusuna bile gitmeden erişim
-// verilir. requireOnboarded, router.go'da YALNIZCA business route
-// gruplarına eklenir; auth/me, logout, refresh, set-initial-password,
+// SÜPER ADMIN REDDEDİLİR (organizasyonu yok; business uçları tenant
+// kapsamlıdır, platform hesabı buraya hiç girmemeli) -- bkz.
+// rejectPlatformAccount. requireOnboarded, router.go'da YALNIZCA business
+// route gruplarına eklenir; auth/me, logout, refresh, set-initial-password,
 // onboarding/*, organization/settings/* ve platform/* (zaten yalnızca
 // super_admin'e açık) BİLİNÇLİ OLARAK bu middleware'i almaz -- aksi halde
 // kullanıcı kendi kilidini açacağı uçlara da erişemezdi.
 func RequireOnboarded(q *sqlc.Queries) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			role, ok := RoleFromContext(r.Context())
-			if ok && role == domain.RoleSuperAdmin {
-				next.ServeHTTP(w, r)
+			if rejectPlatformAccount(w, r) {
 				return
 			}
 

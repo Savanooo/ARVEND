@@ -36,9 +36,6 @@ func canManageOfferInternalPricing(r *http.Request) bool {
 }
 
 func hasOfferPermission(r *http.Request, code string) bool {
-	if role, ok := middleware.RoleFromContext(r.Context()); ok && role == domain.RoleSuperAdmin {
-		return true
-	}
 	authz, ok := middleware.AuthzContextFromRequest(r.Context())
 	return ok && authz.HasPermission(code)
 }

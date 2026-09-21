@@ -56,6 +56,12 @@ func NewRouter(d Deps) http.Handler {
 	}))
 
 	requireAuth := appmw.RequireAuth(d.JWT, d.Queries)
+	// Tenant (firma kapsamlı) HER rota grubunda requireAuth'un hemen
+	// ardından gelir: super_admin'in (organization_id NULL) ve org
+	// bağlamı boş her oturumun tenant uçlarına HİÇ girmemesini garanti
+	// eder -- bir organizasyon çıkarsanmaz/uydurulmaz. /auth/me ve
+	// /platform/* BİLİNÇLİ OLARAK almaz (bkz. require_tenant.go).
+	requireTenant := appmw.RequireTenant()
 	requireAdmin := appmw.RequireRole(domain.RoleAdmin)
 	requireSuperAdmin := appmw.RequireRole(domain.RoleSuperAdmin)
 	// "Business" uçlarına (offers/projects/customers/products/calculations/
@@ -90,7 +96,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/users", func(r chi.Router) {
-			r.Use(requireAuth)
+			r.Use(requireAuth, requireTenant)
 			// "Şifre belirle" (must_change_password) akışı -- Super Admin'in
 			// provision ettiği bir Owner'ın ilk girişte YENİ bir şifre
 			// belirlemesi. requireAdmin VE requireOnboarded YOK -- bu
@@ -122,7 +128,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/products", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded, loadAuthorization)
+			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
 			// Katalog herkes icin okunabilir (teklif olustururken herkes
 			// urun secebilmeli); yazma products.manage iznine ozel.
 			r.With(perm(domain.PermProductsRead)).Get("/", d.Products.List)
@@ -138,7 +144,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/calculations", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded, loadAuthorization)
+			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
 			// Metraj Hesapla paneli teklif oluştururken herkese lazım
 			// (Products ile aynı ilke: katalog/reçete okuma serbest,
 			// reçete katsayılarını düzenlemek calculations.manage iznine özel).
@@ -163,7 +169,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/offers", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded, loadAuthorization)
+			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
 			// Teklif oluşturma/görme gerçek işte sıradan personel işidir --
 			// Users/Products'ın aksine tek bir admin şartı YOK, offers.*
 			// izinleri org-wide (proje-üyeliği ekseni yok, bkz. spec §2).
@@ -199,7 +205,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/projects", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded, loadAuthorization)
+			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
 			// GET / ve POST /from-offer henüz TEK bir projeye bağlı DEĞİL --
 			// listede üyelik filtresi ProjectService.List İÇİNDE
 			// (restrict_to_user_id, SQL seviyesinde) uygulanır; oluşturma
@@ -491,7 +497,7 @@ func NewRouter(d Deps) http.Handler {
 
 		// Cross-project "benim gorevlerim" -- proje dongusu yerine tek sorgu.
 		// Org-seviyesinde projects.tasks.read; proje uyelik filtresi handler icinde.
-		r.With(requireAuth, requireOnboarded, loadAuthorization, perm(domain.PermProjectsTasksRead)).
+		r.With(requireAuth, requireTenant, requireOnboarded, loadAuthorization, perm(domain.PermProjectsTasksRead)).
 			Get("/tasks/mine", d.Projects.ListMyTasks)
 
 		// Bildirimler -- her zaman ÇAĞIRANIN KENDİ kaydı (user_id context'ten,
@@ -501,7 +507,7 @@ func NewRouter(d Deps) http.Handler {
 		// akışları tarafından üretilir, bkz. NotificationService.Create
 		// çağrı noktaları.
 		r.Route("/notifications", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded, loadAuthorization, perm(domain.PermNotificationsRead))
+			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization, perm(domain.PermNotificationsRead))
 			r.Get("/", d.Notifications.List)
 			r.Get("/unread-count", d.Notifications.UnreadCount)
 			r.Post("/{id}/read", d.Notifications.MarkRead)
@@ -509,7 +515,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/customers", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded, loadAuthorization)
+			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
 			// Teklif oluşturan herkes müşteri seçebilmeli/ekleyebilmeli --
 			// Ürünler'in aksine (kontrollü katalog), müşteri kartı canlı bir
 			// CRM listesi gibi, tek bir admin şartı YOK.
@@ -527,7 +533,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/employees", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded, loadAuthorization)
+			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
 			// Personel listesi mesai girişinde herkese lazım; hassas
 			// yönetim (ekleme/düzenleme/pasifleştirme) employees.manage
 			// iznine özel.
@@ -546,7 +552,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/attendance", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded, loadAuthorization)
+			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
 			// Mesai girişi BYZ'de sıradan iş -- tek bir admin şartı YOK.
 			r.With(perm(domain.PermAttendanceRead)).Get("/", d.Attendance.ListByMonth)
 			r.Group(func(r chi.Router) {
@@ -558,7 +564,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/settings", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded, requireAdmin, loadAuthorization)
+			r.Use(requireAuth, requireTenant, requireOnboarded, requireAdmin, loadAuthorization)
 			r.With(perm(domain.PermOrganizationSettingsRead)).Get("/smtp", d.Settings.GetSmtp)
 			r.Group(func(r chi.Router) {
 				r.Use(perm(domain.PermOrganizationSettingsManage))
@@ -571,7 +577,7 @@ func NewRouter(d Deps) http.Handler {
 		// requireAdmin KORUNUR (Users grubuyla AYNI ilke: ek bir kapı,
 		// organization.roles.* izninin YERİNE değil ÜSTÜNE).
 		r.Route("/organization/roles", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded, requireAdmin, loadAuthorization)
+			r.Use(requireAuth, requireTenant, requireOnboarded, requireAdmin, loadAuthorization)
 			r.With(perm(domain.PermOrganizationRolesRead)).Get("/", d.Authorization.ListOrganizationRoles)
 			r.With(perm(domain.PermOrganizationRolesRead)).Get("/{id}", d.Authorization.GetOrganizationRole)
 			r.With(perm(domain.PermOrganizationRolesManage)).Put("/{id}/permissions", d.Authorization.SetRolePermissions)
@@ -583,7 +589,7 @@ func NewRouter(d Deps) http.Handler {
 		// erişebilmeli, admin-only bir kapı olmamalı -- yetki TAMAMEN
 		// organization.cost_codes.* iznine bırakılır.
 		r.Route("/organization/cost-codes", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded, loadAuthorization)
+			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
 			r.With(perm(domain.PermOrganizationCostCodesRead)).Get("/", d.CostCodes.List)
 			r.With(perm(domain.PermOrganizationCostCodesRead)).Get("/{id}", d.CostCodes.Get)
 			r.Group(func(r chi.Router) {
@@ -599,7 +605,7 @@ func NewRouter(d Deps) http.Handler {
 		// Maliyet Kodları İLE AYNI desen: requireAdmin YOK, yetki TAMAMEN
 		// organization.suppliers.* iznine bırakılır.
 		r.Route("/organization/suppliers", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded, loadAuthorization)
+			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
 			r.With(perm(domain.PermOrganizationSuppliersRead)).Get("/", d.Suppliers.List)
 			r.With(perm(domain.PermOrganizationSuppliersRead)).Get("/{id}", d.Suppliers.Get)
 			r.Group(func(r chi.Router) {
@@ -612,7 +618,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Route("/organization/permissions", func(r chi.Router) {
-			r.Use(requireAuth, requireOnboarded, requireAdmin, loadAuthorization, perm(domain.PermOrganizationRolesRead))
+			r.Use(requireAuth, requireTenant, requireOnboarded, requireAdmin, loadAuthorization, perm(domain.PermOrganizationRolesRead))
 			r.Get("/", d.Authorization.ListPermissions)
 		})
 
@@ -620,7 +626,7 @@ func NewRouter(d Deps) http.Handler {
 		// web/mobil AYNI state'i okur/yazar. requireAdmin: onboarding'i
 		// tamamlayacak olan Super Admin'in provision ettiği Owner'dır.
 		r.Route("/onboarding", func(r chi.Router) {
-			r.Use(requireAuth, requireAdmin)
+			r.Use(requireAuth, requireTenant, requireAdmin)
 			r.Get("/", d.Onboarding.GetState)
 			r.Put("/company", d.Onboarding.SaveCompany)
 			r.Put("/billing", d.Onboarding.SaveBilling)
@@ -632,7 +638,7 @@ func NewRouter(d Deps) http.Handler {
 		// Onboarding SONRASI "Firma Ayarları" düzenleme -- AYNI handler/
 		// servis metodları (bkz. OnboardingHandler yorumu), farklı path.
 		r.Route("/organization/settings", func(r chi.Router) {
-			r.Use(requireAuth, requireAdmin)
+			r.Use(requireAuth, requireTenant, requireAdmin)
 			r.Get("/", d.Onboarding.GetState)
 			r.Put("/company", d.Onboarding.SaveCompany)
 			r.Put("/billing", d.Onboarding.SaveBilling)

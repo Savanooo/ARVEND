@@ -13,9 +13,19 @@ diğerine hiçbir zaman köprülenmez.
 ### 1.1 Platform rolü (`users.role`)
 
 - Değerler: `admin`, `kullanici`, `super_admin`.
-- `super_admin`: `organization_id = NULL`, yalnızca `/api/v1/platform/*`
-  uçlarına erişir (organizasyon izolasyonu dışında, bilinçli olarak).
-  `RequireRole(domain.RoleSuperAdmin)` ile korunur.
+- `super_admin`: `organization_id = NULL`, `organization_role_id = NULL`;
+  yalnızca `/api/v1/platform/*` uçlarına erişir (organizasyon izolasyonu
+  dışında, bilinçli olarak). `RequireRole(domain.RoleSuperAdmin)` ile
+  korunur. Tenant uçlarında **muafiyeti YOKTUR**: `RequireTenant` ve
+  ardındaki her katman (`RequireOnboarded`, `LoadAuthorization`,
+  `RequirePermission`, `RequireProjectPermission`) onu bağımsız olarak
+  `403 {"code":"tenant_context_required"}` ile reddeder — platform
+  hesabı için asla bir organizasyon çıkarsanmaz/uydurulmaz. Provizyon
+  yalnızca `cmd/create-platform-admin` CLI'ı ile yapılır (bkz.
+  `docs/super-admin-provisioning.md`, repo kökü).
+- `admin` (users.role) **platform yöneticisi DEĞİLDİR**: organizasyon
+  Owner/Admin'idir (migration 0034 legacy `admin`'i org rolü `owner`'a
+  bağladı) ve tenant kabuğunu/menüsünü görmesi doğrudur.
 - `admin`/`kullanici`: organizasyona bağlı (tenant) kullanıcılar; bu
   sprint'ten SONRA business uçlarında artık **kullanılmıyor** (bkz.
   §4) — yalnızca `/users`, `/settings`, `/organization/roles`,
@@ -97,18 +107,23 @@ kaydıdır (web'de "Proje Erişimi" ekranı).
 ## 4. İstek yetkilendirme akışı
 
 ```
-RequireAuth → RequireOnboarded → LoadAuthorization → RequirePermission(code)
-                                                    → RequireProjectPermission(code)
+RequireAuth → RequireTenant → RequireOnboarded → LoadAuthorization → RequirePermission(code)
+                                                                    → RequireProjectPermission(code)
 ```
 
 - **RequireAuth**: JWT doğrular, `role`/`userID`/`organizationID`'yi
   context'e koyar (DEĞİŞMEDİ).
+- **RequireTenant**: tenant (firma kapsamlı) HER rota grubunda
+  `requireAuth`'un hemen ardından gelir; `super_admin`'i ve org claim'i boş
+  her oturumu `403 tenant_context_required` ile keser. `/auth/*` ve
+  `/platform/*` almaz.
 - **RequireOnboarded**: `must_change_password`/`onboarding_completed`
-  gate'i (Phase B, DEĞİŞMEDİ).
-- **LoadAuthorization** (yeni): `super_admin` için hiçbir şey yapmaz
-  (rol kontrolüyle daha önce muaf). Diğer kullanıcılar için rol kodu +
-  TÜM izin kodlarını **istek başına bir kez** (2 hafif, indeksli sorgu)
-  yükler ve `*service.AuthzContext`'i request context'ine koyar.
+  gate'i. `super_admin` burada da reddedilir (eski "muaf" davranışı
+  kaldırıldı).
+- **LoadAuthorization**: `super_admin` için AuthzContext ÜRETMEZ, reddeder.
+  Tenant kullanıcıları için rol kodu + TÜM izin kodlarını **istek başına
+  bir kez** (2 hafif, indeksli sorgu) yükler ve `*service.AuthzContext`'i
+  request context'ine koyar.
 - **RequirePermission(code)**: context'teki `AuthzContext`'i okur
   (sorgu ATMAZ), `HasPermission(code)` kontrolü yapar. Eksikse
   `403 {"code":"permission_denied"}`.

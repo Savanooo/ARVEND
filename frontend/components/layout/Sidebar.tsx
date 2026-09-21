@@ -6,14 +6,25 @@ import { NavLinks, type NavItem } from "./NavLinks";
 import { SidebarCollapseToggle } from "./SidebarCollapseToggle";
 import { Skyline } from "./Skyline";
 
+export interface SidebarBrand {
+  title: string;
+  subtitle: string;
+}
+
+// Tenant kabuğunun varsayılan markası; platform kabuğu (PlatformShell)
+// firma bağlamı çağrıştırmayan kendi markasını geçer.
+const TENANT_BRAND: SidebarBrand = { title: "Arvend Yapı", subtitle: "Yönetim Sistemi" };
+
 export function Sidebar({
   user,
   items,
   collapsed = false,
+  brand = TENANT_BRAND,
 }: {
   user: User;
   items: NavItem[];
   collapsed?: boolean;
+  brand?: SidebarBrand;
 }) {
   return (
     <aside
@@ -24,8 +35,8 @@ export function Sidebar({
           <Logo />
           {!collapsed && (
             <div>
-              <div className="text-sm font-bold uppercase tracking-widest">Arvend Yapı</div>
-              <div className="text-[11px] text-sidebar-text-muted">Yönetim Sistemi</div>
+              <div className="text-sm font-bold uppercase tracking-widest">{brand.title}</div>
+              <div className="text-[11px] text-sidebar-text-muted">{brand.subtitle}</div>
             </div>
           )}
         </div>

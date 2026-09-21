@@ -10,14 +10,27 @@ import type { Role } from "./types";
 // Server Component'ten (bu dosyanın çağrıldığı yer) "use client" olan
 // NavLinks'e prop olarak GEÇİRİLEMEZ (React Server Components ham
 // fonksiyon referanslarının sınırı geçmesine izin vermez).
+// Platform (super_admin) kabuğunun menüsü -- YALNIZCA backend'de karşılığı
+// olan öğeler: Firmalar (/platform/organizations + lifecycle/plan/owner
+// provisioning firma detayında), Planlar (GET /platform/plans, salt okunur
+// -- plan CRUD ucu yok). Denetim kayıtları yalnızca firma bazlı bir uç
+// olduğu için (/platform/organizations/{id}/audit-events) firma detayındaki
+// sekmede kalır; "Platform Ayarları"/"Platform Kullanıcıları" için backend
+// ucu YOKTUR, bu yüzden menüye EKLENMEDİ (sahte işlev üretilmez).
+export function getPlatformNavItems(): NavItem[] {
+  return [
+    { href: "/super-admin", label: "Firmalar" },
+    { href: "/super-admin/planlar", label: "Planlar" },
+  ];
+}
+
 export function getNavItems(role: Role): NavItem[] {
   // super_admin, organization Admin/Owner'dan ayrı bir platform rolüdür --
   // herhangi bir organizasyona ait iş sayfasına (Teklifler/Projeler/...)
-  // erişimi YOK, yalnızca platform yönetim konsoluna sahip. Plan
-  // CRUD'u bu fazda yok (bkz. PlatformService.ListPlans yorumu) -- ayrı
-  // bir "Planlar" nav öğesi bilinçli olarak eklenmedi.
+  // erişimi YOK; tenant kabuğu (AppShell) onu hiç render etmez, bu dal
+  // yalnızca fonksiyonun Role üzerinde toplam kalması içindir.
   if (role === "super_admin") {
-    return [{ href: "/super-admin", label: "Firmalar" }];
+    return getPlatformNavItems();
   }
   if (role === "admin") {
     return [
