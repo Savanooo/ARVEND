@@ -43,3 +43,14 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Release signing secrets -- ASLA commit edilmez (bkz. mobile/RELEASE.md).
+# android/key.properties zaten android/.gitignore'da; burada REPO GENELİ
+# ikinci bir güvenlik katmanı + iOS imzalama materyali için.
+key.properties
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+*.cer
+*.certSigningRequest

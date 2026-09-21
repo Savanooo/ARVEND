@@ -1,0 +1,23 @@
+# Production Android imzalama yapılandırması -- ŞABLON dosya, GERÇEK
+# değer İÇERMEZ. Bu dosyayı `android/key.properties` olarak kopyalayıp
+# kendi gerçek değerlerinizi girin. `android/key.properties` (gerçek dosya)
+# android/.gitignore'da zaten hariç tutulmuştur -- ASLA commit etmeyin.
+#
+# Keystore'un kendisi de bu repodan TAMAMEN AYRI, güvenli bir yerde
+# (şifrelenmiş yedek/parola kasası) saklanmalıdır -- kaybedilirse Play
+# Store'daki uygulamayı bir daha ASLA güncelleyemezsiniz.
+#
+# Keystore oluşturmak için (yalnızca siz, yerel makinenizde çalıştırın --
+# bu ajan/oturum sizin adınıza bir keystore ÜRETMEZ):
+#   keytool -genkey -v -keystore /güvenli/yol/arvend-release.jks \
+#     -keyalg RSA -keysize 2048 -validity 10000 -alias arvend
+#
+# storeFile: keystore dosyasının MUTLAK yolu (bu reponun dışında bir yer
+#            önerilir) VEYA android/ dizinine göre göreli bir yol.
+# storePassword / keyPassword: keytool'da belirlediğiniz parolalar.
+# keyAlias: keytool'da -alias ile verdiğiniz takma ad.
+
+storeFile=/güvenli/yol/arvend-release.jks
+storePassword=BURAYA_GERCEK_PAROLA
+keyAlias=arvend
+keyPassword=BURAYA_GERCEK_PAROLA
