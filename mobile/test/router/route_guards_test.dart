@@ -85,14 +85,15 @@ void main() {
       ],
       '/projects': [(status: 200, body: {'projects': <dynamic>[], 'total': 0})],
       '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
+      '/tasks/mine': [(status: 200, body: {'tasks': <dynamic>[]})],
       '/notifications/unread-count': [(status: 200, body: {'unread_count': 0})],
     });
     await _pumpApp(tester, adapter);
 
     // 'Ana Sayfa' hem AppBar başlığında hem alt gezinme etiketinde
     // göründüğü için ekranın kendine özgü içeriğiyle (Dashboard'un statik
-    // "Son Projeler" başlığı) doğrulanır.
-    expect(find.text('Son Projeler'), findsOneWidget);
+    // "Aktif Projeler" başlığı) doğrulanır.
+    expect(find.text('Aktif Projeler'), findsOneWidget);
     expect(find.text('Firma Kurulumu'), findsNothing);
     expect(find.text('Yeni Şifre Belirleyin'), findsNothing);
   });
@@ -103,11 +104,12 @@ void main() {
       '/auth/me': [(status: 200, body: _meBody(role: 'kullanici'))],
       '/projects': [(status: 200, body: {'projects': <dynamic>[], 'total': 0})],
       '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
+      '/tasks/mine': [(status: 200, body: {'tasks': <dynamic>[]})],
       '/notifications/unread-count': [(status: 200, body: {'unread_count': 0})],
     });
     await _pumpApp(tester, adapter);
 
-    expect(find.text('Son Projeler'), findsOneWidget);
+    expect(find.text('Aktif Projeler'), findsOneWidget);
     expect(find.text('Firma Kurulumu'), findsNothing);
     expect(find.text('Yeni Şifre Belirleyin'), findsNothing);
   });
@@ -117,11 +119,12 @@ void main() {
       '/auth/me': [(status: 200, body: _meBody())],
       '/projects': [(status: 200, body: {'projects': <dynamic>[], 'total': 0})],
       '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
+      '/tasks/mine': [(status: 200, body: {'tasks': <dynamic>[]})],
       '/notifications/unread-count': [(status: 200, body: {'unread_count': 0})],
       '/auth/logout': [(status: 200, body: null)],
     });
     await _pumpApp(tester, adapter);
-    expect(find.text('Son Projeler'), findsOneWidget);
+    expect(find.text('Aktif Projeler'), findsOneWidget);
 
     await tester.tap(find.text('Diğer'));
     await tester.pumpAndSettle();
@@ -137,6 +140,6 @@ void main() {
 
     expect(adapter.calls, contains('/auth/logout'));
     expect(find.byType(TextFormField), findsWidgets); // Giriş ekranındaki kullanıcı adı/şifre alanları
-    expect(find.text('Son Projeler'), findsNothing);
+    expect(find.text('Aktif Projeler'), findsNothing);
   });
 }

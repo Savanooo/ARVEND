@@ -322,7 +322,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Mevcut Müşteriden Seç'));
+      await tester.tap(find.text('Seç'));
       await tester.pumpAndSettle();
       expect(find.text('Ali Veli'), findsOneWidget);
 
@@ -338,6 +338,13 @@ void main() {
     testWidgets('section label field is editable per item', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {'/auth/me': [(status: 200, body: _meJson())]});
       final client = await buildFakeApiClient(adapter);
+
+      // Formdaki birden çok TextFormField kendi iç kaydırılabilirini
+      // taşıyabildiği için (imleç takibi) `scrollUntilVisible`'ın
+      // varsayılan Scrollable bulucusu belirsiz olur -- bunun yerine
+      // her şeyin kaydırmadan sığdığı bir test yüzeyi kullanılır.
+      await tester.binding.setSurfaceSize(const Size(400, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
       await tester.pumpWidget(
         ProviderScope(
@@ -449,9 +456,9 @@ void main() {
         ],
       });
       await _pumpDetail(tester, adapter, 'o1');
-      await tester.scrollUntilVisible(find.text('Paylaşım Linki Oluştur'), 300);
+      await tester.scrollUntilVisible(find.text('Paylaşım Linki'), 300);
 
-      await tester.tap(find.text('Paylaşım Linki Oluştur'));
+      await tester.tap(find.text('Paylaşım Linki'));
       await tester.pumpAndSettle();
 
       expect(find.text('${AppConfig.apiBaseUrl}/paylas/tok-abc'), findsOneWidget);
@@ -507,7 +514,7 @@ void main() {
       });
       await _pumpDetail(tester, adapter, 'o1');
 
-      expect(find.text('Paylaşım Linki Oluştur'), findsNothing);
+      expect(find.text('Paylaşım Linki'), findsNothing);
       expect(find.text('E-posta Gönder'), findsNothing);
     });
   });

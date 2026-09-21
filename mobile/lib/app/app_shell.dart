@@ -66,16 +66,21 @@ class AppShell extends ConsumerWidget {
 
     return Scaffold(
       body: navigationShell,
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: safeCurrentIndex,
-        onTap: (tappedVisibleIndex) {
-          final branchIndex = visible[tappedVisibleIndex];
-          navigationShell.goBranch(
-            branchIndex,
-            initialLocation: branchIndex == navigationShell.currentIndex,
-          );
-        },
-        items: [for (final i in visible) _branchTabs[i].item],
+      bottomNavigationBar: DecoratedBox(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: AppColors.border)),
+        ),
+        child: BottomNavigationBar(
+          currentIndex: safeCurrentIndex,
+          onTap: (tappedVisibleIndex) {
+            final branchIndex = visible[tappedVisibleIndex];
+            navigationShell.goBranch(
+              branchIndex,
+              initialLocation: branchIndex == navigationShell.currentIndex,
+            );
+          },
+          items: [for (final i in visible) _branchTabs[i].item],
+        ),
       ),
     );
   }

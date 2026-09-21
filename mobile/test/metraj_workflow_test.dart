@@ -445,6 +445,11 @@ void main() {
       });
       final client = await buildFakeApiClient(adapter);
 
+      // Müşteri kartı bu butonları varsayılan test yüzeyinde görünümün
+      // dışına itebiliyor -- kaydırmadan sığacak bir yüzey kullanılır.
+      await tester.binding.setSurfaceSize(const Size(400, 1400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
       await tester.pumpWidget(
         ProviderScope(
           overrides: [apiClientProvider.overrideWithValue(client)],

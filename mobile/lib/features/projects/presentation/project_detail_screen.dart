@@ -12,9 +12,16 @@ import '../../../core/auth/auth_controller.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/app_page_scaffold.dart';
+import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/quick_action_button.dart';
 import '../../../core/widgets/status_badge.dart';
+import '../../auth/domain/user.dart';
 import '../../tasks/domain/task_filters.dart';
 import '../data/projects_providers.dart';
 import '../domain/project.dart';
@@ -22,47 +29,49 @@ import 'collection_form_sheet.dart';
 import 'expense_form_sheet.dart';
 import 'note_form_sheet.dart';
 
-/// RBAC/Project Membership sprint'i: sekmeler kullanıcının izin kümesine
+/// RBAC/Project Membership sprint'i: gruplar kullanıcının izin kümesine
 /// göre GİZLENİR (spec: "no finance section shown without finance
 /// permission") -- bu YALNIZCA UX'tir, gerçek sınır zaten backend'de (bu
-/// sekme gösterilse bile ilgili uç 403 döner). owner/admin/legacy_user
-/// TÜM izinlere sahip olduğu için onlar için hiçbir sekme gizlenmez.
-class _TabDef {
-  const _TabDef(this.label, this.permission, this.builder);
+/// grup gösterilse bile ilgili uç 403 döner). owner/admin/legacy_user
+/// TÜM izinlere sahip olduğu için onlar için hiçbir grup gizlenmez.
+///
+/// Redesign: eskiden 10 EŞİT AĞIRLIKLI sekme tek bir TabBar'daydı (bkz. git
+/// geçmişi) -- şimdi 4 üst-seviye gruba (Özet/Finans/Operasyon/Dokümanlar)
+/// toplanıyor, her biri KENDİ içinde (Satın Alma sekmesinin zaten kanıtlanmış
+/// `SegmentedButton` deseniyle) alt-görünümler arasında geçer. Aktivite artık
+/// birincil bir sekme DEĞİL, AppBar'daki bir simge üzerinden açılan ayrı bir
+/// ekran. Her alt-sekmenin İÇERİK widget'ı (ör. `_FinanceTab`, `_FilesTab`)
+/// DEĞİŞMEDEN aynen yeniden kullanılıyor -- yalnızca gezinme kabuğu değişti.
+class _GroupDef {
+  const _GroupDef(this.label, this.visible, this.builder);
   final String label;
-  final String? permission; // null = her zaman görünür.
+  final bool Function(User? user) visible;
   final Widget Function(String projectId, Project project) builder;
 }
 
-final _tabDefs = <_TabDef>[
-  _TabDef('Genel', null, (id, p) => _GeneralTab(project: p)),
-  _TabDef('Finans', 'projects.finance.read', (id, p) => _FinanceTab(projectId: id, project: p)),
-  // Sprint 3 — Ek İşler, mobilde YALNIZCA OKUMA (spec: read-only visibility
-  // this sprint). İzin MEVCUT projects.finance.read'i yeniden kullanır --
-  // Ek İşler bugün backend'de bu iznin altında yaşıyor, mobil için ayrı bir
-  // izin tanımlanmadı (bkz. docs/contracts.md). Sözleşme'nin kendisi
-  // mobilde YOK (yalnızca web) -- bu, yalnızca onu değiştiren Ek İşlerin
-  // salt-okunur listesi.
-  _TabDef('Ek İşler', 'projects.finance.read', (id, p) => _ChangeOrdersTab(projectId: id)),
-  // Sprint 4 — Satın Alma, mobilde YALNIZCA OKUMA (bkz. domain/procurement.dart
-  // dosya başı notu). Ek İşler'in aksine bu, bu sprint için tanımlanan YENİ
-  // bir izin -- eski bir izin yeniden kullanılmıyor.
-  _TabDef('Satın Alma', 'projects.procurement.read', (id, p) => _ProcurementTab(projectId: id)),
-  // Sprint 2 — Maliyet Kontrolü, mobilde YALNIZCA OKUMA (spec: "no budget
-  // editing, no manual commitment editing, no cost-code admin on mobile
-  // this sprint -- web-first"). İzin, budget.read DEĞİL cost_control.read
-  // (web'deki AYNI ayrım: cost_control.* özet/izleme katmanını kapsar).
-  _TabDef('Maliyet Kontrolü', 'projects.cost_control.read', (id, p) => _CostControlTab(projectId: id, project: p)),
-  // Sprint 5 follow-up — Taşeron Yönetimi (yeni modül, migration 0039).
-  // Legacy Finans>Taşeronlar İLE KARIŞTIRILMAMALI (o mobilde HİÇ YOK,
-  // bilinçli olarak buraya YATIRIM YAPILMIYOR, bkz. domain/subcontract.dart
-  // dosya başı notu) -- bu, backend'in "product direction" olarak
-  // işaretlediği YENİ modülün mobil karşılığı.
-  _TabDef('Taşeronlar', 'projects.subcontracts.read', (id, p) => _SubcontractsTab(projectId: id)),
-  _TabDef('Operasyon', 'projects.tasks.read', (id, p) => _OperationsTab(projectId: id)),
-  _TabDef('Dosyalar', 'projects.operations.read', (id, p) => _FilesTab(projectId: id)),
-  _TabDef('Notlar', 'projects.operations.read', (id, p) => _NotesTab(projectId: id)),
-  _TabDef('Aktivite', null, (id, p) => _ActivityTab(projectId: id)),
+bool _failOpen(User? user, String permission) =>
+    user == null || user.permissions.isEmpty || user.hasPermission(permission);
+
+final _groupDefs = <_GroupDef>[
+  _GroupDef('Özet', (user) => true, (id, p) => _OverviewTab(projectId: id, project: p)),
+  _GroupDef(
+    'Finans',
+    (user) => _failOpen(user, 'projects.finance.read') || _failOpen(user, 'projects.cost_control.read'),
+    (id, p) => _FinansGroupTab(projectId: id, project: p),
+  ),
+  _GroupDef(
+    'Operasyon',
+    (user) =>
+        _failOpen(user, 'projects.subcontracts.read') ||
+        _failOpen(user, 'projects.procurement.read') ||
+        _failOpen(user, 'projects.tasks.read'),
+    (id, p) => _OperasyonGroupTab(projectId: id),
+  ),
+  _GroupDef(
+    'Dokümanlar',
+    (user) => _failOpen(user, 'projects.operations.read'),
+    (id, p) => _DokumanlarGroupTab(projectId: id),
+  ),
 ];
 
 class ProjectDetailScreen extends ConsumerWidget {
@@ -73,31 +82,31 @@ class ProjectDetailScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final projectAsync = ref.watch(projectDetailProvider(projectId));
     final user = ref.watch(authControllerProvider).valueOrNull;
-    // super_admin bu ekrana zaten hiç gelmez (mobil kapsamı yok); permissions
-    // boşsa (nadir, henüz yüklenmemiş) TÜM sekmeler gösterilir -- geçici bir
-    // "her şey gizli" yanılsaması yaratmamak için (backend zaten 403 üretir).
-    final visibleTabs = user == null || user.permissions.isEmpty
-        ? _tabDefs
-        : _tabDefs.where((t) => t.permission == null || user.hasPermission(t.permission!)).toList();
+    final visibleGroups = _groupDefs.where((g) => g.visible(user)).toList();
 
     return DefaultTabController(
-      length: visibleTabs.length,
-      child: Scaffold(
-        appBar: AppBar(
-          title: projectAsync.maybeWhen(
-            data: (p) => Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-            orElse: () => const Text('Proje'),
+      length: visibleGroups.length,
+      child: AppPageScaffold(
+        title: projectAsync.maybeWhen(
+          data: (p) => Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+          orElse: () => const Text('Proje'),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.history),
+            tooltip: 'Proje Hareketleri',
+            onPressed: () => _openActivity(context, projectId),
           ),
-          bottom: TabBar(
-            isScrollable: true,
-            tabs: [for (final t in visibleTabs) Tab(text: t.label)],
-          ),
+        ],
+        bottom: TabBar(
+          isScrollable: true,
+          tabs: [for (final g in visibleGroups) Tab(text: g.label)],
         ),
         body: AsyncStateView(
           value: projectAsync,
           onRetry: () async => ref.invalidate(projectDetailProvider(projectId)),
           data: (context, project) => TabBarView(
-            children: [for (final t in visibleTabs) t.builder(projectId, project)],
+            children: [for (final g in visibleGroups) g.builder(projectId, project)],
           ),
         ),
       ),
@@ -105,71 +114,372 @@ class ProjectDetailScreen extends ConsumerWidget {
   }
 }
 
-class _GeneralTab extends StatelessWidget {
-  const _GeneralTab({required this.project});
+/// Aktivite artık birincil bir sekme DEĞİL -- hem AppBar simgesinden hem
+/// Özet'in alt bağlantısından AYNI tam-ekrana açılır, tek yerde tanımlı.
+void _openActivity(BuildContext context, String projectId) {
+  Navigator.of(context).push(MaterialPageRoute(
+    builder: (_) => AppPageScaffold(
+      title: const Text('Proje Hareketleri'),
+      body: _ActivityTab(projectId: projectId),
+    ),
+  ));
+}
+
+/// "Özet" -- yeni iniş sekmesi. Proje/müşteri bilgisi + birincil finansal
+/// özet (varsa) + hızlı işlemler + diğer 3 gruba giden gezinme kartları.
+/// Aşağıdaki hiçbir alt-widget (`_FinanceTab`, `_FilesTab` vb.) burada
+/// YENİDEN yazılmadı -- yalnızca onlara giden yol kısaltıldı.
+class _OverviewTab extends ConsumerWidget {
+  const _OverviewTab({required this.projectId, required this.project});
+  final String projectId;
   final Project project;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(authControllerProvider).valueOrNull;
+    final visibleGroups = _groupDefs.where((g) => g.visible(user)).toList();
+
+    void goToGroup(String label) {
+      final index = visibleGroups.indexWhere((g) => g.label == label);
+      if (index >= 0) DefaultTabController.of(context).animateTo(index);
+    }
+
+    final canFinance = _failOpen(user, 'projects.finance.read');
+    final canCreateTask = _failOpen(user, 'projects.tasks.create');
+    final canManageFiles = _failOpen(user, 'projects.operations.manage');
+    final canSeeCostControl = _failOpen(user, 'projects.cost_control.read');
+
+    final summaryAsync = canFinance ? ref.watch(projectFinancialSummaryProvider(projectId)) : null;
+    final costControlAsync = canFinance && canSeeCostControl ? ref.watch(projectCostControlProvider(projectId)) : null;
+
+    Future<void> addExpense() async {
+      final created = await showExpenseFormSheet(context, projectId, currency: project.currency);
+      if (created != null) {
+        ref.invalidate(projectExpensesProvider(projectId));
+        ref.invalidate(projectFinancialSummaryProvider(projectId));
+        if (canSeeCostControl) ref.invalidate(projectCostControlProvider(projectId));
+      }
+    }
+
+    Future<void> addCollection() async {
+      final created = await showCollectionFormSheet(context, projectId, currency: project.currency);
+      if (created != null) {
+        ref.invalidate(projectCollectionsProvider(projectId));
+        ref.invalidate(projectFinancialSummaryProvider(projectId));
+        if (canSeeCostControl) ref.invalidate(projectCostControlProvider(projectId));
+      }
+    }
+
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       children: [
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(project.projectNo, style: const TextStyle(fontWeight: FontWeight.w700)),
-                    StatusRegistry.build(project.status, StatusRegistry.project),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _InfoRow(label: 'Proje Türü', value: project.projectType.isEmpty ? '-' : project.projectType),
-                _InfoRow(
-                    label: 'Sözleşme Tutarı',
-                    value: Formatters.money(project.contractAmount, currency: project.currency)),
-                _InfoRow(label: 'Başlangıç', value: Formatters.date(project.startDate)),
-                _InfoRow(label: 'Bitiş', value: Formatters.date(project.endDate)),
-              ],
-            ),
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(project.projectNo, style: AppTypography.cardTitle),
+                  ),
+                  StatusRegistry.build(project.status, StatusRegistry.project),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _InfoRow(label: 'Proje Türü', value: project.projectType.isEmpty ? '-' : project.projectType),
+              _InfoRow(
+                  label: 'Sözleşme Tutarı',
+                  value: Formatters.money(project.contractAmount, currency: project.currency)),
+              _InfoRow(label: 'Başlangıç', value: Formatters.date(project.startDate)),
+              _InfoRow(label: 'Bitiş', value: Formatters.date(project.endDate)),
+            ],
           ),
         ),
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Müşteri Bilgileri', style: TextStyle(fontWeight: FontWeight.w700)),
-                const SizedBox(height: 8),
-                _InfoRow(label: 'Ad', value: project.customerName),
-                _InfoRow(label: 'Telefon', value: project.customerPhone.isEmpty ? '-' : project.customerPhone),
-                _InfoRow(label: 'E-posta', value: project.customerEmail.isEmpty ? '-' : project.customerEmail),
-              ],
-            ),
+        const SizedBox(height: AppSpacing.md),
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Müşteri Bilgileri', style: AppTypography.cardTitle),
+              const SizedBox(height: AppSpacing.sm),
+              _InfoRow(label: 'Ad', value: project.customerName.isEmpty ? '-' : project.customerName),
+              _InfoRow(label: 'Telefon', value: project.customerPhone.isEmpty ? '-' : project.customerPhone),
+              _InfoRow(label: 'E-posta', value: project.customerEmail.isEmpty ? '-' : project.customerEmail),
+            ],
           ),
         ),
         if (project.description.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Açıklama', style: TextStyle(fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 8),
-                  Text(project.description),
-                ],
-              ),
+          const SizedBox(height: AppSpacing.md),
+          AppCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Açıklama', style: AppTypography.cardTitle),
+                const SizedBox(height: AppSpacing.sm),
+                Text(project.description, style: AppTypography.body),
+              ],
             ),
           ),
         ],
+        const SizedBox(height: AppSpacing.lg),
+        const AppSectionHeader(title: 'Hızlı İşlemler'),
+        const SizedBox(height: AppSpacing.sm),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              if (canFinance)
+                QuickActionButton(icon: Icons.receipt_long_outlined, label: 'Masraf Ekle', onPressed: addExpense),
+              if (canFinance) ...[
+                const SizedBox(width: AppSpacing.sm),
+                QuickActionButton(
+                    icon: Icons.payments_outlined, label: 'Tahsilat Ekle', onPressed: addCollection),
+              ],
+              if (canCreateTask) ...[
+                const SizedBox(width: AppSpacing.sm),
+                QuickActionButton(
+                  icon: Icons.checklist_outlined,
+                  label: 'Görev Ekle',
+                  onPressed: () => context.push('/projeler/$projectId/gorevler/yeni'),
+                ),
+              ],
+              if (canManageFiles) ...[
+                const SizedBox(width: AppSpacing.sm),
+                QuickActionButton(
+                  icon: Icons.photo_camera_outlined,
+                  label: 'Fotoğraf Ekle',
+                  onPressed: () => goToGroup('Dokümanlar'),
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (summaryAsync != null) ...[
+          const SizedBox(height: AppSpacing.lg),
+          const AppSectionHeader(title: 'Finansal Özet'),
+          const SizedBox(height: AppSpacing.sm),
+          AsyncStateView(
+            value: summaryAsync,
+            onRetry: () async => ref.invalidate(projectFinancialSummaryProvider(projectId)),
+            data: (context, s) => _FinancialSummaryCard(summary: s, costControl: costControlAsync?.valueOrNull),
+          ),
+        ],
+        const SizedBox(height: AppSpacing.xl),
+        const AppSectionHeader(title: 'Proje Alanları'),
+        const SizedBox(height: AppSpacing.sm),
+        for (final group in visibleGroups.where((g) => g.label != 'Özet'))
+          _GroupNavCard(
+            label: group.label,
+            subtitle: switch (group.label) {
+              'Finans' => 'Tahsilat, masraf, maliyet kontrolü ve kârlılık',
+              'Operasyon' => 'Taşeronlar, satın alma ve görevler',
+              'Dokümanlar' => 'Dosyalar, fotoğraflar ve notlar',
+              _ => '',
+            },
+            icon: switch (group.label) {
+              'Finans' => Icons.account_balance_wallet_outlined,
+              'Operasyon' => Icons.engineering_outlined,
+              'Dokümanlar' => Icons.folder_outlined,
+              _ => Icons.circle_outlined,
+            },
+            onTap: () => goToGroup(group.label),
+          ),
+        const SizedBox(height: AppSpacing.sm),
+        AppCard(
+          onTap: () => _openActivity(context, projectId),
+          child: Row(
+            children: [
+              const Icon(Icons.history, color: AppColors.textMuted, size: 20),
+              const SizedBox(width: AppSpacing.md),
+              const Expanded(child: Text('Tüm proje hareketlerini görüntüle', style: AppTypography.body)),
+              const Icon(Icons.chevron_right, color: AppColors.textMuted),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _GroupNavCard extends StatelessWidget {
+  const _GroupNavCard({required this.label, required this.subtitle, required this.icon, required this.onTap});
+  final String label;
+  final String subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(color: AppColors.gold.withValues(alpha: 0.12), shape: BoxShape.circle),
+            child: Icon(icon, color: AppColors.gold, size: 20),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: AppTypography.cardTitle),
+                Text(subtitle, style: AppTypography.metadata, maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right, color: AppColors.textMuted),
+        ],
+      ),
+    );
+  }
+}
+
+enum _FinansView { finans, ekIsler, maliyetKontrolu }
+
+/// "Finans" grubu -- Finans/Ek İşler/Maliyet Kontrolü arasında geçer.
+/// Her alt-görünüm İZNİNE göre ayrı ayrı gizlenir (Maliyet Kontrolü
+/// `projects.cost_control.read`, diğer ikisi `projects.finance.read`) --
+/// grubun kendisi görünürse bile alt-sekmelerden biri gizli kalabilir.
+class _FinansGroupTab extends ConsumerStatefulWidget {
+  const _FinansGroupTab({required this.projectId, required this.project});
+  final String projectId;
+  final Project project;
+
+  @override
+  ConsumerState<_FinansGroupTab> createState() => _FinansGroupTabState();
+}
+
+class _FinansGroupTabState extends ConsumerState<_FinansGroupTab> {
+  _FinansView? _view;
+
+  @override
+  Widget build(BuildContext context) {
+    final user = ref.watch(authControllerProvider).valueOrNull;
+    final canFinance = _failOpen(user, 'projects.finance.read');
+    final canCostControl = _failOpen(user, 'projects.cost_control.read');
+
+    final segments = [
+      if (canFinance) const ButtonSegment(value: _FinansView.finans, label: Text('Finans')),
+      if (canFinance) const ButtonSegment(value: _FinansView.ekIsler, label: Text('Ek İşler')),
+      if (canCostControl) const ButtonSegment(value: _FinansView.maliyetKontrolu, label: Text('Maliyet Kontrolü')),
+    ];
+    _view ??= segments.isEmpty ? null : segments.first.value;
+    if (_view == null) return const SizedBox.shrink();
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: SegmentedButton<_FinansView>(
+            segments: segments,
+            selected: {_view!},
+            onSelectionChanged: (s) => setState(() => _view = s.first),
+          ),
+        ),
+        Expanded(
+          child: switch (_view!) {
+            _FinansView.finans => _FinanceTab(projectId: widget.projectId, project: widget.project),
+            _FinansView.ekIsler => _ChangeOrdersTab(projectId: widget.projectId),
+            _FinansView.maliyetKontrolu => _CostControlTab(projectId: widget.projectId, project: widget.project),
+          },
+        ),
+      ],
+    );
+  }
+}
+
+enum _OperasyonView { taseronlar, satinAlma, gorevler }
+
+/// "Operasyon" grubu -- Taşeronlar/Satın Alma/Görevler arasında geçer.
+class _OperasyonGroupTab extends ConsumerStatefulWidget {
+  const _OperasyonGroupTab({required this.projectId});
+  final String projectId;
+
+  @override
+  ConsumerState<_OperasyonGroupTab> createState() => _OperasyonGroupTabState();
+}
+
+class _OperasyonGroupTabState extends ConsumerState<_OperasyonGroupTab> {
+  _OperasyonView? _view;
+
+  @override
+  Widget build(BuildContext context) {
+    final user = ref.watch(authControllerProvider).valueOrNull;
+    final segments = [
+      if (_failOpen(user, 'projects.subcontracts.read'))
+        const ButtonSegment(value: _OperasyonView.taseronlar, label: Text('Taşeronlar')),
+      if (_failOpen(user, 'projects.procurement.read'))
+        const ButtonSegment(value: _OperasyonView.satinAlma, label: Text('Satın Alma')),
+      if (_failOpen(user, 'projects.tasks.read'))
+        const ButtonSegment(value: _OperasyonView.gorevler, label: Text('Görevler')),
+    ];
+    _view ??= segments.isEmpty ? null : segments.first.value;
+    if (_view == null) return const SizedBox.shrink();
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: SegmentedButton<_OperasyonView>(
+            segments: segments,
+            selected: {_view!},
+            onSelectionChanged: (s) => setState(() => _view = s.first),
+          ),
+        ),
+        Expanded(
+          child: switch (_view!) {
+            _OperasyonView.taseronlar => _SubcontractsTab(projectId: widget.projectId),
+            _OperasyonView.satinAlma => _ProcurementTab(projectId: widget.projectId),
+            _OperasyonView.gorevler => _OperationsTab(projectId: widget.projectId),
+          },
+        ),
+      ],
+    );
+  }
+}
+
+enum _DokumanlarView { dosyalar, notlar }
+
+/// "Dokümanlar" grubu -- Dosyalar/Notlar arasında geçer. İkisi de AYNI
+/// izni (`projects.operations.read`) paylaştığı için alt-segment listesi
+/// hiçbir zaman boş kalmaz (grup zaten bu izne göre gizlendi).
+class _DokumanlarGroupTab extends StatefulWidget {
+  const _DokumanlarGroupTab({required this.projectId});
+  final String projectId;
+
+  @override
+  State<_DokumanlarGroupTab> createState() => _DokumanlarGroupTabState();
+}
+
+class _DokumanlarGroupTabState extends State<_DokumanlarGroupTab> {
+  _DokumanlarView _view = _DokumanlarView.dosyalar;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: SegmentedButton<_DokumanlarView>(
+            segments: const [
+              ButtonSegment(value: _DokumanlarView.dosyalar, label: Text('Dosyalar')),
+              ButtonSegment(value: _DokumanlarView.notlar, label: Text('Notlar')),
+            ],
+            selected: {_view},
+            onSelectionChanged: (s) => setState(() => _view = s.first),
+          ),
+        ),
+        Expanded(
+          child: switch (_view) {
+            _DokumanlarView.dosyalar => _FilesTab(projectId: widget.projectId),
+            _DokumanlarView.notlar => _NotesTab(projectId: widget.projectId),
+          },
+        ),
       ],
     );
   }
@@ -214,7 +524,7 @@ class _FinanceTab extends ConsumerWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Masraflar', style: TextStyle(fontWeight: FontWeight.w700)),
+              const Expanded(child: Text('Masraflar', style: TextStyle(fontWeight: FontWeight.w700))),
               TextButton.icon(
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('Masraf Ekle'),
@@ -264,7 +574,7 @@ class _FinanceTab extends ConsumerWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Tahsilatlar', style: TextStyle(fontWeight: FontWeight.w700)),
+              const Expanded(child: Text('Tahsilatlar', style: TextStyle(fontWeight: FontWeight.w700))),
               TextButton.icon(
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('Tahsilat Ekle'),
@@ -376,10 +686,21 @@ class _FinancialSummaryCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Tahmini / Öngörülen', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.grey)),
-                Text(
-                  hasForecastBudget ? 'bütçeye göre (EAC)' : 'taahhüt bazlı',
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                const Flexible(
+                  child: Text('Tahmini / Öngörülen',
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.grey),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Flexible(
+                  child: Text(
+                    hasForecastBudget ? 'bütçeye göre (EAC)' : 'taahhüt bazlı',
+                    textAlign: TextAlign.right,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
                 ),
               ],
             ),
@@ -571,12 +892,12 @@ class _SubcontractsTab extends ConsumerWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Taşeron Sözleşmeleri', style: TextStyle(fontWeight: FontWeight.w700)),
+              const Expanded(child: Text('Taşeron Sözleşmeleri', style: TextStyle(fontWeight: FontWeight.w700))),
               if (canCreate)
-                FilledButton.tonalIcon(
+                IconButton(
                   onPressed: () => context.push('/projeler/$projectId/taseronlar/yeni'),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Taşeron Sözleşmesi Ekle'),
+                  icon: const Icon(Icons.add_circle_outline),
+                  tooltip: 'Taşeron Sözleşmesi Ekle',
                 ),
             ],
           ),
@@ -849,7 +1170,7 @@ class _OperationsTabState extends ConsumerState<_OperationsTab> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Görevler', style: TextStyle(fontWeight: FontWeight.w700)),
+              const Expanded(child: Text('Görevler', style: TextStyle(fontWeight: FontWeight.w700))),
               if (canCreate)
                 TextButton.icon(
                   icon: const Icon(Icons.add, size: 18),
@@ -1233,9 +1554,10 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Şantiye Fotoğrafları', style: TextStyle(fontWeight: FontWeight.w700)),
+              const Expanded(child: Text('Şantiye Fotoğrafları', style: TextStyle(fontWeight: FontWeight.w700))),
               if (canManage)
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
                       icon: const Icon(Icons.photo_camera_outlined),
@@ -1454,13 +1776,26 @@ class _InfoRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13)),
-          Text(
-            value,
-            style: TextStyle(
-              fontWeight: emphasize ? FontWeight.w800 : FontWeight.w600,
-              fontSize: emphasize ? 16 : 13,
-              color: valueColor,
+          Flexible(
+            flex: 2,
+            child: Text(label,
+                style: const TextStyle(color: Colors.grey, fontSize: 13),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Flexible(
+            flex: 3,
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: emphasize ? FontWeight.w800 : FontWeight.w600,
+                fontSize: emphasize ? 16 : 13,
+                color: valueColor,
+              ),
             ),
           ),
         ],
@@ -1498,7 +1833,7 @@ class _NotesTab extends ConsumerWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Proje Notları', style: TextStyle(fontWeight: FontWeight.w700)),
+              const Expanded(child: Text('Proje Notları', style: TextStyle(fontWeight: FontWeight.w700))),
               if (canCreate)
                 FilledButton.tonalIcon(
                   onPressed: () => _addNote(context, ref),

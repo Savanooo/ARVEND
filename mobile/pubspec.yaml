@@ -66,3 +66,22 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # Tek değişken-genişlikli (variable) dosya, ağırlık ekseni 100-900 --
+  # her `weight:` girişi AYNI dosyaya işaret eder, Flutter doğru ağırlığı
+  # dosyanın kendi 'wght' ekseninden çözer. Google Fonts'tan (Apache 2.0)
+  # indirilip statik olarak paketlendi -- çalışma zamanında ağ isteği YOK
+  # (bkz. AppTheme, sahada çevrimdışı kullanım önceliği).
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Variable.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-Variable.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-Variable.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Variable.ttf
+          weight: 700
+        - asset: assets/fonts/Inter-Variable.ttf
+          weight: 800

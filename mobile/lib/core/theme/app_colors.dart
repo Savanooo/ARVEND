@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
 /// Web ARVEND ile aynı marka dili. Gold yalnızca vurgu/CTA/seçili durumda
-/// kullanılır - bkz. AppTheme.
+/// kullanılır - bkz. AppTheme. Marka rengi (gold) ile durum rengi (success/
+/// warning/danger/info) KASITLI OLARAK ayrı iki kavramdır -- gold hiçbir
+/// zaman bir durumu (ör. "uyarı") temsil etmez, bkz. AppStatusColors
+/// (app_status_colors.dart) ve status_badge.dart.
 abstract final class AppColors {
   static const navDark = Color(0xFF111827);
   static const background = Color(0xFFF8FAFC);

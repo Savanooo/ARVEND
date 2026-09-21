@@ -4,7 +4,17 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/errors/api_exception.dart';
-import '../../../core/utils/formatters.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_radius.dart';
+import '../../../core/theme/app_shadows.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_buttons.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/app_page_scaffold.dart';
+import '../../../core/widgets/app_section_header.dart';
+import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/money_text.dart';
 import '../../calculations/presentation/metraj_screen.dart';
 import '../data/offers_providers.dart';
 import '../domain/offer.dart';
@@ -319,104 +329,149 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
   @override
   Widget build(BuildContext context) {
     final canManageInternal = _canManageInternal;
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.isEdit ? 'Teklifi Düzenle' : 'Yeni Teklif')),
+    return AppPageScaffold(
+      title: Text(widget.isEdit ? 'Teklifi Düzenle' : 'Yeni Teklif'),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const LoadingState()
           : Form(
               key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
+              child: Column(
                 children: [
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      icon: const Icon(Icons.person_search_outlined, size: 18),
-                      label: const Text('Mevcut Müşteriden Seç'),
-                      onPressed: _pickCustomer,
-                    ),
-                  ),
-                  TextFormField(
-                    controller: _customerNameController,
-                    decoration: const InputDecoration(labelText: 'Müşteri Adı'),
-                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Müşteri adı gerekli' : null,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _customerPhoneController,
-                    decoration: const InputDecoration(labelText: 'Telefon (opsiyonel)'),
-                    keyboardType: TextInputType.phone,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _customerEmailController,
-                    decoration: const InputDecoration(labelText: 'E-posta (opsiyonel)'),
-                    keyboardType: TextInputType.emailAddress,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _customerAddressController,
-                    decoration: const InputDecoration(labelText: 'Adres (opsiyonel)'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _vatRateController,
-                    decoration: const InputDecoration(labelText: 'KDV Oranı (%)'),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Kalemler', style: TextStyle(fontWeight: FontWeight.w700)),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          TextButton.icon(
-                            icon: const Icon(Icons.calculate_outlined, size: 18),
-                            label: const Text('Metrajdan Ekle'),
-                            onPressed: _addFromMetraj,
+                  Expanded(
+                    child: ListView(
+                      padding: const EdgeInsets.all(AppSpacing.lg),
+                      children: [
+                        AppSectionHeader(
+                          title: 'Müşteri',
+                          trailing: TextButton.icon(
+                            icon: const Icon(Icons.person_search_outlined, size: 18),
+                            label: const Text('Seç'),
+                            onPressed: _pickCustomer,
                           ),
-                          TextButton.icon(
-                            icon: const Icon(Icons.add, size: 18),
-                            label: const Text('Kalem Ekle'),
-                            onPressed: () => setState(() => _items.add(_DraftItem())),
+                        ),
+                        if (_customerId != null) ...[
+                          const SizedBox(height: 2),
+                          Row(
+                            children: [
+                              const Icon(Icons.link, size: 14, color: AppColors.success),
+                              const SizedBox(width: 4),
+                              Text('Kayıtlı müşteriye bağlı', style: AppTypography.helper.copyWith(color: AppColors.success)),
+                            ],
                           ),
                         ],
-                      ),
-                    ],
+                        const SizedBox(height: AppSpacing.sm),
+                        AppCard(
+                          child: Column(
+                            children: [
+                              TextFormField(
+                                controller: _customerNameController,
+                                decoration: const InputDecoration(labelText: 'Müşteri Adı'),
+                                validator: (v) => (v == null || v.trim().isEmpty) ? 'Müşteri adı gerekli' : null,
+                              ),
+                              const SizedBox(height: AppSpacing.md),
+                              TextFormField(
+                                controller: _customerPhoneController,
+                                decoration: const InputDecoration(labelText: 'Telefon (opsiyonel)'),
+                                keyboardType: TextInputType.phone,
+                              ),
+                              const SizedBox(height: AppSpacing.md),
+                              TextFormField(
+                                controller: _customerEmailController,
+                                decoration: const InputDecoration(labelText: 'E-posta (opsiyonel)'),
+                                keyboardType: TextInputType.emailAddress,
+                              ),
+                              const SizedBox(height: AppSpacing.md),
+                              TextFormField(
+                                controller: _customerAddressController,
+                                decoration: const InputDecoration(labelText: 'Adres (opsiyonel)'),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.lg),
+                        TextFormField(
+                          controller: _vatRateController,
+                          decoration: const InputDecoration(labelText: 'KDV Oranı (%)'),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
+                        const SizedBox(height: AppSpacing.xl),
+                        const AppSectionHeader(title: 'Kalemler'),
+                        const SizedBox(height: 4),
+                        Wrap(
+                          spacing: AppSpacing.xs,
+                          runSpacing: 4,
+                          children: [
+                            TextButton.icon(
+                              icon: const Icon(Icons.calculate_outlined, size: 18),
+                              label: const Text('Metrajdan Ekle'),
+                              onPressed: _addFromMetraj,
+                            ),
+                            TextButton.icon(
+                              icon: const Icon(Icons.add, size: 18),
+                              label: const Text('Kalem Ekle'),
+                              onPressed: () => setState(() => _items.add(_DraftItem())),
+                            ),
+                          ],
+                        ),
+                        ..._items.asMap().entries.map((entry) => _ItemRow(
+                              key: ValueKey('item-${entry.key}-$_prefilled'),
+                              item: entry.value,
+                              showInternal: canManageInternal,
+                              onChanged: () => setState(() {}),
+                              onRemove: _items.length > 1 ? () => setState(() => _items.removeAt(entry.key)) : null,
+                            )),
+                        const SizedBox(height: AppSpacing.md),
+                        TextFormField(
+                          controller: _notesController,
+                          decoration: const InputDecoration(labelText: 'Notlar (opsiyonel)'),
+                          maxLines: 3,
+                        ),
+                        if (_error != null) ...[
+                          const SizedBox(height: AppSpacing.md),
+                          Text(_error!, style: AppTypography.error),
+                        ],
+                        const SizedBox(height: AppSpacing.xl),
+                      ],
+                    ),
                   ),
-                  ..._items.asMap().entries.map((entry) => _ItemRow(
-                        key: ValueKey('item-${entry.key}-$_prefilled'),
-                        item: entry.value,
-                        showInternal: canManageInternal,
-                        onChanged: () => setState(() {}),
-                        onRemove: _items.length > 1 ? () => setState(() => _items.removeAt(entry.key)) : null,
-                      )),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _notesController,
-                    decoration: const InputDecoration(labelText: 'Notlar (opsiyonel)'),
-                    maxLines: 3,
-                  ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 12),
-                    Text(_error!, style: const TextStyle(color: Colors.red)),
-                  ],
-                  const SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: _submitting ? null : _submit,
-                    child: _submitting
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
-                          )
-                        : Text(widget.isEdit ? 'Kaydet' : 'Teklifi Oluştur'),
+                  _StickyActionBar(
+                    child: PrimaryButton(
+                      label: widget.isEdit ? 'Kaydet' : 'Teklifi Oluştur',
+                      loading: _submitting,
+                      onPressed: _submit,
+                    ),
                   ),
                 ],
               ),
             ),
+    );
+  }
+}
+
+/// Formun altına sabitlenmiş aksiyon çubuğu -- uzun formlarda kaydet
+/// butonuna ulaşmak için listenin sonuna kadar kaydırmayı GEREKTİRMEZ
+/// (bkz. redesign denetim raporu, Faz 7/10 bulgusu).
+class _StickyActionBar extends StatelessWidget {
+  const _StickyActionBar({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(top: BorderSide(color: AppColors.border)),
+        boxShadow: AppShadows.subtle,
+      ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.md,
+          AppSpacing.lg,
+          AppSpacing.md + MediaQuery.of(context).padding.bottom,
+        ),
+        child: child,
+      ),
     );
   }
 }
@@ -438,152 +493,177 @@ class _ItemRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final preview = item.previewSellPrice;
-    return Card(
-      margin: const EdgeInsets.only(top: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    initialValue: item.productName,
-                    decoration: InputDecoration(
-                      labelText: item.fromCalc ? 'Ürün / Hizmet (metraj)' : 'Ürün / Hizmet Adı',
-                      isDense: true,
-                    ),
-                    onChanged: (v) {
-                      item.productName = v;
-                      onChanged();
-                    },
+    return AppCard(
+      margin: const EdgeInsets.only(top: AppSpacing.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  initialValue: item.productName,
+                  decoration: InputDecoration(
+                    labelText: item.fromCalc ? 'Ürün / Hizmet (metraj)' : 'Ürün / Hizmet Adı',
+                    isDense: true,
                   ),
+                  onChanged: (v) {
+                    item.productName = v;
+                    onChanged();
+                  },
                 ),
-                if (onRemove != null) IconButton(icon: const Icon(Icons.close, size: 18), onPressed: onRemove),
-              ],
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              initialValue: item.sectionLabel ?? '',
-              decoration: const InputDecoration(labelText: 'Bölüm / Alan (opsiyonel — Salon, Oda 1, Koridor...)', isDense: true),
-              onChanged: (v) {
-                item.sectionLabel = v.trim().isEmpty ? null : v.trim();
-                onChanged();
-              },
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    initialValue: item.quantity,
-                    decoration: const InputDecoration(labelText: 'Miktar', isDense: true),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    onChanged: (v) {
-                      item.quantity = v;
-                      onChanged();
-                    },
+              ),
+              if (onRemove != null) IconButton(icon: const Icon(Icons.close, size: 18), onPressed: onRemove),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          TextFormField(
+            initialValue: item.sectionLabel ?? '',
+            decoration: const InputDecoration(
+                labelText: 'Bölüm / Alan (opsiyonel — Salon, Oda 1, Koridor...)', isDense: true),
+            onChanged: (v) {
+              item.sectionLabel = v.trim().isEmpty ? null : v.trim();
+              onChanged();
+            },
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  initialValue: item.quantity,
+                  decoration: const InputDecoration(labelText: 'Miktar', isDense: true),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  onChanged: (v) {
+                    item.quantity = v;
+                    onChanged();
+                  },
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: TextFormField(
+                  initialValue: item.unit,
+                  decoration: const InputDecoration(labelText: 'Birim', isDense: true),
+                  onChanged: (v) {
+                    item.unit = v;
+                    onChanged();
+                  },
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: TextFormField(
+                  initialValue: item.unitPrice,
+                  decoration: InputDecoration(
+                    labelText: item.pricingMode == OfferItem.pricingModeMarkup ? 'Satış (önizleme)' : 'Birim Fiyat',
+                    isDense: true,
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextFormField(
-                    initialValue: item.unit,
-                    decoration: const InputDecoration(labelText: 'Birim', isDense: true),
-                    onChanged: (v) {
-                      item.unit = v;
-                      onChanged();
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextFormField(
-                    initialValue: item.unitPrice,
-                    decoration: InputDecoration(
-                      labelText: item.pricingMode == OfferItem.pricingModeMarkup
-                          ? 'Satış (önizleme)'
-                          : 'Birim Fiyat',
-                      isDense: true,
-                    ),
-                    enabled: item.pricingMode != OfferItem.pricingModeMarkup,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    onChanged: (v) {
-                      item.unitPrice = v;
-                      onChanged();
-                    },
-                  ),
-                ),
-              ],
-            ),
-            if (showInternal) ...[
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange.withValues(alpha: 0.35)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('İç Maliyet / Müşteri Görmez',
-                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5)),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      initialValue: item.pricingMode.isEmpty ? '' : item.pricingMode,
-                      decoration: const InputDecoration(labelText: 'Fiyat Modu', isDense: true),
-                      items: const [
-                        DropdownMenuItem(value: '', child: Text('Yok')),
-                        DropdownMenuItem(value: OfferItem.pricingModeMarkup, child: Text('Markup')),
-                        DropdownMenuItem(value: OfferItem.pricingModeManual, child: Text('Manuel satış')),
-                      ],
-                      onChanged: (v) {
-                        item.pricingMode = v ?? '';
-                        if (item.pricingMode != OfferItem.pricingModeMarkup) {
-                          item.markupPercent = '';
-                        }
-                        onChanged();
-                      },
-                    ),
-                    if (item.pricingMode.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        initialValue: item.internalCost,
-                        decoration: const InputDecoration(labelText: 'İç taşeron maliyeti', isDense: true),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        onChanged: (v) {
-                          item.internalCost = v;
-                          onChanged();
-                        },
-                      ),
-                    ],
-                    if (item.pricingMode == OfferItem.pricingModeMarkup) ...[
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        initialValue: item.markupPercent,
-                        decoration: const InputDecoration(labelText: 'Markup %', isDense: true),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        onChanged: (v) {
-                          item.markupPercent = v;
-                          onChanged();
-                        },
-                      ),
-                      if (preview != null) ...[
-                        const SizedBox(height: 6),
-                        Text('Önizleme satış: ${Formatters.money(preview)} (sunucu kesinleştirir)',
-                            style: const TextStyle(fontSize: 12, color: Colors.black54)),
-                      ],
-                    ],
-                  ],
+                  enabled: item.pricingMode != OfferItem.pricingModeMarkup,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  onChanged: (v) {
+                    item.unitPrice = v;
+                    onChanged();
+                  },
                 ),
               ),
             ],
+          ),
+          if (showInternal) ...[
+            const SizedBox(height: AppSpacing.md),
+            _InternalPricingBox(item: item, preview: preview, onChanged: onChanged),
           ],
-        ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bu kalemin müşteriye ASLA gösterilmeyen kısmı. Renkle SINIRLI kalmayan
+/// bir ayrım için: kilit ikonu + açık başlık + alt metin + FARKLI bir
+/// nötr/koyu ton (durum renklerinden -- success/warning/danger/info --
+/// KASITLI OLARAK ayrı, çünkü bu bir "durum" değil bir "gizlilik" ekseni).
+class _InternalPricingBox extends StatelessWidget {
+  const _InternalPricingBox({required this.item, required this.preview, required this.onChanged});
+  final _DraftItem item;
+  final double? preview;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.navDark.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(AppRadius.control),
+        border: Border.all(color: AppColors.navDark.withValues(alpha: 0.16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.lock_outline, size: 16, color: AppColors.navDark),
+              const SizedBox(width: 6),
+              Text('İç Fiyatlandırma', style: AppTypography.cardTitle.copyWith(color: AppColors.navDark)),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 22, top: 2, bottom: AppSpacing.sm),
+            child: Text('Müşteri görmez', style: AppTypography.helper),
+          ),
+          DropdownButtonFormField<String>(
+            initialValue: item.pricingMode.isEmpty ? '' : item.pricingMode,
+            decoration: const InputDecoration(labelText: 'Fiyat Modu', isDense: true),
+            items: const [
+              DropdownMenuItem(value: '', child: Text('Yok')),
+              DropdownMenuItem(value: OfferItem.pricingModeMarkup, child: Text('Markup')),
+              DropdownMenuItem(value: OfferItem.pricingModeManual, child: Text('Manuel satış')),
+            ],
+            onChanged: (v) {
+              item.pricingMode = v ?? '';
+              if (item.pricingMode != OfferItem.pricingModeMarkup) {
+                item.markupPercent = '';
+              }
+              onChanged();
+            },
+          ),
+          if (item.pricingMode.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            TextFormField(
+              initialValue: item.internalCost,
+              decoration: const InputDecoration(labelText: 'İç taşeron maliyeti', isDense: true),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              onChanged: (v) {
+                item.internalCost = v;
+                onChanged();
+              },
+            ),
+          ],
+          if (item.pricingMode == OfferItem.pricingModeMarkup) ...[
+            const SizedBox(height: AppSpacing.sm),
+            TextFormField(
+              initialValue: item.markupPercent,
+              decoration: const InputDecoration(labelText: 'Markup %', isDense: true),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              onChanged: (v) {
+                item.markupPercent = v;
+                onChanged();
+              },
+            ),
+            if (preview != null) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Text('Önizleme satış: ', style: AppTypography.helper),
+                  MoneyText(preview!, style: AppTypography.helper.copyWith(fontWeight: FontWeight.w700)),
+                  Text(' (sunucu kesinleştirir)', style: AppTypography.helper),
+                ],
+              ),
+            ],
+          ],
+        ],
       ),
     );
   }

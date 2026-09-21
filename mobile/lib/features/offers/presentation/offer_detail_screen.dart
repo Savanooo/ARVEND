@@ -6,8 +6,17 @@ import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/errors/api_exception.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_radius.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/app_buttons.dart';
+import '../../../core/widgets/app_card.dart';
+import '../../../core/widgets/app_page_scaffold.dart';
+import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/money_text.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../data/offers_providers.dart';
 import '../domain/offer.dart';
@@ -79,6 +88,9 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     try {
       final link = await ref.read(offersRepositoryProvider).createShareLink(offerId);
       if (!mounted) return;
+      // Ağ çağrısı bitti -- diyalog açık kaldığı sürece (kullanıcı kopyala/
+      // kapat'a basana kadar) buton sonsuza dek "yükleniyor" görünmesin.
+      setState(() => _creatingLink = false);
       final url = '${AppConfig.apiBaseUrl}/paylas/${link.token}';
       await showDialog<void>(
         context: context,
@@ -147,22 +159,20 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     final linkedProjectIdAsync =
         canHaveProject ? ref.watch(offerLinkedProjectIdProvider(offerId)) : const AsyncValue<String?>.data(null);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: offerAsync.maybeWhen(data: (o) => Text(o.offerNo), orElse: () => const Text('Teklif')),
-        actions: [
-          offerAsync.maybeWhen(
-            data: (o) => o.isEditable
-                ? IconButton(
-                    tooltip: 'Düzenle',
-                    icon: const Icon(Icons.edit_outlined),
-                    onPressed: () => context.push('/teklifler/$offerId/duzenle'),
-                  )
-                : const SizedBox.shrink(),
-            orElse: () => const SizedBox.shrink(),
-          ),
-        ],
-      ),
+    return AppPageScaffold(
+      title: offerAsync.maybeWhen(data: (o) => Text(o.offerNo), orElse: () => const Text('Teklif')),
+      actions: [
+        offerAsync.maybeWhen(
+          data: (o) => o.isEditable
+              ? IconButton(
+                  tooltip: 'Düzenle',
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: () => context.push('/teklifler/$offerId/duzenle'),
+                )
+              : const SizedBox.shrink(),
+          orElse: () => const SizedBox.shrink(),
+        ),
+      ],
       body: AsyncStateView<Offer>(
         value: offerAsync,
         onRetry: () async => ref.invalidate(offerDetailProvider(offerId)),
@@ -173,140 +183,154 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
             ref.invalidate(offerLinkedProjectIdProvider(offerId));
           },
           child: ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(AppSpacing.lg),
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   StatusRegistry.build(offer.status, StatusRegistry.offer),
-                  Text(Formatters.money(offer.grandTotal),
-                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+                  MoneyText(offer.grandTotal, style: AppTypography.pageTitle),
                 ],
               ),
-              const SizedBox(height: 8),
-              Text('Revizyon #${offer.revisionNo}', style: const TextStyle(color: Colors.black54)),
-              const SizedBox(height: 16),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(offer.customerName, style: const TextStyle(fontWeight: FontWeight.w700)),
-                      if (offer.customerPhone.isNotEmpty) Text(offer.customerPhone),
-                      if (offer.customerEmail.isNotEmpty) Text(offer.customerEmail),
-                      if (offer.customerAddress.isNotEmpty) Text(offer.customerAddress),
-                      const Divider(height: 20),
-                      _KV('Teklif Tarihi', Formatters.date(offer.offerDate)),
-                      _KV('Geçerlilik', Formatters.date(offer.validUntil)),
-                      if (offer.notes.isNotEmpty) _KV('Notlar', offer.notes),
-                    ],
-                  ),
+              const SizedBox(height: AppSpacing.sm),
+              Text('Revizyon #${offer.revisionNo}', style: AppTypography.metadata),
+              const SizedBox(height: AppSpacing.lg),
+              AppCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(offer.customerName, style: AppTypography.cardTitle),
+                    if (offer.customerPhone.isNotEmpty) Text(offer.customerPhone, style: AppTypography.body),
+                    if (offer.customerEmail.isNotEmpty) Text(offer.customerEmail, style: AppTypography.body),
+                    if (offer.customerAddress.isNotEmpty) Text(offer.customerAddress, style: AppTypography.body),
+                    const Divider(height: AppSpacing.xl),
+                    _KV('Teklif Tarihi', Formatters.date(offer.offerDate)),
+                    _KV('Geçerlilik', Formatters.date(offer.validUntil)),
+                    if (offer.notes.isNotEmpty) _KV('Notlar', offer.notes),
+                  ],
                 ),
               ),
-              const SizedBox(height: 16),
-              const Text('Kalemler', style: TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.lg),
+              const AppSectionHeader(title: 'Kalemler'),
+              const SizedBox(height: AppSpacing.sm),
               ...offer.items.map((item) => _ItemCard(item: item, showInternal: canReadInternal)),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      _KV('Ara Toplam', Formatters.money(offer.subtotal)),
-                      _KV('KDV (%${offer.vatRate.toStringAsFixed(0)})', Formatters.money(offer.vatAmount)),
-                      const Divider(),
-                      _KV('Genel Toplam', Formatters.money(offer.grandTotal), bold: true),
-                    ],
-                  ),
+              AppCard(
+                margin: const EdgeInsets.only(top: AppSpacing.sm),
+                child: Column(
+                  children: [
+                    _KV('Ara Toplam', Formatters.money(offer.subtotal)),
+                    _KV('KDV (%${offer.vatRate.toStringAsFixed(0)})', Formatters.money(offer.vatAmount)),
+                    const Divider(),
+                    _KV('Genel Toplam', Formatters.money(offer.grandTotal), bold: true),
+                  ],
                 ),
               ),
-              const SizedBox(height: 20),
-              const Text('Revizyon Geçmişi', style: TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.xl),
+              const AppSectionHeader(title: 'Revizyon Geçmişi'),
+              const SizedBox(height: AppSpacing.sm),
               AsyncStateView<List<OfferRevision>>(
                 value: revisionsAsync,
                 onRetry: () async => ref.invalidate(offerRevisionsProvider(offerId)),
                 isEmpty: (r) => r.isEmpty,
-                emptyBuilder: (_) => const Card(child: ListTile(dense: true, title: Text('Henüz revizyon yok'))),
+                emptyBuilder: (_) => const AppCard(child: Text('Henüz revizyon yok', style: AppTypography.metadata)),
                 data: (context, revs) {
                   final sorted = [...revs]..sort((a, b) => b.revisionNo.compareTo(a.revisionNo));
                   return Column(
                     children: sorted.map((r) {
                       final isCurrent = r.revisionNo == offer.revisionNo;
-                      return Card(
-                        child: ListTile(
-                          title: Text('Revizyon #${r.revisionNo}${isCurrent ? ' (güncel)' : ''}'),
-                          subtitle: Text('${Formatters.dateTime(r.createdAt)} · ${Formatters.money(r.grandTotal)}'),
-                          trailing: StatusRegistry.build(r.status, StatusRegistry.offer),
-                          onTap: () => context.push('/teklifler/$offerId/revizyonlar/${r.id}'),
+                      return AppCard(
+                        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+                        onTap: () => context.push('/teklifler/$offerId/revizyonlar/${r.id}'),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Revizyon #${r.revisionNo}${isCurrent ? ' (güncel)' : ''}',
+                                    style: AppTypography.cardTitle,
+                                  ),
+                                  Text(
+                                    '${Formatters.dateTime(r.createdAt)} · ${Formatters.money(r.grandTotal)}',
+                                    style: AppTypography.metadata,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            StatusRegistry.build(r.status, StatusRegistry.offer),
+                          ],
                         ),
                       );
                     }).toList(),
                   );
                 },
               ),
-              const SizedBox(height: 20),
-              if (offer.isEditable) ...[
-                FilledButton.icon(
-                  onPressed: () => context.push('/teklifler/$offerId/duzenle'),
-                  icon: const Icon(Icons.edit_outlined),
-                  label: const Text('Düzenle'),
-                ),
-                const SizedBox(height: 8),
-                FilledButton(
+              const SizedBox(height: AppSpacing.xl),
+              if (offer.isEditable)
+                PrimaryButton(
+                  label: 'Gönderildi Olarak İşaretle',
                   onPressed: () => _setStatus(Offer.statusGonderildi),
-                  child: const Text('Gönderildi Olarak İşaretle'),
                 ),
-              ],
-              if (offer.status == Offer.statusGonderildi) ...[
-                FilledButton(
-                  onPressed: () => _setStatus(Offer.statusKabulEdildi),
-                  child: const Text('Kabul Edildi'),
+              if (offer.status == Offer.statusGonderildi)
+                Row(
+                  children: [
+                    Expanded(
+                      child: PrimaryButton(
+                        label: 'Kabul Edildi',
+                        onPressed: () => _setStatus(Offer.statusKabulEdildi),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: SecondaryButton(
+                        label: 'Reddedildi',
+                        onPressed: () => _setStatus(Offer.statusReddedildi),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                OutlinedButton(
-                  onPressed: () => _setStatus(Offer.statusReddedildi),
-                  child: const Text('Reddedildi'),
-                ),
-              ],
-              if (offer.canRevise) ...[
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.refresh, size: 18),
-                  label: const Text('Revize Et ve Düzenle'),
-                  onPressed: _reviseAndEdit,
-                ),
-              ],
-              if (!offer.isPassive) ...[
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.ios_share_outlined, size: 18),
-                  label: const Text('Paylaşım Linki Oluştur'),
-                  onPressed: _creatingLink ? null : _createShareLink,
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.mail_outline, size: 18),
-                  label: const Text('E-posta Gönder'),
-                  onPressed: _sendingEmail ? null : _sendEmail,
-                ),
-              ],
               if (offer.status == Offer.statusKabulEdildi && canConvert) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: AppSpacing.sm),
                 linkedProjectIdAsync.maybeWhen(
                   data: (projectId) => projectId != null
-                      ? OutlinedButton.icon(
-                          icon: const Icon(Icons.business_center_outlined),
-                          label: const Text('Projeyi Görüntüle'),
+                      ? SecondaryButton(
+                          icon: Icons.business_center_outlined,
+                          label: 'Projeyi Görüntüle',
                           onPressed: () => context.push('/projeler/$projectId'),
                         )
-                      : FilledButton.icon(
-                          icon: const Icon(Icons.business_center_outlined),
-                          label: const Text('Projeye Dönüştür'),
-                          onPressed: _converting ? null : _convert,
+                      : PrimaryButton(
+                          icon: Icons.business_center_outlined,
+                          label: 'Projeye Dönüştür',
+                          loading: _converting,
+                          onPressed: _convert,
                         ),
                   orElse: () => const SizedBox.shrink(),
+                ),
+              ],
+              if (offer.canRevise || !offer.isPassive) ...[
+                const SizedBox(height: AppSpacing.md),
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.sm,
+                  children: [
+                    if (offer.canRevise)
+                      SecondaryButton(icon: Icons.refresh, label: 'Revize Et ve Düzenle', onPressed: _reviseAndEdit),
+                    if (!offer.isPassive) ...[
+                      SecondaryButton(
+                        icon: Icons.ios_share_outlined,
+                        label: 'Paylaşım Linki',
+                        loading: _creatingLink,
+                        onPressed: _createShareLink,
+                      ),
+                      SecondaryButton(
+                        icon: Icons.mail_outline,
+                        label: 'E-posta Gönder',
+                        loading: _sendingEmail,
+                        onPressed: _sendEmail,
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ],
@@ -324,59 +348,67 @@ class _ItemCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 6),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(child: Text(item.productName, style: const TextStyle(fontWeight: FontWeight.w600))),
-                Text(Formatters.money(item.lineTotal), style: const TextStyle(fontWeight: FontWeight.w700)),
-              ],
-            ),
-            Text(
-              '${item.quantity.toStringAsFixed(item.quantity.truncateToDouble() == item.quantity ? 0 : 2)} ${item.unit} × ${Formatters.money(item.unitPrice)}'
-              '${item.sectionLabel != null ? '  ·  ${item.sectionLabel}' : ''}',
-              style: const TextStyle(color: Colors.black54, fontSize: 13),
-            ),
-            if (showInternal && item.hasInternalPricing) ...[
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: Colors.orange.withValues(alpha: 0.35)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('İç Maliyet / Müşteri Görmez',
-                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
-                    if (item.internalSubcontractCost != null)
-                      Text('İç maliyet: ${Formatters.money(item.internalSubcontractCost!)}',
-                          style: const TextStyle(fontSize: 12.5)),
-                    Text(
-                      'Mod: ${item.pricingMode == OfferItem.pricingModeMarkup ? 'Markup' : item.pricingMode == OfferItem.pricingModeManual ? 'Manuel' : '-'}',
-                      style: const TextStyle(fontSize: 12.5),
-                    ),
-                    if (item.pricingMode == OfferItem.pricingModeMarkup && item.markupPercent != null)
-                      Text('Markup: %${item.markupPercent!.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12.5)),
-                    if (item.expectedProfit != null)
-                      Text('Beklenen kâr: ${Formatters.money(item.expectedProfit!)}', style: const TextStyle(fontSize: 12.5)),
-                    if (item.effectiveMarkupPercent != null)
-                      Text('Efektif markup: %${item.effectiveMarkupPercent!.toStringAsFixed(2)}',
-                          style: const TextStyle(fontSize: 12.5)),
-                  ],
-                ),
-              ),
+    return AppCard(
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text(item.productName, style: AppTypography.cardTitle)),
+              MoneyText(item.lineTotal, style: AppTypography.body.copyWith(fontWeight: FontWeight.w700)),
             ],
+          ),
+          Text(
+            '${item.quantity.toStringAsFixed(item.quantity.truncateToDouble() == item.quantity ? 0 : 2)} ${item.unit} × ${Formatters.money(item.unitPrice)}'
+            '${item.sectionLabel != null ? '  ·  ${item.sectionLabel}' : ''}',
+            style: AppTypography.metadata,
+          ),
+          if (showInternal && item.hasInternalPricing) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(AppSpacing.sm),
+              decoration: BoxDecoration(
+                color: AppColors.navDark.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(AppRadius.control),
+                border: Border.all(color: AppColors.navDark.withValues(alpha: 0.16)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.lock_outline, size: 14, color: AppColors.navDark),
+                      const SizedBox(width: 6),
+                      Text('İç Fiyatlandırma', style: AppTypography.helper.copyWith(
+                          color: AppColors.navDark, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 20, bottom: 4),
+                    child: Text('Müşteri görmez', style: AppTypography.helper),
+                  ),
+                  if (item.internalSubcontractCost != null)
+                    Text('İç maliyet: ${Formatters.money(item.internalSubcontractCost!)}',
+                        style: AppTypography.helper),
+                  Text(
+                    'Mod: ${item.pricingMode == OfferItem.pricingModeMarkup ? 'Markup' : item.pricingMode == OfferItem.pricingModeManual ? 'Manuel' : '-'}',
+                    style: AppTypography.helper,
+                  ),
+                  if (item.pricingMode == OfferItem.pricingModeMarkup && item.markupPercent != null)
+                    Text('Markup: %${item.markupPercent!.toStringAsFixed(2)}', style: AppTypography.helper),
+                  if (item.expectedProfit != null)
+                    Text('Beklenen kâr: ${Formatters.money(item.expectedProfit!)}', style: AppTypography.helper),
+                  if (item.effectiveMarkupPercent != null)
+                    Text('Efektif markup: %${item.effectiveMarkupPercent!.toStringAsFixed(2)}',
+                        style: AppTypography.helper),
+                ],
+              ),
+            ),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -395,11 +427,15 @@ class _KV extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Colors.grey)),
+          Text(label, style: AppTypography.metadata),
           Flexible(
-            child: Text(value,
-                textAlign: TextAlign.right,
-                style: TextStyle(fontWeight: bold ? FontWeight.w800 : FontWeight.w600, fontSize: bold ? 17 : 14)),
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: bold
+                  ? AppTypography.metricPrimary.copyWith(fontSize: 17)
+                  : AppTypography.body.copyWith(fontWeight: FontWeight.w600),
+            ),
           ),
         ],
       ),

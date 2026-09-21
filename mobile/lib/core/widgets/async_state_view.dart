@@ -31,14 +31,17 @@ class AsyncStateView<T> extends StatelessWidget {
         }
         return data(context, d);
       },
-      loading: () => const _LoadingView(),
-      error: (err, st) => _ErrorView(error: err, onRetry: onRetry),
+      loading: () => const LoadingState(),
+      error: (err, st) => ErrorState(error: err, onRetry: onRetry),
     );
   }
 }
 
-class _LoadingView extends StatelessWidget {
-  const _LoadingView();
+/// Tam-ekran/tam-bölüm yükleniyor göstergesi -- `AsyncStateView` bunu
+/// otomatik kullanır; bağımsız bir yükleniyor durumu gerektiğinde
+/// (ör. yeni bir bileşim) doğrudan da kullanılabilir.
+class LoadingState extends StatelessWidget {
+  const LoadingState({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -52,8 +55,10 @@ class _LoadingView extends StatelessWidget {
   }
 }
 
-class _ErrorView extends StatelessWidget {
-  const _ErrorView({required this.error, this.onRetry});
+/// Tam-ekran/tam-bölüm hata durumu -- ham backend hata metni yerine
+/// güvenli bir mesaj + isteğe bağlı "Tekrar Dene" gösterir.
+class ErrorState extends StatelessWidget {
+  const ErrorState({super.key, required this.error, this.onRetry});
 
   final Object error;
   final Future<void> Function()? onRetry;

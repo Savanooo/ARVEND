@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
 
-enum StatusTone { gold, success, danger, muted, info }
+/// `gold`, marka vurgusudur (ör. "ödüllendirildi") -- bir durum/uyarı
+/// anlamı TAŞIMAZ. "Dikkat gerektiren" durumlar `warning` kullanmalı.
+/// bkz. app_status_colors.dart.
+enum StatusTone { gold, success, danger, muted, info, warning }
 
 class StatusBadge extends StatelessWidget {
   const StatusBadge({super.key, required this.label, required this.tone});
@@ -16,6 +19,7 @@ class StatusBadge extends StatelessWidget {
         StatusTone.danger => AppColors.danger,
         StatusTone.info => AppColors.info,
         StatusTone.muted => AppColors.textMuted,
+        StatusTone.warning => AppColors.warning,
       };
 
   @override
@@ -46,7 +50,9 @@ abstract final class StatusRegistry {
   static const project = {
     'planned': ('Planlandı', StatusTone.muted),
     'active': ('Aktif', StatusTone.info),
-    'paused': ('Durduruldu', StatusTone.gold),
+    // "Durduruldu" dikkat gerektiren bir durumdur, marka vurgusu DEĞİL --
+    // bu yüzden gold değil warning (bkz. StatusTone doc-comment).
+    'paused': ('Durduruldu', StatusTone.warning),
     'completed': ('Tamamlandı', StatusTone.success),
     'cancelled': ('İptal Edildi', StatusTone.danger),
   };
