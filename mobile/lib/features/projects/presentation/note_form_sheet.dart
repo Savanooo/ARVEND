@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/errors/api_exception.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_buttons.dart';
+import '../../../core/widgets/app_form_section.dart';
 import '../data/projects_providers.dart';
 import '../domain/project.dart';
 
@@ -57,10 +61,10 @@ class _NoteFormSheetState extends ConsumerState<_NoteFormSheet> {
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 20,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+        left: AppSpacing.xl,
+        right: AppSpacing.xl,
+        top: AppSpacing.xl,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.xl,
       ),
       child: Form(
         key: _formKey,
@@ -68,48 +72,43 @@ class _NoteFormSheetState extends ConsumerState<_NoteFormSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('Not Ekle', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _contentController,
-              decoration: const InputDecoration(
-                labelText: 'Not',
-                alignLabelWithHint: true,
-              ),
-              minLines: 4,
-              maxLines: 8,
-              autofocus: true,
-              textCapitalization: TextCapitalization.sentences,
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Not boş olamaz';
-                return null;
-              },
+            Text('Not Ekle', style: AppTypography.pageTitle.copyWith(fontSize: 17)),
+            const SizedBox(height: AppSpacing.lg),
+            AppFormSection(
+              title: 'Not',
+              children: [
+                TextFormField(
+                  controller: _contentController,
+                  decoration: const InputDecoration(
+                    labelText: 'Not',
+                    alignLabelWithHint: true,
+                  ),
+                  minLines: 4,
+                  maxLines: 8,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.sentences,
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'Not boş olamaz';
+                    return null;
+                  },
+                ),
+              ],
             ),
             if (_error != null) ...[
-              const SizedBox(height: 12),
-              Text(_error!, style: const TextStyle(color: Colors.red)),
+              Text(_error!, style: AppTypography.error),
+              const SizedBox(height: AppSpacing.md),
             ],
-            const SizedBox(height: 16),
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton(
+                  child: SecondaryButton(
+                    label: 'İptal',
                     onPressed: _submitting ? null : () => Navigator.of(context).pop(),
-                    child: const Text('İptal'),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: AppSpacing.md),
                 Expanded(
-                  child: FilledButton(
-                    onPressed: _submitting ? null : _submit,
-                    child: _submitting
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
-                          )
-                        : const Text('Kaydet'),
-                  ),
+                  child: PrimaryButton(label: 'Kaydet', loading: _submitting, onPressed: _submit),
                 ),
               ],
             ),

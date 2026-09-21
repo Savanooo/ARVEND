@@ -3,6 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_radius.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_buttons.dart';
+import '../../../core/widgets/app_page_scaffold.dart';
+import '../../../core/widgets/async_state_view.dart';
 import '../data/onboarding_providers.dart';
 import '../domain/onboarding_state.dart';
 import 'onboarding_step_forms.dart';
@@ -25,7 +31,7 @@ class OnboardingWizardScreen extends ConsumerStatefulWidget {
 
 class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen> {
   OnboardingState? _state;
-  String? _loadError;
+  Object? _loadError;
   int _visibleStep = 0;
 
   @override
@@ -42,9 +48,9 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
         _state = state;
         _visibleStep = onboardingStepIndex(state.onboardingStep).clamp(0, 4);
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _loadError = 'Kurulum bilgileri yüklenemedi. Lütfen tekrar deneyin.');
+      setState(() => _loadError = e);
     }
   }
 
@@ -67,47 +73,34 @@ class _OnboardingWizardScreenState extends ConsumerState<OnboardingWizardScreen>
 
   Widget? _backButton() {
     if (_visibleStep == 0) return null;
-    return OutlinedButton(
+    return SecondaryButton(
+      label: 'Geri',
       onPressed: () => setState(() => _visibleStep -= 1),
-      child: const Text('Geri'),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final state = _state;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Firma Kurulumu'), automaticallyImplyLeading: false),
-      body: SafeArea(
-        child: state == null
-            ? Center(
-                child: _loadError != null
-                    ? Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(_loadError!, style: const TextStyle(color: AppColors.danger), textAlign: TextAlign.center),
-                            const SizedBox(height: 16),
-                            ElevatedButton(onPressed: _load, child: const Text('Tekrar Dene')),
-                          ],
-                        ),
-                      )
-                    : const CircularProgressIndicator(),
-              )
-            : ListView(
-                padding: const EdgeInsets.all(20),
-                children: [
-                  _StepIndicator(currentIndex: _visibleStep),
-                  const SizedBox(height: 24),
-                  Text(_kStepTitles[_visibleStep], style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
-                  const SizedBox(height: 4),
-                  Text('Adım ${_visibleStep + 1} / 5', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
-                  const SizedBox(height: 20),
-                  _buildStep(state),
-                ],
-              ),
-      ),
+    return AppPageScaffold(
+      title: const Text('Firma Kurulumu'),
+      // Bu ekranın uygulamaya dönecek bir geri navigasyonu YOK -- yalnızca
+      // adımlar arası sihirbaz "Geri" düğmesi var.
+      automaticallyImplyLeading: false,
+      body: state == null
+          ? (_loadError != null ? ErrorState(error: _loadError!, onRetry: _load) : const LoadingState())
+          : ListView(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              children: [
+                _StepIndicator(currentIndex: _visibleStep),
+                const SizedBox(height: AppSpacing.xl),
+                Text(_kStepTitles[_visibleStep], style: AppTypography.sectionTitle),
+                const SizedBox(height: AppSpacing.xs),
+                Text('Adım ${_visibleStep + 1} / 5', style: AppTypography.metadata),
+                const SizedBox(height: AppSpacing.lg),
+                _buildStep(state),
+              ],
+            ),
     );
   }
 
@@ -169,11 +162,11 @@ class _StepIndicator extends StatelessWidget {
         final active = i <= currentIndex;
         return Expanded(
           child: Container(
-            margin: EdgeInsets.only(right: i == _kStepTitles.length - 1 ? 0 : 6),
-            height: 4,
+            margin: EdgeInsets.only(right: i == _kStepTitles.length - 1 ? 0 : AppSpacing.xs),
+            height: AppSpacing.xs,
             decoration: BoxDecoration(
               color: active ? AppColors.gold : AppColors.border,
-              borderRadius: BorderRadius.circular(2),
+              borderRadius: BorderRadius.circular(AppRadius.badge),
             ),
           ),
         );

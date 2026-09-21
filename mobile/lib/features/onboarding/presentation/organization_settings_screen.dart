@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_page_scaffold.dart';
+import '../../../core/widgets/async_state_view.dart';
 import '../data/onboarding_providers.dart';
 import '../domain/onboarding_state.dart';
 import 'onboarding_step_forms.dart';
@@ -23,7 +27,7 @@ class OrganizationSettingsScreen extends ConsumerStatefulWidget {
 
 class _OrganizationSettingsScreenState extends ConsumerState<OrganizationSettingsScreen> {
   OnboardingState? _state;
-  String? _loadError;
+  Object? _loadError;
   String? _savedMessage;
 
   @override
@@ -38,9 +42,9 @@ class _OrganizationSettingsScreenState extends ConsumerState<OrganizationSetting
       final state = await ref.read(organizationSettingsRepositoryProvider).getState();
       if (!mounted) return;
       setState(() => _state = state);
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _loadError = 'Firma ayarları yüklenemedi.');
+      setState(() => _loadError = e);
     }
   }
 
@@ -56,45 +60,30 @@ class _OrganizationSettingsScreenState extends ConsumerState<OrganizationSetting
     final state = _state;
     return DefaultTabController(
       length: 5,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Firma Ayarları'),
-          bottom: const TabBar(
-            isScrollable: true,
-            tabs: [
-              Tab(text: 'Firma'),
-              Tab(text: 'Resmi / Fatura'),
-              Tab(text: 'Teklif'),
-              Tab(text: 'Finans'),
-              Tab(text: 'İşletme'),
-            ],
-          ),
+      child: AppPageScaffold(
+        title: const Text('Firma Ayarları'),
+        bottom: const TabBar(
+          isScrollable: true,
+          tabs: [
+            Tab(text: 'Firma'),
+            Tab(text: 'Resmi / Fatura'),
+            Tab(text: 'Teklif'),
+            Tab(text: 'Finans'),
+            Tab(text: 'İşletme'),
+          ],
         ),
         body: state == null
-            ? Center(
-                child: _loadError != null
-                    ? Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(_loadError!, style: const TextStyle(color: AppColors.danger)),
-                            const SizedBox(height: 16),
-                            ElevatedButton(onPressed: _load, child: const Text('Tekrar Dene')),
-                          ],
-                        ),
-                      )
-                    : const CircularProgressIndicator(),
-              )
+            ? (_loadError != null ? ErrorState(error: _loadError!, onRetry: _load) : const LoadingState())
             : Column(
                 children: [
                   if (_savedMessage != null)
                     Container(
                       width: double.infinity,
                       color: AppColors.success.withValues(alpha: 0.1),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
                       child: Text(_savedMessage!,
-                          textAlign: TextAlign.center, style: const TextStyle(color: AppColors.success)),
+                          textAlign: TextAlign.center,
+                          style: AppTypography.body.copyWith(color: AppColors.success)),
                     ),
                   Expanded(
                     child: TabBarView(
@@ -134,5 +123,5 @@ class _OrganizationSettingsScreenState extends ConsumerState<OrganizationSetting
     );
   }
 
-  Widget _tabPadding(Widget child) => SingleChildScrollView(padding: const EdgeInsets.all(20), child: child);
+  Widget _tabPadding(Widget child) => SingleChildScrollView(padding: const EdgeInsets.all(AppSpacing.lg), child: child);
 }

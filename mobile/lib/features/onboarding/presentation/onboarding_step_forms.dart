@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/errors/api_exception.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_buttons.dart';
+import '../../../core/widgets/app_form_section.dart';
 import '../data/onboarding_repository.dart';
 import '../domain/onboarding_state.dart';
 
@@ -12,39 +15,29 @@ import '../domain/onboarding_state.dart';
 /// AYNI [OnboardingRepository] sınıfını (yalnızca basePath'i farklı) [repository]
 /// parametresiyle geçirir, form/validasyon mantığı TEK yerde yaşar.
 
-const _fieldGap = SizedBox(height: 12);
-
 Widget _errorText(String? error) {
   if (error == null) return const SizedBox.shrink();
   return Padding(
-    padding: const EdgeInsets.only(top: 12),
-    child: Text(error, style: const TextStyle(color: AppColors.danger)),
+    padding: const EdgeInsets.only(top: AppSpacing.md),
+    child: Text(error, style: AppTypography.error),
   );
 }
 
 Widget _submitRow({required VoidCallback? onSubmit, required bool submitting, required String label, Widget? leading}) {
   return Padding(
-    padding: const EdgeInsets.only(top: 20),
+    padding: const EdgeInsets.only(top: AppSpacing.xl),
     child: Row(
       children: [
-        // OutlinedButton/ElevatedButton tema varsayılanı (Size.fromHeight)
-        // width'i infinity yapar -- Row'un loose/sınırsız genişlik veren
-        // main-axis constraint'i ile birleşince "infinite width" layout
-        // hatasına yol açar (yalnızca bu ekranda çıkar, çünkü diğer tüm
-        // buton kullanımları Column içinde tek başınadır). Expanded ile
-        // sarmalamak, butona SONLU (Row'un payına düşen) bir genişlik verir.
-        if (leading != null) ...[Expanded(child: leading), const SizedBox(width: 12)],
+        // PrimaryButton/SecondaryButton'ın ElevatedButton/OutlinedButton
+        // tema varsayılanı (Size.fromHeight) width'i infinity yapar --
+        // Row'un loose/sınırsız genişlik veren main-axis constraint'i ile
+        // birleşince "infinite width" layout hatasına yol açar (yalnızca
+        // bu ekranda çıkar, çünkü diğer tüm buton kullanımları Column
+        // içinde tek başınadır). Expanded ile sarmalamak, butona SONLU
+        // (Row'un payına düşen) bir genişlik verir.
+        if (leading != null) ...[Expanded(child: leading), const SizedBox(width: AppSpacing.md)],
         Expanded(
-          child: ElevatedButton(
-            onPressed: submitting ? null : onSubmit,
-            child: submitting
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
-                  )
-                : Text(label),
-          ),
+          child: PrimaryButton(label: label, onPressed: onSubmit, loading: submitting),
         ),
       ],
     ),
@@ -127,37 +120,42 @@ class _CompanyStepFormState extends State<CompanyStepForm> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TextFormField(
-            controller: _authorizedPerson,
-            decoration: const InputDecoration(labelText: 'Yetkili Kişi'),
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Yetkili kişi gerekli' : null,
+          AppFormSection(
+            title: 'Yetkili ve İletişim',
+            children: [
+              TextFormField(
+                controller: _authorizedPerson,
+                decoration: const InputDecoration(labelText: 'Yetkili Kişi'),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Yetkili kişi gerekli' : null,
+              ),
+              TextFormField(
+                controller: _phone,
+                decoration: const InputDecoration(labelText: 'Telefon'),
+                keyboardType: TextInputType.phone,
+              ),
+              TextFormField(
+                controller: _email,
+                decoration: const InputDecoration(labelText: 'E-posta'),
+                keyboardType: TextInputType.emailAddress,
+              ),
+              TextFormField(controller: _website, decoration: const InputDecoration(labelText: 'Web Sitesi')),
+            ],
           ),
-          _fieldGap,
-          TextFormField(
-            controller: _phone,
-            decoration: const InputDecoration(labelText: 'Telefon'),
-            keyboardType: TextInputType.phone,
+          AppFormSection(
+            title: 'Adres',
+            children: [
+              Row(children: [
+                Expanded(
+                    child:
+                        TextFormField(controller: _city, decoration: const InputDecoration(labelText: 'Şehir'))),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                    child: TextFormField(
+                        controller: _district, decoration: const InputDecoration(labelText: 'İlçe'))),
+              ]),
+              TextFormField(controller: _country, decoration: const InputDecoration(labelText: 'Ülke')),
+            ],
           ),
-          _fieldGap,
-          TextFormField(
-            controller: _email,
-            decoration: const InputDecoration(labelText: 'E-posta'),
-            keyboardType: TextInputType.emailAddress,
-          ),
-          _fieldGap,
-          TextFormField(controller: _website, decoration: const InputDecoration(labelText: 'Web Sitesi')),
-          _fieldGap,
-          Row(children: [
-            Expanded(
-                child:
-                    TextFormField(controller: _city, decoration: const InputDecoration(labelText: 'Şehir'))),
-            const SizedBox(width: 12),
-            Expanded(
-                child: TextFormField(
-                    controller: _district, decoration: const InputDecoration(labelText: 'İlçe'))),
-          ]),
-          _fieldGap,
-          TextFormField(controller: _country, decoration: const InputDecoration(labelText: 'Ülke')),
           _errorText(_error),
           _submitRow(onSubmit: _submit, submitting: _submitting, label: widget.submitLabel, leading: widget.leading),
         ],
@@ -232,25 +230,27 @@ class _BillingStepFormState extends State<BillingStepForm> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TextFormField(
-            controller: _legalName,
-            decoration: const InputDecoration(labelText: 'Resmi Unvan'),
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Resmi unvan gerekli' : null,
-          ),
-          _fieldGap,
-          TextFormField(controller: _taxOffice, decoration: const InputDecoration(labelText: 'Vergi Dairesi')),
-          _fieldGap,
-          TextFormField(
-            controller: _taxNumber,
-            decoration: const InputDecoration(labelText: 'Vergi Numarası'),
-            keyboardType: TextInputType.number,
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Vergi numarası gerekli' : null,
-          ),
-          _fieldGap,
-          TextFormField(
-            controller: _invoiceAddress,
-            decoration: const InputDecoration(labelText: 'Fatura Adresi'),
-            maxLines: 3,
+          AppFormSection(
+            title: 'Vergi ve Fatura Bilgileri',
+            children: [
+              TextFormField(
+                controller: _legalName,
+                decoration: const InputDecoration(labelText: 'Resmi Unvan'),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Resmi unvan gerekli' : null,
+              ),
+              TextFormField(controller: _taxOffice, decoration: const InputDecoration(labelText: 'Vergi Dairesi')),
+              TextFormField(
+                controller: _taxNumber,
+                decoration: const InputDecoration(labelText: 'Vergi Numarası'),
+                keyboardType: TextInputType.number,
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Vergi numarası gerekli' : null,
+              ),
+              TextFormField(
+                controller: _invoiceAddress,
+                decoration: const InputDecoration(labelText: 'Fatura Adresi'),
+                maxLines: 3,
+              ),
+            ],
           ),
           _errorText(_error),
           _submitRow(onSubmit: _submit, submitting: _submitting, label: widget.submitLabel, leading: widget.leading),
@@ -334,54 +334,60 @@ class _OffersStepFormState extends State<OffersStepForm> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TextFormField(
-            controller: _offerPrefix,
-            decoration: const InputDecoration(labelText: 'Teklif Numarası Öneki (ör. TKF)'),
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Önek gerekli' : null,
-          ),
-          _fieldGap,
-          Row(children: [
-            Expanded(
-              child: TextFormField(
-                controller: _validityDays,
-                decoration: const InputDecoration(labelText: 'Geçerlilik (gün)'),
-                keyboardType: TextInputType.number,
-                validator: (v) {
-                  final n = int.tryParse((v ?? '').trim());
-                  return (n == null || n <= 0) ? 'Geçerli bir sayı girin' : null;
-                },
+          AppFormSection(
+            title: 'Teklif Ayarları',
+            children: [
+              TextFormField(
+                controller: _offerPrefix,
+                decoration: const InputDecoration(labelText: 'Teklif Numarası Öneki (ör. TKF)'),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Önek gerekli' : null,
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: TextFormField(
-                controller: _vatRate,
-                decoration: const InputDecoration(labelText: 'KDV Oranı (%)'),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                validator: (v) {
-                  final n = double.tryParse((v ?? '').trim().replaceAll(',', '.'));
-                  return (n == null || n < 0) ? 'Geçerli bir oran girin' : null;
-                },
+              Row(children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _validityDays,
+                    decoration: const InputDecoration(labelText: 'Geçerlilik (gün)'),
+                    keyboardType: TextInputType.number,
+                    validator: (v) {
+                      final n = int.tryParse((v ?? '').trim());
+                      return (n == null || n <= 0) ? 'Geçerli bir sayı girin' : null;
+                    },
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: TextFormField(
+                    controller: _vatRate,
+                    decoration: const InputDecoration(labelText: 'KDV Oranı (%)'),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    validator: (v) {
+                      final n = double.tryParse((v ?? '').trim().replaceAll(',', '.'));
+                      return (n == null || n < 0) ? 'Geçerli bir oran girin' : null;
+                    },
+                  ),
+                ),
+              ]),
+            ],
+          ),
+          AppFormSection(
+            title: 'Varsayılan Metinler',
+            children: [
+              TextFormField(
+                controller: _paymentTerms,
+                decoration: const InputDecoration(labelText: 'Varsayılan Ödeme Koşulları'),
+                maxLines: 2,
               ),
-            ),
-          ]),
-          _fieldGap,
-          TextFormField(
-            controller: _paymentTerms,
-            decoration: const InputDecoration(labelText: 'Varsayılan Ödeme Koşulları'),
-            maxLines: 2,
-          ),
-          _fieldGap,
-          TextFormField(
-            controller: _deliveryTerms,
-            decoration: const InputDecoration(labelText: 'Varsayılan Teslimat Koşulları'),
-            maxLines: 2,
-          ),
-          _fieldGap,
-          TextFormField(
-            controller: _footer,
-            decoration: const InputDecoration(labelText: 'Teklif Alt Notu'),
-            maxLines: 2,
+              TextFormField(
+                controller: _deliveryTerms,
+                decoration: const InputDecoration(labelText: 'Varsayılan Teslimat Koşulları'),
+                maxLines: 2,
+              ),
+              TextFormField(
+                controller: _footer,
+                decoration: const InputDecoration(labelText: 'Teklif Alt Notu'),
+                maxLines: 2,
+              ),
+            ],
           ),
           _errorText(_error),
           _submitRow(onSubmit: _submit, submitting: _submitting, label: widget.submitLabel, leading: widget.leading),
@@ -460,24 +466,26 @@ class _FinanceStepFormState extends State<FinanceStepForm> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TextFormField(controller: _bankName, decoration: const InputDecoration(labelText: 'Banka Adı')),
-          _fieldGap,
-          TextFormField(
-              controller: _accountHolder, decoration: const InputDecoration(labelText: 'Hesap Sahibi')),
-          _fieldGap,
-          TextFormField(
-            controller: _iban,
-            decoration: InputDecoration(
-              labelText: 'IBAN',
-              hintText: widget.initial.ibanSet ? 'Kayıtlı IBAN korunuyor -- değiştirmek için girin' : 'TR..',
-            ),
-            textCapitalization: TextCapitalization.characters,
-          ),
-          _fieldGap,
-          TextFormField(
-            controller: _paymentDueDays,
-            decoration: const InputDecoration(labelText: 'Ödeme Vadesi (gün, opsiyonel)'),
-            keyboardType: TextInputType.number,
+          AppFormSection(
+            title: 'Banka ve Ödeme Bilgileri',
+            children: [
+              TextFormField(controller: _bankName, decoration: const InputDecoration(labelText: 'Banka Adı')),
+              TextFormField(
+                  controller: _accountHolder, decoration: const InputDecoration(labelText: 'Hesap Sahibi')),
+              TextFormField(
+                controller: _iban,
+                decoration: InputDecoration(
+                  labelText: 'IBAN',
+                  hintText: widget.initial.ibanSet ? 'Kayıtlı IBAN korunuyor -- değiştirmek için girin' : 'TR..',
+                ),
+                textCapitalization: TextCapitalization.characters,
+              ),
+              TextFormField(
+                controller: _paymentDueDays,
+                decoration: const InputDecoration(labelText: 'Ödeme Vadesi (gün, opsiyonel)'),
+                keyboardType: TextInputType.number,
+              ),
+            ],
           ),
           _errorText(_error),
           _submitRow(onSubmit: _submit, submitting: _submitting, label: widget.submitLabel, leading: widget.leading),
@@ -537,14 +545,22 @@ class _BusinessStepFormState extends State<BusinessStepForm> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          DropdownButtonFormField<String>(
-            initialValue: _businessType,
-            decoration: const InputDecoration(labelText: 'İşletme Türü'),
-            items: kBusinessTypeOptions.entries
-                .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
-                .toList(),
-            onChanged: (v) => setState(() => _businessType = v),
-            validator: (v) => v == null ? 'İşletme türü seçin' : null,
+          AppFormSection(
+            title: 'İşletme Türü',
+            children: [
+              DropdownButtonFormField<String>(
+                initialValue: _businessType,
+                decoration: const InputDecoration(labelText: 'İşletme Türü'),
+                items: kBusinessTypeOptions.entries
+                    .map((e) => DropdownMenuItem(
+                          value: e.key,
+                          child: Text(e.value, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ))
+                    .toList(),
+                onChanged: (v) => setState(() => _businessType = v),
+                validator: (v) => v == null ? 'İşletme türü seçin' : null,
+              ),
+            ],
           ),
           _errorText(_error),
           _submitRow(onSubmit: _submit, submitting: _submitting, label: widget.submitLabel, leading: widget.leading),

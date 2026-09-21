@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/errors/api_exception.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_buttons.dart';
+import '../../../core/widgets/app_form_section.dart';
 import '../data/customers_providers.dart';
 import '../domain/customer.dart';
 
@@ -65,65 +68,64 @@ class _CustomerFormSheetState extends ConsumerState<CustomerFormSheet> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: MediaQuery.of(context).viewInsets.bottom + 20),
+      padding: EdgeInsets.only(
+        left: AppSpacing.xl,
+        right: AppSpacing.xl,
+        top: AppSpacing.xl,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.xl,
+      ),
       child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(widget.isEdit ? 'Müşteriyi Düzenle' : 'Yeni Müşteri',
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
-            const SizedBox(height: 16),
-            TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Ad *')),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _phoneController,
-              decoration: const InputDecoration(labelText: 'Telefon'),
-              keyboardType: TextInputType.phone,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _emailController,
-              decoration: const InputDecoration(labelText: 'E-posta'),
-              keyboardType: TextInputType.emailAddress,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _addressController,
-              decoration: const InputDecoration(labelText: 'Adres'),
-              maxLines: 2,
-            ),
-            const SizedBox(height: 12),
-            Row(
+            Text(widget.isEdit ? 'Müşteriyi Düzenle' : 'Yeni Müşteri', style: AppTypography.pageTitle.copyWith(fontSize: 17)),
+            const SizedBox(height: AppSpacing.lg),
+            AppFormSection(
+              title: 'Müşteri Bilgileri',
               children: [
-                Expanded(
-                  child: TextField(
-                      controller: _taxOfficeController, decoration: const InputDecoration(labelText: 'Vergi Dairesi')),
+                TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Ad *')),
+                TextField(
+                  controller: _phoneController,
+                  decoration: const InputDecoration(labelText: 'Telefon'),
+                  keyboardType: TextInputType.phone,
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child:
-                      TextField(controller: _taxNumberController, decoration: const InputDecoration(labelText: 'Vergi No')),
+                TextField(
+                  controller: _emailController,
+                  decoration: const InputDecoration(labelText: 'E-posta'),
+                  keyboardType: TextInputType.emailAddress,
+                ),
+                TextField(
+                  controller: _addressController,
+                  decoration: const InputDecoration(labelText: 'Adres'),
+                  maxLines: 2,
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                          controller: _taxOfficeController,
+                          decoration: const InputDecoration(labelText: 'Vergi Dairesi')),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: TextField(
+                          controller: _taxNumberController, decoration: const InputDecoration(labelText: 'Vergi No')),
+                    ),
+                  ],
+                ),
+                TextField(
+                  controller: _notesController,
+                  decoration: const InputDecoration(labelText: 'Not (opsiyonel)'),
+                  maxLines: 2,
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _notesController,
-              decoration: const InputDecoration(labelText: 'Not (opsiyonel)'),
-              maxLines: 2,
-            ),
             if (_error != null) ...[
-              const SizedBox(height: 12),
-              Text(_error!, style: const TextStyle(color: AppColors.danger)),
+              Text(_error!, style: AppTypography.error),
+              const SizedBox(height: AppSpacing.md),
             ],
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _submitting ? null : _submit,
-              child: _submitting
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                  : const Text('Kaydet'),
-            ),
+            PrimaryButton(label: 'Kaydet', loading: _submitting, onPressed: _submit),
           ],
         ),
       ),

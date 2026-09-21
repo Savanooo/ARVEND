@@ -4,6 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_radius.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_buttons.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -48,10 +52,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 28),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 380),
               child: Form(
@@ -59,13 +64,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _Wordmark(),
-                    const SizedBox(height: 8),
-                    const Text(
+                    const _Wordmark(),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
                       'Yönetim Sistemine Giriş',
-                      style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+                      style: AppTypography.metadata,
+                      semanticsLabel: 'ArvenYapı yönetim sistemine giriş ekranı',
                     ),
-                    const SizedBox(height: 36),
+                    const SizedBox(height: AppSpacing.xxl + AppSpacing.md),
                     TextFormField(
                       controller: _usernameController,
                       textInputAction: TextInputAction.next,
@@ -74,7 +80,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       validator: (v) =>
                           (v == null || v.trim().isEmpty) ? 'Kullanıcı adı gerekli' : null,
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: AppSpacing.md),
                     TextFormField(
                       controller: _passwordController,
                       obscureText: _obscurePassword,
@@ -85,29 +91,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         labelText: 'Şifre',
                         suffixIcon: IconButton(
                           icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                          tooltip: _obscurePassword ? 'Şifreyi göster' : 'Şifreyi gizle',
                           onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                         ),
                       ),
                       validator: (v) => (v == null || v.isEmpty) ? 'Şifre gerekli' : null,
                     ),
                     if (_errorMessage != null) ...[
-                      const SizedBox(height: 14),
+                      const SizedBox(height: AppSpacing.md),
                       Text(
                         _errorMessage!,
-                        style: const TextStyle(color: AppColors.danger, fontSize: 13),
+                        style: AppTypography.error,
                         textAlign: TextAlign.center,
                       ),
                     ],
-                    const SizedBox(height: 24),
-                    ElevatedButton(
+                    const SizedBox(height: AppSpacing.xl),
+                    PrimaryButton(
+                      label: 'Giriş Yap',
+                      loading: _submitting,
                       onPressed: _submitting ? null : _submit,
-                      child: _submitting
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
-                            )
-                          : const Text('Giriş Yap'),
                     ),
                   ],
                 ),
@@ -121,6 +123,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 }
 
 class _Wordmark extends StatelessWidget {
+  const _Wordmark();
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -130,7 +134,7 @@ class _Wordmark extends StatelessWidget {
           height: 64,
           decoration: BoxDecoration(
             color: AppColors.navDark,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(AppRadius.card),
           ),
           alignment: Alignment.center,
           child: const Text(
@@ -143,7 +147,7 @@ class _Wordmark extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: AppSpacing.md),
         const Text(
           'ARVEND YAPI',
           style: TextStyle(

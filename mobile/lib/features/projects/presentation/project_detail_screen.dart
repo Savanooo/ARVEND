@@ -14,6 +14,7 @@ import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_status_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_buttons.dart';
@@ -623,7 +624,7 @@ class _FinanceTab extends ConsumerWidget {
                             style: TextStyle(
                               decoration: c.isVoided ? TextDecoration.lineThrough : null,
                               fontWeight: FontWeight.w600,
-                              color: Colors.green.shade700,
+                              color: AppStatusColors.success,
                             ),
                           ),
                         ),
@@ -677,13 +678,13 @@ class _FinancialSummaryCard extends StatelessWidget {
             _InfoRow(label: 'Tahsil Edilen', value: Formatters.money(s.collectedAmount, currency: s.currency)),
             _InfoRow(label: 'Kalan Alacak', value: Formatters.money(s.remainingReceivable, currency: s.currency)),
             const Divider(height: 24),
-            const Text('Gerçekleşen', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.grey)),
+            const Text('Gerçekleşen', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppColors.textMuted)),
             const SizedBox(height: 4),
             _InfoRow(label: 'Gerçekleşen Maliyet', value: Formatters.money(s.realizedCost, currency: s.currency)),
             _InfoRow(
               label: 'Gerçekleşen Kâr',
               value: Formatters.money(s.realizedGrossProfit, currency: s.currency),
-              valueColor: s.realizedGrossProfit < 0 ? Colors.red : Colors.green,
+              valueColor: s.realizedGrossProfit < 0 ? AppStatusColors.error : AppStatusColors.success,
             ),
             _InfoRow(label: 'Gerçekleşen Marj', value: '%${s.realizedMarginPercent.toStringAsFixed(2)}'),
             const Divider(height: 24),
@@ -692,7 +693,7 @@ class _FinancialSummaryCard extends StatelessWidget {
               children: [
                 const Flexible(
                   child: Text('Tahmini / Öngörülen',
-                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.grey),
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppColors.textMuted),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis),
                 ),
@@ -703,7 +704,7 @@ class _FinancialSummaryCard extends StatelessWidget {
                     textAlign: TextAlign.right,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
                   ),
                 ),
               ],
@@ -713,7 +714,7 @@ class _FinancialSummaryCard extends StatelessWidget {
             _InfoRow(
               label: 'Tahmini Kâr',
               value: Formatters.money(forecastProfit, currency: s.currency),
-              valueColor: forecastProfit < 0 ? Colors.red : Colors.green,
+              valueColor: forecastProfit < 0 ? AppStatusColors.error : AppStatusColors.success,
             ),
             _InfoRow(label: 'Tahmini Marj', value: '%${forecastMargin.toStringAsFixed(2)}'),
           ],
@@ -753,7 +754,7 @@ class _CostControlTab extends ConsumerWidget {
                     padding: EdgeInsets.all(16),
                     child: Text(
                       'Bu proje için henüz bir bütçe oluşturulmadı. Bütçe, web uygulamasından oluşturulabilir.',
-                      style: TextStyle(color: Colors.grey),
+                      style: TextStyle(color: AppColors.textMuted),
                     ),
                   ),
                 ),
@@ -775,14 +776,14 @@ class _CostControlTab extends ConsumerWidget {
                       _InfoRow(
                         label: 'Varyans',
                         value: Formatters.money(s.variance, currency: s.currency),
-                        valueColor: s.variance < 0 ? Colors.red : Colors.green,
+                        valueColor: s.variance < 0 ? AppStatusColors.error : AppStatusColors.success,
                       ),
                       const Divider(height: 20),
                       _InfoRow(
                         label: 'Tahmini Kâr',
                         value: Formatters.money(s.forecastProfit, currency: s.currency),
                         emphasize: true,
-                        valueColor: s.forecastProfit < 0 ? Colors.red : Colors.green,
+                        valueColor: s.forecastProfit < 0 ? AppStatusColors.error : AppStatusColors.success,
                       ),
                       _InfoRow(label: 'Tahmini Marj', value: '%${s.forecastMarginPercent.toStringAsFixed(2)}'),
                     ],
@@ -816,7 +817,7 @@ class _CostControlTab extends ConsumerWidget {
                               Formatters.money(l.variance, currency: s.currency),
                               style: TextStyle(
                                 fontSize: 12,
-                                color: l.variance < 0 ? Colors.red : Colors.green,
+                                color: l.variance < 0 ? AppStatusColors.error : AppStatusColors.success,
                               ),
                             ),
                           ],
@@ -863,7 +864,7 @@ class _ChangeOrdersTab extends ConsumerWidget {
                   '${signedTotal >= 0 ? '+' : ''}${Formatters.money(signedTotal, currency: co.currency)}',
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
-                    color: co.changeType == 'addition' ? Colors.green : Colors.red,
+                    color: co.changeType == 'addition' ? AppStatusColors.success : AppStatusColors.error,
                   ),
                 ),
               ),
@@ -1226,7 +1227,7 @@ class _OperationsTabState extends ConsumerState<_OperationsTab> {
               if (tasks.isEmpty) {
                 return const Padding(
                   padding: EdgeInsets.symmetric(vertical: 24),
-                  child: Center(child: Text('Bu filtreye uyan görev yok.', style: TextStyle(color: Colors.grey))),
+                  child: Center(child: Text('Bu filtreye uyan görev yok.', style: TextStyle(color: AppColors.textMuted))),
                 );
               }
               return Column(
@@ -1264,7 +1265,7 @@ class _OperationsTabState extends ConsumerState<_OperationsTab> {
                                 if (t.isOverdue)
                                   const Padding(
                                     padding: EdgeInsets.only(top: 4),
-                                    child: Icon(Icons.warning_amber_rounded, size: 16, color: Colors.orange),
+                                    child: Icon(Icons.warning_amber_rounded, size: 16, color: AppColors.danger),
                                   ),
                               ],
                             ),
@@ -1315,7 +1316,7 @@ class _StatCell extends StatelessWidget {
         children: [
           Text(value,
               style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: danger ? AppColors.danger : null)),
-          Text(label, style: const TextStyle(fontSize: 11.5, color: Colors.grey)),
+          Text(label, style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted)),
         ],
       ),
     );
@@ -1800,7 +1801,7 @@ class _InfoRow extends StatelessWidget {
           Flexible(
             flex: 2,
             child: Text(label,
-                style: const TextStyle(color: Colors.grey, fontSize: 13),
+                style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis),
           ),
@@ -1886,7 +1887,7 @@ class _NotesTab extends ConsumerWidget {
                               if (note.createdByName.isNotEmpty) note.createdByName,
                               if (note.createdAt.isNotEmpty) Formatters.dateTime(note.createdAt),
                             ].join(' · '),
-                            style: const TextStyle(color: Colors.black54, fontSize: 12.5),
+                            style: const TextStyle(color: AppColors.textMuted, fontSize: 12.5),
                           ),
                         ],
                       ),

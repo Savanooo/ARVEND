@@ -435,6 +435,12 @@ void main() {
       final adapter = FakeHttpClientAdapter(script: {});
       final client = await buildFakeApiClient(adapter);
 
+      // AppFormSection'ın başlık/alt başlığı formu Kaydet butonunu varsayılan
+      // 600px test yüksekliğinin kenarına iten kadar uzatıyor -- Faz 1'in
+      // aynı dersi (bkz. redesign_workflow_test.dart): kaydırmak yerine
+      // yüzeyi genişletiyoruz.
+      await tester.binding.setSurfaceSize(const Size(400, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
         ProviderScope(
           overrides: [apiClientProvider.overrideWithValue(client)],
@@ -453,6 +459,8 @@ void main() {
       final adapter = FakeHttpClientAdapter(script: {});
       final client = await buildFakeApiClient(adapter);
 
+      await tester.binding.setSurfaceSize(const Size(400, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
         ProviderScope(
           overrides: [apiClientProvider.overrideWithValue(client)],
@@ -475,6 +483,8 @@ void main() {
       });
       final client = await buildFakeApiClient(adapter);
 
+      await tester.binding.setSurfaceSize(const Size(400, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
         ProviderScope(
           overrides: [apiClientProvider.overrideWithValue(client)],

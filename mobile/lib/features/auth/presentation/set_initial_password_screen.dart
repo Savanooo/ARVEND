@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/api_providers.dart';
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../core/api/api_providers.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_buttons.dart';
 
 /// "İlk giriş" akışı: Super Admin'in provision ettiği bir Owner hesabı,
 /// geçici şifreyle giriş yaptıktan sonra bu ekrana yönlendirilir (bkz.
@@ -60,10 +63,11 @@ class _SetInitialPasswordScreenState extends ConsumerState<SetInitialPasswordScr
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 28),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 380),
               child: Form(
@@ -72,19 +76,19 @@ class _SetInitialPasswordScreenState extends ConsumerState<SetInitialPasswordScr
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Icon(Icons.lock_reset_outlined, size: 48, color: AppColors.gold),
-                    const SizedBox(height: 16),
-                    const Text(
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
                       'Yeni Şifre Belirleyin',
-                      style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+                      style: AppTypography.pageTitle,
                       textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 8),
-                    const Text(
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
                       'İlk girişte, size verilen geçici şifre yerine kendi şifrenizi belirlemeniz gerekiyor.',
-                      style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+                      style: AppTypography.metadata,
                       textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 28),
+                    const SizedBox(height: AppSpacing.xl + AppSpacing.xs),
                     TextFormField(
                       controller: _newPasswordController,
                       obscureText: _obscure,
@@ -93,13 +97,14 @@ class _SetInitialPasswordScreenState extends ConsumerState<SetInitialPasswordScr
                         labelText: 'Yeni Şifre',
                         suffixIcon: IconButton(
                           icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                          tooltip: _obscure ? 'Şifreyi göster' : 'Şifreyi gizle',
                           onPressed: () => setState(() => _obscure = !_obscure),
                         ),
                       ),
                       validator: (v) =>
                           (v == null || v.length < 8) ? 'Şifre en az 8 karakter olmalı' : null,
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: AppSpacing.md),
                     TextFormField(
                       controller: _confirmController,
                       obscureText: _obscure,
@@ -109,19 +114,14 @@ class _SetInitialPasswordScreenState extends ConsumerState<SetInitialPasswordScr
                       validator: (v) => (v == null || v.isEmpty) ? 'Şifreyi tekrar girin' : null,
                     ),
                     if (_error != null) ...[
-                      const SizedBox(height: 14),
-                      Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 13), textAlign: TextAlign.center),
+                      const SizedBox(height: AppSpacing.md),
+                      Text(_error!, style: AppTypography.error, textAlign: TextAlign.center),
                     ],
-                    const SizedBox(height: 24),
-                    ElevatedButton(
+                    const SizedBox(height: AppSpacing.xl),
+                    PrimaryButton(
+                      label: 'Devam Et',
+                      loading: _submitting,
                       onPressed: _submitting ? null : _submit,
-                      child: _submitting
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
-                            )
-                          : const Text('Devam Et'),
                     ),
                   ],
                 ),

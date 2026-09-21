@@ -3,7 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/api_exception.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_radius.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_buttons.dart';
+import '../../../core/widgets/app_form_section.dart';
+import '../../../core/widgets/app_page_scaffold.dart';
+import '../../../core/widgets/async_state_view.dart';
 import '../../attendance/data/attendance_providers.dart';
 import '../../attendance/domain/attendance.dart' show Employee;
 import '../../tasks/data/tasks_providers.dart';
@@ -152,14 +158,14 @@ class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
   Widget build(BuildContext context) {
     final employeesAsync = ref.watch(employeesProvider);
 
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.isEdit ? 'Görevi Düzenle' : 'Yeni Görev')),
+    return AppPageScaffold(
+      title: Text(widget.isEdit ? 'Görevi Düzenle' : 'Yeni Görev'),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : employeesAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => _RetryView(error: e, onRetry: () => ref.invalidate(employeesProvider)),
-              data: (employees) => _buildForm(context, employees),
+          ? const LoadingState()
+          : AsyncStateView(
+              value: employeesAsync,
+              onRetry: () async => ref.invalidate(employeesProvider),
+              data: (context, employees) => _buildForm(context, employees),
             ),
     );
   }
@@ -168,88 +174,74 @@ class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
     return Form(
       key: _formKey,
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         children: [
-          TextFormField(
-            controller: _titleController,
-            decoration: const InputDecoration(labelText: 'Başlık'),
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Başlık gerekli' : null,
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _descriptionController,
-            decoration: const InputDecoration(labelText: 'Açıklama (opsiyonel)'),
-            maxLines: 3,
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: _assignedEmployeeId != null && _assignedEmployeeId!.isNotEmpty ? _assignedEmployeeId : '',
-            decoration: const InputDecoration(labelText: 'Atanan Kişi (opsiyonel)'),
-            items: [
-              const DropdownMenuItem(value: '', child: Text('— Atanmadı —')),
-              ...employees
-                  .where((e) => e.isActive || e.id == _assignedEmployeeId)
-                  .map((e) => DropdownMenuItem(value: e.id, child: Text(e.fullName, overflow: TextOverflow.ellipsis))),
+          AppFormSection(
+            title: 'Görev Bilgileri',
+            children: [
+              TextFormField(
+                controller: _titleController,
+                decoration: const InputDecoration(labelText: 'Başlık'),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Başlık gerekli' : null,
+              ),
+              TextFormField(
+                controller: _descriptionController,
+                decoration: const InputDecoration(labelText: 'Açıklama (opsiyonel)'),
+                maxLines: 3,
+              ),
             ],
-            onChanged: (v) => setState(() => _assignedEmployeeId = (v == null || v.isEmpty) ? null : v),
           ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: _priority,
-            decoration: const InputDecoration(labelText: 'Öncelik'),
-            items: const [
-              DropdownMenuItem(value: ProjectTask.priorityLow, child: Text('Düşük')),
-              DropdownMenuItem(value: ProjectTask.priorityNormal, child: Text('Normal')),
-              DropdownMenuItem(value: ProjectTask.priorityHigh, child: Text('Yüksek')),
-              DropdownMenuItem(value: ProjectTask.priorityUrgent, child: Text('Acil')),
+          AppFormSection(
+            title: 'Atama ve Zamanlama',
+            children: [
+              DropdownButtonFormField<String>(
+                initialValue: _assignedEmployeeId != null && _assignedEmployeeId!.isNotEmpty ? _assignedEmployeeId : '',
+                decoration: const InputDecoration(labelText: 'Atanan Kişi (opsiyonel)'),
+                items: [
+                  const DropdownMenuItem(value: '', child: Text('— Atanmadı —')),
+                  ...employees
+                      .where((e) => e.isActive || e.id == _assignedEmployeeId)
+                      .map((e) => DropdownMenuItem(value: e.id, child: Text(e.fullName, overflow: TextOverflow.ellipsis))),
+                ],
+                onChanged: (v) => setState(() => _assignedEmployeeId = (v == null || v.isEmpty) ? null : v),
+              ),
+              DropdownButtonFormField<String>(
+                initialValue: _priority,
+                decoration: const InputDecoration(labelText: 'Öncelik'),
+                items: const [
+                  DropdownMenuItem(value: ProjectTask.priorityLow, child: Text('Düşük')),
+                  DropdownMenuItem(value: ProjectTask.priorityNormal, child: Text('Normal')),
+                  DropdownMenuItem(value: ProjectTask.priorityHigh, child: Text('Yüksek')),
+                  DropdownMenuItem(value: ProjectTask.priorityUrgent, child: Text('Acil')),
+                ],
+                onChanged: (v) => setState(() => _priority = v ?? ProjectTask.priorityNormal),
+              ),
+              if (widget.isEdit)
+                DropdownButtonFormField<String>(
+                  initialValue: _status,
+                  decoration: const InputDecoration(labelText: 'Durum'),
+                  items: const [
+                    DropdownMenuItem(value: ProjectTask.statusTodo, child: Text('Yapılacak')),
+                    DropdownMenuItem(value: ProjectTask.statusInProgress, child: Text('Devam Ediyor')),
+                    DropdownMenuItem(value: ProjectTask.statusCompleted, child: Text('Tamamlandı')),
+                    DropdownMenuItem(value: ProjectTask.statusCancelled, child: Text('İptal Edildi')),
+                  ],
+                  onChanged: (v) => setState(() => _status = v ?? ProjectTask.statusTodo),
+                ),
+              _DueDateField(
+                value: _dueDate,
+                onChanged: (v) => setState(() => _dueDate = v),
+              ),
             ],
-            onChanged: (v) => setState(() => _priority = v ?? ProjectTask.priorityNormal),
-          ),
-          if (widget.isEdit) ...[
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: _status,
-              decoration: const InputDecoration(labelText: 'Durum'),
-              items: const [
-                DropdownMenuItem(value: ProjectTask.statusTodo, child: Text('Yapılacak')),
-                DropdownMenuItem(value: ProjectTask.statusInProgress, child: Text('Devam Ediyor')),
-                DropdownMenuItem(value: ProjectTask.statusCompleted, child: Text('Tamamlandı')),
-                DropdownMenuItem(value: ProjectTask.statusCancelled, child: Text('İptal Edildi')),
-              ],
-              onChanged: (v) => setState(() => _status = v ?? ProjectTask.statusTodo),
-            ),
-          ],
-          const SizedBox(height: 12),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Vade Tarihi (opsiyonel)'),
-            subtitle: _dueDate != null
-                ? Text('${_dueDate!.day.toString().padLeft(2, '0')}.${_dueDate!.month.toString().padLeft(2, '0')}.${_dueDate!.year}')
-                : null,
-            trailing: _dueDate != null
-                ? IconButton(icon: const Icon(Icons.close, size: 18), onPressed: () => setState(() => _dueDate = null))
-                : const Icon(Icons.calendar_today_outlined, size: 18),
-            onTap: () async {
-              final picked = await showDatePicker(
-                context: context,
-                initialDate: _dueDate ?? DateTime.now(),
-                firstDate: DateTime(2020),
-                lastDate: DateTime(2100),
-              );
-              if (picked != null) setState(() => _dueDate = picked);
-            },
           ),
           if (_error != null) ...[
-            const SizedBox(height: 12),
-            Text(_error!, style: const TextStyle(color: AppColors.danger)),
+            Text(_error!, style: AppTypography.error),
+            const SizedBox(height: AppSpacing.md),
           ],
-          const SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: _submitting ? null : _submit,
-            child: _submitting
-                ? const SizedBox(
-                    width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                : Text(widget.isEdit ? 'Kaydet' : 'Görevi Oluştur'),
+          PrimaryButton(
+            label: widget.isEdit ? 'Kaydet' : 'Görevi Oluştur',
+            loading: _submitting,
+            onPressed: _submit,
           ),
         ],
       ),
@@ -257,28 +249,46 @@ class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
   }
 }
 
-class _RetryView extends StatelessWidget {
-  const _RetryView({required this.error, required this.onRetry});
+/// Görev formundaki "Vade Tarihi" alanı -- diğer `TextFormField`larla
+/// tutarlı görünmesi için standart alan dekorasyonunu bir `InputDecorator`
+/// ile paylaşır (bkz. `PurchaseRequestFormScreen._NeededByField` aynı
+/// deseni).
+class _DueDateField extends StatelessWidget {
+  const _DueDateField({required this.value, required this.onChanged});
 
-  final Object error;
-  final VoidCallback onRetry;
+  final DateTime? value;
+  final ValueChanged<DateTime?> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final message = error is ApiException ? (error as ApiException).message : 'Beklenmeyen bir hata oluştu.';
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, color: AppColors.danger, size: 40),
-            const SizedBox(height: 12),
-            Text(message, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textMuted)),
-            const SizedBox(height: 16),
-            OutlinedButton(onPressed: onRetry, child: const Text('Tekrar Dene')),
-          ],
+    return InkWell(
+      borderRadius: BorderRadius.circular(AppRadius.control),
+      onTap: () async {
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: value ?? DateTime.now(),
+          firstDate: DateTime(2020),
+          lastDate: DateTime(2100),
+        );
+        if (picked != null) onChanged(picked);
+      },
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: 'Vade Tarihi (opsiyonel)',
+          suffixIcon: value != null
+              ? IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  onPressed: () => onChanged(null),
+                )
+              : const Icon(Icons.calendar_today_outlined, size: 18),
         ),
+        isEmpty: value == null,
+        child: value == null
+            ? null
+            : Text(
+                '${value!.day.toString().padLeft(2, '0')}.${value!.month.toString().padLeft(2, '0')}.${value!.year}',
+                style: AppTypography.body,
+              ),
       ),
     );
   }

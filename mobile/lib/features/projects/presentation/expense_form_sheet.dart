@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/errors/api_exception.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_buttons.dart';
+import '../../../core/widgets/app_form_section.dart';
 import '../data/projects_providers.dart';
 import '../domain/project.dart';
 
@@ -71,10 +75,10 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 20,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+        left: AppSpacing.xl,
+        right: AppSpacing.xl,
+        top: AppSpacing.xl,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.xl,
       ),
       child: Form(
         key: _formKey,
@@ -83,71 +87,65 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Masraf Ekle', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                initialValue: _category,
-                decoration: const InputDecoration(labelText: 'Kategori'),
-                items: expenseCategories.entries
-                    .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
-                    .toList(),
-                onChanged: (v) => setState(() => _category = v!),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _descriptionController,
-                decoration: const InputDecoration(labelText: 'Açıklama'),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Açıklama gerekli' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _amountController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(labelText: 'Tutar (${widget.currency})'),
-                validator: (v) {
-                  final parsed = double.tryParse((v ?? '').replaceAll(',', '.'));
-                  if (parsed == null || parsed <= 0) return 'Geçerli bir tutar girin';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Tarih'),
-                subtitle: Text('${_date.day.toString().padLeft(2, '0')}.${_date.month.toString().padLeft(2, '0')}.${_date.year}'),
-                trailing: const Icon(Icons.calendar_today_outlined, size: 18),
-                onTap: () async {
-                  final picked = await showDatePicker(
-                    context: context,
-                    initialDate: _date,
-                    firstDate: DateTime(2020),
-                    lastDate: DateTime(2100),
-                  );
-                  if (picked != null) setState(() => _date = picked);
-                },
-              ),
-              const SizedBox(height: 4),
-              TextFormField(
-                controller: _supplierController,
-                decoration: const InputDecoration(labelText: 'Tedarikçi (opsiyonel)'),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _invoiceController,
-                decoration: const InputDecoration(labelText: 'Fatura No (opsiyonel)'),
+              Text('Masraf Ekle', style: AppTypography.pageTitle.copyWith(fontSize: 17)),
+              const SizedBox(height: AppSpacing.lg),
+              AppFormSection(
+                title: 'Masraf Bilgileri',
+                children: [
+                  DropdownButtonFormField<String>(
+                    initialValue: _category,
+                    decoration: const InputDecoration(labelText: 'Kategori'),
+                    items: expenseCategories.entries
+                        .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                        .toList(),
+                    onChanged: (v) => setState(() => _category = v!),
+                  ),
+                  TextFormField(
+                    controller: _descriptionController,
+                    decoration: const InputDecoration(labelText: 'Açıklama'),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Açıklama gerekli' : null,
+                  ),
+                  TextFormField(
+                    controller: _amountController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(labelText: 'Tutar (${widget.currency})'),
+                    validator: (v) {
+                      final parsed = double.tryParse((v ?? '').replaceAll(',', '.'));
+                      if (parsed == null || parsed <= 0) return 'Geçerli bir tutar girin';
+                      return null;
+                    },
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Tarih'),
+                    subtitle: Text(
+                        '${_date.day.toString().padLeft(2, '0')}.${_date.month.toString().padLeft(2, '0')}.${_date.year}'),
+                    trailing: const Icon(Icons.calendar_today_outlined, size: 18),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: _date,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2100),
+                      );
+                      if (picked != null) setState(() => _date = picked);
+                    },
+                  ),
+                  TextFormField(
+                    controller: _supplierController,
+                    decoration: const InputDecoration(labelText: 'Tedarikçi (opsiyonel)'),
+                  ),
+                  TextFormField(
+                    controller: _invoiceController,
+                    decoration: const InputDecoration(labelText: 'Fatura No (opsiyonel)'),
+                  ),
+                ],
               ),
               if (_error != null) ...[
-                const SizedBox(height: 12),
-                Text(_error!, style: const TextStyle(color: Colors.red)),
+                Text(_error!, style: AppTypography.error),
+                const SizedBox(height: AppSpacing.md),
               ],
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _submitting ? null : _submit,
-                child: _submitting
-                    ? const SizedBox(
-                        width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                    : const Text('Kaydet'),
-              ),
+              PrimaryButton(label: 'Kaydet', loading: _submitting, onPressed: _submit),
             ],
           ),
         ),

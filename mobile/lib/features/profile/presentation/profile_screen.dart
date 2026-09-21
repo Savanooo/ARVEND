@@ -8,6 +8,7 @@ import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_list_card.dart';
 import '../../../core/widgets/app_page_scaffold.dart';
@@ -261,18 +262,10 @@ class _ChangePasswordSheetState extends State<_ChangePasswordSheet> {
             ),
           ],
           const SizedBox(height: AppSpacing.xl),
-          ElevatedButton(
+          PrimaryButton(
+            label: 'Kaydet',
+            loading: _submitting,
             onPressed: _submitting ? null : _submit,
-            child: _submitting
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Text('Kaydet'),
           ),
         ],
       ),
