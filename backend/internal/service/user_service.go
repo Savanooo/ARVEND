@@ -78,7 +78,22 @@ func (s *UserService) Get(ctx context.Context, id, organizationID string) (*doma
 	return &u, nil
 }
 
-func (s *UserService) Create(ctx context.Context, organizationID, username, password, fullName string, role domain.Role) (*domain.User, error) {
+// Create iki farklı çağıran arasında PAYLAŞILIR: cmd/api'nin SEED_ADMIN_*
+// bootstrap yolu (organizationRoleCode="" verir, aşağıdaki ESKİ varsayım
+// zincirine düşer -- organization_roles henüz seed edilmemiş olabileceği
+// bir bootstrap anıdır, bu yüzden BİLEREK dokunulmadı) ve tenant self-servis
+// "Yeni Kullanıcı" HTTP ucu (organizationRoleCode HER ZAMAN dolu verir, bkz.
+// UserHandler.Create). organizationRoleCode dolu olduğunda `role` parametresi
+// YOK SAYILIR -- kaba users.role, seçilen organizasyon rolünden TÜRETİLİR
+// (coarseRoleForOrgRole, tam olarak PlatformService.ProvisionOrganizationUser
+// ile AYNI desen), "legacy_user" bir atama HEDEFİ olarak KESİNLİKLE reddedilir
+// (o kod yalnızca migration backfill'i içindir, bkz. domain.OrgRoleLegacyUser
+// yorumu) -- daha önce bu uç `role`'ü (admin/kullanici) yollayıp
+// organization_role_code'u HİÇ göndermediği için her yeni tenant kullanıcısı
+// sessizce "legacy_user"a düşüyordu (web'de "(Eski Sistem)" rozetiyle
+// görünen, kafa karıştırıcı ve kesinlikle amaçlanmayan bir durum) --
+// bu artık İMKANSIZ, çağıran bir rol vermek ZORUNDA.
+func (s *UserService) Create(ctx context.Context, organizationID, username, password, fullName string, role domain.Role, organizationRoleCode string) (*domain.User, error) {
 	orgID, err := repository.StringToUUID(organizationID)
 	if err != nil {
 		return nil, domain.ErrNotFound
@@ -87,9 +102,26 @@ func (s *UserService) Create(ctx context.Context, organizationID, username, pass
 	if username == "" || password == "" || strings.TrimSpace(fullName) == "" {
 		return nil, errors.New("kullanıcı adı, şifre ve ad soyad zorunludur")
 	}
-	if !role.Valid() {
+
+	var orgRole sqlc.OrganizationRole
+	if organizationRoleCode != "" {
+		if organizationRoleCode == domain.OrgRoleLegacyUser {
+			return nil, domain.ErrRoleNotAssignable
+		}
+		orgRole, err = s.q.GetOrganizationRoleByCode(ctx, sqlc.GetOrganizationRoleByCodeParams{
+			OrganizationID: orgID, Code: organizationRoleCode,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, domain.ErrNotFound
+			}
+			return nil, err
+		}
+		role = coarseRoleForOrgRole(orgRole.Code)
+	} else if !role.Valid() {
 		role = domain.RoleKullanici
 	}
+
 	hash, err := auth.HashPassword(password)
 	if err != nil {
 		return nil, err
@@ -109,27 +141,37 @@ func (s *UserService) Create(ctx context.Context, organizationID, username, pass
 		return nil, err
 	}
 
+	if organizationRoleCode != "" {
+		if updated, uerr := s.q.UpdateUserOrganizationRole(ctx, sqlc.UpdateUserOrganizationRoleParams{
+			ID: row.ID, OrganizationID: orgID, OrganizationRoleID: orgRole.ID,
+		}); uerr == nil {
+			row = updated
+		}
+		u := repository.ToDomainUser(row)
+		u.OrganizationRoleCode = orgRole.Code
+		u.OrganizationRoleName = orgRole.Name
+		return &u, nil
+	}
+
 	// RBAC/Project Membership sprint'i: YENİ kullanıcı organization_role_id
 	// NULL bırakılırsa AuthorizationService.LoadAuthzContext deny-by-default
 	// boş izin kümesi döner -- kullanıcı HİÇBİR business uca erişemez (bkz.
 	// PlatformService.CreateOrganizationWithOwner'daki AYNI gerekçe).
 	// Eski (role: admin/kullanici) sözleşmesiyle GERİYE DÖNÜK UYUMLU
-	// varsayılan: admin -> 'admin' sistem rolü (tam yetki), kullanici ->
-	// 'legacy_user' (migration backfill'iyle AYNI eşleme) -- bir admin
-	// isterse PUT /users/{id}/organization-role ile SONRADAN inceltebilir
-	// (project_manager/finance/field). En iyi çaba: rol satırı her zaman
-	// seed edilmiş olmalıdır (migration backfill veya CreateOrganizationWithOwner
-	// ile), ama bulunamazsa kullanıcı yine de OLUŞTURULUR -- yalnızca
-	// organization_role_id boş kalır, sonradan atanabilir.
+	// varsayılan (YALNIZCA organizationRoleCode boşken, ör. bootstrap):
+	// admin -> 'admin' sistem rolü (tam yetki), kullanici -> 'legacy_user'
+	// (migration backfill'iyle AYNI eşleme). En iyi çaba: rol satırı her
+	// zaman seed edilmiş olmalıdır, ama bulunamazsa kullanıcı yine de
+	// OLUŞTURULUR -- yalnızca organization_role_id boş kalır.
 	orgRoleCode := domain.OrgRoleLegacyUser
 	if role == domain.RoleAdmin {
 		orgRoleCode = domain.OrgRoleAdmin
 	}
-	if orgRole, rerr := s.q.GetOrganizationRoleByCode(ctx, sqlc.GetOrganizationRoleByCodeParams{
+	if legacyRole, rerr := s.q.GetOrganizationRoleByCode(ctx, sqlc.GetOrganizationRoleByCodeParams{
 		OrganizationID: orgID, Code: orgRoleCode,
 	}); rerr == nil {
 		if updated, uerr := s.q.UpdateUserOrganizationRole(ctx, sqlc.UpdateUserOrganizationRoleParams{
-			ID: row.ID, OrganizationID: orgID, OrganizationRoleID: orgRole.ID,
+			ID: row.ID, OrganizationID: orgID, OrganizationRoleID: legacyRole.ID,
 		}); uerr == nil {
 			row = updated
 		}

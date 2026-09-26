@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -78,20 +79,32 @@ func (h *UserHandler) SetOrganizationRole(w http.ResponseWriter, r *http.Request
 }
 
 type createUserRequest struct {
-	Username string      `json:"username"`
-	Password string      `json:"password"`
-	FullName string      `json:"full_name"`
-	Role     domain.Role `json:"role"`
+	Username             string `json:"username"`
+	Password             string `json:"password"`
+	FullName             string `json:"full_name"`
+	OrganizationRoleCode string `json:"organization_role_code"`
 }
 
+// Create, tenant self-servis "Yeni Kullanıcı" ucudur (Süper Admin'in AYRI
+// platform.ProvisionOrganizationUser'ının kiracı tarafındaki eşdeğeri).
+// `organization_role_code` ZORUNLUDUR -- eskiden burada yalnızca kaba bir
+// `role` (admin/kullanici) alınırdı ve organizasyon rolü HİÇ sorulmazdı,
+// bu yüzden UserService.Create'in bootstrap-only varsayım zincirine düşüp
+// her yeni kullanıcıyı sessizce "legacy_user" (migration-only, atama
+// HEDEFİ olmayan bir rol) yapıyordu -- web'de "(Eski Sistem)" rozetiyle
+// görünen gerçek bir üretim hatasıydı, düzeltildi.
 func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req createUserRequest
 	if err := httpjson.Decode(r, &req); err != nil {
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
+	if strings.TrimSpace(req.OrganizationRoleCode) == "" {
+		httpjson.Error(w, http.StatusBadRequest, "organizasyon rolü zorunludur")
+		return
+	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	user, err := h.svc.Create(r.Context(), orgID, req.Username, req.Password, req.FullName, req.Role)
+	user, err := h.svc.Create(r.Context(), orgID, req.Username, req.Password, req.FullName, "", req.OrganizationRoleCode)
 	if err != nil {
 		h.writeUserError(w, err)
 		return

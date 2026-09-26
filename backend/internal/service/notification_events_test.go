@@ -80,7 +80,7 @@ func TestNotifications(t *testing.T) {
 	// yok, yalnızca servis-seviyesi çağrılar için user.ID yeterli.
 	mustRoleUser := func(t *testing.T, orgID, username, roleCode string) *domain.User {
 		t.Helper()
-		u, err := userSvc.Create(ctx, orgID, username, "GeciciSifre123!", username, domain.RoleKullanici)
+		u, err := userSvc.Create(ctx, orgID, username, "GeciciSifre123!", username, domain.RoleKullanici, "")
 		if err != nil {
 			t.Fatalf("%s oluşturulamadı: %v", username, err)
 		}

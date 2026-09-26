@@ -134,7 +134,7 @@ func seedAdmin(ctx context.Context, userSvc *service.UserService, q *sqlc.Querie
 		log.Println("UYARI: hiç kullanıcı yok ve SEED_ADMIN_USERNAME/PASSWORD ayarlanmamış -- giriş yapılamayacak")
 		return
 	}
-	_, err = userSvc.Create(ctx, domain.DefaultOrganizationID, cfg.SeedAdminUser, cfg.SeedAdminPass, cfg.SeedAdminName, domain.RoleAdmin)
+	_, err = userSvc.Create(ctx, domain.DefaultOrganizationID, cfg.SeedAdminUser, cfg.SeedAdminPass, cfg.SeedAdminName, domain.RoleAdmin, "")
 	if err != nil {
 		log.Fatalf("seed admin oluşturulamadı: %v", err)
 	}

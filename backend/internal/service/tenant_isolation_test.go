@@ -280,7 +280,7 @@ func TestTenantIsolation(t *testing.T) {
 		t.Fatalf("teklif oluşturulamadı: %v", err)
 	}
 
-	testUser, err := userSvc.Create(ctx, orgA.ID, "izolasyon_test_kullanici_a", "GucluSifre123!", "İzolasyon Test Kullanıcı", domain.RoleKullanici)
+	testUser, err := userSvc.Create(ctx, orgA.ID, "izolasyon_test_kullanici_a", "GucluSifre123!", "İzolasyon Test Kullanıcı", domain.RoleKullanici, "")
 	if err != nil {
 		t.Fatalf("kullanıcı oluşturulamadı: %v", err)
 	}

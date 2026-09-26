@@ -35,7 +35,7 @@ func TestEmployeeUserLink(t *testing.T) {
 	orgB := mustCreateOrg(t, ctx, orgSvc, pool, "EmpLink B", "emplink-b")
 
 	t.Run("1_link_and_read_back", func(t *testing.T) {
-		u, err := userSvc.Create(ctx, orgA.ID, "emplink_u1", "GeciciSifre123!", "Test U1", domain.RoleKullanici)
+		u, err := userSvc.Create(ctx, orgA.ID, "emplink_u1", "GeciciSifre123!", "Test U1", domain.RoleKullanici, "")
 		if err != nil {
 			t.Fatalf("user: %v", err)
 		}
@@ -57,7 +57,7 @@ func TestEmployeeUserLink(t *testing.T) {
 	})
 
 	t.Run("2_cross_org_link_rejected", func(t *testing.T) {
-		uB, err := userSvc.Create(ctx, orgB.ID, "emplink_ub", "GeciciSifre123!", "Org B Kullanıcı", domain.RoleKullanici)
+		uB, err := userSvc.Create(ctx, orgB.ID, "emplink_ub", "GeciciSifre123!", "Org B Kullanıcı", domain.RoleKullanici, "")
 		if err != nil {
 			t.Fatalf("user: %v", err)
 		}
@@ -70,7 +70,7 @@ func TestEmployeeUserLink(t *testing.T) {
 	})
 
 	t.Run("3_duplicate_active_link_rejected", func(t *testing.T) {
-		u, err := userSvc.Create(ctx, orgA.ID, "emplink_dup", "GeciciSifre123!", "Dup Kullanıcı", domain.RoleKullanici)
+		u, err := userSvc.Create(ctx, orgA.ID, "emplink_dup", "GeciciSifre123!", "Dup Kullanıcı", domain.RoleKullanici, "")
 		if err != nil {
 			t.Fatalf("user: %v", err)
 		}
@@ -85,7 +85,7 @@ func TestEmployeeUserLink(t *testing.T) {
 	})
 
 	t.Run("4_unlink_via_update", func(t *testing.T) {
-		u, err := userSvc.Create(ctx, orgA.ID, "emplink_unlink", "GeciciSifre123!", "Unlink Kullanıcı", domain.RoleKullanici)
+		u, err := userSvc.Create(ctx, orgA.ID, "emplink_unlink", "GeciciSifre123!", "Unlink Kullanıcı", domain.RoleKullanici, "")
 		if err != nil {
 			t.Fatalf("user: %v", err)
 		}

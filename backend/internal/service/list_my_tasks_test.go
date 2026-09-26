@@ -69,7 +69,7 @@ func TestListMyTasks(t *testing.T) {
 	// (userID, employeeID).
 	newLinkedUser := func(t *testing.T, orgID, username string, role domain.Role) (string, string) {
 		t.Helper()
-		u, err := userSvc.Create(ctx, orgID, username, "GeciciSifre123!", "Test "+username, role)
+		u, err := userSvc.Create(ctx, orgID, username, "GeciciSifre123!", "Test "+username, role, "")
 		if err != nil {
 			t.Fatalf("user: %v", err)
 		}
@@ -92,7 +92,7 @@ func TestListMyTasks(t *testing.T) {
 
 	// unlinkedUser: gerçek "bağlantısız kullanıcı" senaryosu için -- HİÇBİR
 	// employee.user_id bu kullanıcıyı işaret etmiyor.
-	unlinkedUser, err := userSvc.Create(ctx, orgA.ID, "mytasks_a3_unlinked", "GeciciSifre123!", "Bağlantısız Kullanıcı", domain.RoleKullanici)
+	unlinkedUser, err := userSvc.Create(ctx, orgA.ID, "mytasks_a3_unlinked", "GeciciSifre123!", "Bağlantısız Kullanıcı", domain.RoleKullanici, "")
 	if err != nil {
 		t.Fatalf("unlinked user: %v", err)
 	}

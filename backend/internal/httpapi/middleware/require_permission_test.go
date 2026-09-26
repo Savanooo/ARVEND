@@ -288,7 +288,7 @@ func mustCreateProject(t *testing.T, ctx context.Context, d *rbacTestDeps, orgID
 // kanıtlar.
 func mustCreateRoleUser(t *testing.T, ctx context.Context, d *rbacTestDeps, orgID, username, orgRoleCode string) (*domain.User, string) {
 	t.Helper()
-	u, err := d.userSvc.Create(ctx, orgID, username, "GeciciSifre123!", username, domain.RoleKullanici)
+	u, err := d.userSvc.Create(ctx, orgID, username, "GeciciSifre123!", username, domain.RoleKullanici, "")
 	if err != nil {
 		t.Fatalf("%s kullanıcısı oluşturulamadı: %v", username, err)
 	}
@@ -502,7 +502,7 @@ func TestRBACSecurityMatrix(t *testing.T) {
 	})
 
 	t.Run("14_duplicate_project_membership_stays_single_row", func(t *testing.T) {
-		newUser, err := d.userSvc.Create(ctx, orgA.Organization.ID, "rbac_dup_test", "GeciciSifre123!", "Dup Test", domain.RoleKullanici)
+		newUser, err := d.userSvc.Create(ctx, orgA.Organization.ID, "rbac_dup_test", "GeciciSifre123!", "Dup Test", domain.RoleKullanici, "")
 		if err != nil {
 			t.Fatalf("kullanıcı oluşturulamadı: %v", err)
 		}
