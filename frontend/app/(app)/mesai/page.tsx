@@ -7,7 +7,7 @@ import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import { requirePagePermission } from "@/lib/auth";
-import { PAGE_PERMISSIONS } from "@/lib/permissions";
+import { hasPermission, PAGE_PERMISSIONS } from "@/lib/permissions";
 import type { AttendanceLog, AttendanceStatus, Employee } from "@/lib/types";
 
 import { AddAttendanceForm } from "./AddAttendanceForm";
@@ -31,14 +31,21 @@ function currentMonth(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-async function fetchData(month: string) {
+// Personel listesi YALNIZCA "Mesai Ekle" formunun personel seçicisi içindir
+// (tablo personel adını zaten mesai kaydının kendisinden alır) -- bu yüzden
+// yalnızca form gösterilecekse çekilir. Eskiden koşulsuz çekiliyordu ve
+// employees.read'i olmayan bir rol (ör. Saha: yalnızca puantajı görür)
+// sayfayı açınca backend 403'ü tüm sayfayı çökertiyordu.
+async function fetchData(month: string, withEmployees: boolean) {
   const cookieHeader = (await cookies()).toString();
   const [attendanceRes, employeesRes] = await Promise.all([
     apiServer<{ attendance: AttendanceLog[] }>(
       `/api/v1/attendance?month=${month}`,
       cookieHeader
     ),
-    apiServer<{ employees: Employee[] }>("/api/v1/employees?filter=aktif", cookieHeader),
+    withEmployees
+      ? apiServer<{ employees: Employee[] }>("/api/v1/employees?filter=aktif", cookieHeader)
+      : Promise.resolve({ employees: [] as Employee[] }),
   ]);
   return { attendance: attendanceRes.attendance, employees: employeesRes.employees };
 }
@@ -48,15 +55,17 @@ export default async function MesaiPage({
 }: {
   searchParams: Promise<{ month?: string }>;
 }) {
-  await requirePagePermission(PAGE_PERMISSIONS.attendance);
+  const user = await requirePagePermission(PAGE_PERMISSIONS.attendance);
+  const canManage = hasPermission(user.permissions, "attendance.manage");
+  const canAdd = canManage && hasPermission(user.permissions, PAGE_PERMISSIONS.employees);
   const { month = currentMonth() } = await searchParams;
-  const { attendance, employees } = await fetchData(month);
+  const { attendance, employees } = await fetchData(month, canAdd);
 
   return (
     <>
       <PageHeader title="Mesai" />
       <div className="flex flex-col gap-4 p-8">
-        <AddAttendanceForm employees={employees} />
+        {canAdd && <AddAttendanceForm employees={employees} />}
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 text-sm">
@@ -102,9 +111,7 @@ export default async function MesaiPage({
                     <Badge tone={STATUS_TONE[log.status]}>{log.status}</Badge>
                   </Td>
                   <Td className="text-text-muted">{log.note || "—"}</Td>
-                  <Td>
-                    <AttendanceRowActions log={log} />
-                  </Td>
+                  <Td>{canManage && <AttendanceRowActions log={log} />}</Td>
                 </Tr>
               ))}
               {attendance.length === 0 && (

@@ -5,7 +5,9 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
+import { requirePagePermission } from "@/lib/auth";
 import { formatTL } from "@/lib/format";
+import { PAGE_PERMISSIONS } from "@/lib/permissions";
 import { OFFER_STATUS } from "@/lib/status";
 import type { OfferRevision } from "@/lib/types";
 
@@ -14,6 +16,7 @@ export default async function TeklifRevizyonDetayPage({
 }: {
   params: Promise<{ id: string; revisionId: string }>;
 }) {
+  await requirePagePermission(PAGE_PERMISSIONS.offers);
   const { id, revisionId } = await params;
   const cookieHeader = (await cookies()).toString();
   const revision = await apiServer<OfferRevision>(

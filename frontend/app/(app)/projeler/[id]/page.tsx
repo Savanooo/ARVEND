@@ -6,7 +6,9 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ControlledTabPanel, ControlledTabs } from "@/components/ui/Tabs";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
+import { getCurrentUser } from "@/lib/auth";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
+import { hasPermission, PAGE_PERMISSIONS } from "@/lib/permissions";
 import { PROJECT_STATUS } from "@/lib/status";
 import {
   type BudgetAdjustment,
@@ -113,6 +115,13 @@ export default async function ProjeDetayPage({
   const { id } = await params;
   const cookieHeader = (await cookies()).toString();
   const base = `/api/v1/projects/${id}`;
+  // Proje üyesi olan ama teklif görme izni olmayan roller (Proje Yöneticisi/
+  // Finans/Saha) için kaynak teklif bağlantıları düz metne döner -- tıklanınca
+  // teklif sayfası backend 403'ü ile çöküyordu. Düzenle yalnızca
+  // projects.update ile.
+  const user = await getCurrentUser();
+  const canReadOffers = hasPermission(user?.permissions, PAGE_PERMISSIONS.offers);
+  const canUpdateProject = hasPermission(user?.permissions, "projects.update");
 
   // project, sayfanın var olabilmesi için ZORUNLUDUR -- ayrı ve
   // korumasız çekilir; başarısızsa (proje yok/erişim yok) temiz bir
@@ -235,9 +244,11 @@ export default async function ProjeDetayPage({
         action={
           <div className="flex items-center gap-3">
             <StatusBadge status={project.status} registry={PROJECT_STATUS} />
-            <Link href={`/projeler/${project.id}/duzenle`}>
-              <Button variant="secondary">Düzenle</Button>
-            </Link>
+            {canUpdateProject && (
+              <Link href={`/projeler/${project.id}/duzenle`}>
+                <Button variant="secondary">Düzenle</Button>
+              </Link>
+            )}
           </div>
         }
       />
@@ -287,12 +298,16 @@ export default async function ProjeDetayPage({
           <Row
             label="Kaynak Teklif"
             value={
-              <Link
-                href={`/teklifler/${project.source_offer_id}`}
-                className="hover:text-gold hover:underline"
-              >
-                {project.source_offer_no} · Rev. {project.source_revision_no}
-              </Link>
+              canReadOffers ? (
+                <Link
+                  href={`/teklifler/${project.source_offer_id}`}
+                  className="hover:text-gold hover:underline"
+                >
+                  {project.source_offer_no} · Rev. {project.source_revision_no}
+                </Link>
+              ) : (
+                `${project.source_offer_no} · Rev. ${project.source_revision_no}`
+              )
             }
           />
         </div>
@@ -407,11 +422,13 @@ export default async function ProjeDetayPage({
                 <Row label="Teklif Toplamı" value={formatMoney(project.contract_amount, project.currency)} />
                 <Row label="Para Birimi" value={project.currency} />
               </div>
-              <div className="mt-4 border-t border-border pt-4">
-                <Link href={`/teklifler/${project.source_offer_id}/revizyonlar/${project.source_revision_id}`}>
-                  <Button variant="secondary">Teklifi Görüntüle</Button>
-                </Link>
-              </div>
+              {canReadOffers && (
+                <div className="mt-4 border-t border-border pt-4">
+                  <Link href={`/teklifler/${project.source_offer_id}/revizyonlar/${project.source_revision_id}`}>
+                    <Button variant="secondary">Teklifi Görüntüle</Button>
+                  </Link>
+                </div>
+              )}
             </Section>
           </ControlledTabPanel>
 

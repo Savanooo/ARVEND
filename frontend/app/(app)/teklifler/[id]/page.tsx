@@ -7,7 +7,9 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer, ApiError } from "@/lib/api";
+import { requirePagePermission } from "@/lib/auth";
 import { formatTL } from "@/lib/format";
+import { hasPermission, PAGE_PERMISSIONS } from "@/lib/permissions";
 import { OFFER_STATUS } from "@/lib/status";
 import type {
   Offer,
@@ -27,6 +29,9 @@ export default async function TeklifDetayPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const user = await requirePagePermission(PAGE_PERMISSIONS.offers);
+  const canUpdate = hasPermission(user.permissions, "offers.update");
+  const canCreateProject = hasPermission(user.permissions, "projects.create");
   const { id } = await params;
   const cookieHeader = (await cookies()).toString();
   const [offer, { revisions }, { share_links }, { events }, { email_logs }] = await Promise.all([
@@ -65,7 +70,7 @@ export default async function TeklifDetayPage({
         }
         action={
           <div className="flex items-center gap-3">
-            {offer.status === "taslak" && (
+            {offer.status === "taslak" && canUpdate && (
               <Link href={`/teklifler/${offer.id}/duzenle`}>
                 <Button variant="secondary">Düzenle</Button>
               </Link>
@@ -75,7 +80,7 @@ export default async function TeklifDetayPage({
                 <Button variant="secondary">Projeyi Görüntüle</Button>
               </Link>
             ) : (
-              offer.status === "kabul edildi" && (
+              offer.status === "kabul edildi" && canCreateProject && (
                 <Link href={`/teklifler/${offer.id}/projeye-donustur`}>
                   <Button>Projeye Dönüştür</Button>
                 </Link>

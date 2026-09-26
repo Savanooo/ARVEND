@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Tabs } from "@/components/ui/Tabs";
 import { apiServer } from "@/lib/api";
 import { requirePagePermission } from "@/lib/auth";
-import { PAGE_PERMISSIONS } from "@/lib/permissions";
+import { hasPermission, PAGE_PERMISSIONS } from "@/lib/permissions";
 import type { Offer } from "@/lib/types";
 
 import { OffersBoard } from "./OffersBoard";
@@ -24,7 +24,7 @@ export default async function TekliflerPage({
 }: {
   searchParams: Promise<{ filter?: string }>;
 }) {
-  await requirePagePermission(PAGE_PERMISSIONS.offers);
+  const user = await requirePagePermission(PAGE_PERMISSIONS.offers);
   const { filter = "aktif" } = await searchParams;
   const { offers } = await fetchOffers(filter);
 
@@ -33,9 +33,11 @@ export default async function TekliflerPage({
       <PageHeader
         title="Teklifler"
         action={
-          <Link href="/teklifler/yeni">
-            <Button>+ Yeni Teklif</Button>
-          </Link>
+          hasPermission(user.permissions, "offers.create") ? (
+            <Link href="/teklifler/yeni">
+              <Button>+ Yeni Teklif</Button>
+            </Link>
+          ) : undefined
         }
       />
       <div className="flex flex-col gap-4 p-8">

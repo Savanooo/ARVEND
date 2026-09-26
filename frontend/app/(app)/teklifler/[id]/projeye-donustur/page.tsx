@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer, ApiError } from "@/lib/api";
+import { requirePagePermission } from "@/lib/auth";
+import { hasPermission, PAGE_PERMISSIONS } from "@/lib/permissions";
 import type { Offer, Project } from "@/lib/types";
 
 import { ConvertForm } from "./ConvertForm";
@@ -12,7 +14,9 @@ export default async function ProjeyeDonusturPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const user = await requirePagePermission(PAGE_PERMISSIONS.offers);
   const { id } = await params;
+  if (!hasPermission(user.permissions, "projects.create")) redirect(`/teklifler/${id}`);
   const cookieHeader = (await cookies()).toString();
   const offer = await apiServer<Offer>(`/api/v1/offers/${id}`, cookieHeader);
 
