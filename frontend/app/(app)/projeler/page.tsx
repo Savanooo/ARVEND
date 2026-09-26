@@ -7,7 +7,9 @@ import { Pagination } from "@/components/ui/Pagination";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { apiServer } from "@/lib/api";
+import { requirePagePermission } from "@/lib/auth";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
+import { PAGE_PERMISSIONS } from "@/lib/permissions";
 import { PROJECT_STATUS } from "@/lib/status";
 import type { Project } from "@/lib/types";
 
@@ -37,6 +39,7 @@ export default async function ProjelerPage({
     page?: string;
   }>;
 }) {
+  await requirePagePermission(PAGE_PERMISSIONS.projects);
   const sp = await searchParams;
   const page = Math.max(1, Number(sp.page ?? "1") || 1);
 

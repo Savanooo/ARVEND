@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/Input";
 import { apiClient, ApiError } from "@/lib/api";
 import type { Customer } from "@/lib/types";
 
-export function EditCustomerForm({ customer }: { customer: Customer }) {
+export function EditCustomerForm({ customer, canManage }: { customer: Customer; canManage: boolean }) {
   const router = useRouter();
   const [form, setForm] = useState({
     name: customer.name,
@@ -61,67 +61,83 @@ export function EditCustomerForm({ customer }: { customer: Customer }) {
     <Card>
       <CardHeader>Müşteri Bilgileri</CardHeader>
       <CardBody>
+        {!canManage && (
+          <p className="mb-4 text-xs text-text-muted">
+            Bu kaydı yalnızca görüntüleyebilirsiniz. Düzenlemek için rolünüzde &quot;Müşterileri düzenleme&quot; izni
+            olmalıdır (Roller &amp; Yetkiler).
+          </p>
+        )}
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <Input
             label="Müşteri Adı"
             required
+            disabled={!canManage}
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
           <div className="grid grid-cols-2 gap-3">
             <Input
               label="Telefon"
+              disabled={!canManage}
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
             />
             <Input
               label="E-posta"
               type="email"
+              disabled={!canManage}
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
             />
           </div>
           <Input
             label="Adres"
+            disabled={!canManage}
             value={form.address}
             onChange={(e) => setForm({ ...form, address: e.target.value })}
           />
           <div className="grid grid-cols-2 gap-3">
             <Input
               label="Vergi Dairesi"
+              disabled={!canManage}
               value={form.tax_office}
               onChange={(e) => setForm({ ...form, tax_office: e.target.value })}
             />
             <Input
               label="Vergi No"
+              disabled={!canManage}
               value={form.tax_number}
               onChange={(e) => setForm({ ...form, tax_number: e.target.value })}
             />
           </div>
           <Input
             label="Not"
+            disabled={!canManage}
             value={form.notes}
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
           />
           <label className="flex items-center gap-2 text-sm text-text-muted">
             <input
               type="checkbox"
+              disabled={!canManage}
               checked={form.is_active}
               onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
             />
             Aktif
           </label>
           {message && <p className="text-xs text-text-muted">{message}</p>}
-          <div className="flex items-center gap-3">
-            <Button type="submit" disabled={saving}>
-              {saving ? "Kaydediliyor…" : "Kaydet"}
-            </Button>
-            {customer.is_active && (
-              <Button type="button" variant="danger" disabled={archiving} onClick={handleArchive}>
-                {archiving ? "Pasifleştiriliyor…" : "Pasifleştir"}
+          {canManage && (
+            <div className="flex items-center gap-3">
+              <Button type="submit" disabled={saving}>
+                {saving ? "Kaydediliyor…" : "Kaydet"}
               </Button>
-            )}
-          </div>
+              {customer.is_active && (
+                <Button type="button" variant="danger" disabled={archiving} onClick={handleArchive}>
+                  {archiving ? "Pasifleştiriliyor…" : "Pasifleştir"}
+                </Button>
+              )}
+            </div>
+          )}
         </form>
       </CardBody>
     </Card>

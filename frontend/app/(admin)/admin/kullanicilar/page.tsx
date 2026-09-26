@@ -7,6 +7,8 @@ import { Card } from "@/components/ui/Card";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
+import { requirePagePermission } from "@/lib/auth";
+import { PAGE_PERMISSIONS } from "@/lib/permissions";
 import type { User } from "@/lib/types";
 
 async function fetchUsers() {
@@ -18,6 +20,7 @@ async function fetchUsers() {
 }
 
 export default async function KullanicilarPage() {
+  await requirePagePermission(PAGE_PERMISSIONS.users);
   const { users } = await fetchUsers();
 
   return (

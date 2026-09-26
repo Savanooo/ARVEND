@@ -23,7 +23,7 @@ export async function AppShell({ user, children }: { user: User; children: React
   return (
     <ToastProvider>
       <div className="flex min-h-screen">
-        <Sidebar user={user} items={getNavItems(user.role)} collapsed={collapsed} />
+        <Sidebar user={user} items={getNavItems(user.role, user.permissions)} collapsed={collapsed} />
         <div className="flex min-w-0 flex-1 flex-col">
           <Topbar user={user} />
           <main className="flex-1">{children}</main>

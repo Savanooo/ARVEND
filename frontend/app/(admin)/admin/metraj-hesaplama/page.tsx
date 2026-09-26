@@ -6,6 +6,8 @@ import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { apiServer } from "@/lib/api";
+import { requirePagePermission } from "@/lib/auth";
+import { PAGE_PERMISSIONS } from "@/lib/permissions";
 import type { CalcGroup } from "@/lib/types";
 
 import { NewGroupButton } from "./NewGroupButton";
@@ -21,6 +23,7 @@ async function fetchGroups() {
 // değiştiremez -- bu ekranın tamamı yalnızca admin'e açık route grubunda
 // (app/(admin)) yaşar, backend de aynı kuralı requireAdmin ile uygular.
 export default async function MetrajHesaplamaPage() {
+  await requirePagePermission(PAGE_PERMISSIONS.calculations);
   const { groups } = await fetchGroups();
 
   return (

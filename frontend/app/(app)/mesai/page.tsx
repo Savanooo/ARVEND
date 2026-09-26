@@ -6,6 +6,8 @@ import { Card } from "@/components/ui/Card";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
+import { requirePagePermission } from "@/lib/auth";
+import { PAGE_PERMISSIONS } from "@/lib/permissions";
 import type { AttendanceLog, AttendanceStatus, Employee } from "@/lib/types";
 
 import { AddAttendanceForm } from "./AddAttendanceForm";
@@ -46,6 +48,7 @@ export default async function MesaiPage({
 }: {
   searchParams: Promise<{ month?: string }>;
 }) {
+  await requirePagePermission(PAGE_PERMISSIONS.attendance);
   const { month = currentMonth() } = await searchParams;
   const { attendance, employees } = await fetchData(month);
 

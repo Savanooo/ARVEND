@@ -7,7 +7,9 @@ import { Input } from "@/components/ui/Input";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
+import { requirePagePermission } from "@/lib/auth";
 import { formatTL } from "@/lib/format";
+import { PAGE_PERMISSIONS } from "@/lib/permissions";
 import type { Product } from "@/lib/types";
 
 async function fetchProducts(q: string) {
@@ -24,6 +26,7 @@ export default async function UrunlerPage({
 }: {
   searchParams: Promise<{ q?: string }>;
 }) {
+  await requirePagePermission(PAGE_PERMISSIONS.products);
   const { q = "" } = await searchParams;
   const { products, total } = await fetchProducts(q);
 

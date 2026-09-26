@@ -1,6 +1,9 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
 import { apiServer, ApiError } from "./api";
+import { hasPermission } from "./permissions";
+import { homeFor } from "./route-policy";
 import type { User } from "./types";
 
 /** Server Component'lerde oturum sahibini okur; oturum yoksa/geçersizse null döner. */
@@ -17,4 +20,18 @@ export async function getCurrentUser(): Promise<User | null> {
     }
     throw err;
   }
+}
+
+/**
+ * Bir sayfanın asıl verisini çekmeden ÖNCE çağrılır: kullanıcının rolünde
+ * (Roller & Yetkiler) bu izin yoksa kendi ana sayfasına yönlendirilir.
+ * Menü zaten bu bölümü gizler (bkz. lib/nav.ts); bu, URL'e doğrudan
+ * girildiğinde backend'in 403'ünün sayfayı çökertmesini önleyen güvenlik
+ * ağıdır -- asıl yetki sınırı yine backend'dedir.
+ */
+export async function requirePagePermission(code: string): Promise<User> {
+  const user = await getCurrentUser();
+  if (!user) redirect("/giris");
+  if (!hasPermission(user.permissions, code)) redirect(homeFor(user.role));
+  return user;
 }

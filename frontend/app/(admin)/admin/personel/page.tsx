@@ -7,7 +7,9 @@ import { Card } from "@/components/ui/Card";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
+import { requirePagePermission } from "@/lib/auth";
 import { formatTL } from "@/lib/format";
+import { PAGE_PERMISSIONS } from "@/lib/permissions";
 import type { Employee } from "@/lib/types";
 
 async function fetchEmployees(filter: string) {
@@ -21,6 +23,7 @@ export default async function PersonelPage({
 }: {
   searchParams: Promise<{ filter?: string }>;
 }) {
+  await requirePagePermission(PAGE_PERMISSIONS.employees);
   const { filter = "" } = await searchParams;
   const { employees } = await fetchEmployees(filter);
 

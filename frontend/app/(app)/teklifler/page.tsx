@@ -5,6 +5,8 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Tabs } from "@/components/ui/Tabs";
 import { apiServer } from "@/lib/api";
+import { requirePagePermission } from "@/lib/auth";
+import { PAGE_PERMISSIONS } from "@/lib/permissions";
 import type { Offer } from "@/lib/types";
 
 import { OffersBoard } from "./OffersBoard";
@@ -22,6 +24,7 @@ export default async function TekliflerPage({
 }: {
   searchParams: Promise<{ filter?: string }>;
 }) {
+  await requirePagePermission(PAGE_PERMISSIONS.offers);
   const { filter = "aktif" } = await searchParams;
   const { offers } = await fetchOffers(filter);
 

@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/Input";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
+import { requirePagePermission } from "@/lib/auth";
+import { hasPermission, PAGE_PERMISSIONS } from "@/lib/permissions";
 import type { Customer } from "@/lib/types";
 
 async function fetchCustomers(q: string) {
@@ -21,17 +23,25 @@ export default async function MusterilerPage({
 }: {
   searchParams: Promise<{ q?: string }>;
 }) {
+  const user = await requirePagePermission(PAGE_PERMISSIONS.customers);
   const { q = "" } = await searchParams;
   const { customers } = await fetchCustomers(q);
+  // "+ Yeni Müşteri" yalnızca customers.manage ile -- customers.read'i olan
+  // bir kullanıcı (ör. Saha rolü, bkz. Roller & Yetkiler) bu düğmeyi görüp
+  // formu doldurduktan SONRA backend'den "bu işlem için yetkiniz yok"
+  // hatası alıyordu; düğme baştan gizlenir.
+  const canManage = hasPermission(user.permissions, "customers.manage");
 
   return (
     <>
       <PageHeader
         title="Müşteriler"
         action={
-          <Link href="/musteriler/yeni">
-            <Button>+ Yeni Müşteri</Button>
-          </Link>
+          canManage ? (
+            <Link href="/musteriler/yeni">
+              <Button>+ Yeni Müşteri</Button>
+            </Link>
+          ) : undefined
         }
       />
       <div className="flex flex-col gap-4 p-8">
@@ -65,7 +75,7 @@ export default async function MusterilerPage({
                       href={`/musteriler/${c.id}`}
                       className="text-xs font-semibold uppercase tracking-widest text-gold hover:underline"
                     >
-                      Düzenle
+                      {canManage ? "Düzenle" : "Görüntüle"}
                     </Link>
                   </Td>
                 </Tr>
