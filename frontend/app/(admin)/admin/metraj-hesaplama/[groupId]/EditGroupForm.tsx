@@ -10,7 +10,9 @@ import { Textarea } from "@/components/ui/Textarea";
 import { apiClient, ApiError } from "@/lib/api";
 import type { CalcGroup } from "@/lib/types";
 
-export function EditGroupForm({ group }: { group: CalcGroup }) {
+// canManage yoksa (yalnızca "calculations.read") form salt okunur
+// gösterilir: alanlar kilitli, Kaydet gizli -- backend PUT'u zaten 403 ile reddeder.
+export function EditGroupForm({ group, canManage }: { group: CalcGroup; canManage: boolean }) {
   const router = useRouter();
   const [form, setForm] = useState({
     slug: group.slug,
@@ -40,17 +42,37 @@ export function EditGroupForm({ group }: { group: CalcGroup }) {
     }
   }
 
+  const readOnly = !canManage;
+
   return (
     <Card>
       <CardHeader>Grup Bilgileri</CardHeader>
       <CardBody>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {readOnly && (
+            <p className="text-xs text-text-muted">
+              Bu kaydı yalnızca görüntüleyebilirsin; düzenlemek için rolünde &quot;Metraj kataloğunu düzenleme&quot; izni olmalı.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-3">
-            <Input label="Ad" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            <Input label="Slug" required value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} />
+            <Input
+              label="Ad"
+              required
+              disabled={readOnly}
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+            <Input
+              label="Slug"
+              required
+              disabled={readOnly}
+              value={form.slug}
+              onChange={(e) => setForm({ ...form, slug: e.target.value })}
+            />
           </div>
           <Textarea
             label="Açıklama"
+            disabled={readOnly}
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
           />
@@ -58,12 +80,14 @@ export function EditGroupForm({ group }: { group: CalcGroup }) {
             <Input
               label="Sıra"
               type="number"
+              disabled={readOnly}
               value={form.sort_order}
               onChange={(e) => setForm({ ...form, sort_order: parseInt(e.target.value, 10) || 0 })}
             />
             <label className="flex items-end gap-2 pb-2 text-sm text-text">
               <input
                 type="checkbox"
+                disabled={readOnly}
                 checked={form.is_active}
                 onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
               />
@@ -71,9 +95,11 @@ export function EditGroupForm({ group }: { group: CalcGroup }) {
             </label>
           </div>
           {message && <p className="text-xs text-text-muted">{message}</p>}
-          <Button type="submit" disabled={saving} className="w-fit">
-            {saving ? "Kaydediliyor…" : "Kaydet"}
-          </Button>
+          {!readOnly && (
+            <Button type="submit" disabled={saving} className="w-fit">
+              {saving ? "Kaydediliyor…" : "Kaydet"}
+            </Button>
+          )}
         </form>
       </CardBody>
     </Card>

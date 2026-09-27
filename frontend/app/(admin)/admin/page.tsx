@@ -1,9 +1,9 @@
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { getCurrentUser } from "@/lib/auth";
+import { requireAdminRole } from "@/lib/auth";
 
 export default async function AdminOzetPage() {
-  const user = await getCurrentUser();
+  const user = await requireAdminRole();
   return (
     <>
       <PageHeader title="Özet" />

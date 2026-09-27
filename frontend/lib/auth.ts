@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { apiServer, ApiError } from "./api";
-import { hasPermission } from "./permissions";
+import { canAccess } from "./permissions";
 import { homeFor } from "./route-policy";
 import type { User } from "./types";
 
@@ -32,6 +32,19 @@ export async function getCurrentUser(): Promise<User | null> {
 export async function requirePagePermission(code: string): Promise<User> {
   const user = await getCurrentUser();
   if (!user) redirect("/giris");
-  if (!hasPermission(user.permissions, code)) redirect(homeFor(user.role));
+  if (!canAccess(user, code)) redirect(homeFor(user.role));
+  return user;
+}
+
+/**
+ * Yönetici kabuğu izin tabanlı sayfalar için Sahip/Yönetici dışındaki
+ * üyelere de açıktır (bkz. lib/route-policy.ts); izin kodu olmayan ve
+ * backend'de yalnızca kaba requireAdmin ile korunan sayfalar (Özet, Firma
+ * Ayarları) bunu çağırır.
+ */
+export async function requireAdminRole(): Promise<User> {
+  const user = await getCurrentUser();
+  if (!user) redirect("/giris");
+  if (user.role !== "admin") redirect(homeFor(user.role));
   return user;
 }

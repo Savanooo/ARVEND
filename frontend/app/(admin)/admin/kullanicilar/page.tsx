@@ -8,7 +8,7 @@ import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import { requirePagePermission } from "@/lib/auth";
-import { PAGE_PERMISSIONS } from "@/lib/permissions";
+import { canAccess, PAGE_PERMISSIONS } from "@/lib/permissions";
 import type { User } from "@/lib/types";
 
 async function fetchUsers() {
@@ -20,17 +20,22 @@ async function fetchUsers() {
 }
 
 export default async function KullanicilarPage() {
-  await requirePagePermission(PAGE_PERMISSIONS.users);
+  const me = await requirePagePermission(PAGE_PERMISSIONS.users);
   const { users } = await fetchUsers();
+  const canManage = canAccess(me, "organization.users.manage");
+  // Yeni kullanıcı formu rol listesini de çeker (bkz. yeni/page.tsx kapısı).
+  const canCreate = canManage && canAccess(me, PAGE_PERMISSIONS.roles);
 
   return (
     <>
       <PageHeader
         title="Kullanıcılar"
         action={
-          <Link href="/admin/kullanicilar/yeni">
-            <Button>+ Yeni Kullanıcı</Button>
-          </Link>
+          canCreate ? (
+            <Link href="/admin/kullanicilar/yeni">
+              <Button>+ Yeni Kullanıcı</Button>
+            </Link>
+          ) : undefined
         }
       />
       <div className="p-8">
@@ -70,7 +75,7 @@ export default async function KullanicilarPage() {
                       href={`/admin/kullanicilar/${u.id}`}
                       className="text-xs font-semibold uppercase tracking-widest text-gold hover:underline"
                     >
-                      Düzenle
+                      {canManage ? "Düzenle" : "Görüntüle"}
                     </Link>
                   </Td>
                 </Tr>

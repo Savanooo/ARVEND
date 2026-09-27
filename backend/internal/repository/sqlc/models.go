@@ -1238,3 +1238,12 @@ type User struct {
 	DeletedAt          pgtype.Timestamptz `json:"deleted_at"`
 	DeletedBy          pgtype.UUID        `json:"deleted_by"`
 }
+
+type UserPermissionOverride struct {
+	UserID         pgtype.UUID        `json:"user_id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	PermissionCode string             `json:"permission_code"`
+	Effect         string             `json:"effect"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}

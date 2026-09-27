@@ -98,6 +98,11 @@ func setUserOrganizationRole(ctx context.Context, q *sqlc.Queries, userID, organ
 		}
 		return nil, err
 	}
+	current, err := q.GetUserRoleCode(ctx, sqlc.GetUserRoleCodeParams{ID: uid, OrganizationID: orgID})
+	hadRole := err == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
 	if role.Code != domain.OrgRoleOwner {
 		if err := guardLastActiveOwner(ctx, q, uid, orgID); err != nil {
 			return nil, err
@@ -115,6 +120,14 @@ func setUserOrganizationRole(ctx context.Context, q *sqlc.Queries, userID, organ
 		ID: uid, OrganizationID: orgID, Role: string(coarseRoleForOrgRole(role.Code)),
 	}); err != nil {
 		return nil, err
+	}
+	// Kişiye özel yetki ayarları ESKİ role göre tutulan farklardır -- rol
+	// değişince anlamlarını yitirirler, sıfırlanır (aynı rol yeniden
+	// seçilirse korunur).
+	if !hadRole || current.Code != role.Code {
+		if err := q.ClearUserPermissionOverrides(ctx, sqlc.ClearUserPermissionOverridesParams{UserID: uid, OrganizationID: orgID}); err != nil {
+			return nil, err
+		}
 	}
 	dr := repository.ToDomainOrganizationRole(role)
 	return &dr, nil

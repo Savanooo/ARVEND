@@ -2,11 +2,13 @@ import { cookies } from "next/headers";
 
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
+import { requireAdminRole } from "@/lib/auth";
 import type { OnboardingState } from "@/lib/types";
 
 import { FirmaAyarlariTabs } from "./FirmaAyarlariTabs";
 
 export default async function FirmaAyarlariPage() {
+  await requireAdminRole();
   const cookieHeader = (await cookies()).toString();
   const state = await apiServer<OnboardingState>("/api/v1/organization/settings/", cookieHeader);
 

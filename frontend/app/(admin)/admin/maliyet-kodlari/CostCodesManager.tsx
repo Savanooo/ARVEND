@@ -22,7 +22,16 @@ import type { OrganizationCostCode } from "@/lib/types";
 // düzenle" route'u yok (spec: "bulk import gerekli değil", sadelik).
 const emptyForm = () => ({ code: "", name: "", description: "", category: "" });
 
-export function CostCodesManager({ initialCostCodes }: { initialCostCodes: OrganizationCostCode[] }) {
+export function CostCodesManager({
+  initialCostCodes,
+  canManage,
+}: {
+  initialCostCodes: OrganizationCostCode[];
+  // organization.cost_codes.manage yoksa liste/arama/filtre açık kalır;
+  // oluşturma, düzenleme, arşivleme/etkinleştirme ve modal hiç gösterilmez
+  // (backend bu uçları 403 ile reddeder).
+  canManage: boolean;
+}) {
   const router = useRouter();
   const { confirm, dialog } = useConfirmDialog();
   const [search, setSearch] = useState("");
@@ -127,8 +136,15 @@ export function CostCodesManager({ initialCostCodes }: { initialCostCodes: Organ
             Arşivlenmiş kodları da göster
           </label>
         </div>
-        <Button onClick={openCreate}>+ Yeni Maliyet Kodu</Button>
+        {canManage && <Button onClick={openCreate}>+ Yeni Maliyet Kodu</Button>}
       </div>
+
+      {!canManage && (
+        <p className="text-xs text-text-muted">
+          Maliyet kodlarını yalnızca görüntüleyebilirsin; eklemek veya düzenlemek için rolünde &quot;Maliyet kodu
+          kataloğunu yönetme&quot; izni olmalı.
+        </p>
+      )}
 
       {filtered.length === 0 ? (
         <EmptyState
@@ -138,7 +154,9 @@ export function CostCodesManager({ initialCostCodes }: { initialCostCodes: Organ
               ? "Henüz hiç maliyet kodu oluşturulmamış. Bütçe kalemleri ve taahhütler bu kodlarla sınıflandırılır."
               : "Arama kriterlerinize uyan kod yok."
           }
-          action={initialCostCodes.length === 0 && <Button onClick={openCreate}>+ Yeni Maliyet Kodu</Button>}
+          action={
+            canManage && initialCostCodes.length === 0 && <Button onClick={openCreate}>+ Yeni Maliyet Kodu</Button>
+          }
         />
       ) : (
         <Table>
@@ -148,7 +166,7 @@ export function CostCodesManager({ initialCostCodes }: { initialCostCodes: Organ
               <Th>Ad</Th>
               <Th>Kategori</Th>
               <Th>Durum</Th>
-              <Th className="w-32" />
+              {canManage && <Th className="w-32" />}
             </tr>
           </thead>
           <tbody>
@@ -163,75 +181,79 @@ export function CostCodesManager({ initialCostCodes }: { initialCostCodes: Organ
                 <Td>
                   <Badge tone={c.is_active ? "success" : "muted"}>{c.is_active ? "Aktif" : "Arşivlendi"}</Badge>
                 </Td>
-                <Td className="text-right">
-                  <div className="flex justify-end gap-3">
-                    <button type="button" onClick={() => openEdit(c)} className="text-xs text-gold hover:underline">
-                      Düzenle
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => toggleActive(c)}
-                      className={`text-xs hover:underline ${c.is_active ? "text-danger" : "text-success"}`}
-                    >
-                      {c.is_active ? "Arşivle" : "Etkinleştir"}
-                    </button>
-                  </div>
-                </Td>
+                {canManage && (
+                  <Td className="text-right">
+                    <div className="flex justify-end gap-3">
+                      <button type="button" onClick={() => openEdit(c)} className="text-xs text-gold hover:underline">
+                        Düzenle
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleActive(c)}
+                        className={`text-xs hover:underline ${c.is_active ? "text-danger" : "text-success"}`}
+                      >
+                        {c.is_active ? "Arşivle" : "Etkinleştir"}
+                      </button>
+                    </div>
+                  </Td>
+                )}
               </Tr>
             ))}
           </tbody>
         </Table>
       )}
 
-      <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title={editing ? "Maliyet Kodunu Düzenle" : "Yeni Maliyet Kodu"}
-      >
-        <form onSubmit={submit} className="flex flex-col gap-3">
-          <Input
-            label="Kod"
-            value={form.code}
-            required
-            disabled={!!editing}
-            onChange={(e) => setForm({ ...form, code: e.target.value })}
-            placeholder="ör. MLZ-001"
-          />
-          {editing && (
-            <p className="-mt-2 text-xs text-text-muted">
-              Kod oluşturulduktan sonra değiştirilemez (geçmiş kayıtlarla bağlantısını korumak için).
-            </p>
-          )}
-          <Input
-            label="Ad"
-            value={form.name}
-            required
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="ör. Hazır Beton"
-          />
-          <Input
-            label="Kategori"
-            value={form.category}
-            onChange={(e) => setForm({ ...form, category: e.target.value })}
-            placeholder="ör. Malzeme, İşçilik, Ekipman, Taşeron"
-          />
-          <Textarea
-            label="Açıklama"
-            className="min-h-16"
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-          />
-          {error && <p className="text-xs text-danger">{error}</p>}
-          <div className="flex gap-2 border-t border-border pt-3">
-            <Button type="submit" loading={busy}>
-              Kaydet
-            </Button>
-            <Button type="button" variant="ghost" onClick={() => setModalOpen(false)}>
-              Vazgeç
-            </Button>
-          </div>
-        </form>
-      </Modal>
+      {canManage && (
+        <Modal
+          open={modalOpen}
+          onClose={() => setModalOpen(false)}
+          title={editing ? "Maliyet Kodunu Düzenle" : "Yeni Maliyet Kodu"}
+        >
+          <form onSubmit={submit} className="flex flex-col gap-3">
+            <Input
+              label="Kod"
+              value={form.code}
+              required
+              disabled={!!editing}
+              onChange={(e) => setForm({ ...form, code: e.target.value })}
+              placeholder="ör. MLZ-001"
+            />
+            {editing && (
+              <p className="-mt-2 text-xs text-text-muted">
+                Kod oluşturulduktan sonra değiştirilemez (geçmiş kayıtlarla bağlantısını korumak için).
+              </p>
+            )}
+            <Input
+              label="Ad"
+              value={form.name}
+              required
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="ör. Hazır Beton"
+            />
+            <Input
+              label="Kategori"
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+              placeholder="ör. Malzeme, İşçilik, Ekipman, Taşeron"
+            />
+            <Textarea
+              label="Açıklama"
+              className="min-h-16"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+            />
+            {error && <p className="text-xs text-danger">{error}</p>}
+            <div className="flex gap-2 border-t border-border pt-3">
+              <Button type="submit" loading={busy}>
+                Kaydet
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => setModalOpen(false)}>
+                Vazgeç
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
       {dialog}
     </div>
   );

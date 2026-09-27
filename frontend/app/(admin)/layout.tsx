@@ -8,9 +8,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const user = await getCurrentUser();
   // proxy.ts JWT'yi doğrulamadan yönlendirir; asıl yetki kontrolü burada
   // (backend'e sorup gerçek rolü teyit ederek) ve her API çağrısında
-  // backend'in RequireRole middleware'inde tekrar yapılır.
+  // backend'de tekrar yapılır. Kabuk kullanici hesaplarına da açıktır:
+  // Ürünler/Personel gibi izne bağlı bölümlere izni olan her üye girer.
+  // Her sayfa kendi kapısını çağırır -- requirePagePermission (izne bağlı
+  // bölümler) ya da requireAdminRole (Özet, Firma Ayarları); Kullanıcılar/
+  // Roller/Ayarlar'ın izinleri Yönetici'ye kilitli olduğundan
+  // requirePagePermission kullanici'yi zaten geri gönderir.
   if (!user) redirect("/giris");
-  if (user.role !== "admin") redirect(user.role === "super_admin" ? "/super-admin" : "/panel");
+  if (user.role === "super_admin") redirect("/super-admin");
   enforceFirstLoginFlow(user);
 
   return <AppShell user={user}>{children}</AppShell>;

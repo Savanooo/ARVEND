@@ -149,6 +149,15 @@ FROM users u
 JOIN organization_roles orole ON orole.id = u.organization_role_id
 JOIN role_permissions rp ON rp.organization_role_id = orole.id
 WHERE u.organization_id = $1 AND rp.permission_code = $2 AND u.is_active = true
+  AND (orole.code = 'owner' OR NOT EXISTS (
+        SELECT 1 FROM user_permission_overrides o
+        WHERE o.user_id = u.id AND o.permission_code = rp.permission_code AND o.effect = 'revoke'))
+UNION
+SELECT u.id, u.organization_id, orole.code AS organization_role_code
+FROM users u
+JOIN organization_roles orole ON orole.id = u.organization_role_id
+JOIN user_permission_overrides o ON o.user_id = u.id AND o.effect = 'grant'
+WHERE u.organization_id = $1 AND o.permission_code = $2 AND u.is_active = true AND orole.code <> 'owner'
 `
 
 type ListUsersWithPermissionParams struct {
@@ -169,6 +178,9 @@ type ListUsersWithPermissionRow struct {
 // kapsamlı bir izin için çağıran (notification_service.go), bu sonucu
 // ayrıca `ListProjectUsersDetailed`/bypass-rol kümesiyle kesiştirir
 // (N+1 yerine 2 sorgu + Go'da küme kesişimi).
+// Etkin izin kuralı GetUserPermissions ile AYNIDIR: rolden gelen izin
+// kişiye özel revoke ile düşer, kişiye özel grant ekler; Sahip'te kişiye
+// özel ayarlar yok sayılır.
 func (q *Queries) ListUsersWithPermission(ctx context.Context, arg ListUsersWithPermissionParams) ([]ListUsersWithPermissionRow, error) {
 	rows, err := q.db.Query(ctx, listUsersWithPermission, arg.OrganizationID, arg.PermissionCode)
 	if err != nil {

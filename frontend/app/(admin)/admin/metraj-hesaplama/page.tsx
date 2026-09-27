@@ -7,7 +7,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { apiServer } from "@/lib/api";
 import { requirePagePermission } from "@/lib/auth";
-import { PAGE_PERMISSIONS } from "@/lib/permissions";
+import { canAccess, PAGE_PERMISSIONS } from "@/lib/permissions";
 import type { CalcGroup } from "@/lib/types";
 
 import { NewGroupButton } from "./NewGroupButton";
@@ -19,20 +19,25 @@ async function fetchGroups() {
 
 // Metraj Hesaplama admin ekranı: Grup -> Kategori -> Reçete Kalemi
 // üç seviyeli bir yönetimdir (Ürünler admin ekranıyla aynı liste/detay
-// deseni, bir seviye daha derin). Son kullanıcı reçete katsayılarını
-// değiştiremez -- bu ekranın tamamı yalnızca admin'e açık route grubunda
-// (app/(admin)) yaşar, backend de aynı kuralı requireAdmin ile uygular.
+// deseni, bir seviye daha derin). Görüntüleme "calculations.read" ile her
+// üyeye açılabilir; grup/kategori/reçete katsayısı değiştirmek yalnızca
+// "calculations.manage" ile (backend router.go aynı kuralı uygular).
 export default async function MetrajHesaplamaPage() {
-  await requirePagePermission(PAGE_PERMISSIONS.calculations);
+  const me = await requirePagePermission(PAGE_PERMISSIONS.calculations);
   const { groups } = await fetchGroups();
+  const canManage = canAccess(me, "calculations.manage");
 
   return (
     <>
-      <PageHeader title="Metraj Hesaplama — Gruplar" action={<NewGroupButton />} />
+      <PageHeader
+        title="Metraj Hesaplama — Gruplar"
+        action={canManage ? <NewGroupButton /> : undefined}
+      />
       <div className="flex flex-col gap-4 p-8">
         <p className="text-sm text-text-muted">
           Teklif oluştururken kullanılan hesaplama gruplarını ve altındaki hesaplama türlerini
-          (kategorileri) buradan yönetin. Her kategorinin kendi malzeme reçetesi vardır.
+          (kategorileri) buradan {canManage ? "yönetin" : "görüntüleyin"}. Her kategorinin kendi malzeme
+          reçetesi vardır.
         </p>
         <Card>
           <Table>

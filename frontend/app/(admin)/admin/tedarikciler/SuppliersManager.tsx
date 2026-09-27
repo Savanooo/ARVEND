@@ -26,7 +26,16 @@ const emptyForm = () => ({
   iban: "", notes: "",
 });
 
-export function SuppliersManager({ initialSuppliers }: { initialSuppliers: Supplier[] }) {
+export function SuppliersManager({
+  initialSuppliers,
+  canManage,
+}: {
+  initialSuppliers: Supplier[];
+  // organization.suppliers.manage yoksa liste/arama/filtre açık kalır;
+  // oluşturma, düzenleme, arşivleme/etkinleştirme ve modal hiç gösterilmez
+  // (backend bu uçları 403 ile reddeder).
+  canManage: boolean;
+}) {
   const router = useRouter();
   const { confirm, dialog } = useConfirmDialog();
   const [search, setSearch] = useState("");
@@ -71,6 +80,7 @@ export function SuppliersManager({ initialSuppliers }: { initialSuppliers: Suppl
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (!canManage) return;
     setBusy(true);
     setError(null);
     try {
@@ -138,8 +148,15 @@ export function SuppliersManager({ initialSuppliers }: { initialSuppliers: Suppl
             Arşivlenmiş tedarikçileri de göster
           </label>
         </div>
-        <Button onClick={openCreate}>+ Yeni Tedarikçi</Button>
+        {canManage && <Button onClick={openCreate}>+ Yeni Tedarikçi</Button>}
       </div>
+
+      {!canManage && (
+        <p className="text-xs text-text-muted">
+          Tedarikçileri yalnızca görüntüleyebilirsin; eklemek veya düzenlemek için rolünde &quot;Tedarikçi
+          oluşturma/düzenleme/arşivleme&quot; izni olmalı.
+        </p>
+      )}
 
       {filtered.length === 0 ? (
         <EmptyState
@@ -149,7 +166,7 @@ export function SuppliersManager({ initialSuppliers }: { initialSuppliers: Suppl
               ? "Henüz hiç tedarikçi oluşturulmamış. Satın alma talepleri/RFQ/siparişler bu kataloktan seçilir."
               : "Arama kriterlerinize uyan tedarikçi yok."
           }
-          action={initialSuppliers.length === 0 && <Button onClick={openCreate}>+ Yeni Tedarikçi</Button>}
+          action={canManage && initialSuppliers.length === 0 && <Button onClick={openCreate}>+ Yeni Tedarikçi</Button>}
         />
       ) : (
         <Table>
@@ -179,15 +196,17 @@ export function SuppliersManager({ initialSuppliers }: { initialSuppliers: Suppl
                 <Td className="text-right">
                   <div className="flex justify-end gap-3">
                     <button type="button" onClick={() => openEdit(s)} className="text-xs text-gold hover:underline">
-                      Düzenle
+                      {canManage ? "Düzenle" : "Görüntüle"}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => toggleActive(s)}
-                      className={`text-xs hover:underline ${s.is_active ? "text-danger" : "text-success"}`}
-                    >
-                      {s.is_active ? "Arşivle" : "Etkinleştir"}
-                    </button>
+                    {canManage && (
+                      <button
+                        type="button"
+                        onClick={() => toggleActive(s)}
+                        className={`text-xs hover:underline ${s.is_active ? "text-danger" : "text-success"}`}
+                      >
+                        {s.is_active ? "Arşivle" : "Etkinleştir"}
+                      </button>
+                    )}
                   </div>
                 </Td>
               </Tr>
@@ -196,81 +215,95 @@ export function SuppliersManager({ initialSuppliers }: { initialSuppliers: Suppl
         </Table>
       )}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Tedarikçiyi Düzenle" : "Yeni Tedarikçi"}>
+      {/* Görüntüleme izniyle de açılır (tüm alanlar kilitli): vergi no,
+          adres, notlar gibi ayrıntıların web'de görüldüğü tek yer burası. */}
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={!canManage ? "Tedarikçi" : editing ? "Tedarikçiyi Düzenle" : "Yeni Tedarikçi"}
+      >
         <form onSubmit={submit} className="flex flex-col gap-3">
-          <div className="grid grid-cols-2 gap-3">
+          <fieldset disabled={!canManage} className="contents">
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Kod" value={form.code} required disabled={!!editing}
+                onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="ör. TED-001"
+              />
+              <Input
+                label="Unvan" value={form.legal_name} required
+                onChange={(e) => setForm({ ...form, legal_name: e.target.value })} placeholder="Resmi ticari unvan"
+              />
+            </div>
+            {editing && canManage && (
+              <p className="-mt-2 text-xs text-text-muted">
+                Kod oluşturulduktan sonra değiştirilemez (geçmiş kayıtlarla bağlantısını korumak için).
+              </p>
+            )}
             <Input
-              label="Kod" value={form.code} required disabled={!!editing}
-              onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="ör. TED-001"
+              label="Ticari Ad" value={form.trade_name}
+              onChange={(e) => setForm({ ...form, trade_name: e.target.value })} placeholder="ör. bilinen kısa ad"
             />
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Vergi No" value={form.tax_number}
+                onChange={(e) => setForm({ ...form, tax_number: e.target.value })}
+              />
+              <Input
+                label="Vergi Dairesi" value={form.tax_office}
+                onChange={(e) => setForm({ ...form, tax_office: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Yetkili Kişi" value={form.contact_name}
+                onChange={(e) => setForm({ ...form, contact_name: e.target.value })}
+              />
+              <Input
+                label="Telefon" value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              />
+            </div>
             <Input
-              label="Unvan" value={form.legal_name} required
-              onChange={(e) => setForm({ ...form, legal_name: e.target.value })} placeholder="Resmi ticari unvan"
+              label="E-posta" type="email" value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
             />
-          </div>
-          {editing && (
-            <p className="-mt-2 text-xs text-text-muted">
-              Kod oluşturulduktan sonra değiştirilemez (geçmiş kayıtlarla bağlantısını korumak için).
-            </p>
-          )}
-          <Input
-            label="Ticari Ad" value={form.trade_name}
-            onChange={(e) => setForm({ ...form, trade_name: e.target.value })} placeholder="ör. bilinen kısa ad"
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Vergi No" value={form.tax_number}
-              onChange={(e) => setForm({ ...form, tax_number: e.target.value })}
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Şehir" value={form.city}
+                onChange={(e) => setForm({ ...form, city: e.target.value })}
+              />
+              <Input
+                label="Ülke" value={form.country}
+                onChange={(e) => setForm({ ...form, country: e.target.value })}
+              />
+            </div>
+            <Textarea
+              label="Adres" className="min-h-16" value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
             />
-            <Input
-              label="Vergi Dairesi" value={form.tax_office}
-              onChange={(e) => setForm({ ...form, tax_office: e.target.value })}
+            {canManage ? (
+              <Input
+                label={editing ? "IBAN (değiştirmek için doldurun)" : "IBAN"} value={form.iban}
+                onChange={(e) => setForm({ ...form, iban: e.target.value })}
+                placeholder={editing ? "•••• (kayıtlı, değiştirmemek için boş bırakın)" : "TR.."}
+              />
+            ) : (
+              <p className="text-sm text-text-muted">IBAN: {editing?.iban_set ? "kayıtlı" : "kayıtlı değil"}</p>
+            )}
+            <Textarea
+              label="Notlar" className="min-h-16" value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
             />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Yetkili Kişi" value={form.contact_name}
-              onChange={(e) => setForm({ ...form, contact_name: e.target.value })}
-            />
-            <Input
-              label="Telefon" value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-            />
-          </div>
-          <Input
-            label="E-posta" type="email" value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Şehir" value={form.city}
-              onChange={(e) => setForm({ ...form, city: e.target.value })}
-            />
-            <Input
-              label="Ülke" value={form.country}
-              onChange={(e) => setForm({ ...form, country: e.target.value })}
-            />
-          </div>
-          <Textarea
-            label="Adres" className="min-h-16" value={form.address}
-            onChange={(e) => setForm({ ...form, address: e.target.value })}
-          />
-          <Input
-            label={editing ? "IBAN (değiştirmek için doldurun)" : "IBAN"} value={form.iban}
-            onChange={(e) => setForm({ ...form, iban: e.target.value })}
-            placeholder={editing ? "•••• (kayıtlı, değiştirmemek için boş bırakın)" : "TR.."}
-          />
-          <Textarea
-            label="Notlar" className="min-h-16" value={form.notes}
-            onChange={(e) => setForm({ ...form, notes: e.target.value })}
-          />
+          </fieldset>
           {error && <p className="text-xs text-danger">{error}</p>}
           <div className="flex gap-2 border-t border-border pt-3">
-            <Button type="submit" loading={busy}>
-              Kaydet
-            </Button>
+            {canManage && (
+              <Button type="submit" loading={busy}>
+                Kaydet
+              </Button>
+            )}
             <Button type="button" variant="ghost" onClick={() => setModalOpen(false)}>
-              Vazgeç
+              {canManage ? "Vazgeç" : "Kapat"}
             </Button>
           </div>
         </form>

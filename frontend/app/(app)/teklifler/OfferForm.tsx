@@ -13,6 +13,7 @@ import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatTL } from "@/lib/format";
+import { fetchAllProducts, type ProductPage } from "@/lib/products";
 import type { CalcSnapshot, Customer, Offer, OfferItemPricingMode, Product } from "@/lib/types";
 
 interface ItemRow {
@@ -124,8 +125,8 @@ export function OfferForm({
   const [metrajOpen, setMetrajOpen] = useState(false);
 
   useEffect(() => {
-    apiClient<{ products: Product[]; total: number }>("/api/v1/products?limit=2000")
-      .then((res) => setProducts(res.products))
+    fetchAllProducts((path) => apiClient<ProductPage>(path))
+      .then(setProducts)
       .catch(() => {});
     apiClient<{ customers: Customer[] }>("/api/v1/customers?filter=aktif")
       .then((res) => setCustomers(res.customers))

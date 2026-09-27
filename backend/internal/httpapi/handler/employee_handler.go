@@ -37,23 +37,34 @@ type employeeResponse struct {
 	UserID *string `json:"user_id"`
 }
 
-func toEmployeeResponse(e domain.Employee) employeeResponse {
+// toEmployeeResponse: ücretler (maaş/yevmiye) yalnızca employees.manage
+// sahibine döner. employees.read mesai girişi için de verilir ve kişiye
+// özel yetkilerle Sahip/Yönetici dışındaki üyelere açılabilir -- personel
+// listesini görmek maaşları görmek anlamına gelmemeli.
+func toEmployeeResponse(e domain.Employee, showWages bool) employeeResponse {
 	resp := employeeResponse{
 		ID:          e.ID,
 		FullName:    e.FullName,
 		Phone:       e.Phone,
 		Position:    e.Position,
-		Salary:      e.Salary,
-		DailyWage:   e.DailyWage,
 		IsActive:    e.IsActive,
 		Description: e.Description,
 		UserID:      e.UserID,
+	}
+	if showWages {
+		resp.Salary = e.Salary
+		resp.DailyWage = e.DailyWage
 	}
 	if e.StartDate != nil {
 		s := e.StartDate.Format("2006-01-02")
 		resp.StartDate = &s
 	}
 	return resp
+}
+
+func canSeeEmployeeWages(r *http.Request) bool {
+	authz, ok := middleware.AuthzContextFromRequest(r.Context())
+	return ok && authz.HasPermission(domain.PermEmployeesManage)
 }
 
 func (h *EmployeeHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -72,9 +83,10 @@ func (h *EmployeeHandler) List(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusInternalServerError, "personel listesi alınamadı")
 		return
 	}
+	showWages := canSeeEmployeeWages(r)
 	out := make([]employeeResponse, len(employees))
 	for i, e := range employees {
-		out[i] = toEmployeeResponse(e)
+		out[i] = toEmployeeResponse(e, showWages)
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"employees": out})
 }
@@ -86,7 +98,7 @@ func (h *EmployeeHandler) Get(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toEmployeeResponse(*e))
+	httpjson.Write(w, http.StatusOK, toEmployeeResponse(*e, canSeeEmployeeWages(r)))
 }
 
 type upsertEmployeeRequest struct {
@@ -143,7 +155,7 @@ func (h *EmployeeHandler) Create(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusCreated, toEmployeeResponse(*e))
+	httpjson.Write(w, http.StatusCreated, toEmployeeResponse(*e, canSeeEmployeeWages(r)))
 }
 
 func (h *EmployeeHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -163,7 +175,7 @@ func (h *EmployeeHandler) Update(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toEmployeeResponse(*e))
+	httpjson.Write(w, http.StatusOK, toEmployeeResponse(*e, canSeeEmployeeWages(r)))
 }
 
 func (h *EmployeeHandler) Archive(w http.ResponseWriter, r *http.Request) {

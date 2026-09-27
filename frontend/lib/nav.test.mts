@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { getNavItems, getPlatformNavItems } from "./nav.ts";
-import { PAGE_PERMISSIONS } from "./permissions.ts";
-import { isPlatformPath, isTenantPath } from "./route-policy.ts";
+import { ADMIN_ROLE_ONLY_PERMISSIONS, PAGE_PERMISSIONS } from "./permissions.ts";
+import { isPlatformPath, isTenantPath, PERMISSION_GATED_ADMIN_PREFIXES, resolveRoleRedirect } from "./route-policy.ts";
 
 // Süper Admin kabuğunda ASLA görünmemesi gereken tenant modül etiketleri.
 const TENANT_LABELS = ["Teklifler", "Projeler", "Müşteriler", "Mesai", "Metraj", "Tedarik", "Taşeron", "Personel", "Ürünler"];
@@ -33,13 +33,21 @@ describe("getNavItems", () => {
     assert.equal(hrefs.some(isPlatformPath), false, "admin menüsünde platform rotası olmamalı");
   });
 
-  it("operasyonel kullanıcı (tüm izinler): iş modülleri var, /admin/* ve platform yok", () => {
+  it("operasyonel kullanıcı (tüm izinler): iş modülleri + izne bağlı yönetim bölümleri; Sahip/Yönetici bölümleri ve platform yok", () => {
     const hrefs = getNavItems("kullanici", ALL_PAGE_PERMISSIONS).map((i) => i.href);
-    for (const h of ["/panel", "/teklifler", "/projeler", "/musteriler", "/mesai"]) {
+    for (const h of ["/panel", "/teklifler", "/projeler", "/musteriler", "/mesai", ...PERMISSION_GATED_ADMIN_PREFIXES]) {
       assert.ok(hrefs.includes(h), `kullanici menüsünde ${h} olmalı`);
     }
-    assert.equal(hrefs.some((h) => h === "/admin" || h.startsWith("/admin/")), false);
+    for (const h of ["/admin", "/admin/kullanicilar", "/admin/roller", "/admin/firma-ayarlari", "/admin/ayarlar"]) {
+      assert.equal(hrefs.includes(h), false, `kullanici menüsünde ${h} OLMAMALI`);
+    }
     assert.equal(hrefs.some(isPlatformPath), false);
+  });
+
+  it("menüdeki her /admin öğesi kullanici için yönlendirme politikasından da geçer", () => {
+    for (const { href } of getNavItems("kullanici", ALL_PAGE_PERMISSIONS)) {
+      assert.equal(resolveRoleRedirect(href, "kullanici"), null, href);
+    }
   });
 });
 
@@ -64,6 +72,16 @@ describe("getNavItems — Roller & Yetkiler izin süzmesi", () => {
     const hrefs = getNavItems("admin", withoutOffers).map((i) => i.href);
     assert.equal(hrefs.includes("/teklifler"), false);
     assert.ok(hrefs.includes("/projeler"));
+  });
+
+  it("kişiye özel izinle Saha üyesi yalnızca izni olan yönetim bölümünü görür", () => {
+    const hrefs = getNavItems("kullanici", [PAGE_PERMISSIONS.attendance, PAGE_PERMISSIONS.employees]).map((i) => i.href);
+    assert.deepEqual(hrefs, ["/panel", "/mesai", "/admin/personel", "/panel/profil"]);
+  });
+
+  it("Yönetici'ye kilitli izinler kullanici menüsüne hiçbir öğe eklemez", () => {
+    const hrefs = getNavItems("kullanici", [...ADMIN_ROLE_ONLY_PERMISSIONS]).map((i) => i.href);
+    assert.deepEqual(hrefs, ["/panel", "/panel/profil"]);
   });
 
   it("Firma Ayarları backend'de yalnızca kaba requireAdmin ile korunur: izin kümesinden bağımsız görünür", () => {

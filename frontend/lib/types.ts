@@ -948,6 +948,19 @@ export interface OrganizationRole {
   permissions: string[];
 }
 
+// GET/PUT /api/v1/users/{id}/permissions — kişiye özel yetkiler. permissions
+// ETKİN kümedir: (role_permissions − revoked) ∪ granted. editable=false:
+// Sahip (her zaman tüm yetkiler) ya da rolü olmayan kullanıcı.
+export interface UserPermissions {
+  role_code: string;
+  role_name: string;
+  role_permissions: string[];
+  permissions: string[];
+  granted: string[];
+  revoked: string[];
+  editable: boolean;
+}
+
 export type ProjectRole = "project_manager" | "member" | "viewer";
 
 export const PROJECT_ROLE_LABELS: Record<ProjectRole, string> = {

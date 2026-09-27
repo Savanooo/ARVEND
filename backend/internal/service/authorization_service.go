@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/repository"
@@ -210,26 +212,9 @@ func (s *AuthorizationService) SetRolePermissions(ctx context.Context, roleID, o
 		return nil, err
 	}
 
-	all, err := s.q.ListPermissions(ctx)
+	clean, err := s.cleanPermissionCodes(ctx, permissionCodes)
 	if err != nil {
 		return nil, err
-	}
-	valid := make(map[string]bool, len(all))
-	for _, p := range all {
-		valid[p.Code] = true
-	}
-	clean := make([]string, 0, len(permissionCodes))
-	seen := map[string]bool{}
-	for _, code := range permissionCodes {
-		code = strings.TrimSpace(code)
-		if code == "" || seen[code] {
-			continue
-		}
-		if !valid[code] {
-			return nil, domain.ErrUnknownPermission
-		}
-		seen[code] = true
-		clean = append(clean, code)
 	}
 
 	if err := s.q.ClearRolePermissions(ctx, rid); err != nil {
@@ -244,6 +229,193 @@ func (s *AuthorizationService) SetRolePermissions(ctx context.Context, roleID, o
 	dr := repository.ToDomainOrganizationRole(role)
 	dr.Permissions = clean
 	return &dr, nil
+}
+
+// cleanPermissionCodes, izin kodu listesini kırpar, tekrarları atar ve
+// kayıt defterinde OLMAYAN bir kod varsa ErrUnknownPermission döner.
+func (s *AuthorizationService) cleanPermissionCodes(ctx context.Context, codes []string) ([]string, error) {
+	all, err := s.q.ListPermissions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	valid := make(map[string]bool, len(all))
+	for _, p := range all {
+		valid[p.Code] = true
+	}
+	clean := make([]string, 0, len(codes))
+	seen := map[string]bool{}
+	for _, code := range codes {
+		code = strings.TrimSpace(code)
+		if code == "" || seen[code] {
+			continue
+		}
+		if !valid[code] {
+			return nil, domain.ErrUnknownPermission
+		}
+		seen[code] = true
+		clean = append(clean, code)
+	}
+	return clean, nil
+}
+
+// ---------- Kişiye özel yetkiler ----------
+
+// UserPermissionDetail, bir kullanıcının yetki ekranının verisidir: rolünden
+// gelen izinler, kişiye özel eklenen/çıkarılanlar ve sonuçta etkin olanlar.
+// Editable=false: Sahip (ayarlar uygulanmaz) ya da rolü olmayan kullanıcı.
+type UserPermissionDetail struct {
+	RoleCode        string
+	RoleName        string
+	RolePermissions []string
+	Effective       []string
+	Granted         []string
+	Revoked         []string
+	Editable        bool
+}
+
+// userWithRole, kullanıcı satırını ve organizasyon rolünü birlikte yükler.
+// Rolü yoksa ErrUserHasNoRole.
+func (s *AuthorizationService) userWithRole(ctx context.Context, uid, orgID pgtype.UUID) (sqlc.User, sqlc.OrganizationRole, error) {
+	user, err := s.q.GetUserByIDInOrg(ctx, sqlc.GetUserByIDInOrgParams{ID: uid, OrganizationID: orgID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sqlc.User{}, sqlc.OrganizationRole{}, domain.ErrNotFound
+		}
+		return sqlc.User{}, sqlc.OrganizationRole{}, err
+	}
+	if !user.OrganizationRoleID.Valid {
+		return user, sqlc.OrganizationRole{}, domain.ErrUserHasNoRole
+	}
+	role, err := s.q.GetOrganizationRoleByID(ctx, sqlc.GetOrganizationRoleByIDParams{ID: user.OrganizationRoleID, OrganizationID: orgID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return user, sqlc.OrganizationRole{}, domain.ErrUserHasNoRole
+		}
+		return user, sqlc.OrganizationRole{}, err
+	}
+	return user, role, nil
+}
+
+func (s *AuthorizationService) GetUserPermissionDetail(ctx context.Context, userID, organizationID string) (*UserPermissionDetail, error) {
+	uid, err := repository.StringToUUID(userID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	empty := []string{}
+	_, role, err := s.userWithRole(ctx, uid, orgID)
+	if errors.Is(err, domain.ErrUserHasNoRole) {
+		return &UserPermissionDetail{RolePermissions: empty, Effective: empty, Granted: empty, Revoked: empty}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	rolePerms, err := s.q.ListPermissionsForRole(ctx, role.ID)
+	if err != nil {
+		return nil, err
+	}
+	effective, err := s.q.GetUserPermissions(ctx, sqlc.GetUserPermissionsParams{ID: uid, OrganizationID: orgID})
+	if err != nil {
+		return nil, err
+	}
+	detail := &UserPermissionDetail{
+		RoleCode: role.Code, RoleName: role.Name,
+		RolePermissions: sortedOrEmpty(rolePerms), Effective: sortedOrEmpty(effective),
+		Granted: empty, Revoked: empty,
+		Editable: role.Code != domain.OrgRoleOwner,
+	}
+	if !detail.Editable {
+		return detail, nil
+	}
+	overrides, err := s.q.ListUserPermissionOverrides(ctx, sqlc.ListUserPermissionOverridesParams{UserID: uid, OrganizationID: orgID})
+	if err != nil {
+		return nil, err
+	}
+	for _, o := range overrides {
+		if o.Effect == "grant" {
+			detail.Granted = append(detail.Granted, o.PermissionCode)
+		} else {
+			detail.Revoked = append(detail.Revoked, o.PermissionCode)
+		}
+	}
+	return detail, nil
+}
+
+// SetUserPermissions, kullanıcının ETKİN izin kümesini `desired` yapar:
+// rolünde olup desired'da olmayanlar kişiye özel revoke, rolünde olmayıp
+// desired'da olanlar kişiye özel grant olarak TEK atomik ifadeyle yazılır
+// (rolün kendisi değişmez, aynı roldeki diğer kişiler etkilenmez). Sahip ve
+// silinmiş kullanıcılar reddedilir.
+func (s *AuthorizationService) SetUserPermissions(ctx context.Context, userID, organizationID, actorUserID string, desired []string) (*UserPermissionDetail, error) {
+	uid, err := repository.StringToUUID(userID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	clean, err := s.cleanPermissionCodes(ctx, desired)
+	if err != nil {
+		return nil, err
+	}
+	user, role, err := s.userWithRole(ctx, uid, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if user.DeletedAt.Valid {
+		return nil, domain.ErrUserDeleted
+	}
+	if role.Code == domain.OrgRoleOwner {
+		return nil, domain.ErrOwnerPermissionsFixed
+	}
+
+	rolePerms, err := s.q.ListPermissionsForRole(ctx, role.ID)
+	if err != nil {
+		return nil, err
+	}
+	inRole := make(map[string]bool, len(rolePerms))
+	for _, p := range rolePerms {
+		inRole[p] = true
+	}
+	want := make(map[string]bool, len(clean))
+	// Boş dilim (nil DEĞİL): nil pgx'te NULL diziye dönüşür ve sorgudaki
+	// "= ANY(NULL)" koşulu hiçbir satırı silmez.
+	granted, revoked := []string{}, []string{}
+	for _, p := range clean {
+		want[p] = true
+		if !inRole[p] {
+			if user.Role != string(domain.RoleAdmin) && domain.IsAdminRoleOnlyPermission(p) {
+				return nil, domain.ErrPermissionNeedsAdminRole
+			}
+			granted = append(granted, p)
+		}
+	}
+	for _, p := range rolePerms {
+		if !want[p] {
+			revoked = append(revoked, p)
+		}
+	}
+
+	actor, _ := repository.StringToUUID(actorUserID)
+	if err := s.q.ReplaceUserPermissionOverrides(ctx, sqlc.ReplaceUserPermissionOverridesParams{
+		UserID: uid, OrganizationID: orgID, CreatedBy: actor, Granted: granted, Revoked: revoked,
+	}); err != nil {
+		return nil, err
+	}
+	return s.GetUserPermissionDetail(ctx, userID, organizationID)
+}
+
+func sortedOrEmpty(codes []string) []string {
+	if codes == nil {
+		return []string{}
+	}
+	sort.Strings(codes)
+	return codes
 }
 
 // ---------- Kullanıcı organizasyon rolü ----------

@@ -1,5 +1,5 @@
 import type { NavItem } from "@/components/layout/NavLinks";
-import { hasPermission, PAGE_PERMISSIONS } from "./permissions.ts";
+import { canAccess, PAGE_PERMISSIONS } from "./permissions.ts";
 import type { Role } from "./types";
 
 // permission: o sayfanın ilk yüklemede çağırdığı liste ucunun backend'de
@@ -48,19 +48,27 @@ const ADMIN_ITEMS: GatedNavItem[] = [
   { href: "/admin/ayarlar", label: "Ayarlar", permission: PAGE_PERMISSIONS.smtpSettings },
 ];
 
+// Yönetim bölümlerinden yalnızca izne bağlı olanlar (lib/route-policy.ts
+// PERMISSION_GATED_ADMIN_PREFIXES) -- kişiye özel ya da rolden gelen izinle
+// Sahip/Yönetici dışındaki üyeler de görür.
 const PANEL_ITEMS: GatedNavItem[] = [
   { href: "/panel", label: "Ana Sayfa" },
   { href: "/teklifler", label: "Teklifler", permission: PAGE_PERMISSIONS.offers },
   { href: "/projeler", label: "Projeler", permission: PAGE_PERMISSIONS.projects },
   { href: "/mesai", label: "Mesai", permission: PAGE_PERMISSIONS.attendance },
   { href: "/musteriler", label: "Müşteriler", permission: PAGE_PERMISSIONS.customers },
+  { href: "/admin/urunler", label: "Ürünler", permission: PAGE_PERMISSIONS.products },
+  { href: "/admin/metraj-hesaplama", label: "Metraj Hesaplama", permission: PAGE_PERMISSIONS.calculations },
+  { href: "/admin/personel", label: "Personel", permission: PAGE_PERMISSIONS.employees },
+  { href: "/admin/maliyet-kodlari", label: "Maliyet Kodları", permission: PAGE_PERMISSIONS.costCodes },
+  { href: "/admin/tedarikciler", label: "Tedarikçiler", permission: PAGE_PERMISSIONS.suppliers },
   { href: "/panel/profil", label: "Profilim" },
 ];
 
-// Menü, Roller & Yetkiler'de rol için tanımlanan izin kümesine göre
-// SÜZÜLÜR -- eskiden yalnızca kaba role (admin/kullanici) bakılıyordu, bu
-// yüzden ör. Saha rolündeki bir üye "Teklifler"i görüp tıklayınca backend
-// 403 döndüğü için sayfa çöküyordu.
+// Menü, Roller & Yetkiler'deki rol izinleri ve kişiye özel ayarlarla
+// oluşan etkin izin kümesine göre SÜZÜLÜR -- eskiden yalnızca kaba role
+// (admin/kullanici) bakılıyordu, bu yüzden ör. Saha rolündeki bir üye
+// "Teklifler"i görüp tıklayınca backend 403 döndüğü için sayfa çöküyordu.
 export function getNavItems(role: Role, permissions: readonly string[] | undefined): NavItem[] {
   // super_admin, organization Admin/Owner'dan ayrı bir platform rolüdür --
   // herhangi bir organizasyona ait iş sayfasına (Teklifler/Projeler/...)
@@ -71,6 +79,6 @@ export function getNavItems(role: Role, permissions: readonly string[] | undefin
   }
   const items = role === "admin" ? ADMIN_ITEMS : PANEL_ITEMS;
   return items
-    .filter((item) => !item.permission || hasPermission(permissions, item.permission))
+    .filter((item) => !item.permission || canAccess({ role, permissions }, item.permission))
     .map(({ href, label }) => ({ href, label }));
 }

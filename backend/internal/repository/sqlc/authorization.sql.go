@@ -40,6 +40,22 @@ func (q *Queries) ClearRolePermissions(ctx context.Context, organizationRoleID p
 	return err
 }
 
+const clearUserPermissionOverrides = `-- name: ClearUserPermissionOverrides :exec
+DELETE FROM user_permission_overrides WHERE user_id = $1 AND organization_id = $2
+`
+
+type ClearUserPermissionOverridesParams struct {
+	UserID         pgtype.UUID `json:"user_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+// Rol değiştiğinde eski kişiye özel ayarlar sıfırlanır: ayarlar ESKİ role
+// göre verilmiş farklardı, yeni rolde anlamlarını yitirirler.
+func (q *Queries) ClearUserPermissionOverrides(ctx context.Context, arg ClearUserPermissionOverridesParams) error {
+	_, err := q.db.Exec(ctx, clearUserPermissionOverrides, arg.UserID, arg.OrganizationID)
+	return err
+}
+
 const countActiveOwners = `-- name: CountActiveOwners :one
 SELECT count(*)::bigint
 FROM users u
@@ -258,8 +274,18 @@ func (q *Queries) GetProjectUser(ctx context.Context, arg GetProjectUserParams) 
 const getUserPermissions = `-- name: GetUserPermissions :many
 SELECT rp.permission_code
 FROM users u
-JOIN role_permissions rp ON rp.organization_role_id = u.organization_role_id
+JOIN organization_roles orole ON orole.id = u.organization_role_id
+JOIN role_permissions rp ON rp.organization_role_id = orole.id
 WHERE u.id = $1 AND u.organization_id = $2
+  AND (orole.code = 'owner' OR NOT EXISTS (
+        SELECT 1 FROM user_permission_overrides o
+        WHERE o.user_id = u.id AND o.permission_code = rp.permission_code AND o.effect = 'revoke'))
+UNION
+SELECT o.permission_code
+FROM users u
+JOIN organization_roles orole ON orole.id = u.organization_role_id
+JOIN user_permission_overrides o ON o.user_id = u.id AND o.effect = 'grant'
+WHERE u.id = $1 AND u.organization_id = $2 AND orole.code <> 'owner'
 `
 
 type GetUserPermissionsParams struct {
@@ -267,8 +293,10 @@ type GetUserPermissionsParams struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
 }
 
-// AuthorizationService.HasPermission'ın tek gerçek kaynağı: kullanıcının
-// organization_role_id'sinden role_permissions'a JOIN ile izin kodları.
+// AuthorizationService.HasPermission'ın (ve /auth/me izin listesinin) tek
+// gerçek kaynağı: (rolün izinleri − kişiye özel revoke) ∪ kişiye özel grant.
+// Sahip (owner) rolünde kişiye özel ayarlar YOK SAYILIR -- firmanın son
+// yöneticisinin kendi yetkisini kısıp kilitlenmesi mümkün olmasın.
 // super_admin çağrılmamalıdır (organization_role_id her zaman NULL, JOIN
 // hiçbir satır döndürmez) -- middleware onu zaten rol kontrolüyle daha
 // önce muaf tutar (bkz. RequireOnboarded'daki AYNI desen).
@@ -562,6 +590,45 @@ func (q *Queries) ListProjectsForUserDetailed(ctx context.Context, arg ListProje
 	return items, nil
 }
 
+const listUserPermissionOverrides = `-- name: ListUserPermissionOverrides :many
+
+SELECT permission_code, effect
+FROM user_permission_overrides
+WHERE user_id = $1 AND organization_id = $2
+ORDER BY permission_code
+`
+
+type ListUserPermissionOverridesParams struct {
+	UserID         pgtype.UUID `json:"user_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+type ListUserPermissionOverridesRow struct {
+	PermissionCode string `json:"permission_code"`
+	Effect         string `json:"effect"`
+}
+
+// ============ Kişiye özel yetki ayarları ============
+func (q *Queries) ListUserPermissionOverrides(ctx context.Context, arg ListUserPermissionOverridesParams) ([]ListUserPermissionOverridesRow, error) {
+	rows, err := q.db.Query(ctx, listUserPermissionOverrides, arg.UserID, arg.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserPermissionOverridesRow
+	for rows.Next() {
+		var i ListUserPermissionOverridesRow
+		if err := rows.Scan(&i.PermissionCode, &i.Effect); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const projectUserExists = `-- name: ProjectUserExists :one
 SELECT EXISTS (
     SELECT 1 FROM project_users WHERE project_id = $1 AND user_id = $2 AND organization_id = $3
@@ -580,6 +647,45 @@ func (q *Queries) ProjectUserExists(ctx context.Context, arg ProjectUserExistsPa
 	var is_member bool
 	err := row.Scan(&is_member)
 	return is_member, err
+}
+
+const replaceUserPermissionOverrides = `-- name: ReplaceUserPermissionOverrides :exec
+WITH removed AS (
+    DELETE FROM user_permission_overrides
+    WHERE user_id = $1::uuid AND organization_id = $2::uuid
+      AND NOT (permission_code = ANY($4::text[]) OR permission_code = ANY($5::text[]))
+)
+INSERT INTO user_permission_overrides (user_id, organization_id, permission_code, effect, created_by)
+SELECT $1::uuid, $2::uuid, g.code, 'grant', $3::uuid
+FROM unnest($4::text[]) AS g(code)
+UNION ALL
+SELECT $1::uuid, $2::uuid, r.code, 'revoke', $3::uuid
+FROM unnest($5::text[]) AS r(code)
+ON CONFLICT (user_id, permission_code)
+DO UPDATE SET effect = EXCLUDED.effect, created_by = EXCLUDED.created_by, created_at = now()
+`
+
+type ReplaceUserPermissionOverridesParams struct {
+	UserID         pgtype.UUID `json:"user_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	CreatedBy      pgtype.UUID `json:"created_by"`
+	Granted        []string    `json:"granted"`
+	Revoked        []string    `json:"revoked"`
+}
+
+// Kişinin kişiye özel ayarlarını TEK ifadede yeni kümeyle değiştirir
+// (atomik: yarım kalmış bir küme oluşamaz). Silinen satırlar (yeni kümede
+// olmayan kodlar) ile upsert edilen satırlar ayrık kümelerdir, bu yüzden
+// aynı ifadedeki DELETE ve INSERT birbirine çarpmaz.
+func (q *Queries) ReplaceUserPermissionOverrides(ctx context.Context, arg ReplaceUserPermissionOverridesParams) error {
+	_, err := q.db.Exec(ctx, replaceUserPermissionOverrides,
+		arg.UserID,
+		arg.OrganizationID,
+		arg.CreatedBy,
+		arg.Granted,
+		arg.Revoked,
+	)
+	return err
 }
 
 const seedSystemRolesForOrg = `-- name: SeedSystemRolesForOrg :exec

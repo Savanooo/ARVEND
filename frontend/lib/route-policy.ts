@@ -11,7 +11,8 @@ import type { Role, User } from "./types";
  *   B) admin        -> organizasyon Owner/Admin (Yönetici): /admin/** + iş
  *      rotaları (/teklifler, /projeler, /musteriler, /mesai).
  *   C) kullanici    -> operasyonel organizasyon kullanıcısı: /panel/** + iş
- *      rotaları (izinleri ölçüsünde).
+ *      rotaları + izne bağlı yönetim bölümleri (PERMISSION_GATED_ADMIN_PREFIXES),
+ *      hepsi izinleri ölçüsünde.
  */
 
 export const PLATFORM_HOME = "/super-admin";
@@ -25,6 +26,19 @@ export const TENANT_ROUTE_PREFIXES = [
   "/mesai",
   "/kurulum",
   "/sifre-belirle",
+] as const;
+
+// Yönetici kabuğundaki (/admin/**) YALNIZCA izne bağlı bölümler: backend
+// uçlarında requireAdmin YOK, kişiye özel ya da rolden gelen izinle
+// kullanici hesapları da girebilir. Her sayfa ayrıca requirePagePermission
+// ile kendi iznini doğrular. Buraya eklenmeyen /admin yolları (Özet,
+// Kullanıcılar, Roller, Firma Ayarları, Ayarlar) Sahip/Yönetici'ye özeldir.
+export const PERMISSION_GATED_ADMIN_PREFIXES = [
+  "/admin/urunler",
+  "/admin/metraj-hesaplama",
+  "/admin/personel",
+  "/admin/maliyet-kodlari",
+  "/admin/tedarikciler",
 ] as const;
 
 function matchesPrefix(pathname: string, prefix: string): boolean {
@@ -68,6 +82,12 @@ export function resolveRoleRedirect(pathname: string, role: Role | undefined): s
   }
   const fallbackRole: Role = role ?? "kullanici";
   if (isPlatformPath(pathname)) return homeFor(fallbackRole);
-  if (matchesPrefix(pathname, "/admin") && role !== "admin") return homeFor(fallbackRole);
+  if (
+    matchesPrefix(pathname, "/admin") &&
+    role !== "admin" &&
+    !PERMISSION_GATED_ADMIN_PREFIXES.some((prefix) => matchesPrefix(pathname, prefix))
+  ) {
+    return homeFor(fallbackRole);
+  }
   return null;
 }

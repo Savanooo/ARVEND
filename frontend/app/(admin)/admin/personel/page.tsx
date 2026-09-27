@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import { requirePagePermission } from "@/lib/auth";
 import { formatTL } from "@/lib/format";
-import { PAGE_PERMISSIONS } from "@/lib/permissions";
+import { canAccess, PAGE_PERMISSIONS } from "@/lib/permissions";
 import type { Employee } from "@/lib/types";
 
 async function fetchEmployees(filter: string) {
@@ -23,18 +23,23 @@ export default async function PersonelPage({
 }: {
   searchParams: Promise<{ filter?: string }>;
 }) {
-  await requirePagePermission(PAGE_PERMISSIONS.employees);
+  const me = await requirePagePermission(PAGE_PERMISSIONS.employees);
   const { filter = "" } = await searchParams;
   const { employees } = await fetchEmployees(filter);
+  // "Personeli görüntüleme" mesai girişi için de verilir: ekleme/düzenleme
+  // ve ücret sütunu yalnızca "Personeli düzenleme" ile.
+  const canManage = canAccess(me, "employees.manage");
 
   return (
     <>
       <PageHeader
         title="Personel"
         action={
-          <Link href="/admin/personel/yeni">
-            <Button>+ Yeni Personel</Button>
-          </Link>
+          canManage ? (
+            <Link href="/admin/personel/yeni">
+              <Button>+ Yeni Personel</Button>
+            </Link>
+          ) : undefined
         }
       />
       <div className="flex flex-col gap-4 p-8">
@@ -45,7 +50,7 @@ export default async function PersonelPage({
                 <Th>Ad Soyad</Th>
                 <Th>Görev</Th>
                 <Th>Telefon</Th>
-                <Th className="text-right">Yevmiye / Maaş</Th>
+                {canManage && <Th className="text-right">Yevmiye / Maaş</Th>}
                 <Th>Durum</Th>
                 <Th />
               </tr>
@@ -56,13 +61,15 @@ export default async function PersonelPage({
                   <Td className="font-medium">{e.full_name}</Td>
                   <Td className="text-text-muted">{e.position || "—"}</Td>
                   <Td className="text-text-muted">{e.phone || "—"}</Td>
-                  <Td className="text-right font-medium">
-                    {e.daily_wage != null
-                      ? `${formatTL(e.daily_wage)} / gün`
-                      : e.salary != null
-                        ? `${formatTL(e.salary)} / ay`
-                        : "—"}
-                  </Td>
+                  {canManage && (
+                    <Td className="text-right font-medium">
+                      {e.daily_wage != null
+                        ? `${formatTL(e.daily_wage)} / gün`
+                        : e.salary != null
+                          ? `${formatTL(e.salary)} / ay`
+                          : "—"}
+                    </Td>
+                  )}
                   <Td>
                     <Badge tone={e.is_active ? "success" : "muted"}>
                       {e.is_active ? "Aktif" : "Pasif"}
@@ -73,14 +80,14 @@ export default async function PersonelPage({
                       href={`/admin/personel/${e.id}`}
                       className="text-xs font-semibold uppercase tracking-widest text-gold hover:underline"
                     >
-                      Düzenle
+                      {canManage ? "Düzenle" : "Görüntüle"}
                     </Link>
                   </Td>
                 </Tr>
               ))}
               {employees.length === 0 && (
                 <tr>
-                  <Td colSpan={6} className="text-center text-text-muted">
+                  <Td colSpan={canManage ? 6 : 5} className="text-center text-text-muted">
                     Personel bulunamadı.
                   </Td>
                 </tr>

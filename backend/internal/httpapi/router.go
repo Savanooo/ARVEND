@@ -122,6 +122,11 @@ func NewRouter(d Deps) http.Handler {
 					r.With(perm(domain.PermOrganizationUsersManage)).Patch("/{id}/password", d.Users.AdminResetPassword)
 					r.With(perm(domain.PermOrganizationUsersManage)).Delete("/{id}", d.Users.Deactivate)
 					r.With(perm(domain.PermOrganizationRolesManage)).Put("/{id}/organization-role", d.Users.SetOrganizationRole)
+					// Kişiye özel yetkiler: rolün izin kümesi başlangıç, üstüne
+					// o kişiye özel ekleme/çıkarma -- Roller & Yetkiler ile AYNI
+					// izinler (organization.roles.read/manage).
+					r.With(perm(domain.PermOrganizationRolesRead)).Get("/{id}/permissions", d.Authorization.GetUserPermissions)
+					r.With(perm(domain.PermOrganizationRolesManage)).Put("/{id}/permissions", d.Authorization.SetUserPermissions)
 					r.With(perm(domain.PermOrganizationUsersRead)).Get("/{id}/projects", d.Authorization.ListUserProjects)
 				})
 			})

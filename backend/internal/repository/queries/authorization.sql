@@ -58,15 +58,59 @@ WHERE id = $1 AND organization_id = $2
 RETURNING *;
 
 -- name: GetUserPermissions :many
--- AuthorizationService.HasPermission'ın tek gerçek kaynağı: kullanıcının
--- organization_role_id'sinden role_permissions'a JOIN ile izin kodları.
+-- AuthorizationService.HasPermission'ın (ve /auth/me izin listesinin) tek
+-- gerçek kaynağı: (rolün izinleri − kişiye özel revoke) ∪ kişiye özel grant.
+-- Sahip (owner) rolünde kişiye özel ayarlar YOK SAYILIR -- firmanın son
+-- yöneticisinin kendi yetkisini kısıp kilitlenmesi mümkün olmasın.
 -- super_admin çağrılmamalıdır (organization_role_id her zaman NULL, JOIN
 -- hiçbir satır döndürmez) -- middleware onu zaten rol kontrolüyle daha
 -- önce muaf tutar (bkz. RequireOnboarded'daki AYNI desen).
 SELECT rp.permission_code
 FROM users u
-JOIN role_permissions rp ON rp.organization_role_id = u.organization_role_id
-WHERE u.id = $1 AND u.organization_id = $2;
+JOIN organization_roles orole ON orole.id = u.organization_role_id
+JOIN role_permissions rp ON rp.organization_role_id = orole.id
+WHERE u.id = $1 AND u.organization_id = $2
+  AND (orole.code = 'owner' OR NOT EXISTS (
+        SELECT 1 FROM user_permission_overrides o
+        WHERE o.user_id = u.id AND o.permission_code = rp.permission_code AND o.effect = 'revoke'))
+UNION
+SELECT o.permission_code
+FROM users u
+JOIN organization_roles orole ON orole.id = u.organization_role_id
+JOIN user_permission_overrides o ON o.user_id = u.id AND o.effect = 'grant'
+WHERE u.id = $1 AND u.organization_id = $2 AND orole.code <> 'owner';
+
+-- ============ Kişiye özel yetki ayarları ============
+
+-- name: ListUserPermissionOverrides :many
+SELECT permission_code, effect
+FROM user_permission_overrides
+WHERE user_id = $1 AND organization_id = $2
+ORDER BY permission_code;
+
+-- name: ClearUserPermissionOverrides :exec
+-- Rol değiştiğinde eski kişiye özel ayarlar sıfırlanır: ayarlar ESKİ role
+-- göre verilmiş farklardı, yeni rolde anlamlarını yitirirler.
+DELETE FROM user_permission_overrides WHERE user_id = $1 AND organization_id = $2;
+
+-- name: ReplaceUserPermissionOverrides :exec
+-- Kişinin kişiye özel ayarlarını TEK ifadede yeni kümeyle değiştirir
+-- (atomik: yarım kalmış bir küme oluşamaz). Silinen satırlar (yeni kümede
+-- olmayan kodlar) ile upsert edilen satırlar ayrık kümelerdir, bu yüzden
+-- aynı ifadedeki DELETE ve INSERT birbirine çarpmaz.
+WITH removed AS (
+    DELETE FROM user_permission_overrides
+    WHERE user_id = @user_id::uuid AND organization_id = @organization_id::uuid
+      AND NOT (permission_code = ANY(@granted::text[]) OR permission_code = ANY(@revoked::text[]))
+)
+INSERT INTO user_permission_overrides (user_id, organization_id, permission_code, effect, created_by)
+SELECT @user_id::uuid, @organization_id::uuid, g.code, 'grant', @created_by::uuid
+FROM unnest(@granted::text[]) AS g(code)
+UNION ALL
+SELECT @user_id::uuid, @organization_id::uuid, r.code, 'revoke', @created_by::uuid
+FROM unnest(@revoked::text[]) AS r(code)
+ON CONFLICT (user_id, permission_code)
+DO UPDATE SET effect = EXCLUDED.effect, created_by = EXCLUDED.created_by, created_at = now();
 
 -- name: GetUserRoleCode :one
 -- Middleware'in HER istekte tek satırlık, hafif okuması: rol kodu VE adı

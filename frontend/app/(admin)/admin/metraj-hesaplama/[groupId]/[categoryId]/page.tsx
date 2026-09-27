@@ -4,12 +4,19 @@ import { cookies } from "next/headers";
 
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
+import { requirePagePermission } from "@/lib/auth";
+import { canAccess, PAGE_PERMISSIONS } from "@/lib/permissions";
+import { fetchAllProducts, type ProductPage } from "@/lib/products";
 import type { CalcCategory, CalcGroup, CalcRecipeItem, Product } from "@/lib/types";
 
 import { EditCategoryForm } from "./EditCategoryForm";
 import { RecipeItemsEditor } from "./RecipeItemsEditor";
 
-async function fetchData(groupId: string, categoryId: string) {
+// Metraj uçlarını sayfa kapısı (calculations.read) garanti eder; ürün
+// kataloğu ise AYRI bir izindir (products.read) -- kişiye özel yetkilerle
+// "Metraj'ı görür ama ürünleri görmez" mümkün olduğundan yalnızca izin
+// varsa çekilir, yoksa reçete ürün adları olmadan gösterilir.
+async function fetchData(groupId: string, categoryId: string, canReadProducts: boolean) {
   const cookieHeader = (await cookies()).toString();
   const [{ groups }, { categories }, { items }, { products }] = await Promise.all([
     apiServer<{ groups: CalcGroup[] }>("/api/v1/calculations/groups", cookieHeader),
@@ -21,7 +28,9 @@ async function fetchData(groupId: string, categoryId: string) {
       `/api/v1/calculations/recipe-items?category_id=${categoryId}`,
       cookieHeader
     ),
-    apiServer<{ products: Product[]; total: number }>("/api/v1/products?limit=2000", cookieHeader),
+    canReadProducts
+      ? fetchAllProducts((path) => apiServer<ProductPage>(path, cookieHeader)).then((products) => ({ products }))
+      : Promise.resolve({ products: [] as Product[] }),
   ]);
   const group = groups.find((g) => g.id === groupId);
   const category = categories.find((c) => c.id === categoryId);
@@ -33,9 +42,12 @@ export default async function CategoryDetailPage({
 }: {
   params: Promise<{ groupId: string; categoryId: string }>;
 }) {
+  const me = await requirePagePermission(PAGE_PERMISSIONS.calculations);
   const { groupId, categoryId } = await params;
-  const { group, category, items, products } = await fetchData(groupId, categoryId);
+  const canReadProducts = canAccess(me, PAGE_PERMISSIONS.products);
+  const { group, category, items, products } = await fetchData(groupId, categoryId, canReadProducts);
   if (!group || !category) notFound();
+  const canManage = canAccess(me, "calculations.manage");
 
   return (
     <>
@@ -54,8 +66,14 @@ export default async function CategoryDetailPage({
         }
       />
       <div className="flex flex-col gap-6 p-8">
-        <EditCategoryForm category={category} groupId={group.id} />
-        <RecipeItemsEditor categoryId={category.id} items={items} products={products} />
+        <EditCategoryForm category={category} groupId={group.id} canManage={canManage} />
+        <RecipeItemsEditor
+          categoryId={category.id}
+          items={items}
+          products={products}
+          canManage={canManage}
+          canReadProducts={canReadProducts}
+        />
       </div>
     </>
   );

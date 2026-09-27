@@ -79,10 +79,18 @@ export function RecipeItemsEditor({
   categoryId,
   items,
   products,
+  canManage,
+  canReadProducts,
 }: {
   categoryId: string;
   items: CalcRecipeItem[];
   products: Product[];
+  // Yalnızca "calculations.read" ile reçete görülür ama eklenemez/
+  // düzenlenemez/silinemez; kalem modalı salt okunur açılır.
+  canManage: boolean;
+  // Ürün kataloğunu göremeyen biri (products.read yok) ürün adlarını ve
+  // seçiciyi görmez; mevcut ürün bağlantısı kaydederken olduğu gibi korunur.
+  canReadProducts: boolean;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState<CalcRecipeItem | "new" | null>(null);
@@ -90,6 +98,7 @@ export function RecipeItemsEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { confirm, dialog } = useConfirmDialog();
+  const readOnly = !canManage;
 
   function openCreate() {
     setForm(itemToForm());
@@ -168,7 +177,7 @@ export function RecipeItemsEditor({
     <Card>
       <CardHeader className="flex items-center justify-between">
         <span>Malzeme Reçetesi</span>
-        <Button onClick={openCreate}>+ Yeni Kalem</Button>
+        {canManage && <Button onClick={openCreate}>+ Yeni Kalem</Button>}
       </CardHeader>
       <Table>
         <thead>
@@ -200,7 +209,11 @@ export function RecipeItemsEditor({
               <Td className="text-right">{item.waste_percent}</Td>
               <Td className="text-text-muted">{ROUNDING_LABELS[item.rounding_type]}</Td>
               <Td className="text-text-muted">
-                {item.product_id ? products.find((p) => p.id === item.product_id)?.name ?? "—" : "Bağlı değil"}
+                {!item.product_id
+                  ? "Bağlı değil"
+                  : canReadProducts
+                    ? products.find((p) => p.id === item.product_id)?.name ?? "—"
+                    : "Bağlı"}
               </Td>
               <Td>
                 <StatusBadge status={item.is_active ? "active" : "inactive"} registry={ITEM_STATUS} />
@@ -212,15 +225,17 @@ export function RecipeItemsEditor({
                     onClick={() => openEdit(item)}
                     className="text-xs font-semibold uppercase tracking-widest text-gold hover:underline"
                   >
-                    Düzenle
+                    {canManage ? "Düzenle" : "Görüntüle"}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(item)}
-                    className="text-xs font-semibold uppercase tracking-widest text-danger hover:underline"
-                  >
-                    Sil
-                  </button>
+                  {canManage && (
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(item)}
+                      className="text-xs font-semibold uppercase tracking-widest text-danger hover:underline"
+                    >
+                      Sil
+                    </button>
+                  )}
                 </div>
               </Td>
             </Tr>
@@ -238,153 +253,176 @@ export function RecipeItemsEditor({
       <Modal
         open={editing !== null}
         onClose={() => setEditing(null)}
-        title={editing === "new" ? "Yeni Reçete Kalemi" : "Reçete Kalemini Düzenle"}
+        title={editing === "new" ? "Yeni Reçete Kalemi" : readOnly ? "Reçete Kalemi" : "Reçete Kalemini Düzenle"}
         widthClassName="max-w-2xl"
       >
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Malzeme Adı"
-              required
-              value={form.material_name}
-              onChange={(e) => setForm({ ...form, material_name: e.target.value })}
-            />
-            <Input
-              label="Birim"
-              required
-              placeholder="ör. adet, m², paket"
-              value={form.unit}
-              onChange={(e) => setForm({ ...form, unit: e.target.value })}
-            />
-          </div>
+          {readOnly && (
+            <p className="text-xs text-text-muted">
+              Bu kaydı yalnızca görüntüleyebilirsin; düzenlemek için rolünde &quot;Metraj kataloğunu düzenleme&quot; izni olmalı.
+            </p>
+          )}
+          {/* disabled fieldset, içindeki TÜM alanları tek yerden kilitler. */}
+          <fieldset disabled={readOnly} className="flex min-w-0 flex-col gap-4">
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Malzeme Adı"
+                required
+                value={form.material_name}
+                onChange={(e) => setForm({ ...form, material_name: e.target.value })}
+              />
+              <Input
+                label="Birim"
+                required
+                placeholder="ör. adet, m², paket"
+                value={form.unit}
+                onChange={(e) => setForm({ ...form, unit: e.target.value })}
+              />
+            </div>
 
-          <Select
-            label="Hesaplama Türü"
-            value={form.calculation_type}
-            onChange={(e) => setForm({ ...form, calculation_type: e.target.value as CalcType })}
-          >
-            {Object.entries(CALC_TYPE_LABELS).map(([k, label]) => (
-              <option key={k} value={k}>
-                {label}
-              </option>
-            ))}
-          </Select>
-
-          <div className="grid grid-cols-3 gap-3">
-            <Input
-              label="Katsayı / m²"
-              disabled={form.calculation_type !== "area_based"}
-              value={form.quantity_per_m2}
-              onChange={(e) => setForm({ ...form, quantity_per_m2: e.target.value })}
-            />
-            <Input
-              label="Katsayı / m (çevre)"
-              disabled={form.calculation_type !== "perimeter_based"}
-              value={form.quantity_per_meter}
-              onChange={(e) => setForm({ ...form, quantity_per_meter: e.target.value })}
-            />
-            <Input
-              label="Sabit Miktar"
-              disabled={form.calculation_type !== "fixed"}
-              value={form.fixed_quantity}
-              onChange={(e) => setForm({ ...form, fixed_quantity: e.target.value })}
-            />
-          </div>
-          <p className="text-xs text-text-muted">
-            Yalnızca seçili hesaplama türüne uyan katsayı kullanılır; miktar = {" "}
-            {form.calculation_type === "area_based" && "etkin alan (m²) × Katsayı/m²"}
-            {form.calculation_type === "perimeter_based" && "çevre (m) × Katsayı/m"}
-            {form.calculation_type === "fixed" && "her zaman Sabit Miktar"}
-            {" "}→ fire → minimum → paket/yuvarlama.
-          </p>
-
-          <div className="grid grid-cols-3 gap-3">
-            <Input
-              label="Fire (%)"
-              value={form.waste_percent}
-              onChange={(e) => setForm({ ...form, waste_percent: e.target.value })}
-            />
             <Select
-              label="Yuvarlama"
-              value={form.rounding_type}
-              onChange={(e) => setForm({ ...form, rounding_type: e.target.value as RoundingType })}
+              label="Hesaplama Türü"
+              value={form.calculation_type}
+              onChange={(e) => setForm({ ...form, calculation_type: e.target.value as CalcType })}
             >
-              {Object.entries(ROUNDING_LABELS).map(([k, label]) => (
+              {Object.entries(CALC_TYPE_LABELS).map(([k, label]) => (
                 <option key={k} value={k}>
                   {label}
                 </option>
               ))}
             </Select>
-            <Input
-              label="Referans Fiyat (TL)"
-              value={form.reference_unit_price}
-              onChange={(e) => setForm({ ...form, reference_unit_price: e.target.value })}
-            />
-          </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Minimum Miktar (opsiyonel)"
-              placeholder="boş bırakılabilir"
-              value={form.min_quantity}
-              onChange={(e) => setForm({ ...form, min_quantity: e.target.value })}
-            />
-            <Input
-              label="Paket Büyüklüğü (opsiyonel)"
-              placeholder="ör. 3.6 — 1 paket kaç birim kaplar"
-              value={form.package_size}
-              onChange={(e) => setForm({ ...form, package_size: e.target.value })}
-            />
-          </div>
-          <p className="text-xs text-text-muted">
-            Paket büyüklüğü verilirse yuvarlama kuralının YERİNE geçer: sonuç, ham miktarı karşılamak için
-            gereken PAKET SAYISIDIR (birim genelde &quot;paket/rulo/torba&quot; olmalı).
-          </p>
+            <div className="grid grid-cols-3 gap-3">
+              <Input
+                label="Katsayı / m²"
+                disabled={form.calculation_type !== "area_based"}
+                value={form.quantity_per_m2}
+                onChange={(e) => setForm({ ...form, quantity_per_m2: e.target.value })}
+              />
+              <Input
+                label="Katsayı / m (çevre)"
+                disabled={form.calculation_type !== "perimeter_based"}
+                value={form.quantity_per_meter}
+                onChange={(e) => setForm({ ...form, quantity_per_meter: e.target.value })}
+              />
+              <Input
+                label="Sabit Miktar"
+                disabled={form.calculation_type !== "fixed"}
+                value={form.fixed_quantity}
+                onChange={(e) => setForm({ ...form, fixed_quantity: e.target.value })}
+              />
+            </div>
+            <p className="text-xs text-text-muted">
+              Yalnızca seçili hesaplama türüne uyan katsayı kullanılır; miktar = {" "}
+              {form.calculation_type === "area_based" && "etkin alan (m²) × Katsayı/m²"}
+              {form.calculation_type === "perimeter_based" && "çevre (m) × Katsayı/m"}
+              {form.calculation_type === "fixed" && "her zaman Sabit Miktar"}
+              {" "}→ fire → minimum → paket/yuvarlama.
+            </p>
 
-          <Select
-            label="Ürün (fiyat buradan okunur; boş bırakılabilir)"
-            value={form.product_id}
-            onChange={(e) => setForm({ ...form, product_id: e.target.value })}
-          >
-            <option value="">Bağlı değil</option>
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({p.unit}, {p.unit_price.toLocaleString("tr-TR")} TL)
-              </option>
-            ))}
-          </Select>
+            <div className="grid grid-cols-3 gap-3">
+              <Input
+                label="Fire (%)"
+                value={form.waste_percent}
+                onChange={(e) => setForm({ ...form, waste_percent: e.target.value })}
+              />
+              <Select
+                label="Yuvarlama"
+                value={form.rounding_type}
+                onChange={(e) => setForm({ ...form, rounding_type: e.target.value as RoundingType })}
+              >
+                {Object.entries(ROUNDING_LABELS).map(([k, label]) => (
+                  <option key={k} value={k}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+              <Input
+                label="Referans Fiyat (TL)"
+                value={form.reference_unit_price}
+                onChange={(e) => setForm({ ...form, reference_unit_price: e.target.value })}
+              />
+            </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            <Input
-              label="Alt Başlık"
-              placeholder="ör. Ana Malzemeler"
-              value={form.group_name}
-              onChange={(e) => setForm({ ...form, group_name: e.target.value })}
-            />
-            <Input
-              label="Sıra"
-              type="number"
-              value={form.sort_order}
-              onChange={(e) => setForm({ ...form, sort_order: e.target.value })}
-            />
-            {editing !== "new" && (
-              <label className="flex items-end gap-2 pb-2 text-sm text-text">
-                <input
-                  type="checkbox"
-                  checked={form.is_active}
-                  onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
-                />
-                Aktif
-              </label>
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Minimum Miktar (opsiyonel)"
+                placeholder="boş bırakılabilir"
+                value={form.min_quantity}
+                onChange={(e) => setForm({ ...form, min_quantity: e.target.value })}
+              />
+              <Input
+                label="Paket Büyüklüğü (opsiyonel)"
+                placeholder="ör. 3.6 — 1 paket kaç birim kaplar"
+                value={form.package_size}
+                onChange={(e) => setForm({ ...form, package_size: e.target.value })}
+              />
+            </div>
+            <p className="text-xs text-text-muted">
+              Paket büyüklüğü verilirse yuvarlama kuralının YERİNE geçer: sonuç, ham miktarı karşılamak için
+              gereken PAKET SAYISIDIR (birim genelde &quot;paket/rulo/torba&quot; olmalı).
+            </p>
+
+            {canReadProducts ? (
+              <Select
+                label="Ürün (fiyat buradan okunur; boş bırakılabilir)"
+                value={form.product_id}
+                onChange={(e) => setForm({ ...form, product_id: e.target.value })}
+              >
+                <option value="">Bağlı değil</option>
+                {/* Bağlı ürün listede yoksa seçici sessizce "Bağlı değil" göstermesin. */}
+                {form.product_id && !products.some((p) => p.id === form.product_id) && (
+                  <option value={form.product_id}>Bağlı ürün (listede yok)</option>
+                )}
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.unit}, {p.unit_price.toLocaleString("tr-TR")} TL)
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <p className="text-xs text-text-muted">
+                Ürün bağlantısı: {form.product_id ? "bağlı" : "bağlı değil"}
+                {readOnly
+                  ? "."
+                  : " (değiştirmek için rolünde \"Ürün kataloğunu görüntüleme\" izni olmalı; kaydederken mevcut bağlantı korunur)."}
+              </p>
             )}
-          </div>
 
-          <Input label="Not" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+            <div className="grid grid-cols-3 gap-3">
+              <Input
+                label="Alt Başlık"
+                placeholder="ör. Ana Malzemeler"
+                value={form.group_name}
+                onChange={(e) => setForm({ ...form, group_name: e.target.value })}
+              />
+              <Input
+                label="Sıra"
+                type="number"
+                value={form.sort_order}
+                onChange={(e) => setForm({ ...form, sort_order: e.target.value })}
+              />
+              {editing !== "new" && (
+                <label className="flex items-end gap-2 pb-2 text-sm text-text">
+                  <input
+                    type="checkbox"
+                    checked={form.is_active}
+                    onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+                  />
+                  Aktif
+                </label>
+              )}
+            </div>
+
+            <Input label="Not" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          </fieldset>
 
           {error && <p className="text-xs text-danger">{error}</p>}
-          <Button type="submit" disabled={saving}>
-            {saving ? "Kaydediliyor…" : "Kaydet"}
-          </Button>
+          {!readOnly && (
+            <Button type="submit" disabled={saving}>
+              {saving ? "Kaydediliyor…" : "Kaydet"}
+            </Button>
+          )}
         </form>
       </Modal>
       {dialog}

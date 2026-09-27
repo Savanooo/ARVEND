@@ -168,6 +168,28 @@ const (
 	PermNotificationsRead = "notifications.read"
 )
 
+// adminRoleOnlyPermissions, uçları izne EK OLARAK kaba requireAdmin
+// kapısının arkasında duran izinlerdir (router.go: /users yönetimi,
+// /organization/roles, /organization/permissions, /settings). Kaba rolü
+// admin olmayan (Sahip/Yönetici dışı) bir kullanıcıda bu izinler hiçbir
+// uçta işe yaramaz; bu yüzden kişiye özel olarak EKLENEMEZ (bkz.
+// ErrPermissionNeedsAdminRole). frontend/lib/permissions.ts'teki
+// ADMIN_ROLE_ONLY_PERMISSIONS ile BİREBİR aynı tutulmalıdır.
+var adminRoleOnlyPermissions = map[string]bool{
+	PermOrganizationUsersRead:      true,
+	PermOrganizationUsersManage:    true,
+	PermOrganizationRolesRead:      true,
+	PermOrganizationRolesManage:    true,
+	PermOrganizationSettingsRead:   true,
+	PermOrganizationSettingsManage: true,
+}
+
+// IsAdminRoleOnlyPermission, iznin yalnızca kaba rolü admin olan
+// kullanıcılarda etkili olup olmadığını söyler.
+func IsAdminRoleOnlyPermission(code string) bool {
+	return adminRoleOnlyPermissions[code]
+}
+
 // ---------- Domain tipleri ----------
 
 type Permission struct {
@@ -246,4 +268,16 @@ var (
 	// istenirse döner -- "tanımsız izin = erişim yok" (deny-by-default,
 	// spec §9) ilkesinin somutlaşmasıdır.
 	ErrUnknownPermission = errors.New("tanımsız izin kodu")
+	// ErrOwnerPermissionsFixed, Sahip rolündeki bir kullanıcıya kişiye özel
+	// yetki ayarlanmaya çalışıldığında döner: Sahip her zaman rolünün tüm
+	// izinlerine sahiptir (firmanın kendini kilitlemesi engellenir).
+	ErrOwnerPermissionsFixed = errors.New("Sahip her zaman tüm yetkilere sahiptir; kişiye özel yetki ayarlanamaz")
+	// ErrPermissionNeedsAdminRole, Sahip/Yönetici dışı bir kullanıcıya
+	// kullanıcı/rol/firma ayarı yönetimi izni kişiye özel eklenmeye
+	// çalışıldığında döner (bkz. IsAdminRoleOnlyPermission).
+	ErrPermissionNeedsAdminRole = errors.New("kullanıcı, rol ve firma ayarı izinleri yalnızca Sahip veya Yönetici rolündeki kişilerde geçerlidir")
+	// ErrUserHasNoRole, organizasyon rolü atanmamış bir kullanıcıya kişiye
+	// özel yetki ayarlanmaya çalışıldığında döner -- ayarlar role göre fark
+	// olarak tutulduğu için önce bir rol gerekir.
+	ErrUserHasNoRole = errors.New("kullanıcıya önce bir organizasyon rolü atanmalı")
 )

@@ -30,8 +30,10 @@ func (h *AuthorizationHandler) writeError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusBadRequest, "tanımsız izin kodu")
 	case errors.Is(err, domain.ErrLastOwner):
 		httpjson.Error(w, http.StatusConflict, err.Error())
-	case errors.Is(err, domain.ErrCrossOrgMembership):
+	case errors.Is(err, domain.ErrCrossOrgMembership), errors.Is(err, domain.ErrPermissionNeedsAdminRole):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, domain.ErrOwnerPermissionsFixed), errors.Is(err, domain.ErrUserDeleted):
+		httpjson.Error(w, http.StatusConflict, err.Error())
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}
@@ -124,6 +126,59 @@ func (h *AuthorizationHandler) SetRolePermissions(w http.ResponseWriter, r *http
 		return
 	}
 	httpjson.Write(w, http.StatusOK, toOrganizationRoleResponse(*role))
+}
+
+// ---------- Kişiye özel yetkiler ----------
+
+type userPermissionsResponse struct {
+	RoleCode        string   `json:"role_code"`
+	RoleName        string   `json:"role_name"`
+	RolePermissions []string `json:"role_permissions"`
+	Permissions     []string `json:"permissions"`
+	Granted         []string `json:"granted"`
+	Revoked         []string `json:"revoked"`
+	Editable        bool     `json:"editable"`
+}
+
+func toUserPermissionsResponse(d service.UserPermissionDetail) userPermissionsResponse {
+	return userPermissionsResponse{
+		RoleCode: d.RoleCode, RoleName: d.RoleName, RolePermissions: d.RolePermissions,
+		Permissions: d.Effective, Granted: d.Granted, Revoked: d.Revoked, Editable: d.Editable,
+	}
+}
+
+// GetUserPermissions, bir kullanıcının rolünden gelen, kişiye özel eklenen/
+// çıkarılan ve etkin izinlerini döner (Personel/Kullanıcı düzenleme ekranı).
+func (h *AuthorizationHandler) GetUserPermissions(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	detail, err := h.svc.GetUserPermissionDetail(r.Context(), chi.URLParam(r, "id"), orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, toUserPermissionsResponse(*detail))
+}
+
+type setUserPermissionsRequest struct {
+	Permissions []string `json:"permissions"`
+}
+
+// SetUserPermissions, kullanıcının etkin izin kümesini gövdedeki listeye
+// eşitler; rolden farklı olanlar kişiye özel ayar olarak saklanır.
+func (h *AuthorizationHandler) SetUserPermissions(w http.ResponseWriter, r *http.Request) {
+	var req setUserPermissionsRequest
+	if err := httpjson.Decode(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	actorID, _ := middleware.UserIDFromContext(r.Context())
+	detail, err := h.svc.SetUserPermissions(r.Context(), chi.URLParam(r, "id"), orgID, actorID, req.Permissions)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, toUserPermissionsResponse(*detail))
 }
 
 type userProjectAssignmentResponse struct {

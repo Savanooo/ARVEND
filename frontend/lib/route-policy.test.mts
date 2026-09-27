@@ -95,6 +95,34 @@ describe("resolveRoleRedirect (proxy/layout ortak karar)", () => {
     assert.equal(resolveRoleRedirect("/admin/kullanicilar", "kullanici"), "/panel");
     assert.equal(resolveRoleRedirect("/panel/profil", "kullanici"), null);
   });
+
+  it("izne bağlı yönetim bölümleri kullanici'ye açık (sayfa kendi iznini doğrular), Sahip/Yönetici bölümleri kapalı", () => {
+    for (const p of [
+      "/admin/urunler",
+      "/admin/urunler/yeni",
+      "/admin/metraj-hesaplama/g1/c1",
+      "/admin/personel",
+      "/admin/personel/e1",
+      "/admin/maliyet-kodlari",
+      "/admin/tedarikciler",
+    ]) {
+      assert.equal(resolveRoleRedirect(p, "kullanici"), null, p);
+      assert.equal(resolveRoleRedirect(p, "admin"), null, p);
+    }
+    for (const p of [
+      "/admin",
+      "/admin/kullanicilar",
+      "/admin/kullanicilar/yeni",
+      "/admin/roller",
+      "/admin/firma-ayarlari",
+      "/admin/ayarlar",
+      "/admin/urunlerx",
+      "/admin/personelx",
+    ]) {
+      assert.equal(resolveRoleRedirect(p, "kullanici"), "/panel", p);
+    }
+    assert.equal(resolveRoleRedirect("/admin/personel", "super_admin"), "/super-admin");
+  });
 });
 
 describe("yol sınıflandırma", () => {

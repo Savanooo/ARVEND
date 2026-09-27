@@ -7,6 +7,8 @@ import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { apiServer } from "@/lib/api";
+import { requirePagePermission } from "@/lib/auth";
+import { canAccess, PAGE_PERMISSIONS } from "@/lib/permissions";
 import type { CalcCategory, CalcGroup } from "@/lib/types";
 
 import { EditGroupForm } from "./EditGroupForm";
@@ -33,9 +35,13 @@ export default async function GroupDetailPage({
 }: {
   params: Promise<{ groupId: string }>;
 }) {
+  // Her iki liste ucu da calculations.read ister -- bu kapı ikisini de
+  // garanti eder; düzenleme/yeni kategori yalnızca calculations.manage ile.
+  const me = await requirePagePermission(PAGE_PERMISSIONS.calculations);
   const { groupId } = await params;
   const { group, categories } = await fetchGroup(groupId);
   if (!group) notFound();
+  const canManage = canAccess(me, "calculations.manage");
 
   return (
     <>
@@ -48,10 +54,10 @@ export default async function GroupDetailPage({
             / {group.name}
           </span>
         }
-        action={<NewCategoryButton groupId={group.id} />}
+        action={canManage ? <NewCategoryButton groupId={group.id} /> : undefined}
       />
       <div className="flex flex-col gap-6 p-8">
-        <EditGroupForm group={group} />
+        <EditGroupForm group={group} canManage={canManage} />
         <Card>
           <Table>
             <thead>
