@@ -47,3 +47,13 @@ func TestLoad_CORSOriginsParsesCSV(t *testing.T) {
 		t.Fatalf("CORSOrigins = %v, want %v (boşluklar kırpılır, boş parçalar atılır)", cfg.CORSOrigins, want)
 	}
 }
+
+func TestLoad_PriceSyncScheduler(t *testing.T) {
+	cases := map[string]bool{"": true, "on": true, "true": true, "1": true, "off": false, "OFF": false, "false": false, "0": false, "no": false, "disabled": false}
+	for v, want := range cases {
+		t.Setenv("PRICE_SYNC_SCHEDULER", v)
+		if got := Load().PriceSyncScheduler; got != want {
+			t.Errorf("PRICE_SYNC_SCHEDULER=%q -> %v, want %v", v, got, want)
+		}
+	}
+}

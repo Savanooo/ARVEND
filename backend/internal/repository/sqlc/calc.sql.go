@@ -643,7 +643,7 @@ func (q *Queries) ListCalcRecipeItemsAdmin(ctx context.Context, arg ListCalcReci
 }
 
 const resolveRecipeProducts = `-- name: ResolveRecipeProducts :many
-SELECT id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at, organization_id FROM products WHERE id = ANY($1::uuid[]) AND organization_id = $2
+SELECT id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at, organization_id, source_synced_at FROM products WHERE id = ANY($1::uuid[]) AND organization_id = $2
 `
 
 type ResolveRecipeProductsParams struct {
@@ -681,6 +681,7 @@ func (q *Queries) ResolveRecipeProducts(ctx context.Context, arg ResolveRecipePr
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.OrganizationID,
+			&i.SourceSyncedAt,
 		); err != nil {
 			return nil, err
 		}

@@ -9,7 +9,27 @@ import { Input } from "@/components/ui/Input";
 import { apiClient, ApiError } from "@/lib/api";
 import type { Product } from "@/lib/types";
 
-export function EditProductForm({ product }: { product: Product }) {
+/**
+ * sourceLink: ürünün tedarikçi listesiyle (Ulaş) bağı.
+ *   - "linked": Ulaş ürünü, son listede var (ya da henüz hiç senkron yok).
+ *     Backend Ulaş satırlarını (ad, birim) ile eşleştirdiğinden bu iki alan
+ *     kilitlidir: değişirse bir sonraki güncelleme ürünü yeniden ekler,
+ *     bu kayıt "listede yok" olarak kalıp fiyat almaz.
+ *   - "missing": Ulaş ürünü ama son listede yok -- zaten eşleşmiyor; ad ve
+ *     birim düzenlenebilir (ör. Ulaş'taki adla aynı yapıp yeniden bağlamak).
+ *   - "none": elle eklenen ürün.
+ */
+export type ProductSourceLink = "none" | "linked" | "missing";
+
+export function EditProductForm({
+  product,
+  canManage,
+  sourceLink,
+}: {
+  product: Product;
+  canManage: boolean;
+  sourceLink: ProductSourceLink;
+}) {
   const router = useRouter();
   const [form, setForm] = useState({
     name: product.name,
@@ -39,14 +59,24 @@ export function EditProductForm({ product }: { product: Product }) {
     }
   }
 
+  const readOnly = !canManage;
+  const lockNameUnit = sourceLink === "linked";
+
   return (
     <Card>
       <CardHeader>Ürün Bilgileri</CardHeader>
       <CardBody>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {readOnly && (
+            <p className="text-xs text-text-muted">
+              Bu kaydı yalnızca görüntüleyebilirsin; düzenlemek için rolünde &quot;Ürün kataloğunu düzenleme&quot; izni
+              olmalı.
+            </p>
+          )}
           <Input
             label="Ürün Adı"
             required
+            disabled={readOnly || lockNameUnit}
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
@@ -54,6 +84,7 @@ export function EditProductForm({ product }: { product: Product }) {
             <Input
               label="Birim"
               required
+              disabled={readOnly || lockNameUnit}
               value={form.unit}
               onChange={(e) => setForm({ ...form, unit: e.target.value })}
             />
@@ -63,26 +94,45 @@ export function EditProductForm({ product }: { product: Product }) {
               step="0.01"
               min={0}
               required
+              disabled={readOnly}
               value={form.unit_price}
               onChange={(e) =>
                 setForm({ ...form, unit_price: parseFloat(e.target.value) || 0 })
               }
             />
           </div>
+          {!readOnly && sourceLink === "linked" && (
+            <p className="-mt-2 text-xs text-text-muted">
+              Ad ve birim Ulaş listesinden gelir ve ürünü listeyle eşleştirmek için kullanılır, bu yüzden
+              değiştirilemez. Değişselerdi bir sonraki güncelleme Ulaş ürününü yeni bir kayıt olarak ekler, bu
+              kayıt da fiyat almazdı. Farklı adla satmak için elle yeni ürün ekleyin.
+            </p>
+          )}
+          {!readOnly && sourceLink === "missing" && (
+            <p className="-mt-2 text-xs text-text-muted">
+              Bu ürün son Ulaş listesinde yok. Ad ve birim, Ulaş listesindekiyle birebir aynı (büyük/küçük harf
+              dahil) olursa bir sonraki güncellemede yeniden eşleşir; farklı olursa Ulaş ürünü ayrı bir kayıt
+              olarak eklenir.
+            </p>
+          )}
           <Input
             label="Kategori"
+            disabled={readOnly}
             value={form.category}
             onChange={(e) => setForm({ ...form, category: e.target.value })}
           />
           <Input
             label="Açıklama"
+            disabled={readOnly}
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
           />
           {message && <p className="text-xs text-text-muted">{message}</p>}
-          <Button type="submit" disabled={saving}>
-            {saving ? "Kaydediliyor…" : "Kaydet"}
-          </Button>
+          {!readOnly && (
+            <Button type="submit" disabled={saving}>
+              {saving ? "Kaydediliyor…" : "Kaydet"}
+            </Button>
+          )}
         </form>
       </CardBody>
     </Card>

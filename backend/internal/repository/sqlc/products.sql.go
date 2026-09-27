@@ -54,7 +54,7 @@ func (q *Queries) CreatePriceHistory(ctx context.Context, arg CreatePriceHistory
 const createProduct = `-- name: CreateProduct :one
 INSERT INTO products (organization_id, name, normalized_name, unit, unit_price, description, category, source, source_price)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at, organization_id
+RETURNING id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at, organization_id, source_synced_at
 `
 
 type CreateProductParams struct {
@@ -95,6 +95,7 @@ func (q *Queries) CreateProduct(ctx context.Context, arg CreateProductParams) (P
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.OrganizationID,
+		&i.SourceSyncedAt,
 	)
 	return i, err
 }
@@ -117,7 +118,7 @@ func (q *Queries) DeleteProduct(ctx context.Context, arg DeleteProductParams) (i
 }
 
 const getProductByID = `-- name: GetProductByID :one
-SELECT id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at, organization_id FROM products WHERE id = $1 AND organization_id = $2
+SELECT id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at, organization_id, source_synced_at FROM products WHERE id = $1 AND organization_id = $2
 `
 
 type GetProductByIDParams struct {
@@ -141,6 +142,7 @@ func (q *Queries) GetProductByID(ctx context.Context, arg GetProductByIDParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.OrganizationID,
+		&i.SourceSyncedAt,
 	)
 	return i, err
 }
@@ -179,10 +181,10 @@ func (q *Queries) ListPriceHistory(ctx context.Context, productID pgtype.UUID) (
 }
 
 const listProducts = `-- name: ListProducts :many
-SELECT id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at, organization_id FROM products
+SELECT id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at, organization_id, source_synced_at FROM products
 WHERE organization_id = $1
   AND ($4::text = '' OR normalized_name ILIKE '%' || $4::text || '%')
-ORDER BY name ASC
+ORDER BY name ASC, id ASC
 LIMIT $2 OFFSET $3
 `
 
@@ -220,6 +222,7 @@ func (q *Queries) ListProducts(ctx context.Context, arg ListProductsParams) ([]P
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.OrganizationID,
+			&i.SourceSyncedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -236,7 +239,7 @@ UPDATE products
 SET name = $3, normalized_name = $4, unit = $5, unit_price = $6,
     description = $7, category = $8
 WHERE id = $1 AND organization_id = $2
-RETURNING id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at, organization_id
+RETURNING id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at, organization_id, source_synced_at
 `
 
 type UpdateProductParams struct {
@@ -275,6 +278,7 @@ func (q *Queries) UpdateProduct(ctx context.Context, arg UpdateProductParams) (P
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.OrganizationID,
+		&i.SourceSyncedAt,
 	)
 	return i, err
 }

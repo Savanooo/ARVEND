@@ -13,6 +13,7 @@ export function Modal({
   children,
   footer,
   widthClassName = "max-w-md",
+  dismissible = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -22,6 +23,13 @@ export function Modal({
   // Mevcut tüm kullanım yerleri bunu vermediği için max-w-md korunur;
   // Metraj Hesapla gibi tablo içeren geniş paneller için override edilir.
   widthClassName?: string;
+  // false iken (ör. kayıt isteği sürerken) kullanıcı ESC, kapat düğmesi
+  // veya arka plan tıklamasıyla kapatamaz. Tarayıcı ESC'yi yine de zorla
+  // uygularsa (tekrarlanan ESC'de Chrome cancel'ın engellenmesini yok
+  // sayar) native "close" olayı onClose'u çağırır -- çağıranın open
+  // durumu dialog'la uyumlu kalsın diye onClose'u koşulsuz uygulaması
+  // gerekir.
+  dismissible?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
 
@@ -36,14 +44,23 @@ export function Modal({
     // ::backdrop gerçek bir DOM düğümü değildir -- tıklaması dialog
     // elemanının KENDİ kutusuna (içerik div'lerinin dışına) düşer, bu
     // yüzden target === dialog kontrolü "arka plana tıklandı" demektir.
-    if (e.target === ref.current) onClose();
+    if (dismissible && e.target === ref.current) onClose();
+  }
+
+  function handleCancel(e: React.SyntheticEvent<HTMLDialogElement>) {
+    // ESC: kapatılamaz durumdayken tarayıcının dialog'u kapatmasını engelle.
+    if (!dismissible) {
+      e.preventDefault();
+      return;
+    }
+    onClose();
   }
 
   return (
     <dialog
       ref={ref}
       onClose={onClose}
-      onCancel={onClose}
+      onCancel={handleCancel}
       onClick={handleBackdropClick}
       className={`m-auto w-full ${widthClassName} rounded-lg border border-border bg-surface p-0 text-text shadow-xl backdrop:bg-black/40`}
     >
@@ -52,8 +69,9 @@ export function Modal({
         <button
           type="button"
           onClick={onClose}
+          disabled={!dismissible}
           aria-label="Kapat"
-          className="ml-auto text-text-muted hover:text-text"
+          className="ml-auto text-text-muted hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
         >
           <X size={18} strokeWidth={1.75} />
         </button>

@@ -23,6 +23,7 @@ type Deps struct {
 	Auth              *handler.AuthHandler
 	Users             *handler.UserHandler
 	Products          *handler.ProductHandler
+	PriceSources      *handler.PriceSourceHandler
 	Offers            *handler.OfferHandler
 	Projects          *handler.ProjectHandler
 	Customers         *handler.CustomerHandler
@@ -137,6 +138,12 @@ func NewRouter(d Deps) http.Handler {
 			// Katalog herkes icin okunabilir (teklif olustururken herkes
 			// urun secebilmeli); yazma products.manage iznine ozel.
 			r.With(perm(domain.PermProductsRead)).Get("/", d.Products.List)
+			// Tedarikçi fiyat listesi (Ulaş) ayarları/senkronu. chi'de statik
+			// segment parametreden önce eşleşir -- "/price-sources" ASLA
+			// "/{id}" tarafından yakalanmaz. Okuma products.read (kâr oranları
+			// yalnızca products.manage'e döner, bkz. PriceSourceHandler),
+			// ayar değiştirme/senkron products.manage.
+			r.With(perm(domain.PermProductsRead)).Get("/price-sources", d.PriceSources.List)
 			r.With(perm(domain.PermProductsRead)).Get("/{id}", d.Products.Get)
 			r.With(perm(domain.PermProductsRead)).Get("/{id}/price-history", d.Products.PriceHistory)
 
@@ -145,6 +152,8 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/", d.Products.Create)
 				r.Put("/{id}", d.Products.Update)
 				r.Delete("/{id}", d.Products.Delete)
+				r.Put("/price-sources/{source}", d.PriceSources.Update)
+				r.Post("/price-sources/{source}/sync", d.PriceSources.Sync)
 			})
 		})
 

@@ -12,6 +12,7 @@ require (
 	github.com/shopspring/decimal v1.4.0
 	go.mongodb.org/mongo-driver/v2 v2.9.1
 	golang.org/x/crypto v0.57.0
+	golang.org/x/net v0.59.0
 	golang.org/x/term v0.46.0
 )
 

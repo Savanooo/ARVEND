@@ -59,12 +59,86 @@ export interface Product {
   unit_price: number;
   description: string;
   category: string;
+  // Tedarikçi fiyat kaynağı ("ulas"); elle eklenen üründe "".
+  source: string;
+  // Ürünün kaynak listede EN SON görüldüğü an (RFC3339); hiç senkronlanmamış
+  // (BYZ'den aktarılmış) üründe null.
+  source_synced_at: string | null;
+  // Kâr oranı uygulanmamış tedarikçi fiyatı -- backend yalnızca
+  // products.manage sahibine döndürür; diğerlerinde ve kaynak fiyatı
+  // bilinmeyen üründe null (satış fiyatı + oran = maliyet, bkz.
+  // product_handler.go canManageProducts).
+  source_price: number | null;
 }
 
 export interface PriceHistoryEntry {
   old_price: number;
   new_price: number;
+  // Değişikliğin kaynağı (ör. "Ulaş fiyat listesi"); elle düzenlemede "".
+  note: string;
   changed_at: string;
+}
+
+// GET /api/v1/products/price-sources -> { sources: PriceSource[] }
+// (backend/internal/httpapi/handler/price_source_handler.go). Şimdilik tek
+// kaynak: "ulas".
+export type PriceSyncStatus = "never" | "success" | "failed";
+
+// Bir senkronun sayıları: total = listedeki tekil ürün = created + updated +
+// unchanged; missing = firmanın listede artık bulunmayan (SİLİNMEYEN)
+// kaynak ürünleri.
+export interface PriceSyncCounts {
+  total: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  missing: number;
+}
+
+export interface PriceSourceCategoryMarkup {
+  category: string;
+  markup_percent: number;
+}
+
+export interface PriceSourceCategory {
+  category: string;
+  product_count: number;
+}
+
+export interface PriceSource {
+  source: string;
+  name: string;
+  // products.manage yoksa ikisi de null (oran görmek maliyeti görmektir).
+  markup_percent: number | null;
+  category_markups: PriceSourceCategoryMarkup[] | null;
+  auto_sync: boolean;
+  // Son BAŞARILI senkron (RFC3339); başarısız denemede değişmez.
+  last_synced_at: string | null;
+  last_status: PriceSyncStatus;
+  // Son başarısız denemenin kısa, sabit Türkçe açıklaması.
+  last_error: string;
+  // Son BAŞARILI senkronun sayıları.
+  last_result: PriceSyncCounts;
+  // Firmanın bu kaynaktan gelen ürünlerindeki (boş olmayan) kategoriler.
+  categories: PriceSourceCategory[];
+  product_count: number;
+  // Son başarılı senkronda listede bulunmayan kaynak ürünleri (hiç senkron
+  // yoksa 0).
+  missing_count: number;
+  updated_at: string | null;
+}
+
+// POST /api/v1/products/price-sources/{source}/sync
+export interface PriceSyncResponse extends PriceSyncCounts {
+  source: string;
+  synced_at: string;
+}
+
+// PUT /api/v1/products/price-sources/{source}. recomputed = yeni oranlarla
+// satış fiyatı DEĞİŞEN ürün sayısı.
+export interface PriceSourceUpdateResponse {
+  price_source: PriceSource;
+  recomputed: number;
 }
 
 export type OfferStatus = "taslak" | "gönderildi" | "kabul edildi" | "reddedildi";

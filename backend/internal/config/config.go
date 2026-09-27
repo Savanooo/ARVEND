@@ -39,6 +39,13 @@ type Config struct {
 	// anahtarları sunucu tarafında üretildiği için bu dizinin dışına
 	// yazılması mümkün değildir (bkz. platform/storage).
 	StorageRoot string
+	// PriceSyncScheduler, gece 00:05 (Europe/Istanbul) tedarikçi fiyat
+	// listesi senkronunun bu süreçte çalışıp çalışmayacağı
+	// (PRICE_SYNC_SCHEDULER, varsayılan açık; off/false/0/no kapatır).
+	// Birden çok instance açık olsa da veritabanı kilidi tek çalıştırıcı
+	// garanti eder; yalnızca hangi firmaların senkronlanacağını her firma
+	// kendi "otomatik senkron" ayarıyla belirler.
+	PriceSyncScheduler bool
 }
 
 func Load() Config {
@@ -63,7 +70,18 @@ func Load() Config {
 		SettingsEncryptionKey: getEnv("SETTINGS_ENCRYPTION_KEY", ""),
 		FrontendURL:           getEnv("FRONTEND_URL", "http://localhost:3000"),
 		StorageRoot:           getEnv("STORAGE_ROOT", "./var/uploads"),
+		PriceSyncScheduler:    envEnabled(getEnv("PRICE_SYNC_SCHEDULER", "on")),
 	}
+}
+
+// envEnabled: açık/kapalı ayarlar için -- yalnızca açıkça kapatan değerler
+// false döner, tanınmayan bir değer varsayılanı (açık) bozmaz.
+func envEnabled(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "off", "false", "0", "no", "disabled":
+		return false
+	}
+	return true
 }
 
 func getEnv(key, def string) string {

@@ -28,17 +28,30 @@ type productResponse struct {
 	UnitPrice   float64 `json:"unit_price"`
 	Description string  `json:"description"`
 	Category    string  `json:"category"`
+	// Source: tedarikçi kaynağı ("ulas"), elle eklenen üründe "".
+	Source string `json:"source"`
+	// SourceSyncedAt: ürünün kaynak listede en son görüldüğü an (RFC3339).
+	SourceSyncedAt *string `json:"source_synced_at"`
+	// SourcePrice: tedarikçi (kâr oranı uygulanmamış) fiyatı -- yalnızca
+	// products.manage sahibine döner, aksi halde null (bkz. canManageProducts).
+	SourcePrice *float64 `json:"source_price"`
 }
 
-func toProductResponse(p domain.Product) productResponse {
-	return productResponse{
-		ID:          p.ID,
-		Name:        p.Name,
-		Unit:        p.Unit,
-		UnitPrice:   p.UnitPrice,
-		Description: p.Description,
-		Category:    p.Category,
+func toProductResponse(p domain.Product, showSourcePrice bool) productResponse {
+	resp := productResponse{
+		ID:             p.ID,
+		Name:           p.Name,
+		Unit:           p.Unit,
+		UnitPrice:      p.UnitPrice,
+		Description:    p.Description,
+		Category:       p.Category,
+		Source:         p.Source,
+		SourceSyncedAt: formatTimePtr(p.SourceSyncedAt),
 	}
+	if showSourcePrice {
+		resp.SourcePrice = p.SourcePrice
+	}
+	return resp
 }
 
 func (h *ProductHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -50,9 +63,10 @@ func (h *ProductHandler) List(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusInternalServerError, "ürünler alınamadı")
 		return
 	}
+	showSourcePrice := canManageProducts(r)
 	products := make([]productResponse, len(result.Products))
 	for i, p := range result.Products {
-		products[i] = toProductResponse(p)
+		products[i] = toProductResponse(p, showSourcePrice)
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"products": products, "total": result.Total})
 }
@@ -64,7 +78,7 @@ func (h *ProductHandler) Get(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toProductResponse(*p))
+	httpjson.Write(w, http.StatusOK, toProductResponse(*p, canManageProducts(r)))
 }
 
 type upsertProductRequest struct {
@@ -87,7 +101,7 @@ func (h *ProductHandler) Create(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusCreated, toProductResponse(*p))
+	httpjson.Write(w, http.StatusCreated, toProductResponse(*p, canManageProducts(r)))
 }
 
 func (h *ProductHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +116,7 @@ func (h *ProductHandler) Update(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toProductResponse(*p))
+	httpjson.Write(w, http.StatusOK, toProductResponse(*p, canManageProducts(r)))
 }
 
 func (h *ProductHandler) Delete(w http.ResponseWriter, r *http.Request) {
@@ -115,9 +129,11 @@ func (h *ProductHandler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 type priceHistoryResponse struct {
-	OldPrice  float64 `json:"old_price"`
-	NewPrice  float64 `json:"new_price"`
-	ChangedAt string  `json:"changed_at"`
+	OldPrice float64 `json:"old_price"`
+	NewPrice float64 `json:"new_price"`
+	// Note: değişikliğin kaynağı (ör. "Ulaş fiyat listesi"); elle düzenlemede "".
+	Note      string `json:"note"`
+	ChangedAt string `json:"changed_at"`
 }
 
 func (h *ProductHandler) PriceHistory(w http.ResponseWriter, r *http.Request) {
@@ -132,6 +148,7 @@ func (h *ProductHandler) PriceHistory(w http.ResponseWriter, r *http.Request) {
 		out[i] = priceHistoryResponse{
 			OldPrice:  e.OldPrice,
 			NewPrice:  e.NewPrice,
+			Note:      e.Note,
 			ChangedAt: e.ChangedAt.Format("2006-01-02T15:04:05Z07:00"),
 		}
 	}

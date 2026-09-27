@@ -16,6 +16,9 @@ type Product struct {
 	Category       string
 	Source         string
 	SourcePrice    *float64
+	// SourceSyncedAt, ürünün kaynak fiyat listesinde en son görüldüğü an
+	// (yalnızca senkronla gelen ürünlerde dolu, bkz. migration 0045).
+	SourceSyncedAt *time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }

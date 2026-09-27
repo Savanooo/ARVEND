@@ -10,7 +10,7 @@ SELECT * FROM products WHERE id = $1 AND organization_id = $2;
 SELECT * FROM products
 WHERE organization_id = $1
   AND ($4::text = '' OR normalized_name ILIKE '%' || $4::text || '%')
-ORDER BY name ASC
+ORDER BY name ASC, id ASC
 LIMIT $2 OFFSET $3;
 
 -- name: CountProducts :one

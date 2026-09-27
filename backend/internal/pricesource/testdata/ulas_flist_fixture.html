@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<!--
+  Elle yazılmış test fixture'ı -- ulas.com.tr/flist.asp'nin yapısını taklit
+  eder (gerçek sayfanın kopyası DEĞİLDİR). Her satır şeklini (3/4 hücreli
+  üst satırların 2 hücreli varyantları dahil), HTML varlık çözümünü, tüm
+  fiyat biçimlerini (NBSP binlik ayırıcı dahil), boş kategori satırlarını,
+  geçersiz fiyatları, (ad, birim, kategori) tekrarlarını ve aynı ad+birimin
+  başka kategoride yeniden listelenmesini kapsar. Beklenen sonuç:
+  ulas_test.go'daki TestParseUlasFixture.
+-->
+<html dir="ltr" lang="tr">
+<head>
+<title>F&#304;YAT L&#304;STES&#304; - TEST</title>
+<meta charset="utf-8" />
+</head>
+<body>
+		<center><input type="button" value="Yazdır"></center>
+		<table class="flist1" align="center" cellpadding="0" cellspacing="0">
+			<tr class="fl1h"><td><b>Ürün</b></td><td></td><td align="center"><b>Birim</b></td><td align="right"><b>Fiyat</b></td></tr>
+
+			<tr><th colspan="4"><h2>&#199;ATI MALZEMELER&#304;</h2></th></tr>
+
+			<!-- henüz hiç ürün yokken 2 hücreli satır: ad = açıklama, birim "adet" -->
+			<tr>
+				<td valign="top">Serbest Varyant Satırı</td>
+				<td align="right" valign="top"><span class="fyt">15</span> <small><b>TL</b></small></td>
+			</tr>
+
+			<!-- 3 hücre: [ad (colspan=2), birim, fiyat] -->
+			<tr>
+				<td width="280" rowspan="1"  colspan="2" valign="top"><a href="https://ulas.com.tr/urun.asp?u=1" title="Sandviç Panel Sac">Sandvi&ccedil; Panel Sac</a></td>
+
+				<td width="50" rowspan="1" align="center" valign="top">m2</td>
+				<td width="60" align="right" valign="top"><span class="fyt">500</span> <small><b>TL</b></small></td>
+			</tr>
+
+			<!-- 4 hücre + ardından 2 hücreli varyant -->
+			<tr>
+				<td width="280" rowspan="2"  valign="top"><a href="https://ulas.com.tr/urun.asp?u=2">Al&#252;minyum Sandvi&#231; Panel</a></td>
+				<td width="180" valign="top">alm+alm+18 dns eps</td>
+				<td width="50" rowspan="2" align="center" valign="top">m2</td>
+				<td width="60" align="right" valign="top"><span class="fyt">1.200</span> <small><b>TL</b></small></td>
+			</tr>
+			<tr>
+				<td width="200" valign="top">sac+sac+18 dns eps</td>
+				<td align="right" valign="top"><span class="fyt">5400</span> <small><b>TL</b></small></td>
+			</tr>
+
+			<!-- 4 hücre, açıklama boş -> ad yalın kalır; Türk ondalık biçimi -->
+			<tr>
+				<td valign="top"><a href="#">Onduline</a></td>
+				<td valign="top"></td>
+				<td align="center" valign="top">adet</td>
+				<td align="right" valign="top"><span class="fyt">1.200,50</span> <small><b>TL</b></small></td>
+			</tr>
+
+			<!-- boşluklar (çoklu boşluk, satır sonu, NBSP) tek boşluğa iner -->
+			<tr>
+				<td colspan="2" valign="top"><a href="#">Dekor  Silteks
+					Dış&nbsp;Cephe   Rulo</a></td>
+				<td align="center" valign="top"> adet </td>
+				<td align="right" valign="top"><span class="fyt">12,5</span> <small><b>TL</b></small></td>
+			</tr>
+
+			<!-- geçersiz fiyatlar: sıfır, metin, negatif, boş -> atlanır -->
+			<tr>
+				<td colspan="2"><a href="#">Sıfır Fiyatlı Ürün</a></td>
+				<td>adet</td>
+				<td><span class="fyt">0</span> <small><b>TL</b></small></td>
+			</tr>
+			<tr>
+				<td colspan="2"><a href="#">Fiyatı Sorulan Ürün</a></td>
+				<td>adet</td>
+				<td>Fiyat Sorunuz</td>
+			</tr>
+			<tr>
+				<td colspan="2"><a href="#">Negatif Fiyatlı Ürün</a></td>
+				<td>adet</td>
+				<td><span class="fyt">-5</span> <small><b>TL</b></small></td>
+			</tr>
+			<tr>
+				<td colspan="2"><a href="#">Fiyatsız Ürün</a></td>
+				<td>adet</td>
+				<td></td>
+			</tr>
+
+			<!-- boş 1-hücre satırı ("&nbsp;") kategori DEĞİLDİR -> yok sayılır -->
+			<tr><td colspan="4">&nbsp;</td></tr>
+
+			<!-- birim boş -> "adet"; 3 ondalıklı fiyat yarım yukarı yuvarlanır -->
+			<tr>
+				<td colspan="2"><a href="#">Birimsiz Vida</a></td>
+				<td></td>
+				<td><span class="fyt">0,125</span> <small><b>TL</b></small></td>
+			</tr>
+
+			<!-- üst satırın fiyatı yok (eklenmez); açıklaması BOŞ varyant üst
+			     satırın adını ve birimini alır -->
+			<tr>
+				<td rowspan="2" valign="top"><a href="#">Mahya Kiremidi</a></td>
+				<td valign="top"></td>
+				<td rowspan="2" align="center" valign="top">adet</td>
+				<td align="right" valign="top">Fiyat Sorunuz</td>
+			</tr>
+			<tr>
+				<td valign="top"></td>
+				<td align="right" valign="top"><span class="fyt">25</span> <small><b>TL</b></small></td>
+			</tr>
+
+			<tr><td colspan="4">&nbsp;</td></tr>
+			<tr><th colspan="4"><h2>ALÇILAR VE PROF&#304;LLER&#304;</h2></th></tr>
+
+			<!-- düz noktalı ondalık ve milyonluk binlik ayırıcı -->
+			<tr>
+				<td colspan="2"><a href="#">Perlitli Sıva Alçısı 25 kg</a></td>
+				<td>torba</td>
+				<td><span class="fyt">7.5</span> <small><b>TL</b></small></td>
+			</tr>
+			<tr>
+				<td colspan="2"><a href="#">Profil Paketi</a></td>
+				<td>paket</td>
+				<td><span class="fyt">1.234.567</span><small><b>TL</b></small></td>
+			</tr>
+
+			<!-- aynı kategoride (ad, birim) tekrarı: İLK satır kazanır; aynı ad farklı birim ayrı ürün -->
+			<tr>
+				<td colspan="2"><a href="#">Perlitli Sıva Alçısı 25 kg</a></td>
+				<td>torba</td>
+				<td><span class="fyt">999</span> <small><b>TL</b></small></td>
+			</tr>
+			<tr>
+				<td colspan="2"><a href="#">Perlitli Sıva Alçısı 25 kg</a></td>
+				<td>palet</td>
+				<td><span class="fyt">350</span> <small><b>TL</b></small></td>
+			</tr>
+
+			<!-- 4 hücre (birimi "mt"), ardından üç varyant: biri geçerli, biri
+			     geçersiz fiyatlı, biri ilk satırla AYNI anahtarı üretir (tekrar, atlanır) -->
+			<tr>
+				<td rowspan="4"><a href="#">Köşe Profili</a></td>
+				<td>25x25</td>
+				<td rowspan="4">mt</td>
+				<td><span class="fyt">30</span> <small><b>TL</b></small></td>
+			</tr>
+			<tr>
+				<td>30x30</td>
+				<td><span class="fyt">35,75</span> <small><b>TL</b></small></td>
+			</tr>
+			<tr>
+				<td>40x40</td>
+				<td>Tükendi</td>
+			</tr>
+			<tr>
+				<td>25x25</td>
+				<td><span class="fyt">31</span> <small><b>TL</b></small></td>
+			</tr>
+
+			<!-- 3 hücre (rowspan, birimi "rulo" -- önceki ürününkinden FARKLI),
+			     ardından 2 hücreli varyantlar: ad VE birim bu satırdan gelir.
+			     Gerçek sayfadaki en yaygın varyant düzeni. Son varyantın
+			     fiyatında binlik ayırıcı NBSP'dir ("1&nbsp;200" = 1200). -->
+			<tr>
+				<td width="280" rowspan="3" valign="top"><a href="#">Alüminyum Folyo Bant 48mm</a></td>
+				<td width="50" rowspan="3" align="center" valign="top">rulo</td>
+				<td width="60" align="right" valign="top"><span class="fyt">40</span> <small><b>TL</b></small></td>
+			</tr>
+			<tr>
+				<td width="200" valign="top">15x10m</td>
+				<td align="right" valign="top"><span class="fyt">41</span> <small><b>TL</b></small></td>
+			</tr>
+			<tr>
+				<td width="200" valign="top">25x50m</td>
+				<td align="right" valign="top"><span class="fyt">1&nbsp;200</span> <small><b>TL</b></small></td>
+			</tr>
+
+			<tr><td colspan="4">&nbsp;</td></tr>
+			<tr><th colspan="4"><h2>SANDV&#304;&#199; PANEL</h2></th></tr>
+
+			<!-- aynı ad+birim BAŞKA kategoride: ayrı ürün olarak kalır (Ulaş bazen
+			     farklı ürünleri aynı adla, farklı fiyatla listeler) -->
+			<tr>
+				<td colspan="2"><a href="#">Sandviç Panel Sac</a></td>
+				<td>m2</td>
+				<td><span class="fyt">480</span> <small><b>TL</b></small></td>
+			</tr>
+
+			<!-- 5 hücreli satır tanınmaz -> yok sayılır -->
+			<tr>
+				<td>Tanınmayan</td><td>Satır</td><td>Şekli</td><td>adet</td><td>10 TL</td>
+			</tr>
+		</table>
+
+		<!-- yalnızca İLK tablo okunur -->
+		<table>
+			<tr><td>Başlık</td></tr>
+			<tr><td colspan="2">İkinci Tablo Ürünü</td><td>adet</td><td>100 TL</td></tr>
+		</table>
+</body>
+</html>

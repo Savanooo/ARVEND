@@ -121,6 +121,10 @@ func rbacCleanupOrg(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM calc_recipe_items WHERE organization_id = $1",
 		"DELETE FROM calc_categories WHERE organization_id = $1",
 		"DELETE FROM calc_groups WHERE organization_id = $1",
+		// products (fiyat kaynağı senkron testleri üretir) -- product_price_
+		// history CASCADE ile gider; organization_price_sources organizations'a
+		// CASCADE FK taşır, ayrıca silmeye gerek yok.
+		"DELETE FROM products WHERE organization_id = $1",
 		"DELETE FROM organization_profile WHERE organization_id = $1",
 		"DELETE FROM organization_commercial_settings WHERE organization_id = $1",
 		"DELETE FROM platform_audit_events WHERE target_organization_id = $1",
@@ -152,6 +156,10 @@ type rbacTestDeps struct {
 	projectSvc  *service.ProjectService
 	costCodeSvc *service.CostCodeService
 	supplierSvc *service.SupplierService
+
+	// priceFetch, fiyat kaynağı senkronunun sahte listesi -- testler
+	// ulas.com.tr'ye ASLA gitmez (bkz. price_sources_security_test.go).
+	priceFetch *stubPriceFetcher
 }
 
 func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
@@ -189,6 +197,8 @@ func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
 	authzSvc := service.NewAuthorizationService(q)
 	costCodeSvc := service.NewCostCodeService(pool, q)
 	supplierSvc := service.NewSupplierService(pool, q, secretBox)
+	priceFetch := &stubPriceFetcher{}
+	priceSourceSvc := service.NewPriceSourceService(pool, q, priceFetch.fetch)
 
 	issuer := auth.NewJWTIssuer("test-secret-rbac-matrix", 15*time.Minute)
 	authSvc := service.NewAuthService(q, issuer, 24*time.Hour)
@@ -199,6 +209,7 @@ func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
 		Auth:              handler.NewAuthHandler(authSvc, authzSvc, 15*time.Minute, 24*time.Hour, "", false),
 		Users:             handler.NewUserHandler(userSvc, authzSvc),
 		Products:          handler.NewProductHandler(productSvc),
+		PriceSources:      handler.NewPriceSourceHandler(priceSourceSvc),
 		Offers:            handler.NewOfferHandler(offerSvc),
 		Projects:          handler.NewProjectHandler(projectSvc),
 		Customers:         handler.NewCustomerHandler(customerSvc),
@@ -218,7 +229,7 @@ func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
 	})
 
 	return &rbacTestDeps{
-		pool: pool, q: q, router: router, issuer: issuer,
+		pool: pool, q: q, router: router, issuer: issuer, priceFetch: priceFetch,
 		userSvc: userSvc, platform: platformSvc, authzSvc: authzSvc,
 		offerSvc: offerSvc, projectSvc: projectSvc, costCodeSvc: costCodeSvc, supplierSvc: supplierSvc,
 	}

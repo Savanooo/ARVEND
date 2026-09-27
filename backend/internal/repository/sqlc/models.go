@@ -281,6 +281,31 @@ type OrganizationEvent struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
+type OrganizationPriceSource struct {
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	Source         string             `json:"source"`
+	MarkupPercent  pgtype.Numeric     `json:"markup_percent"`
+	AutoSync       bool               `json:"auto_sync"`
+	LastSyncedAt   pgtype.Timestamptz `json:"last_synced_at"`
+	LastStatus     string             `json:"last_status"`
+	LastError      string             `json:"last_error"`
+	LastTotal      int32              `json:"last_total"`
+	LastCreated    int32              `json:"last_created"`
+	LastUpdated    int32              `json:"last_updated"`
+	LastUnchanged  int32              `json:"last_unchanged"`
+	LastMissing    int32              `json:"last_missing"`
+	UpdatedBy      pgtype.UUID        `json:"updated_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type OrganizationPriceSourceCategoryMarkup struct {
+	OrganizationID pgtype.UUID    `json:"organization_id"`
+	Source         string         `json:"source"`
+	Category       string         `json:"category"`
+	MarkupPercent  pgtype.Numeric `json:"markup_percent"`
+}
+
 type OrganizationProfile struct {
 	OrganizationID   pgtype.UUID        `json:"organization_id"`
 	AuthorizedPerson string             `json:"authorized_person"`
@@ -352,6 +377,7 @@ type Product struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`
+	SourceSyncedAt pgtype.Timestamptz `json:"source_synced_at"`
 }
 
 type ProductPriceHistory struct {

@@ -178,6 +178,10 @@ func ToDomainProduct(p sqlc.Product) domain.Product {
 		v := NumericToFloat64(p.SourcePrice)
 		dp.SourcePrice = &v
 	}
+	if p.SourceSyncedAt.Valid {
+		t := p.SourceSyncedAt.Time
+		dp.SourceSyncedAt = &t
+	}
 	return dp
 }
 

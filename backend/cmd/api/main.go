@@ -2,9 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Savanooo/ARVEND/backend/internal/auth"
@@ -67,6 +72,7 @@ func main() {
 	costCodeSvc := service.NewCostCodeService(pool, q)
 	supplierSvc := service.NewSupplierService(pool, q, secretBox)
 	notificationSvc := service.NewNotificationService(q)
+	priceSourceSvc := service.NewPriceSourceService(pool, q, service.UlasHTTPFetcher(nil))
 
 	jwtIssuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL)
 	authSvc := service.NewAuthService(q, jwtIssuer, cfg.RefreshTTL)
@@ -77,6 +83,7 @@ func main() {
 		Auth:              handler.NewAuthHandler(authSvc, authzSvc, cfg.AccessTTL, cfg.RefreshTTL, cfg.CookieDomain, cfg.CookieSecure),
 		Users:             handler.NewUserHandler(userSvc, authzSvc),
 		Products:          handler.NewProductHandler(productSvc),
+		PriceSources:      handler.NewPriceSourceHandler(priceSourceSvc),
 		Offers:            handler.NewOfferHandler(offerSvc),
 		Projects:          handler.NewProjectHandler(projectSvc),
 		Customers:         handler.NewCustomerHandler(customerSvc),
@@ -111,7 +118,51 @@ func main() {
 		WriteTimeout:      5 * time.Minute,
 		IdleTimeout:       120 * time.Second,
 	}
-	log.Fatal(srv.ListenAndServe())
+
+	// SIGINT/SIGTERM: yeni bağlantı kabulü durur, süren istekler (en fazla
+	// 30 sn) tamamlanır, arka plan işleri (gece fiyat senkronu) ctx
+	// iptaliyle durur -- yarım kalan bir senkron transaction'ı geri alınır.
+	runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	var background sync.WaitGroup
+	if cfg.PriceSyncScheduler {
+		background.Add(1)
+		go func() {
+			defer background.Done()
+			priceSourceSvc.RunNightly(runCtx)
+		}()
+	} else {
+		log.Println("gece fiyat senkronu zamanlayıcısı kapalı (PRICE_SYNC_SCHEDULER)")
+	}
+
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- srv.ListenAndServe() }()
+
+	exitCode := 0
+	select {
+	case err := <-serveErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			// Ör. port kullanımda: systemd yeniden denesin diye sıfırdan
+			// farklı kodla çıkılır (eski log.Fatal davranışı).
+			log.Printf("HTTP sunucusu durdu: %v", err)
+			exitCode = 1
+		}
+	case <-runCtx.Done():
+		log.Println("kapatma sinyali alındı, süren istekler tamamlanıyor")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("HTTP sunucusu düzgün kapatılamadı: %v", err)
+		}
+		cancel()
+	}
+	stop()
+	background.Wait()
+	log.Println("ARVEND API durdu")
+	if exitCode != 0 {
+		pool.Close()
+		os.Exit(exitCode)
+	}
 }
 
 // seedAdmin, sistemde hiç kullanıcı yoksa .env'deki SEED_ADMIN_* bilgileriyle
