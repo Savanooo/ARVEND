@@ -48,7 +48,7 @@ func (q *Queries) DeletePriceSourceCategoryMarkups(ctx context.Context, arg Dele
 
 const getOrganizationPriceSource = `-- name: GetOrganizationPriceSource :one
 
-SELECT organization_id, source, markup_percent, auto_sync, last_synced_at, last_status, last_error, last_total, last_created, last_updated, last_unchanged, last_missing, updated_by, created_at, updated_at FROM organization_price_sources
+SELECT organization_id, source, markup_percent, auto_sync, last_synced_at, last_status, last_error, last_total, last_created, last_updated, last_unchanged, last_missing, updated_by, created_at, updated_at, last_list_label FROM organization_price_sources
 WHERE organization_id = $1 AND source = $2
 `
 
@@ -82,33 +82,85 @@ func (q *Queries) GetOrganizationPriceSource(ctx context.Context, arg GetOrganiz
 		&i.UpdatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastListLabel,
 	)
 	return i, err
 }
 
+const getSyncPriceChangeStats = `-- name: GetSyncPriceChangeStats :one
+SELECT (count(*) FILTER (WHERE h.new_price > h.old_price))::int AS increased,
+       (count(*) FILTER (WHERE h.new_price < h.old_price))::int AS decreased,
+       round(avg((h.new_price - h.old_price) / h.old_price * 100)
+             FILTER (WHERE h.new_price > h.old_price AND h.old_price > 0), 2)::numeric AS avg_increase_percent
+FROM product_price_history h
+JOIN products p ON p.id = h.product_id
+WHERE p.organization_id = $1
+  AND h.source = $2::text
+  AND h.reason = 'supplier'
+  AND h.changed_at = $3::timestamptz
+`
+
+type GetSyncPriceChangeStatsParams struct {
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	Source         string             `json:"source"`
+	ChangedAt      pgtype.Timestamptz `json:"changed_at"`
+}
+
+type GetSyncPriceChangeStatsRow struct {
+	Increased          int32          `json:"increased"`
+	Decreased          int32          `json:"decreased"`
+	AvgIncreasePercent pgtype.Numeric `json:"avg_increase_percent"`
+}
+
+// Tek bir senkronun (changed_at = o senkronun last_synced_at'i) zam/indirim
+// sayıları -- "Son güncellemede N ürüne zam geldi". Yüzdeler satış
+// fiyatı (unit_price) üzerinden; eski fiyatı 0 olan satırlar ortalamaya girmez.
+func (q *Queries) GetSyncPriceChangeStats(ctx context.Context, arg GetSyncPriceChangeStatsParams) (GetSyncPriceChangeStatsRow, error) {
+	row := q.db.QueryRow(ctx, getSyncPriceChangeStats, arg.OrganizationID, arg.Source, arg.ChangedAt)
+	var i GetSyncPriceChangeStatsRow
+	err := row.Scan(&i.Increased, &i.Decreased, &i.AvgIncreasePercent)
+	return i, err
+}
+
 const insertPriceHistoryBatch = `-- name: InsertPriceHistoryBatch :exec
-INSERT INTO product_price_history (product_id, old_price, new_price, note)
-SELECT u.product_id, u.old_price, u.new_price, $1::text
+INSERT INTO product_price_history (product_id, old_price, new_price, note, reason, source,
+    old_source_price, new_source_price)
+SELECT u.product_id, u.old_price, u.new_price, $1::text, $2::text,
+    $3::text, u.old_source_price, u.new_source_price
 FROM (
-    SELECT unnest($2::uuid[])    AS product_id,
-           unnest($3::numeric[])  AS old_price,
-           unnest($4::numeric[])  AS new_price
+    SELECT unnest($4::uuid[])          AS product_id,
+           unnest($5::numeric[])        AS old_price,
+           unnest($6::numeric[])        AS new_price,
+           unnest($7::numeric[]) AS old_source_price,
+           unnest($8::numeric[]) AS new_source_price
 ) AS u
 `
 
 type InsertPriceHistoryBatchParams struct {
-	Note       string           `json:"note"`
-	ProductIds []pgtype.UUID    `json:"product_ids"`
-	OldPrices  []pgtype.Numeric `json:"old_prices"`
-	NewPrices  []pgtype.Numeric `json:"new_prices"`
+	Note            string           `json:"note"`
+	Reason          string           `json:"reason"`
+	Source          string           `json:"source"`
+	ProductIds      []pgtype.UUID    `json:"product_ids"`
+	OldPrices       []pgtype.Numeric `json:"old_prices"`
+	NewPrices       []pgtype.Numeric `json:"new_prices"`
+	OldSourcePrices []pgtype.Numeric `json:"old_source_prices"`
+	NewSourcePrices []pgtype.Numeric `json:"new_source_prices"`
 }
 
+// Senkron (reason 'supplier') ve kâr oranı yeniden fiyatlaması ('markup')
+// satırları. changed_at varsayılanı now(): aynı transaction'daki tüm
+// satırlar aynı anı paylaşır -- zam geçmişi bir senkronu bu anla gruplar.
+// Kaynak fiyatı dizilerinde NULL olabilir (hiç senkronlanmamış satır).
 func (q *Queries) InsertPriceHistoryBatch(ctx context.Context, arg InsertPriceHistoryBatchParams) error {
 	_, err := q.db.Exec(ctx, insertPriceHistoryBatch,
 		arg.Note,
+		arg.Reason,
+		arg.Source,
 		arg.ProductIds,
 		arg.OldPrices,
 		arg.NewPrices,
+		arg.OldSourcePrices,
+		arg.NewSourcePrices,
 	)
 	return err
 }
@@ -142,7 +194,7 @@ func (q *Queries) InsertPriceSourceCategoryMarkups(ctx context.Context, arg Inse
 const insertSourceProducts = `-- name: InsertSourceProducts :execrows
 INSERT INTO products (organization_id, name, normalized_name, unit, unit_price, description,
     category, source, source_price, source_synced_at)
-SELECT $1::uuid, u.name, u.normalized_name, u.unit, u.unit_price, '',
+SELECT $1::uuid, u.name, u.normalized_name, u.unit, u.unit_price, u.description,
     u.category, $2::text, u.source_price, now()
 FROM (
     SELECT unnest($3::text[])             AS name,
@@ -150,7 +202,8 @@ FROM (
            unnest($5::text[])             AS unit,
            unnest($6::numeric[])    AS unit_price,
            unnest($7::numeric[])  AS source_price,
-           unnest($8::text[])        AS category
+           unnest($8::text[])        AS category,
+           unnest($9::text[])      AS description
 ) AS u
 `
 
@@ -163,8 +216,11 @@ type InsertSourceProductsParams struct {
 	UnitPrices      []pgtype.Numeric `json:"unit_prices"`
 	SourcePrices    []pgtype.Numeric `json:"source_prices"`
 	Categories      []string         `json:"categories"`
+	Descriptions    []string         `json:"descriptions"`
 }
 
+// Açıklama yalnızca YENİ satıra yazılır (ör. Demir Profil "6 m boy · 3,925
+// kg/m"); eşleşen satırın açıklaması kullanıcıya aittir, dokunulmaz.
 func (q *Queries) InsertSourceProducts(ctx context.Context, arg InsertSourceProductsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, insertSourceProducts,
 		arg.OrganizationID,
@@ -175,6 +231,7 @@ func (q *Queries) InsertSourceProducts(ctx context.Context, arg InsertSourceProd
 		arg.UnitPrices,
 		arg.SourcePrices,
 		arg.Categories,
+		arg.Descriptions,
 	)
 	if err != nil {
 		return 0, err
@@ -396,18 +453,20 @@ func (q *Queries) RecordPriceSourceSyncFailure(ctx context.Context, arg RecordPr
 const recordPriceSourceSyncSuccess = `-- name: RecordPriceSourceSyncSuccess :one
 INSERT INTO organization_price_sources (
     organization_id, source, last_synced_at, last_status, last_error,
-    last_total, last_created, last_updated, last_unchanged, last_missing)
+    last_total, last_created, last_updated, last_unchanged, last_missing, last_list_label)
 VALUES ($1, $2, now(), 'success', '',
-    $3, $4, $5, $6, $7)
+    $3, $4, $5, $6, $7,
+    $8)
 ON CONFLICT (organization_id, source) DO UPDATE
-SET last_synced_at = now(),
-    last_status    = 'success',
-    last_error     = '',
-    last_total     = EXCLUDED.last_total,
-    last_created   = EXCLUDED.last_created,
-    last_updated   = EXCLUDED.last_updated,
-    last_unchanged = EXCLUDED.last_unchanged,
-    last_missing   = EXCLUDED.last_missing
+SET last_synced_at  = now(),
+    last_status     = 'success',
+    last_error      = '',
+    last_total      = EXCLUDED.last_total,
+    last_created    = EXCLUDED.last_created,
+    last_updated    = EXCLUDED.last_updated,
+    last_unchanged  = EXCLUDED.last_unchanged,
+    last_missing    = EXCLUDED.last_missing,
+    last_list_label = EXCLUDED.last_list_label
 RETURNING last_synced_at
 `
 
@@ -419,10 +478,12 @@ type RecordPriceSourceSyncSuccessParams struct {
 	Updated        int32       `json:"updated"`
 	Unchanged      int32       `json:"unchanged"`
 	Missing        int32       `json:"missing"`
+	ListLabel      string      `json:"list_label"`
 }
 
 // last_synced_at = now(): aynı transaction'daki products.source_synced_at
-// ile BİREBİR aynı an (eksik ürün hesabı bu eşitliğe dayanır).
+// ve product_price_history.changed_at ile BİREBİR aynı an (eksik ürün
+// hesabı ve "son senkronda zam gelen ürünler" bu eşitliğe dayanır).
 func (q *Queries) RecordPriceSourceSyncSuccess(ctx context.Context, arg RecordPriceSourceSyncSuccessParams) (pgtype.Timestamptz, error) {
 	row := q.db.QueryRow(ctx, recordPriceSourceSyncSuccess,
 		arg.OrganizationID,
@@ -432,6 +493,7 @@ func (q *Queries) RecordPriceSourceSyncSuccess(ctx context.Context, arg RecordPr
 		arg.Updated,
 		arg.Unchanged,
 		arg.Missing,
+		arg.ListLabel,
 	)
 	var last_synced_at pgtype.Timestamptz
 	err := row.Scan(&last_synced_at)
@@ -568,7 +630,7 @@ ON CONFLICT (organization_id, source) DO UPDATE
 SET markup_percent = EXCLUDED.markup_percent,
     auto_sync      = EXCLUDED.auto_sync,
     updated_by     = EXCLUDED.updated_by
-RETURNING organization_id, source, markup_percent, auto_sync, last_synced_at, last_status, last_error, last_total, last_created, last_updated, last_unchanged, last_missing, updated_by, created_at, updated_at
+RETURNING organization_id, source, markup_percent, auto_sync, last_synced_at, last_status, last_error, last_total, last_created, last_updated, last_unchanged, last_missing, updated_by, created_at, updated_at, last_list_label
 `
 
 type UpsertOrganizationPriceSourceSettingsParams struct {
@@ -604,6 +666,7 @@ func (q *Queries) UpsertOrganizationPriceSourceSettings(ctx context.Context, arg
 		&i.UpdatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LastListLabel,
 	)
 	return i, err
 }

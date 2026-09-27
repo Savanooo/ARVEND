@@ -29,28 +29,6 @@ func (q *Queries) CountProducts(ctx context.Context, arg CountProductsParams) (i
 	return count, err
 }
 
-const createPriceHistory = `-- name: CreatePriceHistory :exec
-INSERT INTO product_price_history (product_id, old_price, new_price, note)
-VALUES ($1, $2, $3, $4)
-`
-
-type CreatePriceHistoryParams struct {
-	ProductID pgtype.UUID    `json:"product_id"`
-	OldPrice  pgtype.Numeric `json:"old_price"`
-	NewPrice  pgtype.Numeric `json:"new_price"`
-	Note      string         `json:"note"`
-}
-
-func (q *Queries) CreatePriceHistory(ctx context.Context, arg CreatePriceHistoryParams) error {
-	_, err := q.db.Exec(ctx, createPriceHistory,
-		arg.ProductID,
-		arg.OldPrice,
-		arg.NewPrice,
-		arg.Note,
-	)
-	return err
-}
-
 const createProduct = `-- name: CreateProduct :one
 INSERT INTO products (organization_id, name, normalized_name, unit, unit_price, description, category, source, source_price)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -148,7 +126,7 @@ func (q *Queries) GetProductByID(ctx context.Context, arg GetProductByIDParams) 
 }
 
 const listPriceHistory = `-- name: ListPriceHistory :many
-SELECT id, product_id, old_price, new_price, note, changed_at FROM product_price_history
+SELECT id, product_id, old_price, new_price, note, changed_at, reason, source, old_source_price, new_source_price FROM product_price_history
 WHERE product_id = $1
 ORDER BY changed_at DESC
 `
@@ -169,6 +147,10 @@ func (q *Queries) ListPriceHistory(ctx context.Context, productID pgtype.UUID) (
 			&i.NewPrice,
 			&i.Note,
 			&i.ChangedAt,
+			&i.Reason,
+			&i.Source,
+			&i.OldSourcePrice,
+			&i.NewSourcePrice,
 		); err != nil {
 			return nil, err
 		}
@@ -234,15 +216,28 @@ func (q *Queries) ListProducts(ctx context.Context, arg ListProductsParams) ([]P
 	return items, nil
 }
 
-const updateProduct = `-- name: UpdateProduct :one
-UPDATE products
-SET name = $3, normalized_name = $4, unit = $5, unit_price = $6,
-    description = $7, category = $8
-WHERE id = $1 AND organization_id = $2
-RETURNING id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at, organization_id, source_synced_at
+const updateProductWithPriceHistory = `-- name: UpdateProductWithPriceHistory :one
+WITH old AS MATERIALIZED (
+    SELECT cur.id, cur.unit_price FROM products AS cur
+    WHERE cur.id = $1 AND cur.organization_id = $2
+    FOR NO KEY UPDATE
+), upd AS (
+    UPDATE products AS p
+    SET name = $3, normalized_name = $4, unit = $5,
+        unit_price = $6, description = $7, category = $8
+    FROM old
+    WHERE p.id = old.id
+    RETURNING p.id, p.name, p.normalized_name, p.unit, p.unit_price, p.description, p.category, p.source, p.source_price, p.created_at, p.updated_at, p.organization_id, p.source_synced_at
+), hist AS (
+    INSERT INTO product_price_history (product_id, old_price, new_price, note, reason)
+    SELECT upd.id, old.unit_price, upd.unit_price, '', 'manual'
+    FROM upd JOIN old ON old.id = upd.id
+    WHERE upd.unit_price <> old.unit_price
+)
+SELECT id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at, organization_id, source_synced_at FROM upd
 `
 
-type UpdateProductParams struct {
+type UpdateProductWithPriceHistoryParams struct {
 	ID             pgtype.UUID    `json:"id"`
 	OrganizationID pgtype.UUID    `json:"organization_id"`
 	Name           string         `json:"name"`
@@ -253,8 +248,32 @@ type UpdateProductParams struct {
 	Category       string         `json:"category"`
 }
 
-func (q *Queries) UpdateProduct(ctx context.Context, arg UpdateProductParams) (Product, error) {
-	row := q.db.QueryRow(ctx, updateProduct,
+type UpdateProductWithPriceHistoryRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	Name           string             `json:"name"`
+	NormalizedName string             `json:"normalized_name"`
+	Unit           string             `json:"unit"`
+	UnitPrice      pgtype.Numeric     `json:"unit_price"`
+	Description    string             `json:"description"`
+	Category       string             `json:"category"`
+	Source         *string            `json:"source"`
+	SourcePrice    pgtype.Numeric     `json:"source_price"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	SourceSyncedAt pgtype.Timestamptz `json:"source_synced_at"`
+}
+
+// Elle ürün düzenleme TEK ifadede (tek transaction): satır kilitlenip
+// (FOR NO KEY UPDATE) ESKİ fiyat okunur, ürün güncellenir ve fiyat
+// değiştiyse fiyat geçmişi satırı (reason 'manual', kaynak yok) yazılır.
+// Eşzamanlı bir senkron/kâr oranı güncellemesi satırı tutuyorsa kilit
+// beklenir ve eski fiyat, onun YAZDIĞI fiyattır (READ COMMITTED'da kilitli
+// okuma satırın en son hâlini döner) -- geçmiş satırları zincir kurar
+// (100->110 senkron, 110->120 elle). Geçmiş yazılamazsa güncelleme de
+// geri alınır. Satır yoksa (başka firma/silinmiş) sonuç boştur.
+func (q *Queries) UpdateProductWithPriceHistory(ctx context.Context, arg UpdateProductWithPriceHistoryParams) (UpdateProductWithPriceHistoryRow, error) {
+	row := q.db.QueryRow(ctx, updateProductWithPriceHistory,
 		arg.ID,
 		arg.OrganizationID,
 		arg.Name,
@@ -264,7 +283,7 @@ func (q *Queries) UpdateProduct(ctx context.Context, arg UpdateProductParams) (P
 		arg.Description,
 		arg.Category,
 	)
-	var i Product
+	var i UpdateProductWithPriceHistoryRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,

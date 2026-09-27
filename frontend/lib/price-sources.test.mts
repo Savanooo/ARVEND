@@ -4,18 +4,102 @@ import { describe, it } from "node:test";
 import {
   applyMarkup,
   asSentence,
+  attributionsFor,
   buildSettingsBody,
   categoryMarkupRows,
   formatMarkupInput,
   formatPercent,
   formatSyncTime,
   isMissingFromSource,
+  lastChangesMessage,
   parseMarkupInput,
+  PRICE_LIST_TOO_SHORT_ERROR,
   priceSyncErrorMessage,
   settingsSavedMessage,
+  siteHost,
+  sourceAttribution,
+  sourceLabels,
   summarizeSyncCounts,
   syncErrorUpdatesStatus,
+  syncSuccessMessage,
 } from "./price-sources.ts";
+
+describe("sourceLabels / siteHost", () => {
+  it("bilinen kaynaklarda Türkçe ekler elle yazılı", () => {
+    assert.deepEqual(sourceLabels("ulas"), { short: "Ulaş", ablative: "Ulaş'tan", dative: "Ulaş'a" });
+    assert.deepEqual(sourceLabels("demirprofil", "Demir Profil (Omega Çelik)"), {
+      short: "Demir Profil",
+      ablative: "Demir Profil'den",
+      dative: "Demir Profil'e",
+    });
+  });
+
+  it("bilinmeyen kaynakta ek uyumu tahmin edilmez", () => {
+    assert.deepEqual(sourceLabels("yeni", "Yeni Çelik"), {
+      short: "Yeni Çelik",
+      ablative: "Yeni Çelik kaynağından",
+      dative: "Yeni Çelik kaynağına",
+    });
+    assert.equal(sourceLabels("yeni").short, "yeni");
+  });
+
+  it("site bağlantısının metni", () => {
+    assert.equal(siteHost("https://www.demirprofil.com.tr"), "demirprofil.com.tr");
+    assert.equal(siteHost("https://ulas.com.tr"), "ulas.com.tr");
+    assert.equal(siteHost("bozuk"), "bozuk");
+  });
+});
+
+describe("sourceAttribution / attributionsFor", () => {
+  const dp = { source: "demirprofil", attribution: "Kaynak: demirprofil.com.tr — Eylül 2026 listesi" };
+  const ulas = { source: "ulas", attribution: "" };
+
+  it("API'nin metni; kaynak bilgisi yoksa Demir Profil için site adı", () => {
+    assert.equal(sourceAttribution("demirprofil", dp), dp.attribution);
+    assert.equal(sourceAttribution("ulas", ulas), "");
+    assert.equal(sourceAttribution("demirprofil", null), "Kaynak: demirprofil.com.tr");
+    assert.equal(sourceAttribution("ulas", undefined), "");
+  });
+
+  it("sayfadaki kaynaklar: tekrarsız, boşlar ve kaynaksız satırlar atılır", () => {
+    assert.deepEqual(attributionsFor(["ulas", null, "demirprofil", "", undefined, "demirprofil"], [ulas, dp]), [
+      dp.attribution,
+    ]);
+    assert.deepEqual(attributionsFor(["ulas", null], [ulas, dp]), []);
+    // GET /price-sources alınamadı.
+    assert.deepEqual(attributionsFor(["demirprofil", "ulas"], null), ["Kaynak: demirprofil.com.tr"]);
+  });
+});
+
+describe("lastChangesMessage", () => {
+  it("hiç başarılı senkron yoksa null", () => {
+    assert.equal(lastChangesMessage(null), null);
+  });
+
+  it("zam, ortalama ve indirim", () => {
+    assert.equal(
+      lastChangesMessage({ increased: 120, decreased: 0, avg_increase_percent: 3.25 }),
+      "Son güncellemede 120 ürüne zam geldi (ort. %3,25)."
+    );
+    assert.equal(
+      lastChangesMessage({ increased: 12, decreased: 4, avg_increase_percent: 10 }),
+      "Son güncellemede 12 ürüne zam geldi (ort. %10); 4 ürünün fiyatı düştü."
+    );
+    assert.equal(
+      lastChangesMessage({ increased: 0, decreased: 4, avg_increase_percent: null }),
+      "Son güncellemede zam gelen ürün olmadı; 4 ürünün fiyatı düştü."
+    );
+    assert.equal(
+      lastChangesMessage({ increased: 0, decreased: 0, avg_increase_percent: null }),
+      "Son güncellemede fiyatı değişen ürün olmadı."
+    );
+    // Eski fiyatı 0 olan zamlarda ortalama tanımsız olabilir.
+    assert.equal(
+      lastChangesMessage({ increased: 2, decreased: 0, avg_increase_percent: null }),
+      "Son güncellemede 2 ürüne zam geldi."
+    );
+  });
+});
 
 describe("parseMarkupInput", () => {
   it("Türkçe ondalık virgül, nokta, yüzde işareti ve boşluklar kabul edilir", () => {
@@ -112,10 +196,28 @@ describe("summarizeSyncCounts / priceSyncErrorMessage", () => {
   });
 
   it("409 ve 502 sabit metin, diğerleri backend mesajı", () => {
-    assert.match(priceSyncErrorMessage(409, "x", "Ulaş"), /zaten sürüyor/);
-    assert.match(priceSyncErrorMessage(502, "x", "Ulaş"), /^Ulaş'a ulaşılamadı/);
-    assert.equal(priceSyncErrorMessage(400, "fiyat kaynağı bulunamadı", "Ulaş"), "fiyat kaynağı bulunamadı");
-    assert.equal(priceSyncErrorMessage(null, "", "Ulaş"), "Bağlantı hatası");
+    const ulas = sourceLabels("ulas");
+    assert.match(priceSyncErrorMessage(409, "x", ulas), /zaten sürüyor/);
+    assert.match(priceSyncErrorMessage(502, "x", ulas), /^Ulaş'a ulaşılamadı/);
+    assert.match(priceSyncErrorMessage(502, "x", sourceLabels("demirprofil")), /^Demir Profil'e ulaşılamadı/);
+    assert.equal(priceSyncErrorMessage(400, "fiyat kaynağı bulunamadı", ulas), "fiyat kaynağı bulunamadı");
+    assert.equal(priceSyncErrorMessage(null, "", ulas), "Bağlantı hatası");
+  });
+
+  it("502 kısa liste koruması 'ulaşılamadı' demez", () => {
+    const msg = priceSyncErrorMessage(502, PRICE_LIST_TOO_SHORT_ERROR, sourceLabels("demirprofil"));
+    assert.match(msg, /^Demir Profil listesi beklenenden çok kısa geldi/);
+    assert.match(msg, /Fiyatlar değiştirilmedi/);
+    assert.doesNotMatch(msg, /ulaşılamadı/);
+  });
+
+  it("başarı metni liste dönemini içerir (Ulaş'ta dönem yok)", () => {
+    const counts = { total: 3022, created: 3022, updated: 0, unchanged: 0, missing: 0, synced_at: "", source: "" };
+    assert.equal(
+      syncSuccessMessage({ ...counts, list_label: "Eylül 2026" }, sourceLabels("demirprofil")),
+      "Demir Profil listesi (Eylül 2026) güncellendi: toplam 3022 · 3022 yeni · 0 güncellenen · 0 değişmeyen · 0 listede artık yok."
+    );
+    assert.match(syncSuccessMessage({ ...counts, list_label: "" }, sourceLabels("ulas")), /^Ulaş listesi güncellendi: /);
   });
 
   it("backend'in 'failed' kaydettiği her hatada durum yenilenir; 409 ve ağ hatasında yenilenmez", () => {

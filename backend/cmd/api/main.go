@@ -72,7 +72,7 @@ func main() {
 	costCodeSvc := service.NewCostCodeService(pool, q)
 	supplierSvc := service.NewSupplierService(pool, q, secretBox)
 	notificationSvc := service.NewNotificationService(q)
-	priceSourceSvc := service.NewPriceSourceService(pool, q, service.UlasHTTPFetcher(nil))
+	priceSourceSvc := service.NewPriceSourceService(pool, q, service.HTTPPriceFetchers(nil))
 
 	jwtIssuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL)
 	authSvc := service.NewAuthService(q, jwtIssuer, cfg.RefreshTTL)

@@ -157,9 +157,11 @@ type rbacTestDeps struct {
 	costCodeSvc *service.CostCodeService
 	supplierSvc *service.SupplierService
 
-	// priceFetch, fiyat kaynağı senkronunun sahte listesi -- testler
-	// ulas.com.tr'ye ASLA gitmez (bkz. price_sources_security_test.go).
+	// priceFetch/demirFetch, Ulaş ve Demir Profil senkronunun sahte
+	// listeleri -- testler ulas.com.tr'ye/demirprofil.com.tr'ye ASLA gitmez
+	// (bkz. price_sources_security_test.go).
 	priceFetch *stubPriceFetcher
+	demirFetch *stubPriceFetcher
 }
 
 func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
@@ -198,7 +200,11 @@ func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
 	costCodeSvc := service.NewCostCodeService(pool, q)
 	supplierSvc := service.NewSupplierService(pool, q, secretBox)
 	priceFetch := &stubPriceFetcher{}
-	priceSourceSvc := service.NewPriceSourceService(pool, q, priceFetch.fetch)
+	demirFetch := &stubPriceFetcher{}
+	priceSourceSvc := service.NewPriceSourceService(pool, q, map[string]service.PriceFetcher{
+		domain.PriceSourceUlas:        priceFetch.fetch,
+		domain.PriceSourceDemirProfil: demirFetch.fetch,
+	})
 
 	issuer := auth.NewJWTIssuer("test-secret-rbac-matrix", 15*time.Minute)
 	authSvc := service.NewAuthService(q, issuer, 24*time.Hour)
@@ -229,7 +235,7 @@ func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
 	})
 
 	return &rbacTestDeps{
-		pool: pool, q: q, router: router, issuer: issuer, priceFetch: priceFetch,
+		pool: pool, q: q, router: router, issuer: issuer, priceFetch: priceFetch, demirFetch: demirFetch,
 		userSvc: userSvc, platform: platformSvc, authzSvc: authzSvc,
 		offerSvc: offerSvc, projectSvc: projectSvc, costCodeSvc: costCodeSvc, supplierSvc: supplierSvc,
 	}

@@ -134,6 +134,13 @@ type priceHistoryResponse struct {
 	// Note: değişikliğin kaynağı (ör. "Ulaş fiyat listesi"); elle düzenlemede "".
 	Note      string `json:"note"`
 	ChangedAt string `json:"changed_at"`
+	// Reason: manual | supplier | markup; Source: tedarikçi kodu, elle
+	// düzenlemede null.
+	Reason string  `json:"reason"`
+	Source *string `json:"source"`
+	// Tedarikçi fiyatları: yalnızca products.manage sahibine (aksi null).
+	OldSourcePrice *float64 `json:"old_source_price"`
+	NewSourcePrice *float64 `json:"new_source_price"`
 }
 
 func (h *ProductHandler) PriceHistory(w http.ResponseWriter, r *http.Request) {
@@ -143,6 +150,7 @@ func (h *ProductHandler) PriceHistory(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	showSourcePrice := canManageProducts(r)
 	out := make([]priceHistoryResponse, len(entries))
 	for i, e := range entries {
 		out[i] = priceHistoryResponse{
@@ -150,6 +158,12 @@ func (h *ProductHandler) PriceHistory(w http.ResponseWriter, r *http.Request) {
 			NewPrice:  e.NewPrice,
 			Note:      e.Note,
 			ChangedAt: e.ChangedAt.Format("2006-01-02T15:04:05Z07:00"),
+			Reason:    e.Reason,
+			Source:    nullableSource(e.Source),
+		}
+		if showSourcePrice {
+			out[i].OldSourcePrice = e.OldSourcePrice
+			out[i].NewSourcePrice = e.NewSourcePrice
 		}
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"history": out})

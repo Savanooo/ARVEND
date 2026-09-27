@@ -10,14 +10,15 @@ import { apiClient, ApiError } from "@/lib/api";
 import type { Product } from "@/lib/types";
 
 /**
- * sourceLink: ürünün tedarikçi listesiyle (Ulaş) bağı.
- *   - "linked": Ulaş ürünü, son listede var (ya da henüz hiç senkron yok).
- *     Backend Ulaş satırlarını (ad, birim) ile eşleştirdiğinden bu iki alan
- *     kilitlidir: değişirse bir sonraki güncelleme ürünü yeniden ekler,
+ * sourceLink: ürünün tedarikçi listesiyle (Ulaş, Demir Profil) bağı.
+ *   - "linked": kaynak ürünü, son listede var (ya da henüz hiç senkron yok).
+ *     Backend kaynak satırlarını (ad, birim) ile eşleştirdiğinden bu iki
+ *     alan kilitlidir: değişirse bir sonraki güncelleme ürünü yeniden ekler,
  *     bu kayıt "listede yok" olarak kalıp fiyat almaz.
- *   - "missing": Ulaş ürünü ama son listede yok -- zaten eşleşmiyor; ad ve
- *     birim düzenlenebilir (ör. Ulaş'taki adla aynı yapıp yeniden bağlamak).
+ *   - "missing": kaynak ürünü ama son listede yok -- zaten eşleşmiyor; ad ve
+ *     birim düzenlenebilir (ör. listedeki adla aynı yapıp yeniden bağlamak).
  *   - "none": elle eklenen ürün.
+ * sourceName: kaynağın kısa adı ("Demir Profil"); "none"da "".
  */
 export type ProductSourceLink = "none" | "linked" | "missing";
 
@@ -25,10 +26,12 @@ export function EditProductForm({
   product,
   canManage,
   sourceLink,
+  sourceName,
 }: {
   product: Product;
   canManage: boolean;
   sourceLink: ProductSourceLink;
+  sourceName: string;
 }) {
   const router = useRouter();
   const [form, setForm] = useState({
@@ -103,16 +106,16 @@ export function EditProductForm({
           </div>
           {!readOnly && sourceLink === "linked" && (
             <p className="-mt-2 text-xs text-text-muted">
-              Ad ve birim Ulaş listesinden gelir ve ürünü listeyle eşleştirmek için kullanılır, bu yüzden
-              değiştirilemez. Değişselerdi bir sonraki güncelleme Ulaş ürününü yeni bir kayıt olarak ekler, bu
-              kayıt da fiyat almazdı. Farklı adla satmak için elle yeni ürün ekleyin.
+              Ad ve birim {sourceName} listesinden gelir ve ürünü listeyle eşleştirmek için kullanılır, bu yüzden
+              değiştirilemez. Değişselerdi bir sonraki güncelleme {sourceName} ürününü yeni bir kayıt olarak
+              ekler, bu kayıt da fiyat almazdı. Farklı adla satmak için elle yeni ürün ekleyin.
             </p>
           )}
           {!readOnly && sourceLink === "missing" && (
             <p className="-mt-2 text-xs text-text-muted">
-              Bu ürün son Ulaş listesinde yok. Ad ve birim, Ulaş listesindekiyle birebir aynı (büyük/küçük harf
-              dahil) olursa bir sonraki güncellemede yeniden eşleşir; farklı olursa Ulaş ürünü ayrı bir kayıt
-              olarak eklenir.
+              Bu ürün son {sourceName} listesinde yok. Ad ve birim, {sourceName} listesindekiyle birebir aynı
+              (büyük/küçük harf dahil) olursa bir sonraki güncellemede yeniden eşleşir; farklı olursa{" "}
+              {sourceName} ürünü ayrı bir kayıt olarak eklenir.
             </p>
           )}
           <Input

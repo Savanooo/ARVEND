@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, History } from "lucide-react";
 import Link from "next/link";
 import { cookies } from "next/headers";
 
@@ -12,9 +12,11 @@ import { apiServer } from "@/lib/api";
 import { requirePagePermission } from "@/lib/auth";
 import { formatTL } from "@/lib/format";
 import { canAccess, PAGE_PERMISSIONS } from "@/lib/permissions";
-import { isMissingFromSource, PRICE_SOURCES_PATH, ULAS_SOURCE } from "@/lib/price-sources";
+import { istanbulDay, ZAMLAR_PATH } from "@/lib/price-changes";
+import { isMissingFromSource, PRICE_SOURCES_PATH, sourceLabels } from "@/lib/price-sources";
 import type { PriceSource, Product } from "@/lib/types";
 
+import { SourceBadge } from "./PriceChangeBits";
 import { PriceSourceCard } from "./PriceSourceCard";
 
 // Backend (ProductService.List) sayfa başına en fazla 200 ürün döndürür;
@@ -55,7 +57,11 @@ export default async function UrunlerPage({
       .then((r) => r.sources)
       .catch(() => null),
   ]);
-  const ulas = priceSources?.find((s) => s.source === ULAS_SOURCE) ?? null;
+  // Her ürünün "listede yok" rozeti KENDİ kaynağının son başarılı
+  // senkronuna göre hesaplanır.
+  const sourceByCode = new Map((priceSources ?? []).map((s) => [s.source, s]));
+  // Kartların Zam Geçmişi bağlantısı için (sunucuda hesaplanır: hydration'da aynı bağlantı).
+  const today = istanbulDay(new Date());
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -67,8 +73,8 @@ export default async function UrunlerPage({
     return s ? `/admin/urunler?${s}` : "/admin/urunler";
   }
 
-  // Ulaş fiyatı (kâr oranı uygulanmamış) yalnızca products.manage sahibine
-  // gelir; diğerlerinde backend source_price'ı null döndürür.
+  // Tedarikçi fiyatı (kâr oranı uygulanmamış) yalnızca products.manage
+  // sahibine gelir; diğerlerinde backend source_price'ı null döndürür.
   const showSourcePrice = canManage;
   const columnCount = showSourcePrice ? 6 : 5;
 
@@ -77,15 +83,30 @@ export default async function UrunlerPage({
       <PageHeader
         title="Ürünler"
         action={
-          canManage ? (
-            <Link href="/admin/urunler/yeni">
-              <Button>+ Yeni Ürün</Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Zam geçmişi uçları da yalnızca products.read ister: sayfayı gören herkes. */}
+            <Link href={ZAMLAR_PATH}>
+              <Button variant="secondary">
+                <History size={14} strokeWidth={2} />
+                Zam Geçmişi
+              </Button>
             </Link>
-          ) : undefined
+            {canManage && (
+              <Link href="/admin/urunler/yeni">
+                <Button>+ Yeni Ürün</Button>
+              </Link>
+            )}
+          </div>
         }
       />
-      <div className="flex flex-col gap-4 p-8">
-        <PriceSourceCard priceSource={ulas} canManage={canManage} />
+      <div className="flex flex-col gap-4 p-4 sm:p-8">
+        {priceSources === null ? (
+          <PriceSourceCard priceSource={null} canManage={canManage} today={today} />
+        ) : (
+          priceSources.map((ps) => (
+            <PriceSourceCard key={ps.source} priceSource={ps} canManage={canManage} today={today} />
+          ))
+        )}
 
         {/* Aramada ?page= gönderilmez: yeni arama her zaman 1. sayfadan başlar. */}
         <form className="max-w-xs">
@@ -102,41 +123,46 @@ export default async function UrunlerPage({
                 <Th>Ürün</Th>
                 <Th>Birim</Th>
                 <Th>Kategori</Th>
-                {showSourcePrice && <Th className="text-right">Ulaş fiyatı</Th>}
+                {showSourcePrice && <Th className="text-right">Tedarikçi fiyatı</Th>}
                 <Th className="text-right">Birim Fiyat</Th>
                 <Th />
               </tr>
             </thead>
             <tbody>
-              {products.map((p) => (
-                <Tr key={p.id}>
-                  <Td className="font-medium">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span>{p.name}</span>
-                      {p.source === ULAS_SOURCE && <Badge tone="info">Ulaş</Badge>}
-                      {isMissingFromSource(p, ulas) && <Badge tone="danger">Ulaş listesinde yok</Badge>}
-                    </div>
-                  </Td>
-                  <Td className="text-text-muted">{p.unit}</Td>
-                  <Td className="text-text-muted">{p.category || "—"}</Td>
-                  {showSourcePrice && (
-                    <Td className="text-right text-text-muted">
-                      {typeof p.source_price === "number" ? formatTL(p.source_price) : "—"}
+              {products.map((p) => {
+                const ps = p.source ? sourceByCode.get(p.source) : undefined;
+                return (
+                  <Tr key={p.id}>
+                    <Td className="font-medium">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>{p.name}</span>
+                        {p.source && <SourceBadge source={p.source} name={ps?.name} />}
+                        {isMissingFromSource(p, ps) && (
+                          <Badge tone="danger">{sourceLabels(p.source, ps?.name).short} listesinde yok</Badge>
+                        )}
+                      </div>
                     </Td>
-                  )}
-                  <Td className="text-right font-medium">
-                    {formatTL(p.unit_price)}
-                  </Td>
-                  <Td className="text-right">
-                    <Link
-                      href={`/admin/urunler/${p.id}`}
-                      className="text-xs font-semibold uppercase tracking-widest text-gold hover:underline"
-                    >
-                      {canManage ? "Düzenle" : "Görüntüle"}
-                    </Link>
-                  </Td>
-                </Tr>
-              ))}
+                    <Td className="text-text-muted">{p.unit}</Td>
+                    <Td className="text-text-muted">{p.category || "—"}</Td>
+                    {showSourcePrice && (
+                      <Td className="text-right text-text-muted">
+                        {typeof p.source_price === "number" ? formatTL(p.source_price) : "—"}
+                      </Td>
+                    )}
+                    <Td className="text-right font-medium">
+                      {formatTL(p.unit_price)}
+                    </Td>
+                    <Td className="text-right">
+                      <Link
+                        href={`/admin/urunler/${p.id}`}
+                        className="text-xs font-semibold uppercase tracking-widest text-gold hover:underline"
+                      >
+                        {canManage ? "Düzenle" : "Görüntüle"}
+                      </Link>
+                    </Td>
+                  </Tr>
+                );
+              })}
               {products.length === 0 && (
                 <tr>
                   <Td colSpan={columnCount} className="text-center text-text-muted">
@@ -147,7 +173,7 @@ export default async function UrunlerPage({
             </tbody>
           </Table>
         </Card>
-        <div className="flex items-center justify-between text-xs text-text-muted">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-text-muted">
           <span>
             Toplam {total} ürün · Sayfa {page} / {totalPages}
           </span>

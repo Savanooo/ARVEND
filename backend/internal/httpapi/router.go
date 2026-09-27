@@ -138,12 +138,17 @@ func NewRouter(d Deps) http.Handler {
 			// Katalog herkes icin okunabilir (teklif olustururken herkes
 			// urun secebilmeli); yazma products.manage iznine ozel.
 			r.With(perm(domain.PermProductsRead)).Get("/", d.Products.List)
-			// Tedarikçi fiyat listesi (Ulaş) ayarları/senkronu. chi'de statik
-			// segment parametreden önce eşleşir -- "/price-sources" ASLA
-			// "/{id}" tarafından yakalanmaz. Okuma products.read (kâr oranları
-			// yalnızca products.manage'e döner, bkz. PriceSourceHandler),
-			// ayar değiştirme/senkron products.manage.
+			// Tedarikçi fiyat listesi (Ulaş, Demir Profil) ayarları/senkronu
+			// ve zam geçmişi. chi'de statik segment parametreden önce eşleşir
+			// -- "/price-sources", "/price-changes" ve "/price-changes/summary"
+			// ASLA "/{id}" (ya da "/{id}/price-history") tarafından yakalanmaz;
+			// yine de okunurluk için "/{id}"den ÖNCE kaydedilir. Okuma
+			// products.read (kâr oranları ve tedarikçi fiyatları yalnızca
+			// products.manage'e döner, bkz. PriceSourceHandler), ayar
+			// değiştirme/senkron products.manage.
 			r.With(perm(domain.PermProductsRead)).Get("/price-sources", d.PriceSources.List)
+			r.With(perm(domain.PermProductsRead)).Get("/price-changes", d.PriceSources.ListPriceChanges)
+			r.With(perm(domain.PermProductsRead)).Get("/price-changes/summary", d.PriceSources.PriceChangeSummary)
 			r.With(perm(domain.PermProductsRead)).Get("/{id}", d.Products.Get)
 			r.With(perm(domain.PermProductsRead)).Get("/{id}/price-history", d.Products.PriceHistory)
 

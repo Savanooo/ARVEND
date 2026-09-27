@@ -1,0 +1,85 @@
+# demirprofil.com.tr — Demir Profil — tam liste (llms-full.txt)
+
+> Demir profil (kutu profil) ve ağır profil fiyat ve ölçü sitesi: kutu profil 1 boy (6 m) KDV dahil ve ₺/m. Liste Eylül 2026, haftalık yenilenir, KDV hariç, toptan. İşletmeci: Omega Çelik.
+
+## Ağır profil aileleri ve ölçü sayfaları
+- [U demir (NPU (UPN))](https://www.demirprofil.com.tr/u-demir/): 18 ölçü — [NPU 50](https://www.demirprofil.com.tr/u-demir/50-lik/), [NPU 60](https://www.demirprofil.com.tr/u-demir/60-lik/)
+
+## Araçlar
+- [Kiriş ön seçici](https://www.demirprofil.com.tr/kiris-secici/): açıklık + yayılı yük → gereken Wy
+
+## Tam gam
+### Profil ([hub](https://www.demirprofil.com.tr/profil-fiyatlari/))
+- [Kutu profil](https://www.demirprofil.com.tr/kutu-profil/)
+
+## Kaliteler
+- [ST44 Sac](https://www.demirprofil.com.tr/st44-sac/): S275JR, siyah sac + 20 USD/ton
+
+## Birimler
+Kutu profil ve boru: ₺/m; 1 boy = 6 m; KDV dahil = × 1,20.
+
+---
+
+# Tam fiyat listesi (Eylül 2026; toptan liste fiyatları, KDV hariç, haftalık yenilenir)
+
+## Siyah Kutu Profil (5 kalem)
+
+ebat (mm) | et (mm) | kg/m | ₺/m | ₺/boy | KDV dahil ₺/boy
+- 20×80 | 2,5 | 3,925 | 173,60 | 1.041,60 | 1.249,92
+- 20×20 | 1,2 | 0,700 | 1.041,50 | 6.249,00 | 7.498,80
+- 20×20 | 1,5 | 0,870 | 38,10
+- 30×30 | 2 | 1,700 | yok | 0 | 999,99
+- 20×80 | 2,5 | 3,925 | 180,00 | 1.080,00 | 1.296,00
+
+## Siyah Çelik Boru (2 kalem)
+
+dış çap (mm) | et (mm) | kg/m | ₺/m | ₺/boy | KDV dahil ₺/boy
+- Ø21,3 | 2 | 0,952 | 40,30 | 241,80 | 290,16
+- Ø26,9 | 2 | 1,230 | 52,10 | 330,00 | 396,00
+
+## Galvaniz Sac (2 kalem)
+
+ürün | kalınlık (mm) | ₺/ton | ₺/kg | kg/m² | ₺/m²
+- 0,30mm Galvaniz sac | 0,3 | 51.075 | 51,08 | 2,36 | 120
+- 4mm Galvaniz sac | 4 | 42.400 | 42,40 | 31,40 | 1.331
+
+## H profil (1 kalem)
+
+ölçü | ₺/kg | not
+- 100 H Profil | 34,30 | boy ve kg/m ürün sayfasında
+
+## Npu Profil (3 kalem)
+
+ölçü | ₺/kg | not
+- 60 Npu Profil | 34,15 | boy ve kg/m ürün sayfasında
+
+## Sandviç Panel (2 kalem)
+
+ürün | kalınlık (mm) | ₺/m² | KDV dahil ₺/m²
+- 4cm 0,30mm Sandviç Panel | 40 | 535,50 | 642,60
+- 5cm Sandviç Panel | 50 | Fiyat sorunuz | 630,00
+
+## Delikli Sac (1 kalem)
+
+malzeme | kalınlık | delik Ø | ebat | ₺/adet
+- DKP Delikli Sac | 1 | 4 | 1000x2000 | 1.254,00
+
+## Trapez Sac (2 kalem)
+
+ürün | kalınlık (mm) | not
+- Beyaz Trapez Sac | 0,4 | çatı ürünü: metre ve m² fiyatı ürün sayfasında (kg/ton verilmez)
+- Bordo Trapez Sac | 0,5 | çatı ürünü: metre ve m² fiyatı ürün sayfasında (kg/ton verilmez)
+
+## Boyalı Kutu Profil (1 kalem)
+
+ebat (mm) | et (mm) | kg/m | KDV dahil ₺/m | ₺/boy | KDV dahil ₺/boy
+- 10×20 | 1,2 | 0,520 | 37,92 | 189,60 | 227,52
+
+## Yeni Aile (2 kalem)
+
+ürün | fiyat (₺) | birim
+- Gizemli Ürün | 99,00 | adet
+- Başka Ürün | 12,00 | adet
+
+## Kullanım notu
+Fiyatlar toptan liste fiyatlarıdır | kesim ücretlidir; nakliye teklifte ayrı satırdır. Kaynak gösterirken ilgili sayfa URL'sini ve ayı belirtin.

@@ -37,21 +37,24 @@ FROM (
 
 -- name: RecordPriceSourceSyncSuccess :one
 -- last_synced_at = now(): aynı transaction'daki products.source_synced_at
--- ile BİREBİR aynı an (eksik ürün hesabı bu eşitliğe dayanır).
+-- ve product_price_history.changed_at ile BİREBİR aynı an (eksik ürün
+-- hesabı ve "son senkronda zam gelen ürünler" bu eşitliğe dayanır).
 INSERT INTO organization_price_sources (
     organization_id, source, last_synced_at, last_status, last_error,
-    last_total, last_created, last_updated, last_unchanged, last_missing)
+    last_total, last_created, last_updated, last_unchanged, last_missing, last_list_label)
 VALUES (sqlc.arg(organization_id), sqlc.arg(source), now(), 'success', '',
-    sqlc.arg(total), sqlc.arg(created), sqlc.arg(updated), sqlc.arg(unchanged), sqlc.arg(missing))
+    sqlc.arg(total), sqlc.arg(created), sqlc.arg(updated), sqlc.arg(unchanged), sqlc.arg(missing),
+    sqlc.arg(list_label))
 ON CONFLICT (organization_id, source) DO UPDATE
-SET last_synced_at = now(),
-    last_status    = 'success',
-    last_error     = '',
-    last_total     = EXCLUDED.last_total,
-    last_created   = EXCLUDED.last_created,
-    last_updated   = EXCLUDED.last_updated,
-    last_unchanged = EXCLUDED.last_unchanged,
-    last_missing   = EXCLUDED.last_missing
+SET last_synced_at  = now(),
+    last_status     = 'success',
+    last_error      = '',
+    last_total      = EXCLUDED.last_total,
+    last_created    = EXCLUDED.last_created,
+    last_updated    = EXCLUDED.last_updated,
+    last_unchanged  = EXCLUDED.last_unchanged,
+    last_missing    = EXCLUDED.last_missing,
+    last_list_label = EXCLUDED.last_list_label
 RETURNING last_synced_at;
 
 -- name: RecordPriceSourceSyncFailure :exec
@@ -119,9 +122,11 @@ WHERE p.id = u.id
   AND p.source = sqlc.arg(source)::text;
 
 -- name: InsertSourceProducts :execrows
+-- Açıklama yalnızca YENİ satıra yazılır (ör. Demir Profil "6 m boy · 3,925
+-- kg/m"); eşleşen satırın açıklaması kullanıcıya aittir, dokunulmaz.
 INSERT INTO products (organization_id, name, normalized_name, unit, unit_price, description,
     category, source, source_price, source_synced_at)
-SELECT sqlc.arg(organization_id)::uuid, u.name, u.normalized_name, u.unit, u.unit_price, '',
+SELECT sqlc.arg(organization_id)::uuid, u.name, u.normalized_name, u.unit, u.unit_price, u.description,
     u.category, sqlc.arg(source)::text, u.source_price, now()
 FROM (
     SELECT unnest(sqlc.arg(names)::text[])             AS name,
@@ -129,7 +134,8 @@ FROM (
            unnest(sqlc.arg(units)::text[])             AS unit,
            unnest(sqlc.arg(unit_prices)::numeric[])    AS unit_price,
            unnest(sqlc.arg(source_prices)::numeric[])  AS source_price,
-           unnest(sqlc.arg(categories)::text[])        AS category
+           unnest(sqlc.arg(categories)::text[])        AS category,
+           unnest(sqlc.arg(descriptions)::text[])      AS description
 ) AS u;
 
 -- name: UpdateProductUnitPrices :execrows
@@ -144,12 +150,20 @@ WHERE p.id = u.id
   AND p.source = sqlc.arg(source)::text;
 
 -- name: InsertPriceHistoryBatch :exec
-INSERT INTO product_price_history (product_id, old_price, new_price, note)
-SELECT u.product_id, u.old_price, u.new_price, sqlc.arg(note)::text
+-- Senkron (reason 'supplier') ve kâr oranı yeniden fiyatlaması ('markup')
+-- satırları. changed_at varsayılanı now(): aynı transaction'daki tüm
+-- satırlar aynı anı paylaşır -- zam geçmişi bir senkronu bu anla gruplar.
+-- Kaynak fiyatı dizilerinde NULL olabilir (hiç senkronlanmamış satır).
+INSERT INTO product_price_history (product_id, old_price, new_price, note, reason, source,
+    old_source_price, new_source_price)
+SELECT u.product_id, u.old_price, u.new_price, sqlc.arg(note)::text, sqlc.arg(reason)::text,
+    sqlc.arg(source)::text, u.old_source_price, u.new_source_price
 FROM (
-    SELECT unnest(sqlc.arg(product_ids)::uuid[])    AS product_id,
-           unnest(sqlc.arg(old_prices)::numeric[])  AS old_price,
-           unnest(sqlc.arg(new_prices)::numeric[])  AS new_price
+    SELECT unnest(sqlc.arg(product_ids)::uuid[])          AS product_id,
+           unnest(sqlc.arg(old_prices)::numeric[])        AS old_price,
+           unnest(sqlc.arg(new_prices)::numeric[])        AS new_price,
+           unnest(sqlc.arg(old_source_prices)::numeric[]) AS old_source_price,
+           unnest(sqlc.arg(new_source_prices)::numeric[]) AS new_source_price
 ) AS u;
 
 -- name: CountSourceProductsNotSyncedNow :one
@@ -178,3 +192,18 @@ FROM products
 WHERE organization_id = sqlc.arg(organization_id) AND source = sqlc.arg(source)::text AND category <> ''
 GROUP BY category
 ORDER BY category;
+
+-- name: GetSyncPriceChangeStats :one
+-- Tek bir senkronun (changed_at = o senkronun last_synced_at'i) zam/indirim
+-- sayıları -- "Son güncellemede N ürüne zam geldi". Yüzdeler satış
+-- fiyatı (unit_price) üzerinden; eski fiyatı 0 olan satırlar ortalamaya girmez.
+SELECT (count(*) FILTER (WHERE h.new_price > h.old_price))::int AS increased,
+       (count(*) FILTER (WHERE h.new_price < h.old_price))::int AS decreased,
+       round(avg((h.new_price - h.old_price) / h.old_price * 100)
+             FILTER (WHERE h.new_price > h.old_price AND h.old_price > 0), 2)::numeric AS avg_increase_percent
+FROM product_price_history h
+JOIN products p ON p.id = h.product_id
+WHERE p.organization_id = sqlc.arg(organization_id)
+  AND h.source = sqlc.arg(source)::text
+  AND h.reason = 'supplier'
+  AND h.changed_at = sqlc.arg(changed_at)::timestamptz;

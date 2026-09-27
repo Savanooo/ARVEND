@@ -251,17 +251,24 @@ func TestParseUlasRealSnapshot(t *testing.T) {
 	}
 }
 
-// redirectTransport, (www.)ulas.com.tr'ye giden istekleri yerel test
-// sunucusuna yönlendirir -- testler gerçek ulas.com.tr'ye ASLA gitmez.
-// Başka hostlara giden istekler OLDUĞU GİBİ gider (yönlendirme testinde
-// "iç ağ" sunucusuna gerçekten ulaşılıp ulaşılmadığı görülsün diye).
+// supplierHosts: testlerde yerel sunucuya çevrilen tedarikçi hostları.
+var supplierHosts = map[string]bool{
+	"ulas.com.tr": true, "www.ulas.com.tr": true,
+	"demirprofil.com.tr": true, "www.demirprofil.com.tr": true,
+}
+
+// redirectTransport, tedarikçi hostlarına (ulas.com.tr, demirprofil.com.tr)
+// giden istekleri yerel test sunucusuna yönlendirir -- testler gerçek
+// sitelere ASLA gitmez. Başka hostlara giden istekler OLDUĞU GİBİ gider
+// (yönlendirme testinde "iç ağ" sunucusuna gerçekten ulaşılıp ulaşılmadığı
+// görülsün diye).
 type redirectTransport struct {
 	target *url.URL
 	seen   *http.Request
 }
 
 func (rt *redirectTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if h := req.URL.Hostname(); h != "ulas.com.tr" && h != "www.ulas.com.tr" {
+	if !supplierHosts[req.URL.Hostname()] {
 		return http.DefaultTransport.RoundTrip(req)
 	}
 	rt.seen = req
@@ -292,11 +299,12 @@ func TestFetchUlas(t *testing.T) {
 			w.Header().Set("Content-Type", "text/html; charset=windows-1254")
 			_, _ = io.WriteString(w, page)
 		})
-		items, err := FetchUlas(ctx, client)
+		list, err := FetchUlas(ctx, client)
 		if err != nil {
 			t.Fatalf("hata: %v", err)
 		}
-		if len(items) != 1 || items[0].Name != "Sandviç Panel" || items[0].Category != "ÇATI" ||
+		items := list.Items
+		if list.Label != "" || len(items) != 1 || items[0].Name != "Sandviç Panel" || items[0].Category != "ÇATI" ||
 			!items[0].Price.Equal(decimal.RequireFromString("1200.50")) {
 			t.Fatalf("beklenmeyen sonuç: %+v", items)
 		}
@@ -337,7 +345,7 @@ func TestFetchUlas(t *testing.T) {
 			if !errors.Is(err, ErrUnexpectedRedirect) {
 				t.Fatalf("%s: ErrUnexpectedRedirect bekleniyordu, geldi %v", target, err)
 			}
-			if msg := PublicErrorMessage(err); msg != ErrUnexpectedRedirect.Error() || strings.Contains(msg, "127.0.0.1") {
+			if msg := PublicErrorMessage(UlasName, err); msg != "Ulaş beklenmeyen bir adrese yönlendirdi" || strings.Contains(msg, "127.0.0.1") {
 				t.Fatalf("%s: last_error sabit metin olmalı, geldi %q", target, msg)
 			}
 		}
@@ -355,9 +363,9 @@ func TestFetchUlas(t *testing.T) {
 			}
 			_, _ = io.WriteString(w, `<table><tr><td>Ürün</td></tr><tr><th>KAT</th></tr><tr><td>A</td><td>adet</td><td>5 TL</td></tr></table>`)
 		})
-		items, err := FetchUlas(ctx, client)
-		if err != nil || len(items) != 1 || items[0].Name != "A" {
-			t.Fatalf("Ulaş içi yönlendirme izlenmeliydi: %+v %v", items, err)
+		list, err := FetchUlas(ctx, client)
+		if err != nil || len(list.Items) != 1 || list.Items[0].Name != "A" {
+			t.Fatalf("Ulaş içi yönlendirme izlenmeliydi: %+v %v", list, err)
 		}
 		if client.CheckRedirect != nil {
 			t.Fatal("FetchUlas çağıranın istemcisini değiştirmemeli")
@@ -377,7 +385,7 @@ func TestFetchUlas(t *testing.T) {
 		client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(strings.Repeat("a", maxBodyBytes+10)))
 		})
-		if _, err := FetchUlas(ctx, client); err == nil || !strings.Contains(err.Error(), "büyük") {
+		if _, err := FetchUlas(ctx, client); !errors.Is(err, ErrTooLarge) || !strings.Contains(err.Error(), "büyük") {
 			t.Fatalf("boyut hatası bekleniyordu, geldi %v", err)
 		}
 	})
@@ -431,15 +439,17 @@ func TestPublicErrorMessage(t *testing.T) {
 		{fmt.Errorf("Ulaş fiyat listesi indirilemedi: %w", proxyErr), "Ulaş sunucusuna bağlanılamadı"},
 		{fmt.Errorf("Ulaş fiyat listesi indirilemedi: %w", timeoutErr), "Ulaş sunucusu zamanında yanıt vermedi (zaman aşımı)"},
 		{context.DeadlineExceeded, "Ulaş sunucusu zamanında yanıt vermedi (zaman aşımı)"},
-		{fmt.Errorf("sarılmış: %w", ErrNoItems), ErrNoItems.Error()},
-		{ErrNoTable, ErrNoTable.Error()},
-		{&url.Error{Op: "Get", URL: "http://169.254.169.254/", Err: ErrUnexpectedRedirect}, ErrUnexpectedRedirect.Error()},
-		{ErrTooLarge, ErrTooLarge.Error()},
-		{fmt.Errorf("%w: gizli ayrıntı", ErrCharset), ErrCharset.Error()},
+		{fmt.Errorf("sarılmış: %w", ErrNoItems), "Ulaş fiyat listesinde ürün bulunamadı (sayfa yapısı değişmiş olabilir)"},
+		{ErrNoTable, "Ulaş fiyat listesinde tablo bulunamadı (sayfa yapısı değişmiş olabilir)"},
+		{&url.Error{Op: "Get", URL: "http://169.254.169.254/", Err: ErrUnexpectedRedirect}, "Ulaş beklenmeyen bir adrese yönlendirdi"},
+		{ErrTooLarge, "Ulaş fiyat listesi beklenenden büyük (> 5 MiB)"},
+		{fmt.Errorf("%w: gizli ayrıntı", ErrCharset), "Ulaş fiyat listesinin karakter kodlaması çözülemedi"},
+		// HTTPStatusError'ın kendi Source'u değil, çağıranın verdiği ad kullanılır.
+		{&HTTPStatusError{Source: "Başka", StatusCode: 404}, "Ulaş sunucusu HTTP 404 döndü"},
 		{errors.New("iç ayrıntı: /etc/secret 10.9.9.9"), "Ulaş fiyat listesi alınamadı"},
 	}
 	for _, c := range cases {
-		got := PublicErrorMessage(c.err)
+		got := PublicErrorMessage(UlasName, c.err)
 		if got != c.want {
 			t.Errorf("PublicErrorMessage(%v) = %q, beklenen %q", c.err, got, c.want)
 		}

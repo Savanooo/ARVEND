@@ -26,6 +26,7 @@ import (
 type stubPriceFetcher struct {
 	mu    sync.Mutex
 	items []pricesource.Item
+	label string
 	err   error
 }
 
@@ -35,13 +36,19 @@ func (f *stubPriceFetcher) set(err error, items ...pricesource.Item) {
 	f.items, f.err = items, err
 }
 
-func (f *stubPriceFetcher) fetch(context.Context) ([]pricesource.Item, error) {
+func (f *stubPriceFetcher) setLabel(label string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.label = label
+}
+
+func (f *stubPriceFetcher) fetch(context.Context) (pricesource.List, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
-		return nil, f.err
+		return pricesource.List{}, f.err
 	}
-	return append([]pricesource.Item(nil), f.items...), nil
+	return pricesource.List{Items: append([]pricesource.Item(nil), f.items...), Label: f.label}, nil
 }
 
 func TestPriceSourceEndpoints(t *testing.T) {
@@ -71,15 +78,7 @@ func TestPriceSourceEndpoints(t *testing.T) {
 
 	firstSource := func(t *testing.T, body map[string]any) map[string]any {
 		t.Helper()
-		list, ok := body["sources"].([]any)
-		if !ok || len(list) != 1 {
-			t.Fatalf("sources listesi bekleniyordu: %v", body)
-		}
-		src := list[0].(map[string]any)
-		if src["source"] != "ulas" {
-			t.Fatalf("ulas kaynağı bekleniyordu: %v", src)
-		}
-		return src
+		return sourceFromList(t, body, "ulas")
 	}
 
 	t.Run("okuma: products.read yeterli, kâr oranları yalnızca products.manage'e", func(t *testing.T) {
@@ -265,4 +264,21 @@ func TestPriceSourceEndpoints(t *testing.T) {
 			t.Fatalf("eşzamanlı senkron 409 bekleniyordu, geldi %d", rec.Code)
 		}
 	})
+}
+
+// sourceFromList: GET /products/price-sources yanıtı kayıt defterindeki
+// iki kaynağı sabit sırayla (ulas, demirprofil) döner; istenen seçilir.
+func sourceFromList(t *testing.T, body map[string]any, source string) map[string]any {
+	t.Helper()
+	list, ok := body["sources"].([]any)
+	if !ok || len(list) != 2 || list[0].(map[string]any)["source"] != "ulas" || list[1].(map[string]any)["source"] != "demirprofil" {
+		t.Fatalf("sources listesi [ulas, demirprofil] bekleniyordu: %v", body)
+	}
+	for _, item := range list {
+		if src := item.(map[string]any); src["source"] == source {
+			return src
+		}
+	}
+	t.Fatalf("%s kaynağı yok: %v", source, body)
+	return nil
 }

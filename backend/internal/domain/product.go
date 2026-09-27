@@ -30,6 +30,13 @@ type PriceHistoryEntry struct {
 	NewPrice  float64
 	Note      string
 	ChangedAt time.Time
+	// Reason: manual | supplier | markup; Source: tedarikçi kodu (elle
+	// düzenlemede ""). Kaynak fiyatları yalnızca senkron/kâr oranı
+	// satırlarında (0046'dan sonra) dolu olabilir.
+	Reason         string
+	Source         string
+	OldSourcePrice *float64
+	NewSourcePrice *float64
 }
 
 var trFold = strings.NewReplacer(

@@ -27,34 +27,48 @@ import (
 	"github.com/Savanooo/ARVEND/backend/internal/service"
 )
 
-// fakeUlas, servis testlerinin sahte fiyat listesi kaynağıdır.
-type fakeUlas struct {
+// fakeSource, servis testlerinin sahte fiyat listesi kaynağıdır (Ulaş ya
+// da Demir Profil yerine).
+type fakeSource struct {
 	mu    sync.Mutex
 	items []pricesource.Item
+	label string
 	err   error
 	calls int
 }
 
-func (f *fakeUlas) set(err error, items ...pricesource.Item) {
+func (f *fakeSource) set(err error, items ...pricesource.Item) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.items, f.err = items, err
 }
 
-func (f *fakeUlas) fetch(context.Context) ([]pricesource.Item, error) {
+func (f *fakeSource) setLabel(label string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.label = label
+}
+
+func (f *fakeSource) fetch(context.Context) (pricesource.List, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
 	if f.err != nil {
-		return nil, f.err
+		return pricesource.List{}, f.err
 	}
-	return append([]pricesource.Item(nil), f.items...), nil
+	return pricesource.List{Items: append([]pricesource.Item(nil), f.items...), Label: f.label}, nil
 }
 
-func (f *fakeUlas) callCount() int {
+func (f *fakeSource) callCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.calls
+}
+
+// ulasOnly: yalnızca Ulaş'ı sahte kaynaktan besleyen fetcher haritası
+// (Demir Profil yapılandırılmamış -- senkronu hata döner).
+func ulasOnly(f *fakeSource) map[string]service.PriceFetcher {
+	return map[string]service.PriceFetcher{domain.PriceSourceUlas: f.fetch}
 }
 
 func ulasItem(name, unit, category, price string) pricesource.Item {
@@ -176,16 +190,29 @@ func expectResult(t *testing.T, got *domain.PriceSyncResult, total, created, upd
 	}
 }
 
-func onlyOverview(t *testing.T, svc *service.PriceSourceService, orgID string) domain.PriceSourceOverview {
+// sourceOverview: GetPriceSources kayıt defterindeki TÜM kaynakları sabit
+// sırayla (ulas, demirprofil) döner; istenen kaynağınki seçilir.
+func sourceOverview(t *testing.T, svc *service.PriceSourceService, orgID, source string) domain.PriceSourceOverview {
 	t.Helper()
 	list, err := svc.GetPriceSources(context.Background(), orgID)
 	if err != nil {
 		t.Fatalf("fiyat kaynakları okunamadı: %v", err)
 	}
-	if len(list) != 1 || list[0].Source != domain.PriceSourceUlas {
-		t.Fatalf("tek kaynak (ulas) bekleniyordu: %+v", list)
+	if len(list) != 2 || list[0].Source != domain.PriceSourceUlas || list[1].Source != domain.PriceSourceDemirProfil {
+		t.Fatalf("iki kaynak (ulas, demirprofil) bekleniyordu: %+v", list)
 	}
-	return list[0]
+	for _, ov := range list {
+		if ov.Source == source {
+			return ov
+		}
+	}
+	t.Fatalf("%s kaynağı yok", source)
+	return domain.PriceSourceOverview{}
+}
+
+func ulasOverview(t *testing.T, svc *service.PriceSourceService, orgID string) domain.PriceSourceOverview {
+	t.Helper()
+	return sourceOverview(t, svc, orgID, domain.PriceSourceUlas)
 }
 
 func TestApplyMarkupMath(t *testing.T) {
@@ -255,8 +282,8 @@ func TestPriceSourceSync(t *testing.T) {
 	q := sqlc.New(pool)
 	orgSvc := service.NewOrganizationService(q)
 	userSvc := service.NewUserService(q)
-	fake := &fakeUlas{}
-	svc := service.NewPriceSourceService(pool, q, fake.fetch)
+	fake := &fakeSource{}
+	svc := service.NewPriceSourceService(pool, q, ulasOnly(fake))
 
 	orgA := mustCreateOrg(t, ctx, orgSvc, pool, "Fiyat Kaynağı Test A", "fiyat-kaynagi-test-a")
 	orgB := mustCreateOrg(t, ctx, orgSvc, pool, "Fiyat Kaynağı Test B", "fiyat-kaynagi-test-b")
@@ -306,7 +333,7 @@ func TestPriceSourceSync(t *testing.T) {
 	orgBBefore := loadTestProducts(t, pool, orgB.ID)
 
 	t.Run("hiç ayar yokken varsayılanlar", func(t *testing.T) {
-		ov := onlyOverview(t, svc, orgA.ID)
+		ov := ulasOverview(t, svc, orgA.ID)
 		if !ov.MarkupPercent.Equal(decimal.NewFromInt(15)) || ov.AutoSync || ov.LastStatus != domain.PriceSyncStatusNever ||
 			ov.LastSyncedAt != nil || len(ov.CategoryMarkups) != 0 {
 			t.Fatalf("varsayılanlar yanlış: %+v", ov)
@@ -329,7 +356,7 @@ func TestPriceSourceSync(t *testing.T) {
 
 	t.Run("ilk senkron: eşleşenleri günceller, yenileri ekler, düşeni silmez", func(t *testing.T) {
 		fake.set(nil, list1...)
-		res, err := svc.SyncUlas(ctx, orgA.ID, actor.ID)
+		res, err := svc.Sync(ctx, orgA.ID, domain.PriceSourceUlas, actor.ID)
 		if err != nil {
 			t.Fatalf("senkron hatası: %v", err)
 		}
@@ -399,7 +426,7 @@ func TestPriceSourceSync(t *testing.T) {
 			t.Fatalf("listeden düşen ürün korunmalı: %+v", e)
 		}
 
-		ov := onlyOverview(t, svc, orgA.ID)
+		ov := ulasOverview(t, svc, orgA.ID)
 		if ov.LastStatus != domain.PriceSyncStatusSuccess || ov.LastSyncedAt == nil || ov.LastError != "" ||
 			ov.ProductCount != 8 || ov.MissingCount != 1 || ov.LastResult.Total != 6 || ov.LastResult.Missing != 1 {
 			t.Fatalf("özet yanlış: %+v", ov)
@@ -424,7 +451,7 @@ func TestPriceSourceSync(t *testing.T) {
 
 	t.Run("aynı listeyle tekrar senkron: hepsi değişmedi", func(t *testing.T) {
 		historyBefore := countHistoryForOrg(t, pool, orgA.ID)
-		res, err := svc.SyncUlas(ctx, orgA.ID, actor.ID)
+		res, err := svc.Sync(ctx, orgA.ID, domain.PriceSourceUlas, actor.ID)
 		if err != nil {
 			t.Fatalf("senkron hatası: %v", err)
 		}
@@ -438,7 +465,7 @@ func TestPriceSourceSync(t *testing.T) {
 		list2 := append([]pricesource.Item(nil), list1...)
 		list2[0] = ulasItem("Sandviç Panel Sac", "m2", "ÇATI MALZEMELERİ", "600")
 		fake.set(nil, list2...)
-		res, err := svc.SyncUlas(ctx, orgA.ID, actor.ID)
+		res, err := svc.Sync(ctx, orgA.ID, domain.PriceSourceUlas, actor.ID)
 		if err != nil {
 			t.Fatalf("senkron hatası: %v", err)
 		}
@@ -506,7 +533,7 @@ func TestPriceSourceSync(t *testing.T) {
 		// Aynı oranlarla senkron, yeniden fiyatlamayla BİREBİR aynı fiyatı
 		// üretmeli (iki yol da domain.ApplyMarkup) -> hepsi değişmedi.
 		hist := countHistoryForOrg(t, pool, orgA.ID)
-		sres, err := svc.SyncUlas(ctx, orgA.ID, actor.ID)
+		sres, err := svc.Sync(ctx, orgA.ID, domain.PriceSourceUlas, actor.ID)
 		if err != nil {
 			t.Fatalf("senkron hatası: %v", err)
 		}
@@ -529,7 +556,7 @@ func TestPriceSourceSync(t *testing.T) {
 
 	t.Run("doğrulama hataları hiçbir şeyi değiştirmez", func(t *testing.T) {
 		snapshot := loadTestProducts(t, pool, orgA.ID)
-		ovBefore := onlyOverview(t, svc, orgA.ID)
+		ovBefore := ulasOverview(t, svc, orgA.ID)
 		bad := []service.PriceSourceSettingsInput{
 			{MarkupPercent: decimal.RequireFromString("-1")},
 			{MarkupPercent: decimal.RequireFromString("1000.01")},
@@ -567,20 +594,20 @@ func TestPriceSourceSync(t *testing.T) {
 		if after := loadTestProducts(t, pool, orgA.ID); !equalProducts(snapshot, after) {
 			t.Fatal("reddedilen güncelleme ürünleri değiştirdi")
 		}
-		if ov := onlyOverview(t, svc, orgA.ID); !ov.MarkupPercent.Equal(ovBefore.MarkupPercent) || ov.AutoSync != ovBefore.AutoSync {
+		if ov := ulasOverview(t, svc, orgA.ID); !ov.MarkupPercent.Equal(ovBefore.MarkupPercent) || ov.AutoSync != ovBefore.AutoSync {
 			t.Fatalf("reddedilen güncelleme ayarları değiştirdi: %+v", ov)
 		}
 	})
 
 	t.Run("indirme hatası: failed kaydedilir, ürünler değişmez", func(t *testing.T) {
 		snapshot := loadTestProducts(t, pool, orgA.ID)
-		ovBefore := onlyOverview(t, svc, orgA.ID)
+		ovBefore := ulasOverview(t, svc, orgA.ID)
 
 		fake.set(&pricesource.HTTPStatusError{StatusCode: 503})
-		if _, err := svc.SyncUlas(ctx, orgA.ID, actor.ID); !errors.Is(err, domain.ErrPriceSourceFetch) {
+		if _, err := svc.Sync(ctx, orgA.ID, domain.PriceSourceUlas, actor.ID); !errors.Is(err, domain.ErrPriceSourceFetch) {
 			t.Fatalf("ErrPriceSourceFetch bekleniyordu, geldi %v", err)
 		}
-		ov := onlyOverview(t, svc, orgA.ID)
+		ov := ulasOverview(t, svc, orgA.ID)
 		if ov.LastStatus != domain.PriceSyncStatusFailed || ov.LastError != "Ulaş sunucusu HTTP 503 döndü" ||
 			ov.LastSyncedAt == nil || !ov.LastSyncedAt.Equal(*ovBefore.LastSyncedAt) ||
 			ov.LastResult.Total != ovBefore.LastResult.Total || ov.LastResult.Unchanged != ovBefore.LastResult.Unchanged {
@@ -591,15 +618,15 @@ func TestPriceSourceSync(t *testing.T) {
 		fake.set(fmt.Errorf("Ulaş fiyat listesi indirilemedi: %w", &url.Error{Op: "Get", URL: pricesource.UlasURL, Err: &net.OpError{
 			Op: "dial", Net: "tcp", Err: &net.DNSError{Err: "no such host", Name: "ulas.com.tr", Server: "10.0.0.2:53"},
 		}}))
-		if _, err := svc.SyncUlas(ctx, orgA.ID, actor.ID); !errors.Is(err, domain.ErrPriceSourceFetch) {
+		if _, err := svc.Sync(ctx, orgA.ID, domain.PriceSourceUlas, actor.ID); !errors.Is(err, domain.ErrPriceSourceFetch) {
 			t.Fatalf("ErrPriceSourceFetch bekleniyordu, geldi %v", err)
 		}
-		if ov := onlyOverview(t, svc, orgA.ID); ov.LastError != "Ulaş sunucusuna bağlanılamadı" || strings.Contains(ov.LastError, "10.0.0.2") {
+		if ov := ulasOverview(t, svc, orgA.ID); ov.LastError != "Ulaş sunucusuna bağlanılamadı" || strings.Contains(ov.LastError, "10.0.0.2") {
 			t.Fatalf("last_error sabit metin olmalı: %q", ov.LastError)
 		}
 		// Boş liste de hatadır ("her şey düştü" DEĞİL).
 		fake.set(nil)
-		if _, err := svc.SyncUlas(ctx, orgA.ID, actor.ID); !errors.Is(err, domain.ErrPriceSourceFetch) {
+		if _, err := svc.Sync(ctx, orgA.ID, domain.PriceSourceUlas, actor.ID); !errors.Is(err, domain.ErrPriceSourceFetch) {
 			t.Fatalf("boş liste ErrPriceSourceFetch dönmeli, geldi %v", err)
 		}
 		if after := loadTestProducts(t, pool, orgA.ID); !equalProducts(snapshot, after) {
@@ -607,10 +634,10 @@ func TestPriceSourceSync(t *testing.T) {
 		}
 		// Sonraki başarılı senkron durumu temizler.
 		fake.set(nil, list1...)
-		if _, err := svc.SyncUlas(ctx, orgA.ID, actor.ID); err != nil {
+		if _, err := svc.Sync(ctx, orgA.ID, domain.PriceSourceUlas, actor.ID); err != nil {
 			t.Fatalf("senkron hatası: %v", err)
 		}
-		if ov := onlyOverview(t, svc, orgA.ID); ov.LastStatus != domain.PriceSyncStatusSuccess || ov.LastError != "" {
+		if ov := ulasOverview(t, svc, orgA.ID); ov.LastStatus != domain.PriceSyncStatusSuccess || ov.LastError != "" {
 			t.Fatalf("başarılı senkron hata durumunu temizlemeli: %+v", ov)
 		}
 	})
@@ -625,21 +652,21 @@ func TestPriceSourceSync(t *testing.T) {
 		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1, hashtext($2))", class, key); err != nil {
 			t.Fatalf("kilit alınamadı: %v", err)
 		}
-		statusBefore := onlyOverview(t, svc, orgA.ID).LastStatus
-		if _, err := svc.SyncUlas(ctx, orgA.ID, actor.ID); !errors.Is(err, domain.ErrPriceSyncBusy) {
+		statusBefore := ulasOverview(t, svc, orgA.ID).LastStatus
+		if _, err := svc.Sync(ctx, orgA.ID, domain.PriceSourceUlas, actor.ID); !errors.Is(err, domain.ErrPriceSyncBusy) {
 			t.Fatalf("ErrPriceSyncBusy bekleniyordu, geldi %v", err)
 		}
-		if ov := onlyOverview(t, svc, orgA.ID); ov.LastStatus != statusBefore {
+		if ov := ulasOverview(t, svc, orgA.ID); ov.LastStatus != statusBefore {
 			t.Fatalf("meşgul durumu 'failed' diye kaydedilmemeli: %s", ov.LastStatus)
 		}
 		// Kilit başka firmayı etkilemez.
 		fake.set(nil, ulasItem("B Ürünü", "adet", "X", "1"))
-		if _, err := svc.SyncUlas(ctx, orgB.ID, ""); err != nil {
+		if _, err := svc.Sync(ctx, orgB.ID, domain.PriceSourceUlas, ""); err != nil {
 			t.Fatalf("başka firmanın senkronu kilitten etkilenmemeli: %v", err)
 		}
 		_ = tx.Rollback(ctx)
 		fake.set(nil, list1...)
-		if _, err := svc.SyncUlas(ctx, orgA.ID, actor.ID); err != nil {
+		if _, err := svc.Sync(ctx, orgA.ID, domain.PriceSourceUlas, actor.ID); err != nil {
 			t.Fatalf("kilit bırakılınca senkron çalışmalı: %v", err)
 		}
 	})
@@ -650,7 +677,7 @@ func TestPriceSourceSync(t *testing.T) {
 		if len(b) != 1 || b[0].ID != orgBProductID || b[0].UnitPrice != "1.00" || b[0].fingerprint() != orgBBefore[0].fingerprint() {
 			t.Fatalf("B'nin ürünü değişti: %+v", b)
 		}
-		ov := onlyOverview(t, svc, orgB.ID)
+		ov := ulasOverview(t, svc, orgB.ID)
 		if !ov.MarkupPercent.Equal(decimal.NewFromInt(15)) || ov.AutoSync || len(ov.CategoryMarkups) != 0 {
 			t.Fatalf("A'nın ayarları B'ye sızdı: %+v", ov)
 		}
@@ -682,8 +709,8 @@ func TestPriceSourceNightly(t *testing.T) {
 	t.Cleanup(func() { pool.Close() })
 	q := sqlc.New(pool)
 	orgSvc := service.NewOrganizationService(q)
-	fake := &fakeUlas{}
-	svc := service.NewPriceSourceService(pool, q, fake.fetch)
+	fake := &fakeSource{}
+	svc := service.NewPriceSourceService(pool, q, ulasOnly(fake))
 
 	active := mustCreateOrg(t, ctx, orgSvc, pool, "Gece Senkron Aktif", "gece-senkron-aktif")
 	trial := mustCreateOrg(t, ctx, orgSvc, pool, "Gece Senkron Deneme", "gece-senkron-deneme")
@@ -708,7 +735,7 @@ func TestPriceSourceNightly(t *testing.T) {
 			t.Fatalf("firma durumu ayarlanamadı: %v", err)
 		}
 	}
-	status := func(orgID string) string { return onlyOverview(t, svc, orgID).LastStatus }
+	status := func(orgID string) string { return ulasOverview(t, svc, orgID).LastStatus }
 
 	t.Run("başka instance kilidi tutuyorsa hiçbir şey yapılmaz", func(t *testing.T) {
 		conn, err := pool.Acquire(ctx)
@@ -769,7 +796,7 @@ func TestPriceSourceNightly(t *testing.T) {
 			t.Fatalf("rapor yanlış: %+v %v", report, err)
 		}
 		for _, o := range []domain.Organization{active, trial} {
-			ov := onlyOverview(t, svc, o.ID)
+			ov := ulasOverview(t, svc, o.ID)
 			if ov.LastStatus != domain.PriceSyncStatusFailed || ov.LastError != "Ulaş sunucusu zamanında yanıt vermedi (zaman aşımı)" {
 				t.Fatalf("%s failed olmalı: %+v", o.Slug, ov)
 			}
@@ -810,8 +837,8 @@ func TestPriceSourceSyncSameNameInSeveralCategories(t *testing.T) {
 	}
 	t.Cleanup(func() { pool.Close() })
 	q := sqlc.New(pool)
-	fake := &fakeUlas{}
-	svc := service.NewPriceSourceService(pool, q, fake.fetch)
+	fake := &fakeSource{}
+	svc := service.NewPriceSourceService(pool, q, ulasOnly(fake))
 	org := mustCreateOrg(t, ctx, service.NewOrganizationService(q), pool, "Fiyat Kaynağı Çok Kategori", "fiyat-kaynagi-cok-kategori")
 	ulas := strPtr(domain.PriceSourceUlas)
 
@@ -864,7 +891,7 @@ func TestPriceSourceSyncSameNameInSeveralCategories(t *testing.T) {
 
 	t.Run("ilk senkron: satırlar açıklamadaki kategoriye göre eşleşir", func(t *testing.T) {
 		fake.set(nil, list...)
-		res, err := svc.SyncUlas(ctx, org.ID, "")
+		res, err := svc.Sync(ctx, org.ID, domain.PriceSourceUlas, "")
 		if err != nil {
 			t.Fatalf("senkron hatası: %v", err)
 		}
@@ -888,7 +915,7 @@ func TestPriceSourceSyncSameNameInSeveralCategories(t *testing.T) {
 		if len(created) != 3 {
 			t.Fatalf("üçüncü kategorideki aynı adlı ürün ayrı satır olarak eklenmeli: %+v", created)
 		}
-		ov := onlyOverview(t, svc, org.ID)
+		ov := ulasOverview(t, svc, org.ID)
 		gotCats := map[string]int{}
 		for _, c := range ov.Categories {
 			gotCats[c.Category] = c.ProductCount
@@ -901,7 +928,7 @@ func TestPriceSourceSyncSameNameInSeveralCategories(t *testing.T) {
 	})
 
 	t.Run("tekrar senkron: hepsi değişmedi (artık products.category ile eşleşir)", func(t *testing.T) {
-		res, err := svc.SyncUlas(ctx, org.ID, "")
+		res, err := svc.Sync(ctx, org.ID, domain.PriceSourceUlas, "")
 		if err != nil {
 			t.Fatalf("senkron hatası: %v", err)
 		}
@@ -912,7 +939,7 @@ func TestPriceSourceSyncSameNameInSeveralCategories(t *testing.T) {
 		renamed := append([]pricesource.Item(nil), list...)
 		renamed[4] = ulasItem("DK 110", "m2", "FUGALI DIŞ CEPHE KAPLAMA", "350")
 		fake.set(nil, renamed...)
-		res, err := svc.SyncUlas(ctx, org.ID, "")
+		res, err := svc.Sync(ctx, org.ID, domain.PriceSourceUlas, "")
 		if err != nil {
 			t.Fatalf("senkron hatası: %v", err)
 		}

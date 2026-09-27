@@ -106,8 +106,11 @@ func (s *ProductService) Create(ctx context.Context, organizationID, name, unit 
 }
 
 // Update, ürünü günceller. Fiyat değişirse product_price_history'e otomatik
-// bir kayıt düşer -- BYZ'deki embedded (son 50 ile sınırlı) listenin
-// yerine, sınırsız ve ayrı sorgulanabilir bir tabloda.
+// bir kayıt (reason 'manual') düşer -- BYZ'deki embedded (son 50 ile
+// sınırlı) listenin yerine, sınırsız ve ayrı sorgulanabilir bir tabloda.
+// Güncelleme ve geçmiş kaydı TEK ifadedir (UpdateProductWithPriceHistory):
+// eski fiyat satır kilitliyken okunur, eşzamanlı bir senkronla yarışmaz;
+// geçmiş yazılamazsa güncelleme de olmaz.
 func (s *ProductService) Update(ctx context.Context, id, organizationID, name, unit string, unitPrice float64, description, category string) (*domain.Product, error) {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
@@ -117,20 +120,13 @@ func (s *ProductService) Update(ctx context.Context, id, organizationID, name, u
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	existing, err := s.q.GetProductByID(ctx, sqlc.GetProductByIDParams{ID: uid, OrganizationID: orgID})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
-		return nil, err
-	}
 
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, errors.New("ürün adı zorunludur")
 	}
 
-	row, err := s.q.UpdateProduct(ctx, sqlc.UpdateProductParams{
+	row, err := s.q.UpdateProductWithPriceHistory(ctx, sqlc.UpdateProductWithPriceHistoryParams{
 		ID:             uid,
 		OrganizationID: orgID,
 		Name:           name,
@@ -147,16 +143,7 @@ func (s *ProductService) Update(ctx context.Context, id, organizationID, name, u
 		return nil, err
 	}
 
-	oldPrice := repository.NumericToFloat64(existing.UnitPrice)
-	if oldPrice != unitPrice {
-		_ = s.q.CreatePriceHistory(ctx, sqlc.CreatePriceHistoryParams{
-			ProductID: uid,
-			OldPrice:  existing.UnitPrice,
-			NewPrice:  repository.Float64ToNumeric(unitPrice),
-		})
-	}
-
-	p := repository.ToDomainProduct(row)
+	p := repository.ToDomainProduct(sqlc.Product(row))
 	return &p, nil
 }
 
@@ -204,12 +191,16 @@ func (s *ProductService) PriceHistory(ctx context.Context, id, organizationID st
 	out := make([]domain.PriceHistoryEntry, len(rows))
 	for i, r := range rows {
 		out[i] = domain.PriceHistoryEntry{
-			ID:        r.ID.String(),
-			ProductID: r.ProductID.String(),
-			OldPrice:  repository.NumericToFloat64(r.OldPrice),
-			NewPrice:  repository.NumericToFloat64(r.NewPrice),
-			Note:      r.Note,
-			ChangedAt: r.ChangedAt.Time,
+			ID:             r.ID.String(),
+			ProductID:      r.ProductID.String(),
+			OldPrice:       repository.NumericToFloat64(r.OldPrice),
+			NewPrice:       repository.NumericToFloat64(r.NewPrice),
+			Note:           r.Note,
+			ChangedAt:      r.ChangedAt.Time,
+			Reason:         r.Reason,
+			Source:         derefString(r.Source),
+			OldSourcePrice: repository.NumericToFloat64Ptr(r.OldSourcePrice),
+			NewSourcePrice: repository.NumericToFloat64Ptr(r.NewSourcePrice),
 		}
 	}
 	return out, nil

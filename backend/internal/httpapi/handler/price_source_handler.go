@@ -14,8 +14,9 @@ import (
 	"github.com/Savanooo/ARVEND/backend/internal/service"
 )
 
-// PriceSourceHandler, /products/price-sources uçları: tedarikçi fiyat
-// listesi (Ulaş) ayarları, elle senkron.
+// PriceSourceHandler, /products/price-sources uçları (tedarikçi fiyat
+// listesi -- Ulaş, Demir Profil -- ayarları, elle senkron) ve
+// /products/price-changes uçları (zam geçmişi, price_change_handler.go).
 type PriceSourceHandler struct {
 	svc *service.PriceSourceService
 }
@@ -52,9 +53,27 @@ type priceSyncResultJSON struct {
 	Missing   int `json:"missing"`
 }
 
+// priceSyncChangesJSON: son başarılı senkronda satış fiyatı artan/azalan
+// ürünler ("Son güncellemede N ürüne zam geldi"); avg_increase_percent
+// artış yoksa null.
+type priceSyncChangesJSON struct {
+	Increased          int      `json:"increased"`
+	Decreased          int      `json:"decreased"`
+	AvgIncreasePercent *float64 `json:"avg_increase_percent"`
+}
+
 type priceSourceResponse struct {
 	Source string `json:"source"`
 	Name   string `json:"name"`
+	// SiteURL/VATNote: kaynağın sitesi ve fiyat esası (ör. "KDV hariç,
+	// toptan liste fiyatı; kesim ve nakliye hariç").
+	SiteURL string `json:"site_url"`
+	VATNote string `json:"vat_note"`
+	// ListLabel: son başarılı senkronun liste dönemi ("Eylül 2026"; Ulaş'ta
+	// ""). Attribution: kaynak gösterimi zorunluysa gösterilecek metin
+	// ("Kaynak: demirprofil.com.tr — Eylül 2026 listesi"), değilse "".
+	ListLabel   string `json:"list_label"`
+	Attribution string `json:"attribution"`
 	// MarkupPercent/CategoryMarkups: products.manage yoksa null.
 	MarkupPercent   *float64                        `json:"markup_percent"`
 	CategoryMarkups []priceSourceCategoryMarkupJSON `json:"category_markups"`
@@ -72,6 +91,8 @@ type priceSourceResponse struct {
 	// kaynak ürünleri.
 	MissingCount int     `json:"missing_count"`
 	UpdatedAt    *string `json:"updated_at"`
+	// LastChanges: hiç başarılı senkron yoksa null.
+	LastChanges *priceSyncChangesJSON `json:"last_changes"`
 }
 
 func formatTimePtr(t *time.Time) *string {
@@ -86,10 +107,23 @@ func toSyncResultJSON(r domain.PriceSyncResult) priceSyncResultJSON {
 	return priceSyncResultJSON{Total: r.Total, Created: r.Created, Updated: r.Updated, Unchanged: r.Unchanged, Missing: r.Missing}
 }
 
+func decimalPtrToFloat(d *decimal.Decimal) *float64 {
+	if d == nil {
+		return nil
+	}
+	f := d.InexactFloat64()
+	return &f
+}
+
 func toPriceSourceResponse(ov domain.PriceSourceOverview, showMarkups bool) priceSourceResponse {
+	info, _ := domain.LookupPriceSource(ov.Source)
 	resp := priceSourceResponse{
 		Source:       ov.Source,
 		Name:         domain.PriceSourceName(ov.Source),
+		SiteURL:      info.SiteURL,
+		VATNote:      info.VATNote,
+		ListLabel:    ov.ListLabel,
+		Attribution:  info.Attribution(ov.ListLabel),
 		AutoSync:     ov.AutoSync,
 		LastSyncedAt: formatTimePtr(ov.LastSyncedAt),
 		LastStatus:   ov.LastStatus,
@@ -102,6 +136,11 @@ func toPriceSourceResponse(ov domain.PriceSourceOverview, showMarkups bool) pric
 	}
 	for i, c := range ov.Categories {
 		resp.Categories[i] = priceSourceCategoryJSON{Category: c.Category, ProductCount: c.ProductCount}
+	}
+	if lc := ov.LastChanges; lc != nil {
+		resp.LastChanges = &priceSyncChangesJSON{
+			Increased: lc.Increased, Decreased: lc.Decreased, AvgIncreasePercent: decimalPtrToFloat(lc.AvgIncreasePercent),
+		}
 	}
 	if showMarkups {
 		m := ov.MarkupPercent.InexactFloat64()
@@ -196,6 +235,8 @@ type priceSyncResponse struct {
 	Source string `json:"source"`
 	priceSyncResultJSON
 	SyncedAt string `json:"synced_at"`
+	// ListLabel: indirilen listenin dönemi ("Eylül 2026"; Ulaş'ta "").
+	ListLabel string `json:"list_label"`
 }
 
 func (h *PriceSourceHandler) Sync(w http.ResponseWriter, r *http.Request) {
@@ -206,7 +247,7 @@ func (h *PriceSourceHandler) Sync(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	res, err := h.svc.SyncUlas(r.Context(), orgID, userID)
+	res, err := h.svc.Sync(r.Context(), orgID, source, userID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -215,6 +256,7 @@ func (h *PriceSourceHandler) Sync(w http.ResponseWriter, r *http.Request) {
 		Source:              source,
 		priceSyncResultJSON: toSyncResultJSON(*res),
 		SyncedAt:            res.SyncedAt.Format(time.RFC3339),
+		ListLabel:           res.ListLabel,
 	})
 }
 
@@ -226,9 +268,14 @@ func (h *PriceSourceHandler) writeError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusNotFound, domain.ErrNotFound.Error())
 	case errors.Is(err, domain.ErrPriceSyncBusy):
 		httpjson.Error(w, http.StatusConflict, domain.ErrPriceSyncBusy.Error())
+	case errors.Is(err, domain.ErrPriceListTooShort):
+		// Sayılar last_error'da; yanıta sabit metin.
+		httpjson.Error(w, http.StatusBadGateway, domain.ErrPriceListTooShort.Error())
 	case errors.Is(err, domain.ErrPriceSourceFetch):
 		// Ayrıntı (HTTP kodu, zaman aşımı...) last_error'da; yanıta sabit metin.
 		httpjson.Error(w, http.StatusBadGateway, domain.ErrPriceSourceFetch.Error())
+	case service.IsPriceChangeValidationError(err):
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	case isInternalError(err):
 		writeInternalError(w, err)
 	default:

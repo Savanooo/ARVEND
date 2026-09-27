@@ -1,6 +1,7 @@
 "use client";
 
-import { RefreshCw, Settings2 } from "lucide-react";
+import { ExternalLink, RefreshCw, Settings2, TrendingUp } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
@@ -12,6 +13,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatTL } from "@/lib/format";
+import { sourceHistoryHref } from "@/lib/price-changes";
 import {
   applyMarkup,
   asSentence,
@@ -21,12 +23,15 @@ import {
   formatMarkupInput,
   formatPercent,
   formatSyncTime,
+  lastChangesMessage,
   parseMarkupInput,
   PRICE_SOURCES_PATH,
   priceSyncErrorMessage,
   settingsSavedMessage,
-  summarizeSyncCounts,
+  siteHost,
+  sourceLabels,
   syncErrorUpdatesStatus,
+  syncSuccessMessage,
   type CategoryMarkupRow,
 } from "@/lib/price-sources";
 import type { PriceSource, PriceSourceUpdateResponse, PriceSyncResponse } from "@/lib/types";
@@ -44,18 +49,23 @@ function formFrom(ps: PriceSource): SettingsForm {
 }
 
 /**
- * Ürünler listesinin üstündeki "Fiyat Kaynağı: Ulaş" kartı. Durum bilgisi
- * products.read olan herkese görünür; "Ulaş'tan Güncelle" ve kâr oranı
- * ayarları yalnızca products.manage ile (backend PUT/POST uçlarını da bu
- * izinle korur, oranları da yalnızca bu izne döndürür).
+ * Ürünler listesinin üstündeki "Fiyat Kaynağı: Ulaş" / "Fiyat Kaynağı: Demir
+ * Profil (Omega Çelik)" kartı -- GET /products/price-sources'un her kaynağı
+ * için bir tane. Durum bilgisi products.read olan herkese görünür;
+ * "…'tan Güncelle" ve kâr oranı ayarları yalnızca products.manage ile
+ * (backend PUT/POST uçlarını da bu izinle korur, oranları da yalnızca bu
+ * izne döndürür).
  */
 export function PriceSourceCard({
   priceSource,
   canManage,
+  today,
 }: {
   // null: GET /products/price-sources başarısız oldu (ürün listesi yine açılır).
   priceSource: PriceSource | null;
   canManage: boolean;
+  // İstanbul'un bugünü (YYYY-AA-GG), sunucudan: Zam Geçmişi bağlantısının dönemi.
+  today: string;
 }) {
   const router = useRouter();
   const [syncing, setSyncing] = useState(false);
@@ -77,23 +87,26 @@ export function PriceSourceCard({
   }
 
   const ps = priceSource;
-  const name = ps.name;
+  const labels = sourceLabels(ps.source, ps.name);
+  // Cümle içinde kısa ad ("Demir Profil"); başlıkta API'nin tam adı.
+  const name = labels.short;
   // Backend oranı products.manage olmayana zaten null döndürür.
   const markupPercent = canManage ? ps.markup_percent : null;
+  const changesText = lastChangesMessage(ps.last_changes);
 
   async function sync() {
     setSyncing(true);
     setNotice(null);
     try {
       const res = await apiClient<PriceSyncResponse>(`${PRICE_SOURCES_PATH}/${ps.source}/sync`, { method: "POST" });
-      setNotice({ tone: "success", text: `${name} listesi güncellendi: ${summarizeSyncCounts(res)}.` });
+      setNotice({ tone: "success", text: syncSuccessMessage(res, labels) });
       router.refresh();
     } catch (err) {
       const status = err instanceof ApiError ? err.status : null;
-      setNotice({ tone: "danger", text: priceSyncErrorMessage(status, err instanceof ApiError ? err.message : "", name) });
-      // Backend başarısız indirmeyi (502) ve listeyi kataloğa uygulama
-      // hatasını (500/400) last_status/last_error'a yazar -- kartın durum
-      // alanı da güncellensin (409 ve ağ hatası hariç).
+      setNotice({ tone: "danger", text: priceSyncErrorMessage(status, err instanceof ApiError ? err.message : "", labels) });
+      // Backend başarısız indirmeyi ve kısa liste korumasını (502) ve
+      // listeyi kataloğa uygulama hatasını (500/400) last_status/last_error'a
+      // yazar -- kartın durum alanı da güncellensin (409 ve ağ hatası hariç).
       if (syncErrorUpdatesStatus(status)) router.refresh();
     } finally {
       setSyncing(false);
@@ -170,11 +183,37 @@ export function PriceSourceCard({
 
   return (
     <Card>
-      <CardHeader className="flex items-center justify-between gap-3">
-        <span>Fiyat Kaynağı: {name}</span>
+      <CardHeader className="flex flex-wrap items-center justify-between gap-3">
+        <span>Fiyat Kaynağı: {ps.name}</span>
         {statusBadge}
       </CardHeader>
       <CardBody className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1 text-xs text-text-muted">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {/* Adres backend'in sabit kayıt defterinden gelir; yine de yalnızca https bağlantı olur. */}
+            {ps.site_url.startsWith("https://") && (
+              <a
+                href={ps.site_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-gold hover:underline"
+              >
+                {siteHost(ps.site_url)}
+                <ExternalLink size={12} strokeWidth={2} aria-hidden />
+              </a>
+            )}
+            {ps.vat_note && <span>Fiyat esası: {ps.vat_note}</span>}
+            {ps.list_label && (
+              <span>
+                Liste dönemi: <span className="font-medium text-text">{ps.list_label}</span>
+              </span>
+            )}
+          </div>
+          {/* Kaynağın kullanım koşulu kaynak ve liste ayının belirtilmesini
+              istiyor (Demir Profil); backend zorunlu değilse "" döndürür. */}
+          {ps.attribution && <p>{ps.attribution}</p>}
+        </div>
+
         <dl className="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
           <div className="flex flex-wrap gap-x-2">
             <dt className="text-text-muted">Son başarılı güncelleme:</dt>
@@ -230,11 +269,32 @@ export function PriceSourceCard({
           </div>
         )}
 
+        {changesText && (
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-md border border-border px-3 py-2 text-sm">
+            <span className="flex items-center gap-2">
+              <TrendingUp
+                size={16}
+                strokeWidth={2}
+                aria-hidden
+                className={ps.last_changes && ps.last_changes.increased > 0 ? "text-danger" : "text-text-muted"}
+              />
+              {changesText}
+            </span>
+            {/* Satırın anlattığı senkronu kapsar (eski olsa da); fiyat değiştirdiyse tablo o senkronun satırlarını gösterir. */}
+            <Link
+              href={sourceHistoryHref(ps, today)}
+              className="text-xs font-semibold uppercase tracking-widest text-gold hover:underline"
+            >
+              Zam Geçmişi
+            </Link>
+          </div>
+        )}
+
         <ul className="list-disc space-y-1 pl-5 text-xs text-text-muted">
           {canManage && (
             <li>
               Satış fiyatı = {name} fiyatı × (1 + kâr oranı). Kâr oranı değişince {name} fiyatı bilinen (en az bir
-              kez {name}&apos;tan güncellenmiş) ürünlerin fiyatı hemen yeniden hesaplanır.
+              kez {labels.ablative} güncellenmiş) ürünlerin fiyatı hemen yeniden hesaplanır.
               {!ps.last_synced_at && (
                 <>
                   {" "}
@@ -244,7 +304,7 @@ export function PriceSourceCard({
               )}
             </li>
           )}
-          <li>Elle eklenen ürünlere dokunulmaz.</li>
+          <li>Elle eklenen ürünlere ve diğer tedarikçilerden gelen ürünlere dokunulmaz.</li>
           <li>
             {name} listesinden düşen ürünler silinmez; &quot;{name} listesinde yok&quot; olarak işaretlenir.
           </li>
@@ -265,7 +325,7 @@ export function PriceSourceCard({
           <div className="flex flex-wrap gap-3">
             <Button onClick={sync} loading={syncing} disabled={saving}>
               {!syncing && <RefreshCw size={14} strokeWidth={2} />}
-              {syncing ? "Güncelleniyor…" : `${name}'tan Güncelle`}
+              {syncing ? "Güncelleniyor…" : `${labels.ablative} Güncelle`}
             </Button>
             {/* Kayıt sürerken yeniden açılmasın: form eski değerlerle kurulur, geç gelen başarı da onu kapatırdı. */}
             <Button variant="secondary" onClick={openSettings} disabled={syncing || saving}>
@@ -290,6 +350,9 @@ export function PriceSourceCard({
             <div className="grid gap-4 sm:grid-cols-2">
               <Input
                 label="Varsayılan kâr oranı (%)"
+                // Sayfada her kaynağın kartı (ve açılmış ayar penceresi) var: id
+                // name'den türemesin, etiket kendi kartının alanına bağlansın.
+                id={`${ps.source}_markup_percent`}
                 name="markup_percent"
                 inputMode="decimal"
                 autoComplete="off"
@@ -316,7 +379,7 @@ export function PriceSourceCard({
             {!ps.last_synced_at && (
               <p className="rounded-md bg-info-soft px-3 py-2 text-xs text-info">
                 Henüz başarılı bir {name} güncellemesi yok, bu yüzden hiçbir ürünün {name} fiyatı bilinmiyor.
-                Kaydettiğiniz oranlar şimdi hiçbir fiyatı değiştirmez; ilk &quot;{name}&apos;tan Güncelle&quot; ile
+                Kaydettiğiniz oranlar şimdi hiçbir fiyatı değiştirmez; ilk &quot;{labels.ablative} Güncelle&quot; ile
                 uygulanır.
               </p>
             )}

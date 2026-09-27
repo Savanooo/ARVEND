@@ -19,7 +19,7 @@ func SetNightlyOrgFilterForTest(s *PriceSourceService, organizationIDs ...string
 }
 
 // NewSharedFetcherForTest, paylaşımlı/önbellekli fetcher'ı (bkz.
-// UlasHTTPFetcher) sahte bir saatle kurar.
+// HTTPPriceFetchers) sahte bir saatle kurar.
 func NewSharedFetcherForTest(fetch PriceFetcher, okTTL, failTTL time.Duration, now func() time.Time) PriceFetcher {
 	return newSharedFetcher(fetch, okTTL, failTTL, now)
 }

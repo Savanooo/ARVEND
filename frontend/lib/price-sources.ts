@@ -1,10 +1,93 @@
-// Tedarikçi fiyat kaynağı (Ulaş) ekranının saf yardımcıları -- next/* ya da
-// React içermez; hem Ürünler sayfaları hem node testleri
-// (price-sources.test.mts) içe aktarabilir.
-import type { PriceSource, PriceSourceCategoryMarkup, PriceSyncCounts, Product } from "./types";
+// Tedarikçi fiyat kaynakları (Ulaş, Demir Profil) ekranının saf
+// yardımcıları -- next/* ya da React içermez; hem Ürünler sayfaları hem
+// node testleri (price-sources.test.mts) içe aktarabilir.
+import type {
+  PriceSource,
+  PriceSourceCategoryMarkup,
+  PriceSyncChanges,
+  PriceSyncCounts,
+  PriceSyncResponse,
+  Product,
+} from "./types";
 
 export const ULAS_SOURCE = "ulas";
+export const DEMIRPROFIL_SOURCE = "demirprofil";
 export const PRICE_SOURCES_PATH = "/api/v1/products/price-sources";
+
+/**
+ * Bir kaynağın metinlerde kullanılan adları. Türkçe ek ünlü uyumuna ve son
+ * sese bağlıdır ("Ulaş'tan", "Demir Profil'den"), bu yüzden bilinen
+ * kaynaklar için elle yazılır.
+ */
+export interface SourceLabels {
+  // Rozet ve cümle içi kısa ad ("Demir Profil"; tam ad API'nin name'i).
+  short: string;
+  // Ayrılma hâli: "Ulaş'tan Güncelle".
+  ablative: string;
+  // Yönelme hâli: "Ulaş'a ulaşılamadı".
+  dative: string;
+}
+
+const KNOWN_SOURCE_LABELS: Record<string, SourceLabels> = {
+  [ULAS_SOURCE]: { short: "Ulaş", ablative: "Ulaş'tan", dative: "Ulaş'a" },
+  [DEMIRPROFIL_SOURCE]: { short: "Demir Profil", ablative: "Demir Profil'den", dative: "Demir Profil'e" },
+};
+
+// GET /price-sources başarısız olursa da seçeneklerde görünen kaynaklar
+// (backend kayıt defterindeki sırayla).
+export const KNOWN_SOURCES: readonly string[] = [ULAS_SOURCE, DEMIRPROFIL_SOURCE];
+
+/**
+ * Kaynağın adları. Backend'e sonradan eklenen, burada tanımı olmayan bir
+ * kaynakta ek uyumu tahmin edilmez: "X kaynağından" gibi her adla doğru
+ * kalan bir kalıp kullanılır.
+ */
+export function sourceLabels(source: string, apiName?: string): SourceLabels {
+  const known = KNOWN_SOURCE_LABELS[source];
+  if (known) return known;
+  const name = apiName || source || "Tedarikçi";
+  return { short: name, ablative: `${name} kaynağından`, dative: `${name} kaynağına` };
+}
+
+/** "https://www.demirprofil.com.tr" -> "demirprofil.com.tr" (bağlantı metni). */
+export function siteHost(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+// GET /price-sources alınamadığında Demir Profil'in kaynak gösterimi.
+export const DEMIRPROFIL_FALLBACK_ATTRIBUTION = "Kaynak: demirprofil.com.tr";
+
+/**
+ * Kaynağın zorunlu kaynak gösterimi (Demir Profil'in kullanım koşulu kaynak
+ * ve liste ayının belirtilmesini istiyor); zorunlu değilse "". Kaynak
+ * bilgisi alınamadıysa (ps yok) Demir Profil fiyatları yine kaynaksız
+ * kalmasın: en azından site adı yazılır.
+ */
+export function sourceAttribution(source: string, ps: Pick<PriceSource, "attribution"> | null | undefined): string {
+  if (ps) return ps.attribution;
+  return source === DEMIRPROFIL_SOURCE ? DEMIRPROFIL_FALLBACK_ATTRIBUTION : "";
+}
+
+/**
+ * Bir sayfada fiyatı gösterilen kaynakların kaynak gösterimleri (tekrarsız,
+ * boşlar atılır). sources: GET /price-sources yanıtı; alınamadıysa null.
+ */
+export function attributionsFor(
+  codes: Iterable<string | null | undefined>,
+  sources: readonly Pick<PriceSource, "source" | "attribution">[] | null
+): string[] {
+  const out = new Set<string>();
+  for (const code of codes) {
+    if (!code) continue;
+    const text = sourceAttribution(code, sources?.find((s) => s.source === code));
+    if (text) out.add(text);
+  }
+  return [...out];
+}
 
 // backend/internal/domain/price_source.go MaxPriceSourceMarkup ile aynı.
 export const MAX_MARKUP_PERCENT = 1000;
@@ -103,13 +186,42 @@ export function summarizeSyncCounts(c: PriceSyncCounts): string {
   ].join(" · ");
 }
 
+/** "Demir Profil listesi (Eylül 2026) güncellendi: toplam … ." */
+export function syncSuccessMessage(res: PriceSyncResponse, labels: SourceLabels): string {
+  const period = res.list_label ? ` (${res.list_label})` : "";
+  return `${labels.short} listesi${period} güncellendi: ${summarizeSyncCounts(res)}.`;
+}
+
+// backend domain.ErrPriceListTooShort: liste indi ama son başarılı
+// senkronun yarısından az ürün içeriyor -- yanıt da 502'dir, ama kaynağa
+// ulaşılamamış değildir. Sayılar kartın last_error'ında görünür.
+export const PRICE_LIST_TOO_SHORT_ERROR =
+  "tedarikçi fiyat listesi beklenenden çok kısa geldi; fiyatlar değiştirilmedi";
+
 /** Senkron (POST .../sync) hatasının kullanıcıya gösterilecek metni. */
-export function priceSyncErrorMessage(status: number | null, message: string, sourceName: string): string {
+export function priceSyncErrorMessage(status: number | null, message: string, labels: SourceLabels): string {
   if (status === 409) return "Güncelleme zaten sürüyor. Biraz sonra tekrar deneyin.";
+  if (status === 502 && message === PRICE_LIST_TOO_SHORT_ERROR) {
+    return `${labels.short} listesi beklenenden çok kısa geldi (yarım ya da bozuk liste olabilir). Fiyatlar değiştirilmedi; lütfen daha sonra tekrar deneyin.`;
+  }
   if (status === 502) {
-    return `${sourceName}'a ulaşılamadı; fiyat listesi alınamadı. Ürünlerde hiçbir değişiklik yapılmadı, lütfen daha sonra tekrar deneyin.`;
+    return `${labels.dative} ulaşılamadı; fiyat listesi alınamadı. Ürünlerde hiçbir değişiklik yapılmadı, lütfen daha sonra tekrar deneyin.`;
   }
   return message || "Bağlantı hatası";
+}
+
+/**
+ * Kartın "son güncellemede kaç ürüne zam geldi" satırı; hiç başarılı
+ * senkron yoksa null. Sayılar satış fiyatına göredir (backend
+ * last_changes, o senkronun fiyat geçmişi satırlarından).
+ */
+export function lastChangesMessage(lc: PriceSyncChanges | null): string | null {
+  if (!lc) return null;
+  if (lc.increased === 0 && lc.decreased === 0) return "Son güncellemede fiyatı değişen ürün olmadı.";
+  if (lc.increased === 0) return `Son güncellemede zam gelen ürün olmadı; ${lc.decreased} ürünün fiyatı düştü.`;
+  const avg = lc.avg_increase_percent === null ? "" : ` (ort. ${formatPercent(lc.avg_increase_percent)})`;
+  const down = lc.decreased > 0 ? `; ${lc.decreased} ürünün fiyatı düştü` : "";
+  return `Son güncellemede ${lc.increased} ürüne zam geldi${avg}${down}.`;
 }
 
 /**

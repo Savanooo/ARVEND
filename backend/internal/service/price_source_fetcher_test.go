@@ -1,9 +1,9 @@
 package service_test
 
-// Paylaşımlı Ulaş fetcher'ı (UlasHTTPFetcher'ın sarmalayıcısı): eşzamanlı
-// senkronlar TEK indirmeyi paylaşır, sonuç kısa süre yeniden kullanılır --
-// elle senkron butonu/betik döngüsü ulas.com.tr'ye istek yağdıramaz.
-// Ağa çıkılmaz: alttaki fetcher sahtedir.
+// Paylaşımlı fetcher (HTTPPriceFetchers'ın her kaynak için sarmalayıcısı):
+// eşzamanlı senkronlar TEK indirmeyi paylaşır, sonuç kısa süre yeniden
+// kullanılır -- elle senkron butonu/betik döngüsü tedarikçi sitesine istek
+// yağdıramaz. Ağa çıkılmaz: alttaki fetcher sahtedir.
 
 import (
 	"context"
@@ -54,19 +54,19 @@ func TestSharedPriceFetcher(t *testing.T) {
 		var calls atomic.Int32
 		var fail atomic.Bool
 		release := make(chan struct{})
-		fetch := service.NewSharedFetcherForTest(func(context.Context) ([]pricesource.Item, error) {
+		fetch := service.NewSharedFetcherForTest(func(context.Context) (pricesource.List, error) {
 			calls.Add(1)
 			<-release
 			if fail.Load() {
-				return nil, &pricesource.HTTPStatusError{StatusCode: 503}
+				return pricesource.List{}, &pricesource.HTTPStatusError{StatusCode: 503}
 			}
-			return []pricesource.Item{ulasItem("A", "adet", "K", "10")}, nil
+			return pricesource.List{Items: []pricesource.Item{ulasItem("A", "adet", "K", "10")}, Label: "Eylül 2026", Warnings: []string{"uyarı"}}, nil
 		}, okTTL, failTTL, clock.Now)
 
 		const n = 50
 		var wg sync.WaitGroup
 		errs := make([]error, n)
-		got := make([][]pricesource.Item, n)
+		got := make([]pricesource.List, n)
 		for i := range n {
 			wg.Add(1)
 			go func() {
@@ -81,13 +81,14 @@ func TestSharedPriceFetcher(t *testing.T) {
 			t.Fatalf("%d eşzamanlı çağrı %d indirme yaptı, beklenen 1", n, c)
 		}
 		for i := range n {
-			if errs[i] != nil || len(got[i]) != 1 || got[i][0].Name != "A" {
+			if errs[i] != nil || len(got[i].Items) != 1 || got[i].Items[0].Name != "A" || got[i].Label != "Eylül 2026" {
 				t.Fatalf("#%d: %+v %v", i, got[i], errs[i])
 			}
 		}
-		// Her çağıran kendi kopyasını alır.
-		got[0][0].Name = "değiştirildi"
-		if again, _ := fetch(ctx); again[0].Name != "A" {
+		// Her çağıran kendi kopyasını alır (ürünler ve uyarılar).
+		got[0].Items[0].Name = "değiştirildi"
+		got[0].Warnings[0] = "değiştirildi"
+		if again, _ := fetch(ctx); again.Items[0].Name != "A" || again.Warnings[0] != "uyarı" {
 			t.Fatalf("önbellekteki liste çağıranlar arasında paylaşılmamalı: %+v", again)
 		}
 
@@ -114,7 +115,7 @@ func TestSharedPriceFetcher(t *testing.T) {
 		}
 		fail.Store(false)
 		clock.Advance(failTTL)
-		if items, err := fetch(ctx); err != nil || len(items) != 1 || calls.Load() != 4 {
+		if list, err := fetch(ctx); err != nil || len(list.Items) != 1 || calls.Load() != 4 {
 			t.Fatalf("failTTL dolunca yeniden denenmeli: %v (indirme %d)", err, calls.Load())
 		}
 	})
@@ -123,13 +124,13 @@ func TestSharedPriceFetcher(t *testing.T) {
 		clock := &fakeClock{now: time.Now()}
 		var calls atomic.Int32
 		release := make(chan struct{})
-		fetch := service.NewSharedFetcherForTest(func(ctx context.Context) ([]pricesource.Item, error) {
+		fetch := service.NewSharedFetcherForTest(func(ctx context.Context) (pricesource.List, error) {
 			calls.Add(1)
 			<-release
 			if err := ctx.Err(); err != nil {
-				return nil, err // ilk çağıranın iptali indirmeyi iptal ETMEMELİ
+				return pricesource.List{}, err // ilk çağıranın iptali indirmeyi iptal ETMEMELİ
 			}
-			return []pricesource.Item{ulasItem("B", "adet", "K", "5")}, nil
+			return pricesource.List{Items: []pricesource.Item{ulasItem("B", "adet", "K", "5")}}, nil
 		}, okTTL, failTTL, clock.Now)
 
 		cctx, cancel := context.WithCancel(ctx)
@@ -145,8 +146,8 @@ func TestSharedPriceFetcher(t *testing.T) {
 		}
 		close(release)
 		waitFor(t, func() bool {
-			items, err := fetch(ctx)
-			return err == nil && len(items) == 1 && items[0].Name == "B"
+			list, err := fetch(ctx)
+			return err == nil && len(list.Items) == 1 && list.Items[0].Name == "B"
 		})
 		if c := calls.Load(); c != 1 {
 			t.Fatalf("iptal sonrası sonuç önbellekten gelmeli (indirme %d, beklenen 1)", c)
@@ -155,7 +156,7 @@ func TestSharedPriceFetcher(t *testing.T) {
 
 	t.Run("indirmedeki panik süreci düşürmez, hata olarak döner", func(t *testing.T) {
 		clock := &fakeClock{now: time.Now()}
-		fetch := service.NewSharedFetcherForTest(func(context.Context) ([]pricesource.Item, error) {
+		fetch := service.NewSharedFetcherForTest(func(context.Context) (pricesource.List, error) {
 			panic("beklenmeyen")
 		}, okTTL, failTTL, clock.Now)
 		if _, err := fetch(ctx); err == nil {

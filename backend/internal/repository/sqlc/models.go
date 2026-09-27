@@ -297,6 +297,7 @@ type OrganizationPriceSource struct {
 	UpdatedBy      pgtype.UUID        `json:"updated_by"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	LastListLabel  string             `json:"last_list_label"`
 }
 
 type OrganizationPriceSourceCategoryMarkup struct {
@@ -381,12 +382,16 @@ type Product struct {
 }
 
 type ProductPriceHistory struct {
-	ID        pgtype.UUID        `json:"id"`
-	ProductID pgtype.UUID        `json:"product_id"`
-	OldPrice  pgtype.Numeric     `json:"old_price"`
-	NewPrice  pgtype.Numeric     `json:"new_price"`
-	Note      string             `json:"note"`
-	ChangedAt pgtype.Timestamptz `json:"changed_at"`
+	ID             pgtype.UUID        `json:"id"`
+	ProductID      pgtype.UUID        `json:"product_id"`
+	OldPrice       pgtype.Numeric     `json:"old_price"`
+	NewPrice       pgtype.Numeric     `json:"new_price"`
+	Note           string             `json:"note"`
+	ChangedAt      pgtype.Timestamptz `json:"changed_at"`
+	Reason         string             `json:"reason"`
+	Source         *string            `json:"source"`
+	OldSourcePrice pgtype.Numeric     `json:"old_source_price"`
+	NewSourcePrice pgtype.Numeric     `json:"new_source_price"`
 }
 
 type Project struct {

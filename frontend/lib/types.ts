@@ -59,7 +59,7 @@ export interface Product {
   unit_price: number;
   description: string;
   category: string;
-  // Tedarikçi fiyat kaynağı ("ulas"); elle eklenen üründe "".
+  // Tedarikçi fiyat kaynağı ("ulas", "demirprofil"); elle eklenen üründe "".
   source: string;
   // Ürünün kaynak listede EN SON görüldüğü an (RFC3339); hiç senkronlanmamış
   // (BYZ'den aktarılmış) üründe null.
@@ -71,17 +71,31 @@ export interface Product {
   source_price: number | null;
 }
 
+// Fiyat değişikliğinin nedeni (product_price_history.reason, migration 0046):
+// supplier = tedarikçi listesinde fiyat değişti; markup = kâr oranı yeniden
+// uygulandı (ayar değişikliği ya da tedarikçi fiyatı aynıyken senkron);
+// manual = elle ürün düzenleme.
+export type PriceChangeReason = "supplier" | "markup" | "manual";
+
+// GET /api/v1/products/{id}/price-history -> { history: PriceHistoryEntry[] }
 export interface PriceHistoryEntry {
   old_price: number;
   new_price: number;
   // Değişikliğin kaynağı (ör. "Ulaş fiyat listesi"); elle düzenlemede "".
   note: string;
   changed_at: string;
+  reason: PriceChangeReason;
+  // Tedarikçi kodu; elle düzenlemede null.
+  source: string | null;
+  // Tedarikçi fiyatları: yalnızca products.manage sahibine döner; elle
+  // düzenlemede ve 0046'dan önceki satırlarda da null.
+  old_source_price: number | null;
+  new_source_price: number | null;
 }
 
 // GET /api/v1/products/price-sources -> { sources: PriceSource[] }
-// (backend/internal/httpapi/handler/price_source_handler.go). Şimdilik tek
-// kaynak: "ulas".
+// (backend/internal/httpapi/handler/price_source_handler.go). Her zaman iki
+// kaynak, bu sırayla: "ulas", "demirprofil".
 export type PriceSyncStatus = "never" | "success" | "failed";
 
 // Bir senkronun sayıları: total = listedeki tekil ürün = created + updated +
@@ -105,9 +119,26 @@ export interface PriceSourceCategory {
   product_count: number;
 }
 
+// Son başarılı senkronda satış fiyatı artan/azalan ürünler (o senkronun
+// fiyat geçmişi satırlarından); avg_increase_percent artış yoksa null.
+export interface PriceSyncChanges {
+  increased: number;
+  decreased: number;
+  avg_increase_percent: number | null;
+}
+
 export interface PriceSource {
   source: string;
+  // Tam ad ("Demir Profil (Omega Çelik)"); kısa ad için bkz. sourceLabels.
   name: string;
+  site_url: string;
+  // Listedeki fiyatların KDV/kapsam esası ("KDV hariç, toptan liste fiyatı; ...").
+  vat_note: string;
+  // Son başarılı senkronun liste dönemi ("Eylül 2026"); Ulaş'ta her zaman "".
+  list_label: string;
+  // Kaynak gösterimi zorunluysa gösterilecek metin ("Kaynak:
+  // demirprofil.com.tr — Eylül 2026 listesi"); zorunlu değilse "".
+  attribution: string;
   // products.manage yoksa ikisi de null (oran görmek maliyeti görmektir).
   markup_percent: number | null;
   category_markups: PriceSourceCategoryMarkup[] | null;
@@ -126,12 +157,16 @@ export interface PriceSource {
   // yoksa 0).
   missing_count: number;
   updated_at: string | null;
+  // Hiç başarılı senkron yoksa null.
+  last_changes: PriceSyncChanges | null;
 }
 
 // POST /api/v1/products/price-sources/{source}/sync
 export interface PriceSyncResponse extends PriceSyncCounts {
   source: string;
   synced_at: string;
+  // İndirilen listenin dönemi ("Eylül 2026"; Ulaş'ta "").
+  list_label: string;
 }
 
 // PUT /api/v1/products/price-sources/{source}. recomputed = yeni oranlarla
@@ -139,6 +174,68 @@ export interface PriceSyncResponse extends PriceSyncCounts {
 export interface PriceSourceUpdateResponse {
   price_source: PriceSource;
   recomputed: number;
+}
+
+// GET /api/v1/products/price-changes (backend price_change_handler.go) --
+// zam geçmişinin tek satırı. Fiyatlar satış fiyatıdır.
+export interface PriceChange {
+  id: string;
+  product_id: string;
+  product_name: string;
+  unit: string;
+  // Ürünün ŞİMDİKİ kategorisi.
+  category: string;
+  // Tedarikçi kodu; elle düzenlemede null.
+  source: string | null;
+  reason: PriceChangeReason;
+  note: string;
+  old_price: number;
+  new_price: number;
+  change_amount: number;
+  // 2 ondalık; eski fiyat 0 ise null.
+  change_percent: number | null;
+  // RFC3339Nano (mikrosaniye).
+  changed_at: string;
+  // Tedarikçi fiyatları: products.manage yoksa ya da kaydedilmemişse null.
+  old_source_price: number | null;
+  new_source_price: number | null;
+}
+
+export interface PriceChangeList {
+  changes: PriceChange[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+// Özetin bir olayı: tek bir senkron ya da kâr oranı güncellemesi (aynı
+// changed_at + source + reason); elle düzenlemeler İstanbul günü başına.
+export interface PriceChangeEvent {
+  // Elle düzenlemede o İstanbul gününün 00:00'ı.
+  changed_at: string;
+  // Olayın satırlarını getirmek için liste ucuna AYNEN verilecek aralık
+  // (RFC3339Nano, ikisi de dahil) -- reason, source ve direction=all ile.
+  from: string;
+  to: string;
+  source: string | null;
+  reason: PriceChangeReason;
+  change_count: number;
+  increased: number;
+  decreased: number;
+  avg_change_percent: number | null;
+  max_increase_percent: number | null;
+}
+
+// GET /api/v1/products/price-changes/summary
+export interface PriceChangeSummary {
+  increased_count: number;
+  decreased_count: number;
+  // Zam gelen TEKİL ürün sayısı.
+  products_increased: number;
+  avg_increase_percent: number | null;
+  max_increase: { product_id: string; product_name: string; change_percent: number } | null;
+  // En yeni önce, en fazla 1000.
+  events: PriceChangeEvent[];
 }
 
 export type OfferStatus = "taslak" | "gönderildi" | "kabul edildi" | "reddedildi";
