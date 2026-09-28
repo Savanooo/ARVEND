@@ -482,10 +482,18 @@ testleri ve mobil model/golden testleri AYNI fixture'ları kullanır.
 
 - **`README.md` köke güncel DEĞİL** (yalnızca ilk modülü listeliyor) — bu
   `HANDOFF.md` şimdilik daha güncel referans.
-- **Backend production'a HENÜZ dağıtılmadı** (`docs/production-deployment-
-  plan-szutech2.md`'de plan var, "HENÜZ UYGULANMADI" olarak işaretli —
-  bkz. mobile/RELEASE.md §14). Canlıya çıkarken `0044`-`0047`
-  migration'ları çalışmalı.
+- **Canlı durum (2026-09-28):** `app.arvendyapi.com.tr` szutech2'de çalışıyor;
+  2026-09-28'de `97f1699` + `a92343d` (kilit dosyası düzeltmesi) sürümüne
+  güncellendi, veritabanı şeması `0047`. `docs/production-deployment-plan-
+  szutech2.md` ESKİMİŞ: gerçekte Caddy `:8088` → API `127.0.0.1:8081`
+  (8080'de başka bir proje var) + web `127.0.0.1:3000`; `/opt/arvend/src`
+  git deposu değil düz kopya; sunucu GitHub'dan çekemiyor. Güncelleme yolu:
+  yerelde `git archive` + Linux'a derlenmiş `arvend-api` → sunucuda
+  `~/arvend-release-<commit>/` → `deploy.sh` (yedek → web derle → API durdur,
+  migration → başlat → doğrula), yanında `rollback.sh`. Sunucudaki npm 10
+  kilit dosyasını reddeder: `npx -y npm@11.6.2 ci`. Migration'lar YALNIZCA
+  API durdurulmuşken çalıştırılır (eski ikili yeni sütunlarda `SELECT *`
+  taramasında hata verir).
 - **Bilinen veri sızıntıları (ayrı iş olarak işaretlendi, düzeltilmedi):**
   `GET /projects` finans izni olmayana (Saha, Proje Yöneticisi) proje
   tutarlarını döndürüyor; `GET /projects/{id}/events` tahsilat/masraf
