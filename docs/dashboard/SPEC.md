@@ -105,12 +105,12 @@ This spec is binding for three engineers: backend (Go), web (Next.js 16) and mob
 | 10 | **Taşeron** · `subcontracts` | `projects.subcontracts.read` · MEM; `claims` needs `subcontract_claims.read`; `paid_*` and `certified_unpaid` need `subcontract_payments.read` | **Aktif sözleşme** = `active_count` · `current_value`; Onayda hakediş = `claims.submitted`; Onaylı, ödenmemiş = `claims.certified_unpaid`; Değişiklik emri (onayda) = `change_orders_submitted` | ProgressBar (success) `paid_pct` "%34 ödendi", with an info tooltip: "Hakedişe bağlanmamış avans ödemeleri 'ödenmemiş' tutarını azaltmaz." | `progress_claim_certify`, `claim_certified_unpaid`, `subcontract_co_approval`. Web note: "Taşeron hakediş ve değişiklik emirleri şimdilik mobil uygulamada yönetilir." | `/projeler?status=active`; rows → `?tab=finans` | go `/projeler`; rows → exact hakediş/değişiklik-emri route |
 | 11 | **Bütçe & Maliyet** · `cost_control` | `projects.budget.read` OR `projects.cost_control.read` · MEM | **Bütçeyi aşan proje** = `over_budget.count` (if null: **Onaylı bütçe** = "{baselined} / {open} proje"); Onayda revizyon = `pending_adjustments.count`; Aktif taahhüt = `committed_active`; Bütçesiz açık proje = `budgets.none` | SegmentBar: Bütçesiz muted, Taslak gold, Onaylı success | `budget_adjustment_approval`, `over_budget`, `active_without_budget` | `/projeler?status=active`; rows → `?tab=maliyet` | go `/projeler`; rows → `?grup=finans&alt=maliyet` |
 | 12 | **Müşteriler** · `customers` | `customers.read` · ORG (`with_active_projects` is MEM) | **Aktif müşteri** = `active`; Bu ay eklenen = `new_this_month`; Aktif projesi olan = `with_active_projects` | – | – | `/musteriler` | push `/diger/musteriler` |
-| 13 | **Personel** · `employees` | `employees.read` · ORG | **Aktif personel** = `active`; Pasif = `inactive`; Kullanıcı hesabı olan = `with_user_account`; Bu ay başlayan = `new_this_month` | – | – (never payroll) | `/admin/personel` | – |
-| 14 | **Ürünler & Zam** · `products` | `products.read` · ORG | **Ürün** = `total`; Zamlanan ürün (30 gün) = `price_changes_30d.products_increased`; Ortalama zam = `avg_increase_percent`; En yüksek zam = "%{change_percent} · {product_name}" (link to the product) | SegmentBar of source: Manuel `text-muted/40`, Ulaş graphite, Demir Profil `text`. Plus source chips "Ulaş · 2 gün önce · Başarılı/Hata/Hiç senkronlanmadı" | `price_sync_failed`, `price_sync_never`. Note: "{Kaynak} fiyatları {n} gündür güncellenmedi" when older than 7 days | `/admin/urunler/zamlar?period=30`; secondary link "Ürünler" `/admin/urunler` | – |
-| 15 | **Ekip** · `users` | coarse `role=admin` AND `organization.users.read` · ORG; `with_personal_overrides` also needs `organization.roles.read` | **Aktif kullanıcı** = `active`; Hiç giriş yapmamış = `never_logged_in`; Projesi olmayan = `restricted_without_project`; Personel kaydı olmayan = `without_employee_link`; Kişiye özel yetkili = `with_personal_overrides` | Role chips (muted Badges): "Sahip 1 · Yönetici 1 · Proje Yöneticisi 2 · Finans 1 · Saha 3" | `users_without_project`. Note: "{n} kullanıcının personel kaydı yok; görev listeleri boş görünür." | `/admin/kullanicilar`; secondary link "Roller & Yetkiler" `/admin/roller` | – |
+| 13 | **Personel** · `employees` | `employees.read` · ORG | **Aktif personel** = `active`; Pasif = `inactive`; Kullanıcı hesabı olan = `with_user_account`; Bu ay başlayan = `new_this_month` | – | – (never payroll) | `/admin/personel` | push `/diger/personel` |
+| 14 | **Ürünler & Zam** · `products` | `products.read` · ORG | **Ürün** = `total`; Zamlanan ürün (30 gün) = `price_changes_30d.products_increased`; Ortalama zam = `avg_increase_percent`; En yüksek zam = "%{change_percent} · {product_name}" (link to the product) | SegmentBar of source: Manuel `text-muted/40`, Ulaş graphite, Demir Profil `text`. Plus source chips "Ulaş · 2 gün önce · Başarılı/Hata/Hiç senkronlanmadı" | `price_sync_failed`, `price_sync_never`. Note: "{Kaynak} fiyatları {n} gündür güncellenmedi" when older than 7 days | `/admin/urunler/zamlar?period=30`; secondary link "Ürünler" `/admin/urunler` | push `/diger/urunler/zamlar?period=30` |
+| 15 | **Ekip** · `users` | coarse `role=admin` AND `organization.users.read` · ORG; `with_personal_overrides` also needs `organization.roles.read` | **Aktif kullanıcı** = `active`; Hiç giriş yapmamış = `never_logged_in`; Projesi olmayan = `restricted_without_project`; Personel kaydı olmayan = `without_employee_link`; Kişiye özel yetkili = `with_personal_overrides` | Role chips (muted Badges): "Sahip 1 · Yönetici 1 · Proje Yöneticisi 2 · Finans 1 · Saha 3" | `users_without_project`. Note: "{n} kullanıcının personel kaydı yok; görev listeleri boş görünür." | `/admin/kullanicilar`; secondary link "Roller & Yetkiler" `/admin/roller` | push `/diger/kullanicilar` |
 | 16 | **Metraj** (compact) · `calculations` | `calculations.read` · ORG | "{groups} grup · {categories} kategori" | – | Notes: "Son 30 günde {n} teklif kaleminde kullanıldı" (needs offers.read); "{n} reçete kalemi ürüne bağlı değil" (needs calculations.manage) | `/admin/metraj-hesaplama` | push `/diger/metraj` |
-| 17 | **Tedarikçiler** (compact) · `suppliers` | `organization.suppliers.read` · ORG | "{active} aktif · {inactive} pasif" | – | Note: "Bu ay {n} tedarikçiden sipariş verildi" (needs procurement.read, MEM) | `/admin/tedarikciler` | – |
-| 18 | **Maliyet Kodları** (compact) · `cost_codes` | `organization.cost_codes.read` · ORG | "{active} aktif · {inactive} pasif" | – | Note: "Bu ay {n} masrafta maliyet kodu yok" (needs cost_control.read, MEM) | `/admin/maliyet-kodlari` | – |
+| 17 | **Tedarikçiler** (compact) · `suppliers` | `organization.suppliers.read` · ORG | "{active} aktif · {inactive} pasif" | – | Note: "Bu ay {n} tedarikçiden sipariş verildi" (needs procurement.read, MEM) | `/admin/tedarikciler` | push `/diger/tedarikciler` |
+| 18 | **Maliyet Kodları** (compact) · `cost_codes` | `organization.cost_codes.read` · ORG | "{active} aktif · {inactive} pasif" | – | Note: "Bu ay {n} masrafta maliyet kodu yok" (needs cost_control.read, MEM) | `/admin/maliyet-kodlari` | push `/diger/maliyet-kodlari` |
 | F1 | **Bildirimler** (Akış panel) · `notifications` | `notifications.read` · own rows | Unread badge "{n} okunmamış"; latest 5: dot, title, one-line body, relative time | – | Action "Tümünü okundu say" (`POST /notifications/read-all`) | rows `webHrefForActionTarget(action_target)`; no web page | not a card (bell) |
 | F2 | **Son Hareketler** (Akış panel) · `activity` | per-event permission map (§4.9) · MEM | 10 rows web / 5 mobile: "{user} · {etiket} · {project_no} {project_name}", relative time; **no amounts** | – | – | `/projeler/{p}?tab=aktivite` | push `/projeler/{p}` |
 
@@ -1386,7 +1386,7 @@ DashboardScreen (ConsumerStatefulWidget)
   - Tedarikçiler "44 aktif"
   - Maliyet Kodları "61 aktif"
 
-  Footer `helper`: "Bu kayıtlar web panelinden yönetilir." (shown if any row has no route). The attention lines of these modules (price_sync_*, users_without_project) appear in Dikkat only.
+  Footer `helper`: "Bu kayıtlar web panelinden yönetilir." (shown if any row has no route — since mobile 1.3.0+4 every row has one, so it no longer appears). Empty rows carry the web CTAs: Müşteri Ekle, Personel Ekle, Kullanıcı Ekle, Ürünlere git (strict `canAccess` gate). The attention lines of these modules (price_sync_*, users_without_project) appear in Dikkat only.
 - **ActivityCard:** `AppSectionHeader('Son Hareketler')` + 5 rows: "{user} · {etiket}" / "{project_no} {project_name} · {relative}"; each pushes `/projeler/{p}`. There is no "Tümü".
 - **Colours:**
   - severity danger → `AppStatusColors.error`, action → `.warning`, info → `.info`, upcoming → `.warning` icon with neutral text;
@@ -1478,13 +1478,12 @@ DashboardScreen (ConsumerStatefulWidget)
 │ FİRMA KAYITLARI                      │
 │ ┌──────────────────────────────────┐ │
 │ │👥 Müşteriler   58 aktif · +3    › │ │
-│ │👷 Personel     30 aktif           │ │
-│ │📦 Ürünler & Zam 4.393 · ort. %4,2 │ │
-│ │⚙ Ekip          8 aktif · 2 proj.  │ │
+│ │👷 Personel     30 aktif         › │ │
+│ │📦 Ürünler & Zam 4.393 · ort. %4,2›│ │
+│ │⚙ Ekip          8 aktif · 2 proj.› │ │
 │ │📏 Metraj       12 grup          › │ │
-│ │🚚 Tedarikçiler 44 aktif           │ │
-│ │🏷 Maliyet Kod. 61 aktif           │ │
-│ │Bu kayıtlar web panelinden yönetilir.│
+│ │🚚 Tedarikçiler 44 aktif         › │ │
+│ │🏷 Maliyet Kod. 61 aktif         › │ │
 │ └──────────────────────────────────┘ │
 │ Son Hareketler (5)                   │
 ├──────────────────────────────────────┤
@@ -1513,7 +1512,10 @@ DashboardScreen (ConsumerStatefulWidget)
 | budget_adjustment | `?grup=finans&alt=maliyet` |
 | contract, payment_plan_item, invoice | `?grup=finans&alt=finans` |
 | customer | `/diger/musteriler/{id}` |
-| product, user, price_source | `null` (not tappable) |
+| product | `/diger/urunler/{id}` (mobile 1.3.0+4) |
+| user | `/diger/kullanicilar/{id}` (mobile 1.3.0+4) |
+| price_source | `/diger/urunler/kaynaklar` (mobile 1.3.0+4; web shows the source cards on `/admin/urunler`) |
+| unknown kind | `null` (not tappable) |
 
 Notifications use `action_target` as-is.
 
@@ -1831,7 +1833,7 @@ The web shows uppercase through CSS (`<html lang="tr">` makes "i" → "İ" corre
 - **Mobile:**
   - the Görevler tab stays hidden (existing shell rule);
   - rows open the exact talep / sipariş / RFQ-karşılaştır / hakediş / değişiklik-emri screens;
-  - FİRMA KAYITLARI holds Tedarikçiler and Maliyet Kodları rows with the note "Bu kayıtlar web panelinden yönetilir."
+  - FİRMA KAYITLARI holds Tedarikçiler and Maliyet Kodları rows; both open their mobile screens (since 1.3.0+4).
 
 (Reference, project manager: KPI tiles Aktif proje · Açık görevim · Ekipte geciken görev · Okunmamış bildirim.
 - **Senin sıran:** own tasks, team_task_* (tasks.create), milestone_overdue, rfq_no_quote / po_late_delivery (procurement.manage), active_without_contract (contracts.manage), project_past_end (projects.update).
@@ -1856,7 +1858,7 @@ The web shows uppercase through CSS (`<html lang="tr">` makes "i" → "İ" corre
 10. No holiday calendar: `is_workday` = Monday–Saturday.
 11. No `?sections=` partial fetch in v1. Retry refetches the whole snapshot.
 12. No web golden or visual regression tests (mobile goldens only). No CI setup.
-13. No mobile screens for Ürünler, Personel, Tedarikçiler, Maliyet Kodları or Kullanıcılar: they are summary rows only.
+13. ~~No mobile screens for Ürünler, Personel, Tedarikçiler, Maliyet Kodları or Kullanıcılar.~~ Superseded by mobile 1.3.0+4: these screens now exist under Diğer > Yönetim, and the FİRMA KAYITLARI rows, empty-state CTAs and the product / user / price_source refs open them (§2 #13–18, §6.6).
 14. No Şantiye photo strip (P2). No "Fotoğraf Ekle" quick action (P2). No org-level activity page.
 15. No mobile-web sidebar drawer. Only the W0 CSS forced-collapse.
 16. No project-level "behind schedule" judgement, and no budget-vs-task-progress comparison (D18).
