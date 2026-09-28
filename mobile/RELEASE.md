@@ -68,7 +68,7 @@ güvenlik katmanı) hariç tutulur. `*.jks`/`*.keystore`/`*.p12` de aynı
 |---|---|---|
 | Application ID | `com.arvendyapi.arvend` | Zaten geçerli bir üretim kimliği (dev/example paket adı DEĞİL) — **değiştirilmedi**, bilinçli karar. Play Store'a yüklendikten sonra bu ID KALICIDIR. |
 | Uygulama etiketi (launcher) | `ARVEND` | Zaten uygun, değiştirilmedi. |
-| `version` (pubspec.yaml) | `1.0.0+1` | İlk üretim sürümü için makul başlangıç noktası — değiştirilmedi (bkz. §9 Versiyonlama). |
+| `version` (pubspec.yaml) | `1.1.0+2` | 2026-09-28: yeni Ana Sayfa (dashboard) için küçük sürüm artışı (bkz. §9 Versiyonlama). |
 | compileSdk / minSdk / targetSdk | 36 / 24 / 36 | Flutter 3.44.8'in kendi varsayılanları (`flutter.compileSdkVersion` vb. üzerinden), Play Store'un güncel targetSdk şartını karşılıyor. minSdk 24 = Android 7.0+. |
 | Launcher ikonu (adaptive) | `android/app/src/main/res/mipmap-*/ic_launcher*.png` | **Hazır** — gerçek ARVEND "AY" monogramı (gold #D89A22, adaptive foreground) + navy (#111827) arka plan. Placeholder DEĞİL. |
 | Açılış ekranı (splash) | `android/app/src/main/res/drawable/launch_background.xml` | **Hazır** — navy zemin + ARVEND monogramı, marka diliyle tutarlı. |
@@ -173,8 +173,8 @@ flutter build ipa
 
 ## 5. Versiyonlama Kuralları
 
-Mevcut: `pubspec.yaml` → `version: 1.0.0+1` (`1.0.0` = semantik sürüm,
-`1` = build numarası — Android `versionCode`/iOS `CFBundleVersion` bu
+Mevcut: `pubspec.yaml` → `version: 1.1.0+2` (`1.1.0` = semantik sürüm,
+`2` = build numarası — Android `versionCode`/iOS `CFBundleVersion` bu
 build numarasından TÜRETİLİR, ayrıca elle senkronize EDİLMEZ).
 
 Gelecek sürümler için kural:
