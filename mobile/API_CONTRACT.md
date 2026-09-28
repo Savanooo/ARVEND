@@ -97,6 +97,42 @@ per-person grants (owner is never restricted).
   rows `{id, project_no, name, customer_name, currency, status}` — NO money
   fields; use this instead of `GET /projects` for pickers.
 
+## Remote update (Uzaktan güncelleme, pre-store Android) — added 2026-09-28
+Until the app is on the stores, Android updates itself from our server.
+Server: `backend/internal/service/app_release_service.go`; client:
+`lib/core/update/`; publishing and one-time server setup: `RELEASE.md` §15.
+- `GET /mobile/app-version?platform=android` — **PUBLIC** (no auth; also
+  called from the login screen). `Cache-Control: no-store`. 200 with a valid
+  release, exactly these fields:
+  `{"platform":"android","build":3,"version":"1.2.0","sha256":"<64 lowercase hex>","size":62418702,"notes":"…","min_build":0,"published_at":"<RFC3339>"}`.
+  No valid release (nothing published, or the release on disk is
+  missing/corrupt/inconsistent) → exactly `{"platform":"android","build":0}`
+  — never an error. Missing/unknown `platform` (only `android` exists) →
+  400 `{"error"}`.
+- `GET /mobile/app-download?platform=android` — `requireAuth` +
+  `requireTenant` (any tenant user; NO permission, NO onboarding gate).
+  Streams the current release APK: 200, `Content-Type:
+  application/vnd.android.package-archive`, `Content-Disposition: attachment;
+  filename="ARVEND-<version>.apk"`, `ETag: "<sha256>"`, `Content-Length`,
+  `Accept-Ranges: bytes`, `Cache-Control: private, no-store`. The server
+  supports resume with `Range: bytes=<n>-` + `If-Range: "<sha256>"` → 206;
+  if a newer release was published in between, `If-Range` no longer matches
+  and a full 200 comes back instead of mixed bytes. The current client does
+  NOT resume: an interrupted download restarts from byte 0. No release →
+  404 `{"error"}`; unknown platform → 400; no session → 401; `super_admin` /
+  suspended-or-deleted organization → the usual 403 account-access
+  signatures above. More than 3 concurrent downloads for the same user, or
+  more than 20 in total → 429 `{"error"}` + `Retry-After: 30` (no APK
+  headers). The write deadline is tied to progress, not a flat
+  timeout: it moves to now + 2 min after each chunk the client accepts,
+  capped at 1 h in total. A slow link that keeps reading finishes; a
+  client that stops reading is dropped after about 2 min.
+- Client rules: update available when `build > PackageInfo.buildNumber`;
+  mandatory when `PackageInfo.buildNumber < min_build`. Before opening the
+  installer, the SHA-256 of the downloaded file MUST equal `sha256` from
+  `app-version` (refuse on mismatch). Android itself only installs an update
+  signed with the same key as the installed app.
+
 ## Offers (`requireAuth`, no admin gate; creation ALSO gated by RBAC — `offers.create`, checked in `offers_screen.dart`/`metraj_screen.dart`/`dashboard_screen.dart`/`customer_detail_screen.dart` before showing any "new offer" entry point. Internal pricing visibility is a SEPARATE pair, `offers.internal_pricing.read`/`.manage`, see `kPermOffersInternalPricingRead`/`Manage` in `lib/features/offers/domain/offer.dart` — mobile has NOT found/confirmed distinct edit/status-change/delete permission codes beyond these; do not invent one without verifying against the backend first)
 - `GET /offers/` — params: `filter=pasif|*`, `page`, `limit` (max 200). **No search/status/date filter server-side.** List rows never include `items`.
 - `GET/PUT /offers/{id}`, `POST /offers/` (create), `POST /offers/{id}/revise`, `GET /offers/{id}/revisions[/{revisionId}]`, `PUT /offers/{id}/status`, `POST /offers/{id}/toggle-passive`, `DELETE /offers/{id}`, `POST /offers/{id}/send-email`, share-links CRUD, `/events`, `/email-logs`.

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -55,5 +56,32 @@ func TestLoad_PriceSyncScheduler(t *testing.T) {
 		if got := Load().PriceSyncScheduler; got != want {
 			t.Errorf("PRICE_SYNC_SCHEDULER=%q -> %v, want %v", v, got, want)
 		}
+	}
+}
+
+func TestLoad_AppReleasesDirDefaultsNextToStorageRoot(t *testing.T) {
+	t.Setenv("APP_RELEASES_DIR", "")
+	cases := map[string]string{
+		// Üretim: STORAGE_ROOT=/var/lib/arvend/uploads.
+		"/var/lib/arvend/uploads":  "/var/lib/arvend/app-releases",
+		"/var/lib/arvend/uploads/": "/var/lib/arvend/app-releases",
+		// Yerel: STORAGE_ROOT verilmezse ./var/uploads.
+		"":              filepath.Clean("./var/app-releases"),
+		"./var/uploads": filepath.Clean("./var/app-releases"),
+	}
+	for storageRoot, want := range cases {
+		t.Setenv("STORAGE_ROOT", storageRoot)
+		if got := Load().AppReleasesDir; got != want {
+			t.Errorf("STORAGE_ROOT=%q -> AppReleasesDir = %q, want %q (uploads'ın içi değil, kardeşi)", storageRoot, got, want)
+		}
+	}
+}
+
+func TestLoad_AppReleasesDirOverride(t *testing.T) {
+	t.Setenv("STORAGE_ROOT", "/var/lib/arvend/uploads")
+	t.Setenv("APP_RELEASES_DIR", "/srv/arvend-releases")
+
+	if got := Load().AppReleasesDir; got != "/srv/arvend-releases" {
+		t.Fatalf("AppReleasesDir = %q, want APP_RELEASES_DIR aynen", got)
 	}
 }

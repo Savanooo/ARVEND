@@ -54,3 +54,7 @@ key.properties
 *.mobileprovision
 *.cer
 *.certSigningRequest
+
+# Uzaktan güncelleme yayın hedefi (kullanici@sunucu:/dizin) -- makineye
+# özel, bkz. scripts/yayinla.sh ve RELEASE.md "Uzaktan güncelleme".
+.yayin_hedefi

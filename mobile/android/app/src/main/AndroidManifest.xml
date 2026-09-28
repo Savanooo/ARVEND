@@ -7,6 +7,17 @@
          izni istenmiyor. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- Uzaktan güncelleme (lib/core/update/): store'a çıkana kadar uygulama
+         kendi APK'sını sunucudan indirip Android'in kurulum ekranını açar.
+         Kullanıcı yine de bir kereye mahsus "Bu kaynaktan izin ver"i
+         açmak zorundadır; Android yalnızca AYNI anahtarla imzalı
+         güncellemeyi kurar. APK uygulamanın özel cache dizinine iner,
+         open_filex'in FileProvider'ı (cache-path) bunu kapsar - ek bir
+         FileProvider/depolama izni GEREKMEZ.
+         DİKKAT: Google Play, bu izni ve mağaza dışı kendi kendini
+         güncellemeyi yasaklar - Play Store'a yüklemeden önce bu izin ve
+         güncelleme denetimi kaldırılmalıdır. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <application
         android:label="ARVEND"
         android:name="${applicationName}"

@@ -4,6 +4,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -39,6 +40,13 @@ type Config struct {
 	// anahtarları sunucu tarafında üretildiği için bu dizinin dışına
 	// yazılması mümkün değildir (bkz. platform/storage).
 	StorageRoot string
+	// AppReleasesDir, uzaktan güncelleme (Store öncesi Android) yayınlarının
+	// dizini: <dir>/android/latest.json + <dir>/android/arvend-<build>.apk
+	// (mobile/scripts/yayinla.sh yazar, API YALNIZCA OKUR). APP_RELEASES_DIR
+	// verilmezse STORAGE_ROOT'un kardeşi "app-releases": üretimde
+	// /var/lib/arvend/uploads -> /var/lib/arvend/app-releases, yerelde
+	// ./var/uploads -> ./var/app-releases.
+	AppReleasesDir string
 	// PriceSyncScheduler, gece 00:05 (Europe/Istanbul) tedarikçi fiyat
 	// listesi senkronunun bu süreçte çalışıp çalışmayacağı
 	// (PRICE_SYNC_SCHEDULER, varsayılan açık; off/false/0/no kapatır).
@@ -54,6 +62,7 @@ func Load() Config {
 	_ = godotenv.Load()
 
 	port := getEnv("PORT", "8080")
+	storageRoot := getEnv("STORAGE_ROOT", "./var/uploads")
 	return Config{
 		Port:                  port,
 		ListenAddr:            getEnv("LISTEN_ADDR", ":"+port),
@@ -69,9 +78,16 @@ func Load() Config {
 		SeedAdminName:         getEnv("SEED_ADMIN_FULLNAME", "Yönetici"),
 		SettingsEncryptionKey: getEnv("SETTINGS_ENCRYPTION_KEY", ""),
 		FrontendURL:           getEnv("FRONTEND_URL", "http://localhost:3000"),
-		StorageRoot:           getEnv("STORAGE_ROOT", "./var/uploads"),
+		StorageRoot:           storageRoot,
+		AppReleasesDir:        getEnv("APP_RELEASES_DIR", defaultAppReleasesDir(storageRoot)),
 		PriceSyncScheduler:    envEnabled(getEnv("PRICE_SYNC_SCHEDULER", "on")),
 	}
+}
+
+// defaultAppReleasesDir: STORAGE_ROOT'un kardeşi "app-releases" -- yüklenen
+// dosyaların İÇİNDE değil (orası API'nin yazdığı yer), yanında.
+func defaultAppReleasesDir(storageRoot string) string {
+	return filepath.Join(filepath.Dir(filepath.Clean(storageRoot)), "app-releases")
 }
 
 // envEnabled: açık/kapalı ayarlar için -- yalnızca açıkça kapatan değerler

@@ -2,7 +2,7 @@ name: arvend
 description: "ARVEND Yapı - saha ekibi için proje/teklif/metraj mobil uygulaması."
 publish_to: 'none'
 
-version: 1.1.0+2
+version: 1.2.0+3
 
 environment:
   sdk: ^3.12.2
@@ -51,6 +51,11 @@ dependencies:
 
   # Müşteri detayında tel:/mailto: aksiyonları için (bkz. customer_detail_screen.dart)
   url_launcher: ^6.3.1
+
+  # Uzaktan güncelleme: indirilen APK'nın SHA-256 özetini sunucunun
+  # /mobile/app-version yanıtıyla karşılaştırmak için (Dart ekibinin paketi;
+  # zaten dolaylı bağımlılıktı). bkz. lib/core/update/.
+  crypto: ^3.0.7
 
   # ApiClient.test factory'sindeki @visibleForTesting için (transitive olarak
   # zaten mevcut, doğrudan bağımlılık olarak da bildiriliyor).

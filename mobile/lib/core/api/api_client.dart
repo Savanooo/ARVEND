@@ -152,6 +152,84 @@ class ApiClient {
     }
   }
 
+  /// Büyük bir dosyayı (ör. ~60 MB'lık güncelleme APK'sı) belleğe ALMADAN
+  /// doğrudan [savePath]'e akıtır -- `getBytes`'ın aksine. AYNI Dio örneği
+  /// kullanılır: çerez kavanozu ve tek-uçuş 401->refresh->retry burada da
+  /// geçerlidir. Hata durumunda yarım dosyayı Dio siler. İptal
+  /// ([cancelToken]) de bir `ApiException` olarak döner -- iptalin
+  /// kullanıcıdan geldiğini token'ın sahibi (`cancelToken.isCancelled`)
+  /// bilir, ayrı bir hata sınıfı İCAT EDİLMEDİ.
+  ///
+  /// [acceptHeaders] verilirse yanıt başlıkları gelir gelmez, gövdeden TEK
+  /// bayt yazılmadan çağrılır; false dönerse bağlantı kesilir ve
+  /// [DownloadRejected] fırlatılır (ör. sunucu beklenenden başka bir dosya
+  /// sunuyorsa ~60 MB boşuna inmesin).
+  ///
+  /// Diske yazma hatası (ör. telefonda yer kalmadı) ağ hatası DEĞİLDİR:
+  /// `ApiException`'a çevrilmez, asıl `FileSystemException` olarak fırlar.
+  Future<void> download(
+    String path,
+    String savePath, {
+    Map<String, dynamic>? query,
+    void Function(int received, int total)? onReceiveProgress,
+    CancelToken? cancelToken,
+    bool Function(Headers headers)? acceptHeaders,
+  }) async {
+    // Başlıklar reddedilince gövdeyi okumadan kesebilmek için İÇ token.
+    // Çağıranın iptali buna aktarılır; tersi yapılmaz -- çağıranın token'ı
+    // yalnızca kullanıcının iptalini gösterir, "reddedildi" ile karışmaz.
+    final token = CancelToken();
+    if (cancelToken != null) {
+      if (cancelToken.isCancelled) {
+        token.cancel(cancelToken.cancelError?.error);
+      } else {
+        unawaited(cancelToken.whenCancel.then((e) {
+          if (!token.isCancelled) token.cancel(e.error);
+        }));
+      }
+    }
+    var rejected = false;
+    try {
+      await _dio.download(
+        path,
+        (Headers headers) {
+          if (acceptHeaders != null && !acceptHeaders(headers)) {
+            rejected = true;
+            // Dio dosyayı açar, akışa abone olur ve iptali görünce aboneliği
+            // (dolayısıyla bağlantıyı) kapatıp boş dosyayı siler.
+            token.cancel('yanıt başlıkları reddedildi');
+          }
+          return savePath;
+        },
+        queryParameters: query,
+        onReceiveProgress: onReceiveProgress,
+        cancelToken: token,
+      );
+    } on DioException catch (e) {
+      if (rejected && !(cancelToken?.isCancelled ?? false)) throw const DownloadRejected();
+      // Dio, akış sırasında diske yazılamayınca (raf.writeFrom) hatayı
+      // DioException(unknown) içine sarar -- aksi halde "yer yok" durumu
+      // kullanıcıya "internet bağlantınızı kontrol edin" diye yansırdı.
+      // (Dosyayı açarken oluşan hatayı Dio zaten sarmadan fırlatır.)
+      final cause = e.error;
+      if (e.type == DioExceptionType.unknown && cause is FileSystemException) {
+        Error.throwWithStackTrace(cause, e.stackTrace);
+      }
+      // Akış (stream) yanıtında onError interceptor'ı hata gövdesini henüz
+      // okuyamaz; Dio gövdeyi ancak burada JSON'a çevirmiş olur. Hesap-
+      // erişim engeli (askıya alınmış firma vb.) bu yüzden burada da AYNI
+      // merkezi sınıflandırmadan geçer -- tek-seferlik guard çift bildirimi
+      // zaten önler.
+      final issue = classifyAccountAccessIssue(
+        statusCode: e.response?.statusCode,
+        code: _extractCode(e.response?.data),
+        rawMessage: _extractError(e.response?.data),
+      );
+      if (issue != null) await _notifyAccountAccessBlocked(issue);
+      throw _mapDioException(e);
+    }
+  }
+
   Future<T> _send<T>(Future<Response<dynamic>> Function() request) async {
     try {
       final res = await request();
@@ -280,6 +358,15 @@ class ApiClient {
 
     return completer.future;
   }
+}
+
+/// [ApiClient.download]'ın `acceptHeaders`'ı yanıtı reddetti -- gövde
+/// indirilmedi, diske hiçbir şey kalmadı.
+class DownloadRejected implements Exception {
+  const DownloadRejected();
+
+  @override
+  String toString() => 'DownloadRejected';
 }
 
 /// Debug build'de yararlı istek/yanıt logu; production'da HİÇ eklenmez

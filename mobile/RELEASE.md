@@ -68,7 +68,7 @@ güvenlik katmanı) hariç tutulur. `*.jks`/`*.keystore`/`*.p12` de aynı
 |---|---|---|
 | Application ID | `com.arvendyapi.arvend` | Zaten geçerli bir üretim kimliği (dev/example paket adı DEĞİL) — **değiştirilmedi**, bilinçli karar. Play Store'a yüklendikten sonra bu ID KALICIDIR. |
 | Uygulama etiketi (launcher) | `ARVEND` | Zaten uygun, değiştirilmedi. |
-| `version` (pubspec.yaml) | `1.1.0+2` | 2026-09-28: yeni Ana Sayfa (dashboard) için küçük sürüm artışı (bkz. §9 Versiyonlama). |
+| `version` (pubspec.yaml) | `1.2.0+3` | 2026-09-28: uzaktan güncelleme (uygulama içi APK güncellemesi) için küçük sürüm artışı (bkz. §9 Versiyonlama). |
 | compileSdk / minSdk / targetSdk | 36 / 24 / 36 | Flutter 3.44.8'in kendi varsayılanları (`flutter.compileSdkVersion` vb. üzerinden), Play Store'un güncel targetSdk şartını karşılıyor. minSdk 24 = Android 7.0+. |
 | Launcher ikonu (adaptive) | `android/app/src/main/res/mipmap-*/ic_launcher*.png` | **Hazır** — gerçek ARVEND "AY" monogramı (gold #D89A22, adaptive foreground) + navy (#111827) arka plan. Placeholder DEĞİL. |
 | Açılış ekranı (splash) | `android/app/src/main/res/drawable/launch_background.xml` | **Hazır** — navy zemin + ARVEND monogramı, marka diliyle tutarlı. |
@@ -173,8 +173,8 @@ flutter build ipa
 
 ## 5. Versiyonlama Kuralları
 
-Mevcut: `pubspec.yaml` → `version: 1.1.0+2` (`1.1.0` = semantik sürüm,
-`2` = build numarası — Android `versionCode`/iOS `CFBundleVersion` bu
+Mevcut: `pubspec.yaml` → `version: 1.2.0+3` (`1.2.0` = semantik sürüm,
+`3` = build numarası — Android `versionCode`/iOS `CFBundleVersion` bu
 build numarasından TÜRETİLİR, ayrıca elle senkronize EDİLMEZ).
 
 Gelecek sürümler için kural:
@@ -187,7 +187,7 @@ Gelecek sürümler için kural:
   `CFBundleVersion` `flutter build`'in `--build-number` bayrağıyla (veya
   pubspec'teki `+N`'den) AYNI kaynaktan gelir, elle ayrı ayrı
   YÖNETİLMEZ.
-- Örnek bir sonraki sürüm: `1.0.1+2` (hata düzeltmesi) veya `1.1.0+2`
+- Örnek bir sonraki sürüm: `1.2.1+4` (hata düzeltmesi) veya `1.3.0+4`
   (yeni özellik).
 
 ---
@@ -415,3 +415,244 @@ kapsamında hiçbir telemetri paketi EKLENMEDİ.
 - [ ] Gizlilik Politikası linki (gerçek URL hazır olduğunda) Hakkında
       ekranına eklendi (§9).
 - [ ] `flutter analyze` / `flutter test` temiz.
+- [ ] Play Store'a yüklemeden ÖNCE uzaktan güncelleme kapatıldı:
+      `REQUEST_INSTALL_PACKAGES` izni ve mağaza dışı güncelleme denetimi
+      kaldırıldı (Google Play ikisini de yasaklar, bkz. §15).
+
+---
+
+## 15. Uzaktan güncelleme (Store öncesi)
+
+Uygulama mağazalara çıkana kadar Android uygulaması kendini bizim
+sunucumuzdan günceller — eski BYZ uygulamasının yaptığının aynısı
+(`byz-app`: `/api/app-version`, `/api/app-download`, `mobile/yayinla.sh`).
+iOS'ta mağaza dışı kurulum olmadığı için bu yalnızca Android içindir.
+
+### Nasıl çalışır
+
+1. Geliştirici bu Mac'te APK'yı derleyip `mobile/scripts/yayinla.sh` ile
+   yayınlar; betik APK'yı ve `latest.json`'ı sunucuda
+   `/var/lib/arvend/app-releases/android/` altına yazar.
+2. Uygulama `GET /api/v1/mobile/app-version?platform=android` ucunu sorar
+   (herkese açık, giriş ekranından da). Sunucudaki `build` kurulu build'den
+   (`PackageInfo.buildNumber` = pubspec'teki `+N`) büyükse güncelleme
+   önerilir; kurulu build `min_build`'den küçükse güncelleme zorunludur.
+3. "Güncelle" denince APK `GET /api/v1/mobile/app-download?platform=android`
+   ucundan oturum çereziyle iner (yarıda kalırsa istemci baştan indirir;
+   sunucu Range'i destekler ama istemci şimdilik kullanmıyor),
+   SHA-256'sı doğrulanır ve Android'in kurulum ekranı açılır. İstem
+   açıkken yeni bir sürüm yayınlandıysa istemci bunu indirme yanıtının
+   `ETag`'inden (= özet) gövdeyi indirmeden anlar, sürüm bilgisini yeniden
+   sorar ve güncel sürümle baştan başlar. İlk seferde kullanıcı Android'in
+   "Bu kaynaktan izin ver" ayarını bir kez açar (`REQUEST_INSTALL_PACKAGES`).
+   İstemci kodu: `lib/core/update/`.
+
+**İlk dağıtım (bir kerelik, elle):** uzaktan güncelleyici ilk kez
+**1.2.0+3**'te var. Cihazlardaki 1.1.0+2 ve öncesi sürüm ucunu hiç sormaz;
+betikle yapılan hiçbir yayını görmez. 1.2.0+3 APK'sı her cihaza bir kez,
+eskisi gibi elle kurulur (AYNI anahtarla imzalı olduğu için verisiyle
+birlikte eskisinin üstüne kurulur). 1.2.0+4 ve sonrası uzaktan gelir.
+1.2.0+3'ü betikle yayınlamak da zararsızdır (betik bu durumda uyarır), ama
+eski kurulumlara ulaşmaz.
+
+**Üç katmanlı güvenlik (BYZ ile aynı model):**
+
+1. APK yalnızca oturum açmış bir firma kullanıcısına iner
+   (`requireAuth` + `requireTenant`; askıya alınmış firma da indiremez).
+   İndirme adresi `.apk` ile bitmez ve `Cache-Control: private, no-store`
+   döner — Cloudflare `.apk` uzantısını varsayılan olarak önbelleğe aldığı
+   için bu bilinçli; dosya hiçbir kenar önbellekten oturumsuz birine
+   sunulmaz.
+2. Uygulama inen dosyanın SHA-256'sını sürüm ucundaki özetle karşılaştırır;
+   tutmazsa kurulum ekranını hiç açmaz. Sunucu da her yeni yayında diskteki
+   APK'nın boyutunu ve SHA-256'sını `latest.json` ile karşılaştırır;
+   tutarsız, eksik ya da bozuk bir yayını hiç önermez (`build: 0` döner,
+   logda `UYARI: uygulama sürümü ...`).
+3. Android güncellemeyi yalnızca kurulu uygulamayla AYNI anahtarla
+   imzalanmışsa kurar (aşağıdaki imza uyarısına bak).
+
+**Sunucu tarafı:** API dizini YALNIZCA okur (systemd `ProtectSystem=strict`
+okumayı engellemez; `ReadWritePaths` değişikliği GEREKMEZ). Dizin
+`APP_RELEASES_DIR` ile verilir; verilmezse `STORAGE_ROOT`'un kardeşi
+`app-releases` kullanılır — üretimde `STORAGE_ROOT=/var/lib/arvend/uploads`
+olduğu için `/var/lib/arvend/app-releases`, yani env değişikliği de
+gerekmez. API `latest.json`'ı her istekte kontrol eder (dosyalar
+değişmedikçe önbellekten), yayından sonra yeniden başlatma gerekmez.
+
+İndirme ucu önbelleğe alınamadığı için her indirme ~60 MB'ı sunucunun kendi
+hattından çeker. Bu yüzden aynı anda kullanıcı başına en fazla 3, toplamda
+en fazla 20 indirme akar; fazlası `429` + `Retry-After: 30` alır (uygulama
+"biraz sonra tekrar deneyin" gösterir). Yazma süresi ilerlemeye bağlıdır:
+okumaya devam eden yavaş bir hat bitirir (en fazla 1 saat), okumayı bırakan
+bir bağlantı ~2 dakikada kesilir.
+
+```
+/var/lib/arvend/                     root:arvend      755  (arvend YAZAMAZ -- aşağıdaki kuruluma bak)
+└── app-releases/                    szutech2:arvend  755
+    └── android/                     szutech2:arvend  755
+        ├── latest.json              644  API'nin okuduğu tek kayıt
+        ├── arvend-<build>.apk       644  en yeni 3'ü saklanır
+        ├── imza.sha256              644  son yayının imza sertifikası (yalnızca betik okur)
+        └── .yayin.kilit             betiğin kilidi (aynı anda tek yayın)
+```
+
+`latest.json` (betik yazar, elle düzenlenmez):
+
+```json
+{"build":3,"version":"1.2.0","sha256":"<64 küçük harf onaltılık>","size":62418702,
+ "notes":"Yeni ana sayfa","min_build":0,"file":"arvend-3.apk",
+ "published_at":"2026-09-28T10:00:00Z"}
+```
+
+Sunucu şunları doğrular: `file` tam olarak `arvend-<build>.apk` (yol
+geçişi yok, sembolik bağ kabul edilmez), `version` `x.y.z`, `sha256` 64
+küçük harf onaltılık, `size` ve SHA-256 diskteki dosyayla birebir,
+`0 <= min_build <= build`, `published_at` RFC3339. Biri tutmazsa yayın yok
+sayılır — istemciye asla 500 dönmez.
+
+### Tek seferlik sunucu kurulumu (sudo, yalnızca bir kez)
+
+Önce backend bu özelliği içeren sürüme güncellenmiş olmalı:
+`curl -s 'https://app.arvendyapi.com.tr/api/v1/mobile/app-version?platform=android'`
+→ `{"platform":"android","build":0}` (eski backend 404 döner).
+
+Sonra szutech2'de (sudo parolası gerekir; yayınlamanın kendisi sudo
+GEREKTİRMEZ):
+
+```bash
+ssh szutech2@192.168.77.77
+
+# 1. Üst dizin arvend'e YAZILAMAZ olmalı. Dağıtım planı /var/lib/arvend'i
+#    arvend:arvend yaptı (chown -R). Linux'ta bir dizini aynı üst dizin
+#    içinde yeniden adlandırmak yalnızca ÜST dizine yazma izni ister. Yani
+#    arvend kullanıcısıyla çalışan herhangi bir süreç (API'nin sandbox'ı
+#    dışında, ör. deploy sırasında 'sudo -u arvend npm ci'nin bir bağımlılık
+#    betiği) app-releases'i kenara taşıyıp kendi latest.json'ını ve APK'sını
+#    koyabilirdi. Sonuç: her cihazda kapatılamayan, sahte notlu bir zorunlu
+#    güncelleme. Android yabancı imzalı APK'yı yine kurmaz (3. katman), ama
+#    kullanıcılar kilitli kalır.
+#    Önce /var/lib/arvend'in DOĞRUDAN içine arvend olarak yazan bir şey var
+#    mı bak. Beklenen içerik: uploads/, backups/. Alt dizinlere yazmak bu
+#    değişiklikten etkilenmez; deploy.sh/rollback.sh sudo ile çalışır.
+sudo ls -la /var/lib/arvend
+sudo chown root:arvend /var/lib/arvend
+sudo chmod 755 /var/lib/arvend        # uploads/ kendi 750'siyle kapalı kalır
+
+# 2. Dizinler: sahibi yayını yapan szutech2, grubu API'yi çalıştıran arvend
+#    (arvend yalnızca okur: 755/644).
+sudo install -d -o szutech2 -g arvend -m 755 \
+  /var/lib/arvend/app-releases /var/lib/arvend/app-releases/android
+
+# 3. Doğrulama. 'namei' zincirinde /var/lib/arvend'den android/'e kadar
+#    hiçbir bileşen arvend'in sahibi olduğu ya da arvend grubuna yazılabilir
+#    (drwxrwx...) bir dizin olmamalı. szutech2 android/'e yazabilmeli, arvend
+#    okuyabilmeli ama yazamamalı.
+namei -l /var/lib/arvend/app-releases/android
+touch /var/lib/arvend/app-releases/android/.deneme && rm /var/lib/arvend/app-releases/android/.deneme
+sudo -u arvend ls -la /var/lib/arvend/app-releases/android
+for d in /var/lib/arvend /var/lib/arvend/app-releases /var/lib/arvend/app-releases/android; do
+  sudo -u arvend test -w "$d" && echo "SORUN: arvend $d'e yazabiliyor -- adım 1/2'ye bak" || echo "tamam: $d"
+done
+```
+
+`docs/production-deployment-plan-szutech2.md` §2'deki `chown -R arvend:arvend
+/var/lib/arvend` yeniden uygulanırsa (yeni sunucu kurulumu) adım 1
+tekrarlanmalı.
+
+Mac tarafında `ssh szutech2@192.168.77.77 true` parola sormadan çalışmalı
+(betik `BatchMode=yes` kullanır, anahtar yoksa hemen hata verir). Başka bir
+hedef için `ARVEND_YAYIN_HEDEFI=kullanici@sunucu:/dizin` ya da
+`mobile/.yayin_hedefi` dosyası (ilk satır; git dışında).
+
+### Yayınlama (her sürümde)
+
+```bash
+cd mobile
+# 1. pubspec.yaml: version: x.y.z+N  -- N HER yayında artmalı (§5).
+# 2. Bu Mac'te derle (imza uyarısına bak):
+flutter build apk --release
+# 3. Önce kontrol -- sunucuda hiçbir şeyi değiştirmez:
+./scripts/yayinla.sh "Yeni ana sayfa ve hata düzeltmeleri" --deneme
+# 4. Yayınla (terminalde onay sorar):
+./scripts/yayinla.sh "Yeni ana sayfa ve hata düzeltmeleri"
+# Eski sürümün artık çalışmadığı bir değişiklikse (ör. API kırılması):
+./scripts/yayinla.sh "Önemli güncelleme" --zorunlu
+```
+
+Betik yayınlamadan önce şunları yapar:
+- Sürümü pubspec'ten okur (`x.y.z+N`; ön-sürüm eki kabul edilmez).
+- `aapt` (yoksa `aapt2`) ile APK'nın paket adını, `versionCode`'unu ve
+  `versionName`'ini pubspec'le karşılaştırır. Eski bir APK'yı yeni numarayla
+  yayınlamak mümkün olmaz.
+- `apksigner` ile imza sertifikasını okur ve sunucudaki `imza.sha256` ile
+  karşılaştırır.
+- Bu kontroller **zorunludur**: `aapt`, `apksigner` ya da Java
+  bulunamazsa, ya da imza okunamazsa betik yayınlamaz. Kontrolsüz bir yayın
+  özellikle `--zorunlu` ile tehlikelidir: yanlış anahtarlı ya da eski bir
+  APK, hiçbir cihazın geçemeyeceği bir zorunlu güncelleme döngüsü demektir.
+- Araçları şu sırayla arar: `ANDROID_HOME`/`ANDROID_SDK_ROOT`, Flutter'ın
+  yazdığı `android/local.properties` `sdk.dir`, `flutter config
+  --android-sdk`, bilinen SDK yolları. JDK için sıra: `flutter config
+  --jdk-dir`, Android Studio'nun JDK'sı, `JAVA_HOME`.
+- Sunucudaki en yüksek build'den (yayındaki `latest.json`, durdurulmuş
+  `latest.json.*` ve `arvend-N.apk` dosyaları) küçük ya da ona eşit bir
+  build'i reddeder.
+
+Yayına alma:
+1. APK ve `latest.json` geçici adlarla yüklenir.
+2. Sunucuda TEK bir kilitli adım çalışır (`flock`; aynı anda tek yayın):
+   - APK'nın özeti doğrulanır.
+   - `latest.json`'ın betiğin okuduğu halinden değişmediği kontrol edilir.
+     Onay beklerken ya da yükleme sırasında araya başka bir yayın ya da
+     acil durdurma girdiyse **hiçbir şey değiştirilmeden** durulur; betiği
+     yeniden çalıştırmak yeterlidir.
+   - Önce APK, sonra `latest.json` yerine taşınır. İstemci hiçbir zaman
+     olmayan bir APK'yı gösteren JSON görmez.
+   - En yeni 3 APK dışındakiler silinir.
+3. Son olarak herkese açık sürüm ucu sorulur ve yayının göründüğü
+   doğrulanır.
+
+`--zorunlu` verilmezse önceki yayınların (durdurulanlar dahil) en yüksek
+`min_build`'i korunur: zorunlu bir sürüm, arkasından gelen normal bir
+sürümle "unutulmaz".
+
+**Geri alma:** Android daha düşük `versionCode`'u kurulu sürümün üstüne
+kuramaz; hatalı bir sürümü geri almak = önceki kodu YENİ (daha büyük) bir
+build numarasıyla derleyip yayınlamak. Acil durumda öneriyi durdurmak için
+`latest.json` kaldırılır (sürüm ucu `build: 0` döner, zaten güncellemiş
+cihazlar etkilenmez):
+`ssh szutech2@192.168.77.77 'mv /var/lib/arvend/app-releases/android/latest.json /var/lib/arvend/app-releases/android/latest.json.durduruldu'`.
+Betik durdurulan dosyayı (`latest.json.*`) ve APK'ları okumaya devam eder:
+sonraki yayının build'i durdurulan sürümünkinden büyük olmak zorundadır.
+Zorunlu taban (`min_build`) de korunur; `--zorunlu`'yu yeniden vermek
+gerekmez. Durdurmayı geri almak (aynı sürümü yeniden önermek) için dosya
+eski adına taşınır. Durdurulan dosyayı silmek, onun zorunlu tabanını da
+unutturur.
+
+**Sorun giderme:** sunucuda `journalctl -u arvend-api | grep 'uygulama sürümü'`
+— her yeni yayın `v<sürüm> (build N) yayında` satırıyla, reddedilen yayın
+nedeniyle (`SHA-256 özeti latest.json ile tutmuyor`, `file ... desenine
+uymuyor` vb.) loglanır.
+
+### İmza uyarısı (ÖNEMLİ)
+
+Android bir güncellemeyi yalnızca kurulu uygulamayla **aynı anahtarla**
+imzalanmışsa kurar. Bugün `android/key.properties` olmadığı için release
+APK'lar bu Mac'teki **debug anahtarıyla** (`~/.android/debug.keystore`)
+imzalanıyor (§1). Sonuçları:
+
+- **Hep bu Mac'te derle.** Başka bir makinenin debug anahtarı farklıdır;
+  oradan yayınlanan APK'yı hiçbir cihaz kuramaz ("Uygulama yüklenmedi").
+  Betik bunu yakalar: imza sertifikası sunucudaki `imza.sha256`'dan
+  farklıysa yayınlamayı reddeder. `~/.android/debug.keystore`'u güvenli bir
+  yere yedekle — kaybı, bu kanal için keystore kaybıyla aynıdır.
+- **Gerçek keystore'a geçiş (§1) bir kerelik yeniden kurulum demektir.**
+  Yeni anahtarla imzalı APK eski kurulumun üstüne kurulamaz. Anahtar
+  değişikliğini uzaktan güncelleyiciyle dağıtma (her cihaz ~60 MB indirip
+  kurulumda hata alır): cihazlarda uygulamayı kaldırıp yeni APK'yı bir kez
+  elle kurdur (veriler sunucuda; yalnızca yeniden giriş gerekir) ya da
+  doğrudan mağazaya geç. Yeni anahtarla ilk uzaktan yayında betiğe
+  `--imza-degisti` verilir; sonrası normal akış.
+- **Play Store'a geçerken** uzaktan güncelleme kapatılmalı: Google Play,
+  `REQUEST_INSTALL_PACKAGES` iznini ve uygulamanın kendini mağaza dışından
+  güncellemesini yasaklar (bkz. `AndroidManifest.xml` yorumu, §14).

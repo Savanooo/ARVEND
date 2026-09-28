@@ -41,6 +41,7 @@ type Deps struct {
 	Suppliers         *handler.SupplierHandler
 	Notifications     *handler.NotificationHandler
 	Dashboard         *handler.DashboardHandler
+	AppReleases       *handler.AppReleaseHandler
 	CORSOrigins       []string
 }
 
@@ -95,6 +96,17 @@ func NewRouter(d Deps) http.Handler {
 			r.Post("/refresh", d.Auth.Refresh)
 			r.Post("/logout", d.Auth.Logout)
 			r.With(requireAuth).Get("/me", d.Auth.Me)
+		})
+
+		// Uzaktan güncelleme (Store öncesi Android) -- bkz.
+		// service/app_release_service.go. Sürüm sorgusu BİLİNÇLİ OLARAK
+		// public: giriş ekranından da sorulur ve yalnızca build/sürüm/özet
+		// döner. APK'nın kendisi yalnızca oturum açmış bir firma
+		// kullanıcısına iner (ek izin yok; requireOnboarded da yok --
+		// güncelleme hiçbir firma verisine dokunmaz).
+		r.Route("/mobile", func(r chi.Router) {
+			r.Get("/app-version", d.AppReleases.Version)
+			r.With(requireAuth, requireTenant).Get("/app-download", d.AppReleases.Download)
 		})
 
 		r.Route("/users", func(r chi.Router) {

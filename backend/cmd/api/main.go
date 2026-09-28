@@ -74,6 +74,8 @@ func main() {
 	notificationSvc := service.NewNotificationService(q)
 	priceSourceSvc := service.NewPriceSourceService(pool, q, service.HTTPPriceFetchers(nil))
 	dashboardSvc := service.NewDashboardService(pool, q)
+	appReleaseSvc := service.NewAppReleaseService(cfg.AppReleasesDir)
+	log.Printf("uygulama sürüm dizini (uzaktan güncelleme): %s", cfg.AppReleasesDir)
 
 	jwtIssuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL)
 	authSvc := service.NewAuthService(q, jwtIssuer, cfg.RefreshTTL)
@@ -102,6 +104,7 @@ func main() {
 		Suppliers:         handler.NewSupplierHandler(supplierSvc),
 		Notifications:     handler.NewNotificationHandler(notificationSvc),
 		Dashboard:         handler.NewDashboardHandler(dashboardSvc),
+		AppReleases:       handler.NewAppReleaseHandler(appReleaseSvc),
 		CORSOrigins:       cfg.CORSOrigins,
 	})
 
