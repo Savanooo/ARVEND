@@ -2,6 +2,8 @@ import { Bell, Search } from "lucide-react";
 
 import { PLATFORM_CONTEXT_LABEL, userRoleLabel, type User } from "@/lib/types";
 
+import { AppDownloadLink } from "./AppDownloadLink";
+
 // Uygulama kabuğunun (AppShell) üst çubuğu -- sayfaya özel PageHeader'dan
 // farklı olarak her ekranda aynı kalır. Arama ve bildirim, backend'de
 // henüz karşılığı olmadığı için BİLİNÇLİ OLARAK devre dışı/placeholder
@@ -28,6 +30,8 @@ export function Topbar({ user }: { user: User }) {
       </div>
 
       <div className="ml-auto flex min-w-0 items-center gap-3">
+        {/* İndirme ucu firma oturumu ister (requireTenant): Süper Admin'de yok. */}
+        {user.role !== "super_admin" && <AppDownloadLink />}
         <button
           type="button"
           disabled
