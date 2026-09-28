@@ -58,3 +58,7 @@ key.properties
 # Uzaktan güncelleme yayın hedefi (kullanici@sunucu:/dizin) -- makineye
 # özel, bkz. scripts/yayinla.sh ve RELEASE.md "Uzaktan güncelleme".
 .yayin_hedefi
+
+# flutter test golden karşılaştırma hatalarında yazılan fark görüntüleri
+# (masterImage/testImage/isolatedDiff) -- geçici çıktı, commit edilmez.
+test/**/failures/

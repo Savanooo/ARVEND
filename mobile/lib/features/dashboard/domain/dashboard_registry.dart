@@ -184,23 +184,31 @@ const kModules = <ModuleKey, ModuleDef>{
     band: BandKey.registry,
     route: ModuleRoute('/diger/musteriler', push: true),
   ),
+  // Firma kayıtları -- web kartının hedefiyle aynı ekran (spec §2 #13-18):
+  // Personel /admin/personel, Ürünler & Zam /admin/urunler/zamlar?period=30,
+  // Ekip /admin/kullanicilar, Tedarikçiler, Maliyet Kodları. Hedef ekranlar
+  // kendi iznini (katı canAccess) ayrıca denetler; satır yalnızca sunucu
+  // bölümü döndürdüyse (= izin var) çizilir.
   ModuleKey.employees: ModuleDef(
     key: ModuleKey.employees,
     title: 'Personel',
     icon: Icons.engineering_outlined,
     band: BandKey.registry,
+    route: ModuleRoute('/diger/personel', push: true),
   ),
   ModuleKey.products: ModuleDef(
     key: ModuleKey.products,
     title: 'Ürünler & Zam',
     icon: Icons.inventory_2_outlined,
     band: BandKey.registry,
+    route: ModuleRoute('/diger/urunler/zamlar?period=30', push: true),
   ),
   ModuleKey.users: ModuleDef(
     key: ModuleKey.users,
     title: 'Ekip',
     icon: Icons.manage_accounts_outlined,
     band: BandKey.registry,
+    route: ModuleRoute('/diger/kullanicilar', push: true),
   ),
   ModuleKey.calculations: ModuleDef(
     key: ModuleKey.calculations,
@@ -216,6 +224,7 @@ const kModules = <ModuleKey, ModuleDef>{
     icon: Icons.local_shipping_outlined,
     band: BandKey.registry,
     compact: true,
+    route: ModuleRoute('/diger/tedarikciler', push: true),
   ),
   ModuleKey.costCodes: ModuleDef(
     key: ModuleKey.costCodes,
@@ -223,6 +232,7 @@ const kModules = <ModuleKey, ModuleDef>{
     icon: Icons.sell_outlined,
     band: BandKey.registry,
     compact: true,
+    route: ModuleRoute('/diger/maliyet-kodlari', push: true),
   ),
 };
 
@@ -654,6 +664,30 @@ List<QuickActionKey> quickActionsFor(User? user) => [
     if (user.canAll(a.permissions)) a,
 ];
 
+/// Yönetim ekranlarına giden boş durum / kurulum CTA'ları -- web
+/// `ONBOARDING_STEPS` ve modül kartlarının boş durum CTA'larıyla AYNI hedef
+/// ve AYNI kapı (web quickActionGate). Kapı KATI `canAccess` ile denetlenir
+/// (fail-closed; Kullanıcı Ekle ayrıca kaba rol admin ister).
+class AdminCta {
+  const AdminCta(this.label, this.route, this.permissions);
+
+  final String label;
+  final String route;
+
+  /// HEPSİ gerekir.
+  final List<String> permissions;
+
+  bool allowedFor(User? user) => permissions.every((code) => user.canAccess(code));
+}
+
+const kCtaProducts = AdminCta('Ürünlere git', '/diger/urunler', ['products.read']);
+const kCtaAddEmployee = AdminCta('Personel Ekle', '/diger/personel/yeni', ['employees.read', 'employees.manage']);
+const kCtaAddUser = AdminCta('Kullanıcı Ekle', '/diger/kullanicilar/yeni', [
+  'organization.users.read',
+  'organization.users.manage',
+  'organization.roles.read',
+]);
+
 // ---------- İskelet tahmini ----------
 
 /// Sunucunun bölüm kapılarının istemci tahmini (yalnızca yükleniyor
@@ -757,4 +791,6 @@ const kCopyRetry = 'Tekrar dene';
 const kCopyQuiet = 'Bekleyen iş yok';
 const kCopyDikkatEmpty = 'Her şey yolunda — seni bekleyen onay ya da gecikme yok.';
 const kCopyDikkatPartial = 'Bazı bölümler yüklenemedi; liste eksik olabilir.';
+/// Mobilde ekranı olmayan bir kayıt satırı kalırsa gösterilir (şu an tüm
+/// FİRMA KAYITLARI satırlarının mobil ekranı var).
 const kCopyRegistryFooter = 'Bu kayıtlar web panelinden yönetilir.';

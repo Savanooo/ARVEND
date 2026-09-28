@@ -13,8 +13,9 @@ import '../../domain/dashboard.dart';
 import '../../domain/dashboard_registry.dart';
 
 /// "Kurulum — ilk adımlar" (spec §3.6): yeni firmada Nabız ve üst sıranın
-/// yerine. "done" sunucudan gelir. Mobilde ekranı olmayan adımlar
-/// (katalog, personel, ekip) CTA'sız gösterilir -- web panelinden yapılır.
+/// yerine. "done" sunucudan gelir. CTA'lar web `ONBOARDING_STEPS` ile aynı
+/// hedef ve kapıdadır; katalog/personel/ekip adımları mobildeki yönetim
+/// ekranlarını açar (katı `canAccess`, bkz. AdminCta).
 class OnboardingCard extends StatelessWidget {
   const OnboardingCard({
     super.key,
@@ -41,10 +42,19 @@ class OnboardingCard extends StatelessWidget {
             : null;
       case 'convert':
         return user.can('offers.read') ? (label: 'Tekliflere git', onTap: () => context.go('/teklifler')) : null;
+      case 'catalog':
+        return _admin(context, kCtaProducts);
+      case 'employee':
+        return _admin(context, kCtaAddEmployee);
+      case 'team':
+        return _admin(context, kCtaAddUser);
       default:
         return null;
     }
   }
+
+  ({String label, VoidCallback onTap})? _admin(BuildContext context, AdminCta cta) =>
+      cta.allowedFor(user) ? (label: cta.label, onTap: () => context.push(cta.route)) : null;
 
   @override
   Widget build(BuildContext context) {

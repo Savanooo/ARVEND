@@ -4,17 +4,21 @@ import 'package:go_router/go_router.dart';
 
 import '../core/auth/auth_controller.dart';
 import '../core/errors/api_exception.dart';
+import '../features/access/access_routes.dart';
 import '../features/auth/domain/user.dart';
 import '../features/auth/presentation/account_access_blocked_screen.dart';
 import '../features/auth/presentation/login_screen.dart';
 import '../features/auth/presentation/set_initial_password_screen.dart';
 import '../features/auth/presentation/super_admin_unsupported_screen.dart';
+import '../features/calc_admin/calc_admin_routes.dart';
 import '../features/calculations/presentation/metraj_screen.dart';
+import '../features/cost_codes/cost_codes_routes.dart';
 import '../features/customers/presentation/customer_detail_screen.dart';
 import '../features/customers/presentation/customers_screen.dart';
 import '../features/dashboard/presentation/attention_screen.dart';
 import '../features/dashboard/presentation/dashboard_screen.dart';
 import '../features/attendance/presentation/attendance_screen.dart';
+import '../features/employees/employees_routes.dart';
 import '../features/offers/domain/offer.dart';
 import '../features/offers/presentation/offer_create_screen.dart';
 import '../features/offers/presentation/offer_detail_screen.dart';
@@ -25,8 +29,10 @@ import '../features/onboarding/presentation/organization_settings_screen.dart';
 import '../features/notifications/presentation/notifications_screen.dart';
 import '../features/profile/presentation/about_screen.dart';
 import '../features/profile/presentation/other_menu_screen.dart';
+import '../features/products/products_routes.dart';
 import '../features/profile/presentation/profile_screen.dart';
 import '../features/projects/presentation/project_detail_screen.dart';
+import '../features/projects/projects_routes.dart';
 import '../features/projects/presentation/projects_screen.dart';
 import '../features/projects/domain/procurement.dart';
 import '../features/projects/presentation/bid_comparison_screen.dart';
@@ -45,6 +51,8 @@ import '../features/projects/presentation/subcontract_detail_screen.dart';
 import '../features/projects/presentation/subcontract_form_screen.dart';
 import '../features/projects/presentation/task_detail_screen.dart';
 import '../features/projects/presentation/task_form_screen.dart';
+import '../features/settings/settings_routes.dart';
+import '../features/suppliers/suppliers_routes.dart';
 import '../features/tasks/presentation/tasks_screen.dart';
 import 'app_shell.dart';
 
@@ -177,6 +185,9 @@ final routerProvider = Provider<GoRouter>((ref) {
                     initialView: state.uri.queryParameters['alt'],
                   ),
                   routes: [
+                    // /projeler/:id/duzenle -- proje bilgilerini düzenle
+                    // (projects.update; ekran izni kendisi de denetler).
+                    ...projectEditRoutes,
                     GoRoute(
                       path: 'gorevler/yeni',
                       builder: (context, state) => TaskFormScreen(projectId: state.pathParameters['id']!),
@@ -421,6 +432,18 @@ final routerProvider = Provider<GoRouter>((ref) {
                   builder: (context, state) => const OrganizationSettingsScreen(),
                 ),
                 GoRoute(path: 'hakkinda', builder: (context, state) => const AboutScreen()),
+                // Yönetim modülleri (web /admin/** karşılıkları). Yollar her
+                // modülün kendi *_routes.dart dosyasında, göreli tanımlıdır;
+                // hepsi "Diğer" dalında push ile açılır. Rota düzeyinde
+                // guard YOK: her ekran veri çekmeden önce kendi iznini katı
+                // `canAccess` ile denetler (izinsizse açıklama gösterir).
+                ...productsRoutes, // urunler, urunler/{yeni,kaynaklar,zamlar,:id,:id/duzenle}
+                ...employeesRoutes, // personel, personel/{yeni,:id,:id/duzenle,:id/giris-hesabi}
+                ...accessRoutes, // kullanicilar, kullanicilar/{yeni,:id}, roller, roller/:id
+                ...suppliersRoutes, // tedarikciler, tedarikciler/:id
+                ...costCodesRoutes, // maliyet-kodlari, maliyet-kodlari/:id
+                ...calcAdminRoutes, // metraj-receteleri, …/:groupId, …/:groupId/:categoryId
+                ...settingsRoutes, // eposta-ayarlari
               ],
             ),
           ]),

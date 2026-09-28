@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../../core/auth/permissions.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -14,8 +15,9 @@ import 'module_card.dart';
 
 /// FİRMA KAYITLARI -- mobilde tek gruplu kart (spec §6.4): Müşteriler,
 /// Personel, Ürünler & Zam, Ekip, Metraj, Tedarikçiler, Maliyet Kodları.
-/// Mobilde ekranı olanlar (Müşteriler, Metraj) açılır; diğerleri web
-/// panelinden yönetilir (spec §9.13). Bu modüllerin dikkat satırları
+/// Her satır kendi mobil ekranını açar (web kartının hedefiyle aynı; bkz.
+/// kModules). Ekranı olmayan bir satır kalırsa altta "web panelinden
+/// yönetilir" notu çıkar. Bu modüllerin dikkat satırları
 /// (price_sync_*, users_without_project) Dikkat panelindedir; kurulum
 /// modunda Dikkat gizli olduğu için ait oldukları satırın altında
 /// gösterilir (ör. Ürünler & Zam altında "Demir Profil fiyat kaynağı hiç
@@ -43,7 +45,7 @@ class RecordsGroupCard extends StatelessWidget {
               data: rows[i],
               onRetry: c.onRetry,
               groups: c.onboardingActive && !rows[i].failed ? moduleGroups(c.data, rows[i].key) : const [],
-              cta: _emptyCta(rows[i], c),
+              cta: _emptyCta(context, rows[i], c),
             ),
           ],
           if (anyUnrouted)
@@ -57,13 +59,23 @@ class RecordsGroupCard extends StatelessWidget {
   }
 }
 
-/// Boş satırın CTA'sı (spec §7.4) -- yalnızca mobilde ekranı olan ve izni
-/// verilen işlem: Müşteri Ekle (customers.manage). Personel/Kullanıcı Ekle
-/// ve Ürünlere git web panelindedir (spec §9.13).
-({String label, VoidCallback onPressed})? _emptyCta(_RecordRowData row, DashCardContext c) {
+/// Boş satırın CTA'sı (spec §7.4) -- web kartlarının boş durum CTA'larıyla
+/// aynı: Müşteri Ekle (customers.manage), Personel Ekle, Kullanıcı Ekle,
+/// Ürünlere git. Yönetim ekranlarına gidenler KATI `canAccess` ile
+/// süzülür (bkz. AdminCta).
+({String label, VoidCallback onPressed})? _emptyCta(BuildContext context, _RecordRowData row, DashCardContext c) {
   if (!row.empty) return null;
   if (row.key == ModuleKey.customers && c.user.canAll(QuickActionKey.customer.permissions)) {
     return (label: QuickActionKey.customer.label, onPressed: () => c.onQuickAction(QuickActionKey.customer));
+  }
+  final admin = switch (row.key) {
+    ModuleKey.employees => kCtaAddEmployee,
+    ModuleKey.users => kCtaAddUser,
+    ModuleKey.products => kCtaProducts,
+    _ => null,
+  };
+  if (admin != null && admin.allowedFor(c.user)) {
+    return (label: admin.label, onPressed: () => context.push(admin.route));
   }
   return null;
 }

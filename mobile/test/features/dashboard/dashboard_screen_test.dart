@@ -77,6 +77,18 @@ GoRouter _router() => GoRouter(
         ),
       ],
     ),
+    // Diğer altındaki yönetim ekranlarının yer tutucusu: açılan tam konum
+    // (sorgu dahil) yazılır.
+    GoRoute(
+      path: '/diger/:a',
+      builder: (_, s) => Scaffold(appBar: AppBar(), body: Text('DİĞER ${s.uri}')),
+      routes: [
+        GoRoute(
+          path: ':b',
+          builder: (_, s) => Scaffold(appBar: AppBar(), body: Text('DİĞER ${s.uri}')),
+        ),
+      ],
+    ),
   ],
 );
 
@@ -337,6 +349,77 @@ void main() {
       await tester.tap(line.last);
       await tester.pumpAndSettle();
       expect(find.text('HAKEDİŞ 11000000-0000-4000-8000-000000000004'), findsOneWidget);
+    });
+
+    testWidgets('FİRMA KAYITLARI satırları yönetim ekranlarını açar (web kartıyla aynı hedef)', (tester) async {
+      await _pump(tester, user: ownerUser, script: _script(fixtureJson('owner')));
+
+      const expected = {
+        'customers': '/diger/musteriler',
+        'employees': '/diger/personel',
+        'products': '/diger/urunler/zamlar?period=30',
+        'users': '/diger/kullanicilar',
+        'calculations': '/diger/metraj',
+        'suppliers': '/diger/tedarikciler',
+        'cost_codes': '/diger/maliyet-kodlari',
+      };
+      for (final entry in expected.entries) {
+        final row = find.byKey(ValueKey('kayit-${entry.key}'));
+        await _scrollTo(tester, row);
+        await tester.tap(row);
+        await tester.pumpAndSettle();
+        expect(find.text('DİĞER ${entry.value}'), findsOneWidget, reason: entry.key);
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+      }
+      // Hiçbir satır web'e yönlendirmiyor -> not yok.
+      expect(find.text(kCopyRegistryFooter), findsNothing);
+    });
+
+    testWidgets('yeni firma: boş satır ve kurulum CTA\'ları Personel/Kullanıcı Ekle ekranlarını açar', (tester) async {
+      await _pump(tester, user: emptyOwnerUser, script: _script(fixtureJson('empty_company')));
+
+      for (final (label, location) in [
+        ('Personel Ekle', '/diger/personel/yeni'),
+        ('Kullanıcı Ekle', '/diger/kullanicilar/yeni'),
+      ]) {
+        // Kurulum kartı (ilk) ve FİRMA KAYITLARI boş satırı (son) aynı hedef.
+        expect(find.text(label), findsNWidgets(2), reason: label);
+        for (final which in [find.text(label).first, find.text(label).last]) {
+          await _scrollTo(tester, which);
+          await tester.tap(which);
+          await tester.pumpAndSettle();
+          expect(find.text('DİĞER $location'), findsOneWidget, reason: label);
+          await tester.pageBack();
+          await tester.pumpAndSettle();
+        }
+      }
+
+      // Kaynağa bağlı dikkat satırı Fiyat Kaynakları ekranını açar.
+      final sync = find.text('Demir Profil fiyat kaynağı hiç senkronlanmadı');
+      await _scrollTo(tester, sync.last);
+      await tester.tap(sync.last);
+      await tester.pumpAndSettle();
+      expect(find.text('DİĞER /diger/urunler/kaynaklar'), findsOneWidget);
+    });
+
+    testWidgets('yönetim CTA\'ları katı kapıdadır: kaba rol admin değilse Kullanıcı Ekle yok', (tester) async {
+      final member = User(
+        id: emptyOwnerUser.id,
+        organizationId: emptyOwnerUser.organizationId,
+        username: 'uye',
+        fullName: 'Deniz Kara',
+        role: UserRole.kullanici,
+        isActive: true,
+        mustChangePassword: false,
+        onboardingCompleted: true,
+        onboardingStep: 'completed',
+        organizationName: 'Yeni Yapı Ltd.',
+        permissions: kAllPermissions.toSet(),
+      );
+      await _pump(tester, user: member, script: _script(fixtureJson('empty_company')));
+      expect(find.text('Kullanıcı Ekle'), findsNothing);
+      expect(find.text('Personel Ekle'), findsNWidgets(2));
     });
 
     testWidgets('çok kayıtlı satır Dikkat listesini o grup açık halde açar', (tester) async {

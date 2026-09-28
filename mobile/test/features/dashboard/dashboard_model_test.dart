@@ -166,9 +166,9 @@ void main() {
         ref('payment_plan_item'): '/projeler/p1?grup=finans&alt=finans',
         ref('invoice'): '/projeler/p1?grup=finans&alt=finans',
         ref('customer', project: null): '/diger/musteriler/r1',
-        ref('product', project: null): null,
-        ref('user', project: null): null,
-        ref('price_source', id: 'ulas', project: null): null,
+        ref('product', project: null): '/diger/urunler/r1',
+        ref('user', project: null): '/diger/kullanicilar/r1',
+        ref('price_source', id: 'ulas', project: null): '/diger/urunler/kaynaklar',
       };
       cases.forEach((r, expected) {
         expect(mobileRouteFor(r), expected, reason: '${r.kind}/${r.action}');
@@ -178,6 +178,68 @@ void main() {
     test('proje kimliği eksik kayıt türü dokunulamaz (null)', () {
       expect(mobileRouteFor(ref('task', project: null)), isNull);
       expect(mobileRouteFor(ref('purchase_order', project: null)), isNull);
+    });
+
+    test('FİRMA KAYITLARI satırlarının hepsi web kartıyla aynı mobil ekrana push eder', () {
+      final expected = <ModuleKey, String>{
+        ModuleKey.customers: '/diger/musteriler',
+        ModuleKey.employees: '/diger/personel',
+        ModuleKey.products: '/diger/urunler/zamlar?period=30',
+        ModuleKey.users: '/diger/kullanicilar',
+        ModuleKey.calculations: '/diger/metraj',
+        ModuleKey.suppliers: '/diger/tedarikciler',
+        ModuleKey.costCodes: '/diger/maliyet-kodlari',
+      };
+      for (final m in ModuleKey.values.where((m) => kModules[m]!.isRegistry)) {
+        final route = kModules[m]!.route;
+        expect(route?.path, expected[m], reason: m.wire);
+        expect(route!.push, isTrue, reason: m.wire);
+      }
+      // Kaydı olmayan fiyat kaynağı grubu modül ekranına düşer.
+      expect(moduleRouteFor('products')!.path, '/diger/urunler/zamlar?period=30');
+    });
+
+    test('yönetim CTA kapıları katıdır (fail-closed, Kullanıcı Ekle kaba rol admin ister)', () {
+      expect(kCtaAddEmployee.allowedFor(ownerUser), isTrue);
+      expect(kCtaAddUser.allowedFor(ownerUser), isTrue);
+      expect(kCtaProducts.allowedFor(ownerUser), isTrue);
+      // İzin kümesi boş/yüklenmemiş: `can`'ın aksine HİÇBİRİ açılmaz.
+      final legacy = User(
+        id: 'u',
+        organizationId: 'o',
+        username: 'u',
+        fullName: 'U',
+        role: UserRole.admin,
+        isActive: true,
+        mustChangePassword: false,
+        onboardingCompleted: true,
+        onboardingStep: 'completed',
+        organizationName: 'O',
+      );
+      for (final cta in [kCtaAddEmployee, kCtaAddUser, kCtaProducts]) {
+        expect(cta.allowedFor(legacy), isFalse, reason: cta.label);
+        expect(cta.allowedFor(null), isFalse, reason: cta.label);
+      }
+      // Tüm izinler kişiye özel verilmiş olsa da kaba rol admin değilse
+      // Kullanıcı Ekle kapalı (backend requireAdmin).
+      final nonAdmin = User(
+        id: 'u',
+        organizationId: 'o',
+        username: 'u',
+        fullName: 'U',
+        role: UserRole.kullanici,
+        isActive: true,
+        mustChangePassword: false,
+        onboardingCompleted: true,
+        onboardingStep: 'completed',
+        organizationName: 'O',
+        permissions: kAllPermissions.toSet(),
+      );
+      expect(kCtaAddUser.allowedFor(nonAdmin), isFalse);
+      expect(kCtaAddEmployee.allowedFor(nonAdmin), isTrue);
+      // Saha: ürün/personel izni yok.
+      expect(kCtaProducts.allowedFor(fieldUser), isFalse);
+      expect(kCtaAddEmployee.allowedFor(fieldUser), isFalse);
     });
 
     test('fixture kayıtlarının hepsi ya rotaya ya bilinçli null\'a çözülür', () {

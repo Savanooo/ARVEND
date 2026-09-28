@@ -151,6 +151,7 @@ isEmpty || user.hasPermission('<code>')`) next to each action, in addition
 to backend enforcement)
 - `GET /projects` — params: `status`, `customer_id`, `project_type`, `currency`, `start_from`, `q` (ILIKE name/no/customer), `page`, `limit`. List rows DO include finance aggregate fields (current_contract_value etc).
 - `GET/PUT /projects/{id}` — **finance aggregate fields are ABSENT here** (omitempty, always nil on single-object reads). Must call `/financial-summary` separately.
+- `PUT /projects/{id}` (project-scoped `projects.update`; mobile "Proje bilgilerini düzenle", `/projeler/:id/duzenle`, since 1.3.0+4) — body is exactly `{name, project_type, status, start_date, end_date, description, internal_notes}`. Money/currency/customer/source offer are NOT editable here and are never sent. `status` must follow the machine below.
 - `GET /projects/{id}/financial-summary` → 21 always-present number fields: `current_contract_value`, `collected_amount`, `remaining_receivable`, `realized_cost`, `committed_cost` (closest to "estimated cost"), `estimated_gross_profit`, etc. This is the authoritative source for the finance screen header.
 - Status machine: `planned→{active,paused,cancelled}`, `active→{paused,completed,cancelled}`, `paused→{active,completed,cancelled}`, `completed→active only`, `cancelled` terminal.
 - No plain POST/DELETE on projects.
@@ -213,7 +214,8 @@ write action here without checking the matching permission first.
 - Upload: multipart field name `file` for both files and photos. 25 MiB hard cap (`ErrFileTooLarge` after write+delete). Content-type sniffed server-side, client header ignored. Photos: `stage` (before|progress|after), `taken_at` send date-only, get back full RFC3339. Files: `category` (contract|drawing|invoice|report|other).
 - Task priority: `low|normal|high|urgent`. Task status: `todo|in_progress|completed|cancelled`. Create cannot set status=completed directly.
 
-## Calculations (`requireAuth`; group/category/recipe-item CUD is `requireAdmin`)
+## Calculations (`requireAuth`; read = `calculations.read`, group/category/recipe-item CUD = `calculations.manage` — no coarse admin gate any more)
+- Recipe admin (mobile Diğer > Metraj Reçeteleri, `lib/features/calc_admin/`, since 1.3.0+4): `POST /calculations/groups`, `PUT /calculations/groups/{id}`, `POST /calculations/categories`, `PUT /calculations/categories/{id}`, `POST/PUT/DELETE /calculations/recipe-items[/{id}]`. Group/category edits send the existing `image_file_id` back unchanged. Deactivating a group/category hides it (lists return active only). The product picker pages `GET /products` (limit 200) only with `products.read`.
 - `GET /calculations/groups` → active groups only.
 - `GET /calculations/categories?group_id=X` → flat active categories in that group. `GET /calculations/categories` (no param) → nested `{groups:[{...,categories:[...]}]}` cascade shape — **response shape differs by presence of the query param.**
 - `GET /calculations/recipe-items?category_id=X` (required param) → ALL items (active+inactive), any authed role.
@@ -226,16 +228,40 @@ write action here without checking the matching permission first.
 - `GET /customers?filter=aktif|pasif&q=` — `q` matches **name only** (not phone/email). No pagination.
 - `GET/POST/PUT/DELETE(soft)` — `customerResponse`: id,name,phone,email,address,tax_office,tax_number,notes,is_active. Phone/email always `""` not null — check non-empty for call/email actions.
 
-## Employees / Attendance (`requireAuth`; employee C/U/D requires admin)
+## Products (`requireAuth`; read = `products.read`, write = `products.manage`) — mobile since 1.3.0+4 (`lib/features/products/`)
+- `GET /products?page=&limit=&q=` → `{products, total}`. **limit max 200; above 200 silently falls back to 50.** Mobile pages 100 at a time.
+- `GET /products/{id}`, `GET /products/{id}/price-history` → `{history:[{old_price,new_price,note,changed_at,reason(supplier|markup|manual),source,old_source_price?,new_source_price?}]}`.
+- `POST /products`, `PUT /products/{id}` `{name, unit, unit_price, description, category}` (manage). Name/unit of a source-linked product stay locked in the UI (web sourceLink rules).
+- `GET /products/price-sources` → `{sources:[…]}` (Ulaş, Demir Profil). `PUT /products/price-sources/{source}` `{markup_percent, auto_sync, category_markups:[{category, markup_percent}]}` and `POST /products/price-sources/{source}/sync` (manage). Sync errors: **409** = another sync (or markup update) for this source is already running (`bu fiyat kaynağı için şu anda başka bir senkron çalışıyor, biraz sonra tekrar deneyin`); **502** = either the source was unreachable/unparseable (`tedarikçi fiyat listesi alınamadı; lütfen daha sonra tekrar deneyin`) OR the list came back much shorter than the last good sync, i.e. under half (`tedarikçi fiyat listesi beklenenden çok kısa geldi; fiyatlar değiştirilmedi`) — the two 502s are told apart only by that exact `error` text. Prices are unchanged in both 502 cases; details (HTTP code, counts) are recorded in the source's `last_error`.
+- `GET /products/price-changes?from&to&reason&source&direction&category&q&sort&page&limit` and `GET /products/price-changes/summary?from&to&reason&source` (Zam Geçmişi).
+- `source_price` and all markup values are returned **only** to `products.manage`; mobile additionally never renders them without manage.
+
+## Employees / Attendance (`requireAuth`; employees read = `employees.read`, create/update/archive = `employees.manage`)
 - `GET /employees?filter=` — no text search at all. Since 2026-09-27
   `salary`/`daily_wage` are `null` unless the caller holds
   `employees.manage` (listing personnel must not expose wages).
+- Mobile Diğer > Personel (since 1.3.0+4, `lib/features/employees/`): `GET /employees/{id}`, `POST /employees`, `PUT /employees/{id}` `{full_name, phone, position, salary, daily_wage, start_date, description, is_active, user_id}`, `DELETE /employees/{id}` (archive = pasif, not a hard delete). "Giriş hesabı aç" chains `POST /users` + `PUT /employees/{id}` (`user_id`) + `PUT /users/{id}/permissions` (see Users below).
 - Attendance is **pure manual entry, no GPS/geofence, no separate check-in/out calls**: `GET /attendance?month=YYYY-MM`, `POST/PUT /attendance` `{employee_id, date, check_in, check_out, work_hours(number), status, note}`. Status ∈ `geldi|yarım gün|gelmedi|izinli`. One record per employee+date (409 on dup).
 
+## Users, Roles & Permissions (`requireAdmin` (coarse role) **plus** RBAC) — mobile since 1.3.0+4 (`lib/features/access/`)
+Every endpoint here needs coarse `role=admin` in addition to the permission, so mobile gates with the strict `canAccess` (`core/auth/permissions.dart`, `kAdminRoleOnlyPermissions`).
+- `GET /users?page=&limit=` (`organization.users.read`, limit ≤ 200) → `{users, total}`; `GET /users/{id}`; `GET /users/{id}/projects` → `{projects}`.
+- `POST /users` `{username, password, full_name, organization_role_code}` — role code REQUIRED (else the member lands in "Eski Sistem"). `PUT /users/{id}` `{full_name, is_active}`; `PATCH /users/{id}/password` `{new_password}` (all `organization.users.manage`). Last active owner cannot be deactivated (409).
+- `PUT /users/{id}/organization-role` `{role_code}` (`organization.roles.manage`) — resets that person's overrides.
+- `GET/PUT /users/{id}/permissions` (`organization.roles.read` / `.manage`) — PUT `{permissions:[…]}` sets the EFFECTIVE set; differences from the role are stored as personal overrides. Owner → 409.
+- `GET /organization/roles` → `{roles}`, `PUT /organization/roles/{id}/permissions` `{permissions:[…]}` (roles.read / roles.manage); `GET /organization/permissions` → `{permissions}` catalog (roles.read).
+
 ## Organization (`requireAuth`, mostly `requireAdmin`) — undocumented until 2026-09-22
-- `GET /organization/cost-codes`, `GET /organization/suppliers` — plain
-  `requireAuth` reference lookups (cost-code/supplier pickers in
-  procurement/subcontract forms), no admin gate, no RBAC permission check.
+- `GET /organization/cost-codes[/{id}]` (`organization.cost_codes.read`) and
+  `GET /organization/suppliers[/{id}]` (`organization.suppliers.read`) —
+  RBAC-gated, **no** coarse admin gate (finance/PM roles use them). Used by
+  the procurement/subcontract pickers and, since 1.3.0+4, by Diğer >
+  Maliyet Kodları / Tedarikçiler (`lib/features/cost_codes/`,
+  `lib/features/suppliers/`). Writes (`.manage`): `POST /`, `PUT /{id}`,
+  `DELETE /{id}` (archive), `POST /{id}/reactivate`. `code` is immutable
+  after create. Supplier `iban` is write-only (response has `iban_set`);
+  omit the key to keep the stored IBAN. Supplier PUT overwrites
+  `specialty` with whatever is sent — always send it back.
 - `GET /organization/settings` + `PUT /organization/settings/{company,
   billing,offers,finance,business}` — `requireAdmin`. This is a **different**
   route from `/settings` below (SMTP-only) — mobile's `OnboardingRepository`
@@ -244,18 +270,20 @@ write action here without checking the matching permission first.
   sub-resource shape) and the post-onboarding "Firma Ayarları" screen
   (`basePath: '/organization/settings'`) off the identical request/response
   shape — only the base path differs.
-- `GET /organization/roles`, `GET /organization/permissions` — the RBAC
-  role/permission catalog exists on the backend but mobile does **not**
-  consume either; role/permission management is web-only (Super Admin /
-  organization admin console), not a mobile feature. Documented here only
-  so a future reader doesn't mistake the absence for an oversight.
+- `GET /organization/roles`, `GET /organization/permissions` — consumed
+  since 1.3.0+4 by the organization-admin screens (see "Users, Roles &
+  Permissions" above). Platform (Super Admin) management stays web-only.
 
 ## Settings
 `/settings` (note: NOT `/organization/settings` above — a different,
-narrower route) is entirely `requireAdmin`, SMTP configuration only — zero
-non-admin access, no per-user settings resource exists at all. Do not build
-a mobile "app settings" screen calling this; the mobile "Firma Ayarları"
-screen that already exists calls `/organization/settings`, not this.
+narrower route) is entirely `requireAdmin` + `organization.settings.*`,
+SMTP configuration only — no per-user settings resource exists at all.
+The mobile "Firma Ayarları" screen calls `/organization/settings`, not this.
+Since 1.3.0+4 Diğer > E-posta Ayarları (`lib/features/settings/`, web
+`/admin/ayarlar`) uses it: `GET /settings/smtp` (read) → `{…, password_set}`
+(the stored password is NEVER returned); `PUT /settings/smtp` (manage) —
+`password: null` keeps the stored one; `POST /settings/smtp/test` (manage)
+sends a test mail with the SAVED settings.
 
 ## Confirmed backend gaps (do not fake; see MOBILE_BACKEND_GAPS.md)
 1. No search/status/date filters on `/offers` beyond `filter=pasif`.

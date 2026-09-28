@@ -9,6 +9,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/auth/auth_controller.dart';
+import '../../../core/auth/permissions.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
@@ -30,6 +31,7 @@ import '../../auth/domain/user.dart';
 import '../../tasks/domain/task_filters.dart';
 import '../data/projects_providers.dart';
 import '../domain/project.dart';
+import '../projects_routes.dart';
 import 'collection_form_sheet.dart';
 import 'expense_form_sheet.dart';
 import 'note_form_sheet.dart';
@@ -115,6 +117,13 @@ class ProjectDetailScreen extends ConsumerWidget {
           orElse: () => const Text('Proje'),
         ),
         actions: [
+          // Web ile aynı: "Düzenle" yalnızca projects.update ile (katı kontrol).
+          if (user.canAccess('projects.update') && projectAsync.hasValue)
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: 'Düzenle',
+              onPressed: () => context.push(projectEditLocation(projectId)),
+            ),
           IconButton(
             icon: const Icon(Icons.history),
             tooltip: 'Proje Hareketleri',
@@ -200,6 +209,25 @@ class _OverviewTab extends ConsumerWidget {
       }
     }
 
+    final quickActions = <Widget>[
+      if (canManageFinance)
+        QuickActionButton(icon: Icons.receipt_long_outlined, label: 'Masraf Ekle', onPressed: addExpense),
+      if (canManageFinance)
+        QuickActionButton(icon: Icons.payments_outlined, label: 'Tahsilat Ekle', onPressed: addCollection),
+      if (canCreateTask)
+        QuickActionButton(
+          icon: Icons.checklist_outlined,
+          label: 'Görev Ekle',
+          onPressed: () => context.push('/projeler/$projectId/gorevler/yeni'),
+        ),
+      if (canManageFiles)
+        QuickActionButton(
+          icon: Icons.photo_camera_outlined,
+          label: 'Fotoğraf Ekle',
+          onPressed: () => goToGroup('Dokümanlar'),
+        ),
+    ];
+
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.lg),
       children: [
@@ -252,39 +280,24 @@ class _OverviewTab extends ConsumerWidget {
             ),
           ),
         ],
-        const SizedBox(height: AppSpacing.lg),
-        const AppSectionHeader(title: 'Hızlı İşlemler'),
-        const SizedBox(height: AppSpacing.sm),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              if (canManageFinance)
-                QuickActionButton(icon: Icons.receipt_long_outlined, label: 'Masraf Ekle', onPressed: addExpense),
-              if (canManageFinance) ...[
-                const SizedBox(width: AppSpacing.sm),
-                QuickActionButton(
-                    icon: Icons.payments_outlined, label: 'Tahsilat Ekle', onPressed: addCollection),
+        // Başlık yalnızca en az bir işlem varsa: hiçbir yetkisi olmayan kişi
+        // altı boş bir "Hızlı İşlemler" başlığı görmesin.
+        if (quickActions.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.lg),
+          const AppSectionHeader(title: 'Hızlı İşlemler'),
+          const SizedBox(height: AppSpacing.sm),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (var i = 0; i < quickActions.length; i++) ...[
+                  if (i > 0) const SizedBox(width: AppSpacing.sm),
+                  quickActions[i],
+                ],
               ],
-              if (canCreateTask) ...[
-                const SizedBox(width: AppSpacing.sm),
-                QuickActionButton(
-                  icon: Icons.checklist_outlined,
-                  label: 'Görev Ekle',
-                  onPressed: () => context.push('/projeler/$projectId/gorevler/yeni'),
-                ),
-              ],
-              if (canManageFiles) ...[
-                const SizedBox(width: AppSpacing.sm),
-                QuickActionButton(
-                  icon: Icons.photo_camera_outlined,
-                  label: 'Fotoğraf Ekle',
-                  onPressed: () => goToGroup('Dokümanlar'),
-                ),
-              ],
-            ],
+            ),
           ),
-        ),
+        ],
         if (summaryAsync != null) ...[
           const SizedBox(height: AppSpacing.lg),
           const AppSectionHeader(title: 'Finansal Özet'),

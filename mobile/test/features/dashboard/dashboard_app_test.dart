@@ -129,6 +129,9 @@ void main() {
       ref('payment_plan_item'),
       ref('invoice'),
       ref('customer', project: null),
+      ref('product', project: null),
+      ref('user', project: null),
+      ref('price_source', project: null),
       for (final persona in kDashboardPersonas) ..._fixtureRefs(Dashboard.fromJson(fixtureJson(persona))),
     ];
     final paths = <String>{
@@ -143,6 +146,7 @@ void main() {
           QuickActionKey.task => ['/projeler/p1/gorevler/yeni'],
           _ => const <String>[],
         },
+      for (final cta in [kCtaProducts, kCtaAddEmployee, kCtaAddUser]) cta.route,
       '/ana-sayfa/dikkat?kod=plan_item_overdue',
       '/projeler?status=completed',
       '/gorevler',
@@ -155,5 +159,19 @@ void main() {
       expect(match.isError, isFalse, reason: 'eşleşmeyen rota: $path');
       expect(match.matches, isNotEmpty, reason: path);
     }
+
+    // Statik alt yollar `:id` tarafından yutulmamalı -- ör. "yeni" bir
+    // personel kimliği, "kaynaklar" bir ürün kimliği sanılmamalı.
+    final templates = <String, String>{
+      '/diger/urunler/kaynaklar': '/diger/urunler/kaynaklar',
+      '/diger/urunler/zamlar?period=30': '/diger/urunler/zamlar',
+      '/diger/urunler/r1': '/diger/urunler/:id',
+      '/diger/personel/yeni': '/diger/personel/yeni',
+      '/diger/kullanicilar/yeni': '/diger/kullanicilar/yeni',
+      '/diger/kullanicilar/r1': '/diger/kullanicilar/:id',
+    };
+    templates.forEach((location, template) {
+      expect(configuration.findMatch(Uri.parse(location)).fullPath, template, reason: location);
+    });
   });
 }

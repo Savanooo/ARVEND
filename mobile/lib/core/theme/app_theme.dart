@@ -80,13 +80,23 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.surface,
+        // Kilitli (enabled: false) alan düzenlenebilir alandan DAHA SÖNÜK
+        // görünmeli: aynı açık kenarlık + hafif gri zemin. Material 3'ün
+        // varsayılanı (onSurface %38 koyu gri kenarlık) salt-okunur alanı
+        // sayfanın en belirgin öğesi yapıyordu.
+        fillColor: WidgetStateColor.resolveWith(
+          (states) => states.contains(WidgetState.disabled) ? AppColors.background : AppColors.surface,
+        ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.control),
           borderSide: const BorderSide(color: AppColors.border),
         ),
         enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadius.control),
+          borderSide: const BorderSide(color: AppColors.border),
+        ),
+        disabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.control),
           borderSide: const BorderSide(color: AppColors.border),
         ),
