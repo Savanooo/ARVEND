@@ -124,15 +124,16 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		// -- bu yüzden project_subcontracts'tan ÖNCE, o da suppliers'tan
 		// ÖNCE (supplier_id CASCADE'siz) VE projects'ten ÖNCE (project_id
 		// CASCADE'siz) temizlenmeli.
+		// subcontract_payments (Sprint 5 follow-up, migration 0039) --
+		// project_subcontracts'a AYNI CASCADE'siz FK gerekçesiyle ONDAN
+		// ÖNCE; progress_claim_id de subcontract_progress_claims'e
+		// CASCADE'siz FK olduğundan hakedişlerden de ÖNCE temizlenmeli.
+		"DELETE FROM subcontract_payments WHERE organization_id = $1",
 		"DELETE FROM subcontract_progress_claim_items WHERE organization_id = $1",
 		"DELETE FROM subcontract_progress_claims WHERE organization_id = $1",
 		"DELETE FROM subcontract_change_order_items WHERE organization_id = $1",
 		"DELETE FROM subcontract_change_orders WHERE organization_id = $1",
 		"DELETE FROM subcontract_items WHERE organization_id = $1",
-		// subcontract_payments (Sprint 5 follow-up, migration 0039) --
-		// project_subcontracts'a AYNI CASCADE'siz FK gerekçesiyle ONDAN
-		// ÖNCE temizlenmeli.
-		"DELETE FROM subcontract_payments WHERE organization_id = $1",
 		"DELETE FROM project_subcontracts WHERE organization_id = $1",
 		"DELETE FROM suppliers WHERE organization_id = $1",
 		// projects, teklife/revizyona CASCADE'siz FK ile bağlıdır (kasıtlı:

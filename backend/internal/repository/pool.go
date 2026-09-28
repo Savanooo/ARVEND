@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -17,8 +18,38 @@ import (
 	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
 )
 
+// SessionTimeZone, havuzdaki HER bağlantının oturum saat dilimidir. Mevcut
+// sorgulardaki CURRENT_DATE / now()::date (CountProjectTaskStats,
+// ListMyTasks) böylece sunucunun/veritabanının varsayılan saat diliminden
+// BAĞIMSIZ olarak İstanbul takvim gününü verir -- ana sayfa özetinin
+// "bugün"ü (service.NewDashboardClock) ile 00:00-03:00 arasında da
+// ayrışmaz. Bağlantı adresinde başka bir timezone verilmiş olsa bile
+// bilinçli olarak bunun üzerine yazılır.
+const SessionTimeZone = "Europe/Istanbul"
+
 func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
-	return pgxpool.New(ctx, databaseURL)
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, err
+	}
+	forceSessionTimeZone(cfg.ConnConfig.RuntimeParams)
+	return pgxpool.NewWithConfig(ctx, cfg)
+}
+
+// forceSessionTimeZone, başlangıç parametrelerindeki saat dilimini
+// SessionTimeZone'a sabitler. pgx adresteki anahtarları yazıldığı gibi
+// (büyük/küçük harf korunarak) RuntimeParams'a kopyalar; PostgreSQL ise GUC
+// adlarını harf duyarsız okur. Adreste "TimeZone=UTC" varken yalnızca
+// "timezone" anahtarını yazmak iki ayrı başlangıç parametresi bırakır ve
+// hangisinin kazanacağı map sırasına (rastgele) kalır -- bu yüzden harf
+// duyarsız eşleşen HER anahtar önce silinir.
+func forceSessionTimeZone(params map[string]string) {
+	for k := range params {
+		if strings.EqualFold(k, "timezone") {
+			delete(params, k)
+		}
+	}
+	params["timezone"] = SessionTimeZone
 }
 
 func ToDomainCustomer(c sqlc.Customer) domain.Customer {

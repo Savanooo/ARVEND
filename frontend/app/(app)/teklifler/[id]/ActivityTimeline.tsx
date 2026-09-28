@@ -1,4 +1,5 @@
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { OFFER_EVENT_LABELS as L } from "@/lib/events";
 import type { OfferEmailLog, OfferEvent, OfferEventType } from "@/lib/types";
 
 function shortStamp(iso: string) {
@@ -22,16 +23,17 @@ function accusative(n: number): string {
 }
 
 // revision_id -> revision_no eşlemesi bilinmiyorsa (ör. olay revizyondan
-// bağımsızsa) "Revizyon ?" yerine metni revizyonsuz kurarız.
+// bağımsızsa) "Revizyon ?" yerine metni revizyonsuz kurarız. Revizyonsuz
+// metinler lib/events.ts'teki ortak haritadan gelir (ana sayfa da kullanır).
 function label(e: OfferEvent, revNo: number | undefined): string {
   const rev = revNo === undefined ? "" : `Revizyon ${revNo}`;
   const revAcc = revNo === undefined ? "" : `${rev}'${accusative(revNo)}`;
   const map: Record<OfferEventType, string> = {
-    offer_created: "Teklif oluşturuldu",
-    offer_updated: rev ? `${rev} düzenlendi` : "Teklif düzenlendi",
-    revision_created: rev ? `${rev} oluşturuldu` : "Yeni revizyon oluşturuldu",
-    revision_sent: rev ? `${rev} müşteriye gönderildi` : "Teklif müşteriye gönderildi",
-    share_link_created: rev ? `${rev} için paylaşım linki oluşturuldu` : "Paylaşım linki oluşturuldu",
+    offer_created: L.offer_created,
+    offer_updated: rev ? `${rev} düzenlendi` : L.offer_updated,
+    revision_created: rev ? `${rev} oluşturuldu` : L.revision_created,
+    revision_sent: rev ? `${rev} müşteriye gönderildi` : L.revision_sent,
+    share_link_created: rev ? `${rev} için paylaşım linki oluşturuldu` : L.share_link_created,
     share_link_revoked:
       e.metadata?.reason === "revision_sent"
         ? rev
@@ -39,17 +41,17 @@ function label(e: OfferEvent, revNo: number | undefined): string {
           : "Eski paylaşım linki iptal edildi"
         : rev
           ? `${rev} paylaşım linki iptal edildi`
-          : "Paylaşım linki iptal edildi",
-    customer_viewed: rev ? `Müşteri ${revAcc} görüntüledi` : "Müşteri teklifi görüntüledi",
-    customer_accepted: rev ? `Müşteri ${revAcc} kabul etti` : "Müşteri teklifi kabul etti",
-    customer_rejected: rev ? `Müşteri ${revAcc} reddetti` : "Müşteri teklifi reddetti",
-    email_sent: rev ? `${rev} e-posta ile gönderildi` : "E-posta gönderildi",
-    email_failed: rev ? `${rev} e-postası gönderilemedi` : "E-posta gönderilemedi",
-    offer_cancelled: "Teklif arşivlendi / iptal edildi",
+          : L.share_link_revoked,
+    customer_viewed: rev ? `Müşteri ${revAcc} görüntüledi` : L.customer_viewed,
+    customer_accepted: rev ? `Müşteri ${revAcc} kabul etti` : L.customer_accepted,
+    customer_rejected: rev ? `Müşteri ${revAcc} reddetti` : L.customer_rejected,
+    email_sent: rev ? `${rev} e-posta ile gönderildi` : L.email_sent,
+    email_failed: rev ? `${rev} e-postası gönderilemedi` : L.email_failed,
+    offer_cancelled: L.offer_cancelled,
     project_created:
       typeof e.metadata?.project_no === "string"
         ? `Projeye dönüştürüldü (${e.metadata.project_no})`
-        : "Teklif projeye dönüştürüldü",
+        : L.project_created,
   };
   return map[e.event_type] ?? e.event_type;
 }

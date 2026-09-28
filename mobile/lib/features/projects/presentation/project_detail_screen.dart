@@ -51,18 +51,26 @@ class _GroupDef {
   const _GroupDef(this.label, this.visible, this.builder);
   final String label;
   final bool Function(User? user) visible;
-  final Widget Function(String projectId, Project project) builder;
+  final Widget Function(String projectId, Project project, String? initialView) builder;
 }
+
+/// Derin bağlantı `?grup=` değeri -> grup etiketi (ana sayfa, spec D4).
+const _groupParam = {
+  'ozet': 'Özet',
+  'finans': 'Finans',
+  'operasyon': 'Operasyon',
+  'dokumanlar': 'Dokümanlar',
+};
 
 bool _failOpen(User? user, String permission) =>
     user == null || user.permissions.isEmpty || user.hasPermission(permission);
 
 final _groupDefs = <_GroupDef>[
-  _GroupDef('Özet', (user) => true, (id, p) => _OverviewTab(projectId: id, project: p)),
+  _GroupDef('Özet', (user) => true, (id, p, _) => _OverviewTab(projectId: id, project: p)),
   _GroupDef(
     'Finans',
     (user) => _failOpen(user, 'projects.finance.read') || _failOpen(user, 'projects.cost_control.read'),
-    (id, p) => _FinansGroupTab(projectId: id, project: p),
+    (id, p, view) => _FinansGroupTab(projectId: id, project: p, initialView: view),
   ),
   _GroupDef(
     'Operasyon',
@@ -70,27 +78,37 @@ final _groupDefs = <_GroupDef>[
         _failOpen(user, 'projects.subcontracts.read') ||
         _failOpen(user, 'projects.procurement.read') ||
         _failOpen(user, 'projects.tasks.read'),
-    (id, p) => _OperasyonGroupTab(projectId: id),
+    (id, p, view) => _OperasyonGroupTab(projectId: id, initialView: view),
   ),
   _GroupDef(
     'Dokümanlar',
     (user) => _failOpen(user, 'projects.operations.read'),
-    (id, p) => _DokumanlarGroupTab(projectId: id),
+    (id, p, view) => _DokumanlarGroupTab(projectId: id, initialView: view),
   ),
 ];
 
 class ProjectDetailScreen extends ConsumerWidget {
-  const ProjectDetailScreen({super.key, required this.projectId});
+  const ProjectDetailScreen({super.key, required this.projectId, this.initialGroup, this.initialView});
   final String projectId;
+
+  /// `?grup=ozet|finans|operasyon|dokumanlar` -- görünür değilse Özet.
+  final String? initialGroup;
+
+  /// `?alt=` -- grubun alt görünümü (finans|ek-isler|maliyet,
+  /// taseronlar|satin-alma|gorevler, dosyalar|notlar); görünür değilse ilki.
+  final String? initialView;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final projectAsync = ref.watch(projectDetailProvider(projectId));
     final user = ref.watch(authControllerProvider).valueOrNull;
     final visibleGroups = _groupDefs.where((g) => g.visible(user)).toList();
+    final requestedLabel = _groupParam[initialGroup];
+    final initialIndex = requestedLabel == null ? 0 : visibleGroups.indexWhere((g) => g.label == requestedLabel);
 
     return DefaultTabController(
       length: visibleGroups.length,
+      initialIndex: initialIndex < 0 ? 0 : initialIndex,
       child: AppPageScaffold(
         title: projectAsync.maybeWhen(
           data: (p) => Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -111,7 +129,10 @@ class ProjectDetailScreen extends ConsumerWidget {
           value: projectAsync,
           onRetry: () async => ref.invalidate(projectDetailProvider(projectId)),
           data: (context, project) => TabBarView(
-            children: [for (final g in visibleGroups) g.builder(projectId, project)],
+            children: [
+              for (final g in visibleGroups)
+                g.builder(projectId, project, g.label == requestedLabel ? initialView : null),
+            ],
           ),
         ),
       ),
@@ -355,9 +376,12 @@ enum _FinansView { finans, ekIsler, maliyetKontrolu }
 /// `projects.cost_control.read`, diğer ikisi `projects.finance.read`) --
 /// grubun kendisi görünürse bile alt-sekmelerden biri gizli kalabilir.
 class _FinansGroupTab extends ConsumerStatefulWidget {
-  const _FinansGroupTab({required this.projectId, required this.project});
+  const _FinansGroupTab({required this.projectId, required this.project, this.initialView});
   final String projectId;
   final Project project;
+
+  /// `?alt=finans|ek-isler|maliyet` (ana sayfa derin bağlantısı).
+  final String? initialView;
 
   @override
   ConsumerState<_FinansGroupTab> createState() => _FinansGroupTabState();
@@ -377,7 +401,15 @@ class _FinansGroupTabState extends ConsumerState<_FinansGroupTab> {
       if (canFinance) const ButtonSegment(value: _FinansView.ekIsler, label: Text('Ek İşler')),
       if (canCostControl) const ButtonSegment(value: _FinansView.maliyetKontrolu, label: Text('Maliyet Kontrolü')),
     ];
-    _view ??= segments.isEmpty ? null : segments.first.value;
+    final requested = switch (widget.initialView) {
+      'finans' => _FinansView.finans,
+      'ek-isler' => _FinansView.ekIsler,
+      'maliyet' => _FinansView.maliyetKontrolu,
+      _ => null,
+    };
+    _view ??= segments.any((s) => s.value == requested)
+        ? requested
+        : (segments.isEmpty ? null : segments.first.value);
     if (_view == null) return const SizedBox.shrink();
 
     return Column(
@@ -406,8 +438,11 @@ enum _OperasyonView { taseronlar, satinAlma, gorevler }
 
 /// "Operasyon" grubu -- Taşeronlar/Satın Alma/Görevler arasında geçer.
 class _OperasyonGroupTab extends ConsumerStatefulWidget {
-  const _OperasyonGroupTab({required this.projectId});
+  const _OperasyonGroupTab({required this.projectId, this.initialView});
   final String projectId;
+
+  /// `?alt=taseronlar|satin-alma|gorevler` (ana sayfa derin bağlantısı).
+  final String? initialView;
 
   @override
   ConsumerState<_OperasyonGroupTab> createState() => _OperasyonGroupTabState();
@@ -427,7 +462,15 @@ class _OperasyonGroupTabState extends ConsumerState<_OperasyonGroupTab> {
       if (_failOpen(user, 'projects.tasks.read'))
         const ButtonSegment(value: _OperasyonView.gorevler, label: Text('Görevler')),
     ];
-    _view ??= segments.isEmpty ? null : segments.first.value;
+    final requested = switch (widget.initialView) {
+      'taseronlar' => _OperasyonView.taseronlar,
+      'satin-alma' => _OperasyonView.satinAlma,
+      'gorevler' => _OperasyonView.gorevler,
+      _ => null,
+    };
+    _view ??= segments.any((s) => s.value == requested)
+        ? requested
+        : (segments.isEmpty ? null : segments.first.value);
     if (_view == null) return const SizedBox.shrink();
 
     return Column(
@@ -458,15 +501,19 @@ enum _DokumanlarView { dosyalar, notlar }
 /// izni (`projects.operations.read`) paylaştığı için alt-segment listesi
 /// hiçbir zaman boş kalmaz (grup zaten bu izne göre gizlendi).
 class _DokumanlarGroupTab extends StatefulWidget {
-  const _DokumanlarGroupTab({required this.projectId});
+  const _DokumanlarGroupTab({required this.projectId, this.initialView});
   final String projectId;
+
+  /// `?alt=dosyalar|notlar` (ana sayfa derin bağlantısı).
+  final String? initialView;
 
   @override
   State<_DokumanlarGroupTab> createState() => _DokumanlarGroupTabState();
 }
 
 class _DokumanlarGroupTabState extends State<_DokumanlarGroupTab> {
-  _DokumanlarView _view = _DokumanlarView.dosyalar;
+  late _DokumanlarView _view =
+      widget.initialView == 'notlar' ? _DokumanlarView.notlar : _DokumanlarView.dosyalar;
 
   @override
   Widget build(BuildContext context) {

@@ -1,264 +1,294 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 
 import '../../../app/app_shell.dart';
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_status_colors.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_card.dart';
-import '../../../core/widgets/app_section_header.dart';
-import '../../../core/widgets/async_state_view.dart';
-import '../../../core/widgets/metric_card.dart';
-import '../../../core/widgets/quick_action_button.dart';
-import '../../customers/presentation/customer_form_sheet.dart';
+import '../../auth/domain/user.dart';
 import '../../notifications/data/notifications_providers.dart';
-import '../../projects/data/projects_providers.dart';
-import '../../projects/presentation/project_list_card.dart';
-import '../../tasks/data/tasks_providers.dart';
+import '../data/dashboard_providers.dart';
+import '../domain/dashboard.dart';
+import '../domain/dashboard_registry.dart';
+import 'widgets/activity_card.dart';
+import 'widgets/attention_card.dart';
+import 'widgets/cash_flow_card.dart';
+import 'widgets/dashboard_header.dart';
+import 'widgets/dashboard_skeleton.dart';
+import 'widgets/kpi_grid.dart';
+import 'widgets/module_band.dart';
+import 'widgets/module_card.dart';
+import 'widgets/my_tasks_card.dart';
+import 'widgets/onboarding_card.dart';
+import 'widgets/quick_actions_row.dart';
+import 'widgets/shortcuts_grid.dart';
+import 'widgets/stale_banner.dart';
 
-/// Backend'de özel bir dashboard/özet ucu YOK (bkz. MOBILE_BACKEND_GAPS.md).
-/// Bu ekran yalnızca zaten var olan uçlardan (projeler, görevlerim,
-/// bildirim sayacı) minimum sayıda istekle bir özet kurar; hiçbir toplam
-/// mobilde yeniden hesaplanmaz, hiçbir yeni backend ucu İCAT EDİLMEZ.
-/// "Bugün dikkat gerektirenler" YALNIZCA gecikmiş görevlerdir -- PR/RFQ/PO/
-/// taşeron/hakediş onaylarını TEK bir sorguda birleştiren bir backend ucu
-/// yok, bu yüzden burada sahte bir "onay bekleyenler" widget'ı İCAT
-/// EDİLMEDİ (bkz. redesign denetim raporu, Açık Karar #2).
-class DashboardScreen extends ConsumerWidget {
+/// Ana Sayfa -- tek uçtan (GET /dashboard, bkz. dashboard_providers.dart)
+/// beslenen "bölüm bölüm özet" (spec §6). Hangi kartın görüneceğine SUNUCU
+/// karar verir (anahtarı olmayan bölüm = izin yok, kart çizilmez); istemci
+/// yalnızca hızlı işlem butonları ve iskelet tahmini için izne bakar.
+/// Mobil hiçbir toplamı yeniden hesaplamaz -- yalnızca biçimler ve oranları
+/// çizer. "Bugün" sunucunun İstanbul günüdür; cihaz saati yalnızca "5 dk'dan
+/// eski veri" kararında, verinin CİHAZDA alındığı anla farkı olarak
+/// kullanılır (bkz. dashboardReceivedAt).
+///
+/// Sıra: karşılama · Nabız (ya da kurulum rehberi) · Dikkat Gerektirenler ·
+/// Hızlı İşlemler · Nakit Akışı / Görevlerim · bantlar · Son Hareketler.
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  static const _staleAfter = Duration(minutes: 5);
+
+  final _scroll = ScrollController();
+  late final AppLifecycleListener _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycle = AppLifecycleListener(onResume: _onResume);
+  }
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  /// Uygulamaya dönüldüğünde veri 5 dakikadan eskiyse yenile (spec §6.2).
+  /// Yaş, verinin cihazda alındığı andan ölçülür -- sunucu saatiyle cihaz
+  /// saati karşılaştırılmaz (saat kayması eşiği kaydırırdı).
+  void _onResume() {
+    if (!mounted) return;
+    final data = ref.read(dashboardProvider).valueOrNull;
+    final received = data == null ? null : dashboardReceivedAt[data];
+    if (received == null || DateTime.now().difference(received) > _staleAfter) {
+      refreshDashboard(ref);
+    }
+  }
+
+  Future<void> _refresh() => refreshDashboard(ref);
+
+  void _scrollToTopAndRefresh() {
+    if (_scroll.hasClients) {
+      _scroll.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+    }
+    _refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen<int>(homeTabReselectProvider, (_, _) => _scrollToTopAndRefresh());
     final user = ref.watch(authControllerProvider).valueOrNull;
-    final activeProjects = ref.watch(projectsListProvider('active'));
-    final myTasks = ref.watch(myTasksProvider('open'));
-    final unreadCount = ref.watch(unreadNotificationCountProvider).maybeWhen(data: (c) => c, orElse: () => 0);
+    final async = ref.watch(dashboardProvider);
+    final unread = ref.watch(unreadNotificationCountProvider).maybeWhen(data: (c) => c, orElse: () => 0);
+    final data = async.valueOrNull;
 
-    final overdueTasks = myTasks.maybeWhen(
-      data: (items) => items.where((i) => i.$1.isOverdue).toList(),
-      orElse: () => const <ProjectTaskWithProject>[],
-    );
-
-    final nameParts = (user?.fullName ?? '').trim().split(RegExp(r'\s+'));
-    final firstName = nameParts.isEmpty ? '' : nameParts.first;
-    final canCreateOffer = user == null || user.permissions.isEmpty || user.hasPermission('offers.create');
-    final canSeeMetraj = user == null || user.permissions.isEmpty || user.hasPermission('calculations.read');
-    final canManageCustomers = user == null || user.permissions.isEmpty || user.hasPermission('customers.manage');
-
-    void refreshAll() {
-      ref.invalidate(projectsListProvider('active'));
-      ref.invalidate(myTasksProvider('open'));
-      ref.invalidate(unreadNotificationCountProvider);
+    final Widget body;
+    if (data != null) {
+      body = _DashboardContent(data: data, user: user, stale: async.hasError, controller: _scroll, onRefresh: _refresh);
+    } else if (async.hasError && !async.isLoading) {
+      // Yatay boşluk parça başınadır: hızlı işlem şeridi ekran kenarına
+      // kadar uzanır (bkz. QuickActionsRow.inset).
+      body = ListView(
+        controller: _scroll,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.symmetric(vertical: kScreenPadding.top),
+        children: [
+          _inset(DashboardHeader(user: user, data: null)),
+          const SizedBox(height: AppSpacing.xl),
+          _inset(_DashboardUnavailable(onRetry: _refresh)),
+          // Hızlı işlemler özetten bağımsızdır -- özet alınamasa da kalır.
+          if (quickActionsFor(user).isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.xl),
+            QuickActionsRow(actions: quickActionsFor(user), inset: kScreenPadding.left),
+          ],
+          const SizedBox(height: AppSpacing.xl),
+          _inset(ShortcutsGrid(user: user)),
+        ],
+      );
+    } else {
+      body = ListView(
+        controller: _scroll,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: kScreenPadding,
+        children: [
+          DashboardHeader(user: user, data: null, loading: true),
+          const SizedBox(height: AppSpacing.xl),
+          DashboardSkeleton(plan: predictSections(user)),
+        ],
+      );
     }
 
     return Scaffold(
-      appBar: buildAppBar('Ana Sayfa', actions: [
-        IconButton(
-          icon: Badge(
-            label: Text('$unreadCount'),
-            isLabelVisible: unreadCount > 0,
-            child: const Icon(Icons.notifications_outlined),
-          ),
-          tooltip: 'Bildirimler',
-          onPressed: () => context.push('/diger/bildirimler'),
-        ),
-      ]),
-      body: RefreshIndicator(
-        onRefresh: () async => refreshAll(),
-        child: ListView(
-          padding: kScreenPadding,
-          children: [
-            Text(
-              firstName.isEmpty ? 'Merhaba' : 'Merhaba, $firstName',
-              style: AppTypography.pageTitle,
+      appBar: buildAppBar(
+        'Ana Sayfa',
+        actions: [
+          IconButton(
+            icon: Badge(
+              label: Text('$unread'),
+              isLabelVisible: unread > 0,
+              child: const Icon(Icons.notifications_outlined),
             ),
-            if ((user?.organizationName ?? '').isNotEmpty) ...[
-              const SizedBox(height: 2),
-              Text(user!.organizationName, style: AppTypography.metadata),
-            ],
-            const SizedBox(height: AppSpacing.lg),
-            _BrandDayCard(),
-            const SizedBox(height: AppSpacing.xl),
-            const AppSectionHeader(title: 'Bugün'),
-            const SizedBox(height: AppSpacing.sm),
-            Row(
-              children: [
-                Expanded(
-                  child: MetricCard(
-                    icon: Icons.warning_amber_rounded,
-                    label: 'Gecikmiş Görev',
-                    value: '${overdueTasks.length}',
-                    valueColor: overdueTasks.isNotEmpty ? AppStatusColors.error : null,
-                    onTap: () => context.go('/gorevler'),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: MetricCard(
-                    icon: Icons.notifications_outlined,
-                    label: 'Okunmamış Bildirim',
-                    value: '$unreadCount',
-                    valueColor: unreadCount > 0 ? AppStatusColors.info : null,
-                    onTap: () => context.push('/diger/bildirimler'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.xl),
-            AppSectionHeader(
-              title: 'Aktif Projeler',
-              trailing: TextButton(onPressed: () => context.go('/projeler'), child: const Text('Tümü')),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            AsyncStateView(
-              value: activeProjects,
-              onRetry: () async => ref.invalidate(projectsListProvider('active')),
-              isEmpty: (r) => r.projects.isEmpty,
-              emptyBuilder: (_) => const Padding(
-                padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
-                child: EmptyStateView(message: 'Aktif proje yok.'),
-              ),
-              data: (context, r) => Column(
-                children: r.projects
-                    .take(5)
-                    .map((p) => ProjectListCard(project: p, onTap: () => context.push('/projeler/${p.id}')))
-                    .toList(),
-              ),
-            ),
-            if (overdueTasks.isNotEmpty) ...[
-              const SizedBox(height: AppSpacing.xl),
-              const AppSectionHeader(title: 'Dikkat Gerektirenler'),
-              const SizedBox(height: AppSpacing.sm),
-              ...overdueTasks.take(4).map((item) {
-                final (task, projectId, projectName) = item;
-                return _AttentionRow(
-                  title: task.title,
-                  subtitle: projectName,
-                  dueDate: task.dueDate,
-                  onTap: () => context.push('/projeler/$projectId/gorevler/${task.id}'),
-                );
-              }),
-            ],
-            const SizedBox(height: AppSpacing.xl),
-            const AppSectionHeader(title: 'Hızlı İşlemler'),
-            const SizedBox(height: AppSpacing.sm),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  if (canCreateOffer)
-                    QuickActionButton(
-                      icon: Icons.description_outlined,
-                      label: 'Teklif Oluştur',
-                      onPressed: () => context.push('/teklifler/yeni'),
-                    ),
-                  if (canSeeMetraj) ...[
-                    const SizedBox(width: AppSpacing.sm),
-                    QuickActionButton(
-                      icon: Icons.calculate_outlined,
-                      label: 'Metraj Hesapla',
-                      onPressed: () => context.push('/diger/metraj'),
-                    ),
-                  ],
-                  const SizedBox(width: AppSpacing.sm),
-                  QuickActionButton(
-                    icon: Icons.receipt_long_outlined,
-                    label: 'Masraf Ekle',
-                    onPressed: () => context.go('/projeler'),
-                  ),
-                  if (canManageCustomers) ...[
-                    const SizedBox(width: AppSpacing.sm),
-                    QuickActionButton(
-                      icon: Icons.person_add_alt_outlined,
-                      label: 'Müşteri Ekle',
-                      onPressed: () => showModalBottomSheet(
-                        context: context,
-                        isScrollControlled: true,
-                        useSafeArea: true,
-                        builder: (sheetContext) => const CustomerFormSheet(),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Kompakt, kısıtlı bir marka/gün kartı -- büyük bir pazarlama görseli
-/// DEĞİL, yalnızca ArvenYapı işareti + bugünün tarihi.
-class _BrandDayCard extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final today = DateFormat('d MMMM yyyy, EEEE', 'tr_TR').format(DateTime.now());
-    return AppCard(
-      color: AppColors.gold.withValues(alpha: 0.07),
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(color: AppColors.gold.withValues(alpha: 0.16), shape: BoxShape.circle),
-            child: const Icon(Icons.foundation_outlined, color: AppColors.gold, size: 20),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('ArvenYapı', style: AppTypography.cardTitle),
-                Text(today, style: AppTypography.metadata),
-              ],
-            ),
+            tooltip: 'Bildirimler',
+            onPressed: () => context.push('/diger/bildirimler'),
           ),
         ],
       ),
+      body: RefreshIndicator(onRefresh: _refresh, child: body),
     );
   }
 }
 
-class _AttentionRow extends StatelessWidget {
-  const _AttentionRow({required this.title, required this.subtitle, required this.dueDate, required this.onTap});
-  final String title;
-  final String subtitle;
-  final String? dueDate;
-  final VoidCallback onTap;
+/// Sayfa parçasına ekranın yatay kenar boşluğunu verir.
+Widget _inset(Widget child) => Padding(
+  padding: EdgeInsets.symmetric(horizontal: kScreenPadding.left),
+  child: child,
+);
+
+class _DashboardContent extends ConsumerWidget {
+  const _DashboardContent({
+    required this.data,
+    required this.user,
+    required this.stale,
+    required this.controller,
+    required this.onRefresh,
+  });
+
+  final Dashboard data;
+  final User? user;
+  final bool stale;
+  final ScrollController controller;
+  final Future<void> Function() onRefresh;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hiddenKey = onboardingHiddenKey(user?.organizationId ?? '', data.viewer.userId);
+    final hiddenAsync = data.onboarding == null ? null : ref.watch(onboardingHiddenProvider(hiddenKey));
+    // "Gizle" tercihi henüz okunmadıysa düzen seçilmez: aksi halde önce
+    // kurulum düzeni çizilip tercih gelince normal düzene zıplardı.
+    if (hiddenAsync != null && !hiddenAsync.hasValue) {
+      return ListView(
+        controller: controller,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: kScreenPadding,
+        children: [
+          DashboardHeader(user: user, data: data),
+          const SizedBox(height: AppSpacing.xl),
+          DashboardSkeleton(plan: predictSections(user)),
+        ],
+      );
+    }
+    final hidden = hiddenAsync?.valueOrNull ?? false;
+    final onboarding = onboardingActive(data, hidden: hidden);
+    final kpis = pickKpis(data);
+    final panel = onboarding ? SecondaryPanel.none : secondaryPanel(data);
+    final actions = quickActionsFor(user);
+    final bands = layoutBands(data, onboardingActive: onboarding);
+    // Son Hareketler: kayıt varsa ya da bölüm o an hesaplanamadıysa (kart
+    // başlığıyla hata gövdesi, spec §6.7).
+    final hasActivity = (data.sections.activity?.items.isNotEmpty ?? false) || data.sectionErrors.contains('activity');
+
+    void onQuickAction(QuickActionKey action) => runQuickAction(context, action);
+    final cardContext = DashCardContext(
+      data: data,
+      user: user,
+      onboardingActive: onboarding,
+      hideTaskList: panel == SecondaryPanel.myTasks,
+      onQuickAction: onQuickAction,
+      onRetry: onRefresh,
+    );
+
+    // Parçalar kendi yatay boşluğuyla (_inset) çizilir; yalnızca hızlı
+    // işlem şeridi ekran kenarına kadar uzanır ki kısmen görünen kutucuk
+    // içerik kenarında kesilmek yerine ekranın altından kaysın.
+    final zones = <Widget>[
+      if (onboarding)
+        _inset(
+          OnboardingCard(
+            onboarding: data.onboarding!,
+            user: user,
+            onHide: () => ref.read(onboardingHiddenProvider(hiddenKey).notifier).setHidden(true),
+            onQuickAction: onQuickAction,
+          ),
+        )
+      else if (kpis.length >= 2)
+        _inset(KpiGrid(data: data, kpis: kpis)),
+      if (!onboarding) _inset(AttentionCard(data: data)),
+      if (actions.isNotEmpty) QuickActionsRow(actions: actions, inset: kScreenPadding.left),
+      if (panel == SecondaryPanel.cash) _inset(CashFlowCard(data: data, onRetry: onRefresh)),
+      if (panel == SecondaryPanel.myTasks) _inset(MyTasksCard(data: data)),
+      for (final band in bands) _inset(ModuleBand(band: band, cardContext: cardContext)),
+      if (hasActivity) _inset(ActivityCard(data: data, onRetry: onRefresh)),
+    ];
+
+    return CustomScrollView(
+      controller: controller,
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        SliverPadding(
+          padding: EdgeInsets.symmetric(vertical: kScreenPadding.top),
+          // Sayfa sonlu (~25 parça) -- tek sütun halinde çizilir ki
+          // ekran dışı kartlar da ağaçta olsun (erişilebilirlik/testler).
+          sliver: SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _inset(DashboardHeader(user: user, data: data)),
+                if (stale) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  _inset(StaleBanner(generatedAt: data.generatedAt, onRetry: onRefresh)),
+                ],
+                if (data.onboarding != null && hidden) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  _inset(
+                    OnboardingHiddenBar(
+                      onShow: () => ref.read(onboardingHiddenProvider(hiddenKey).notifier).setHidden(false),
+                    ),
+                  ),
+                ],
+                for (final zone in zones) ...[const SizedBox(height: AppSpacing.xl), zone],
+                const SizedBox(height: AppSpacing.lg),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Özet hiç alınamadı (ilk yükleme hatası): karşılama + bu kart + kısayollar.
+class _DashboardUnavailable extends StatelessWidget {
+  const _DashboardUnavailable({required this.onRetry});
+
+  final Future<void> Function() onRetry;
 
   @override
   Widget build(BuildContext context) {
     return AppCard(
-      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-      onTap: onTap,
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.md),
-      child: Row(
+      child: Column(
         children: [
-          const Icon(Icons.warning_amber_rounded, color: AppStatusColors.error, size: 20),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: AppTypography.body, maxLines: 1, overflow: TextOverflow.ellipsis),
-                Text(
-                  dueDate == null ? subtitle : '$subtitle · ${Formatters.date(dueDate)}',
-                  style: AppTypography.metadata,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
+          const Icon(Icons.error_outline, color: AppColors.danger, size: 36),
+          const SizedBox(height: AppSpacing.md),
+          const Text('Özet yüklenemedi', style: AppTypography.cardTitle, textAlign: TextAlign.center),
+          const SizedBox(height: AppSpacing.xs),
+          const Text(
+            'Bağlantını kontrol edip tekrar dene. Modüllere aşağıdaki kısayollardan ulaşabilirsin.',
+            style: AppTypography.metadata,
+            textAlign: TextAlign.center,
           ),
-          const Icon(Icons.chevron_right, color: AppColors.textMuted),
+          const SizedBox(height: AppSpacing.md),
+          OutlinedButton(onPressed: onRetry, child: const Text(kCopyRetry)),
         ],
       ),
     );

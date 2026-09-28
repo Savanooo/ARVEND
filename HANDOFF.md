@@ -7,8 +7,8 @@ diğer `docs/*.md`/`mobile/*.md` dosyalarındadır. Bu dosyayı OTURUM SONUNDA
 tekrar güncellemek (yeni fazlar eklendikçe) iyi bir pratiktir, ama otomatik
 değildir — bir sonraki oturum bunu elle güncellemelidir.
 
-Son güncelleme: 2026-09-28, commit `1b83e81`'e kadar (bu dosyanın kendi
-commit'i hariç). 2026-09-26/28 oturumunun özeti §7'de.
+Son güncelleme: 2026-09-28, yeni ana sayfa (dashboard) commit'i dahil.
+2026-09-26/28 oturumunun özeti §7'de, ana sayfa §7.1'de.
 
 ---
 
@@ -54,7 +54,7 @@ ARVEND/
   (`RequireAuth`, `RequireTenant`, `RequireOnboarded`, `RequirePermission`,
   `RequireProjectPermission`) + `router.go` (tüm route wiring).
 - `db/migrations/` — `golang-migrate` migration'ları, numaralı (`0001`...
-  `0046` şu an en yüksek; `0044`-`0046` canlıda HENÜZ çalıştırılmadı).
+  `0047` şu an en yüksek; `0044`-`0047` canlıda HENÜZ çalıştırılmadı).
 
 ### Frontend (`frontend/`)
 - `app/(app)/` — normal KİRACI uygulaması (teklifler, projeler, vb.).
@@ -444,6 +444,38 @@ admin, legacy_user, project_manager, finance, field) × ~37 sayfa taramasında
 0 çökme. Ulaş (628) ve Demir Profil (3.022) senkronu yerel test firması
 "Deneme Magaza"da canlı denendi.
 
+## 7.1 Ana sayfa (dashboard) — 2026-09-28
+
+Web `/admin` + `/panel` ve mobil "Ana Sayfa" sekmesi baştan tasarlandı.
+Bağlayıcı tasarım şartnamesi: **`docs/dashboard/SPEC.md`** (kodda "spec §…",
+"spec D…" diye anılır); ortak test verisi `docs/dashboard/fixtures/*.json`
+(owner, empty_company, field, finance) — backend sözleşme testi, web node
+testleri ve mobil model/golden testleri AYNI fixture'ları kullanır.
+
+- **Backend:** tek uç `GET /api/v1/dashboard` — tek RepeatableRead salt-okunur
+  snapshot, her bölüm kendi SAVEPOINT'inde (bir bölüm hata verirse yalnızca o
+  bölüm hata işaretiyle döner). Bölüm yoksa = izin yok; izinli bölüm içindeki
+  yetkiye bağlı alan `null`. Proje bazlı sayılar üyelik kuralına uyar. Maaş,
+  kâr oranı, tedarikçi fiyatı ASLA dönmez. `GET /dashboard/project-options`
+  para içermeyen proje seçici. Migration `0047` yalnızca indeks.
+  Veritabanı oturum saat dilimi artık kodda `Europe/Istanbul`'a sabit
+  (`repository/pool.go`), `CURRENT_DATE` her ortamda İstanbul günü.
+- **Sayfa:** selamlama + hızlı işlemler → özet cümle → Nabız (en çok 4 KPI) →
+  Dikkat Gerektirenler (Senin sıran / Takipte / Yaklaşan 14 gün) + Nakit Akışı
+  (6 ay) veya Görevlerim → 18 bölüm kartı 4 bantta (Nakit & Satış, Proje &
+  Saha, Tedarik & Maliyet, Firma Kayıtları) → Son Hareketler + Bildirimler.
+  Grafik kütüphanesi yok (ProgressBar/SegmentBar/PairedBars elle çizildi).
+  Para gösterimi: 1 milyon altı tam, üstü "12,5 Mn TL" / "1,2 Mr TL".
+- **Mobil golden testleri:** `mobile/test/features/dashboard/goldens/`
+  (360×800, 412×915, 360 tam sayfa × 4 persona). Görsel değişiklikte
+  `flutter test test/features/dashboard --update-goldens` ile yenilenir.
+- **Örnek veri:** "Deneme Magaza" test firmasına API üzerinden gerçekçi
+  demo veri girildi (6 müşteri, 13 teklif, 5 proje, görevler, mesai, satın
+  alma, taşeron vb.) — yalnızca yerel dev DB.
+- Doğrulama: backend testleri, web 231 node testi + build, mobil 447 test
+  yeşil; 6 rol web taramasında 0 çökme; Saha kullanıcısının yanıtında/DOM'unda
+  hiç para değeri yok.
+
 ---
 
 ## 8. Bilinen eksikler / bir sonraki oturumun bilmesi gerekenler
@@ -452,8 +484,14 @@ admin, legacy_user, project_manager, finance, field) × ~37 sayfa taramasında
   `HANDOFF.md` şimdilik daha güncel referans.
 - **Backend production'a HENÜZ dağıtılmadı** (`docs/production-deployment-
   plan-szutech2.md`'de plan var, "HENÜZ UYGULANMADI" olarak işaretli —
-  bkz. mobile/RELEASE.md §14). Canlıya çıkarken `0044`-`0046`
+  bkz. mobile/RELEASE.md §14). Canlıya çıkarken `0044`-`0047`
   migration'ları çalışmalı.
+- **Bilinen veri sızıntıları (ayrı iş olarak işaretlendi, düzeltilmedi):**
+  `GET /projects` finans izni olmayana (Saha, Proje Yöneticisi) proje
+  tutarlarını döndürüyor; `GET /projects/{id}/events` tahsilat/masraf
+  olaylarının tutarlarını döndürüyor; proje listesindeki gerçekleşen maliyet
+  proje özetindeki formülden eksik hesaplanıyor. Ana sayfa bunları
+  KULLANMAZ (bkz. `docs/dashboard/SPEC.md` §9 madde 8).
 - **Arvend Yapı'nın (canlı firma) kataloğu** hâlâ 2026-09-12'deki tek
   seferlik BYZ aktarımından; Ulaş/Demir Profil'den hiç senkronlanmadı, gece
   otomatiği kapalı — açmak firma sahibinin kararı.
@@ -498,6 +536,8 @@ cd mobile && flutter analyze && flutter test && flutter build apk --debug
 ## 10. İlgili diğer dokümanlar (bu dosyanın DETAYLARINI taşımaz, yalnızca işaret eder)
 
 - `backend/docs/authorization.md` — RBAC/izin modeli tam referansı.
+- `docs/dashboard/SPEC.md` — ana sayfa (dashboard) tasarım şartnamesi,
+  `docs/dashboard/fixtures/` ortak test verisi.
 - `docs/super-admin-provisioning.md` — platform admin nasıl oluşturulur.
 - `docs/cost-control.md`, `docs/contracts.md`, `docs/procurement.md`,
   `docs/subcontracts.md`, `docs/teklif-modulu.md` — modül mimarisi.

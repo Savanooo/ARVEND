@@ -1,26 +1,14 @@
-import { Card, CardBody, CardHeader } from "@/components/ui/Card";
-import { PageHeader } from "@/components/layout/PageHeader";
+import type { Metadata } from "next";
+
+import { HomeDashboard } from "@/components/dashboard/HomeDashboard";
 import { requireAdminRole } from "@/lib/auth";
 
-export default async function AdminOzetPage() {
+export const metadata: Metadata = { title: "Ana Sayfa" };
+
+// Sahip/Yönetici ana sayfası (kaba rol admin). Diğer üyeler /panel'e
+// yönlendirilir; ikisi de AYNI özeti gösterir, içerik izinlere göre sunucuda
+// belirlenir (GET /api/v1/dashboard).
+export default async function AdminAnaSayfaPage() {
   const user = await requireAdminRole();
-  return (
-    <>
-      <PageHeader title="Özet" />
-      <div className="p-8">
-        <Card className="max-w-md">
-          <CardHeader>Hoş Geldin</CardHeader>
-          <CardBody>
-            <p className="text-sm text-text-muted">
-              Merhaba <span className="font-semibold text-text">{user?.full_name}</span>,
-              Arvend Yapı yönetim paneline hoş geldin. Sistemdeki kullanıcıları
-              sol menüdeki <span className="text-gold">Kullanıcılar</span>{" "}
-              sekmesinden yönetebilirsin. Diğer modüller (teklif, personel,
-              mesai, maaş, borç/alacak) sırayla eklenecek.
-            </p>
-          </CardBody>
-        </Card>
-      </div>
-    </>
-  );
+  return <HomeDashboard user={user} />;
 }

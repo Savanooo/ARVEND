@@ -30,11 +30,11 @@ export function Sidebar({
     <aside
       className={`app-sidebar ${collapsed ? "app-sidebar-collapsed" : ""} relative flex h-screen shrink-0 flex-col justify-between overflow-hidden border-r border-sidebar-border bg-sidebar-bg text-sidebar-text`}
     >
-      <div className={`relative z-10 flex flex-col gap-8 p-5 ${collapsed ? "items-center px-3" : ""}`}>
-        <div className={`flex items-center gap-3 ${collapsed ? "flex-col gap-2" : ""}`}>
+      <div className={`sidebar-section relative z-10 flex flex-col gap-8 p-5 ${collapsed ? "items-center px-3" : ""}`}>
+        <div className={`sidebar-brand flex items-center gap-3 ${collapsed ? "flex-col gap-2" : ""}`}>
           <Logo />
           {!collapsed && (
-            <div>
+            <div className="sidebar-label">
               <div className="text-sm font-bold uppercase tracking-widest">{brand.title}</div>
               <div className="text-[11px] text-sidebar-text-muted">{brand.subtitle}</div>
             </div>
@@ -44,11 +44,11 @@ export function Sidebar({
       </div>
 
       <div
-        className={`relative z-10 flex flex-col gap-3 border-t border-sidebar-border p-5 ${collapsed ? "items-center px-3" : ""}`}
+        className={`sidebar-section relative z-10 flex flex-col gap-3 border-t border-sidebar-border p-5 ${collapsed ? "items-center px-3" : ""}`}
       >
-        <div className={`flex items-center justify-between gap-2 ${collapsed ? "flex-col" : "w-full"}`}>
+        <div className={`sidebar-user-row flex items-center justify-between gap-2 ${collapsed ? "flex-col" : "w-full"}`}>
           {!collapsed && (
-            <div className="min-w-0">
+            <div className="sidebar-label min-w-0">
               <div className="truncate text-sm font-semibold">{user.full_name}</div>
               <div className="truncate text-[11px] uppercase tracking-widest text-sidebar-text-muted">
                 {userRoleLabel(user)}

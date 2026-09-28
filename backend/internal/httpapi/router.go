@@ -40,6 +40,7 @@ type Deps struct {
 	CostCodes         *handler.CostCodeHandler
 	Suppliers         *handler.SupplierHandler
 	Notifications     *handler.NotificationHandler
+	Dashboard         *handler.DashboardHandler
 	CORSOrigins       []string
 }
 
@@ -518,6 +519,17 @@ func NewRouter(d Deps) http.Handler {
 		// Org-seviyesinde projects.tasks.read; proje uyelik filtresi handler icinde.
 		r.With(requireAuth, requireTenant, requireOnboarded, loadAuthorization, perm(domain.PermProjectsTasksRead)).
 			Get("/tasks/mine", d.Projects.ListMyTasks)
+
+		// Ana sayfa özeti -- perm() YOK: her bölüm kendi iznini serviste
+		// değerlendirir, yetkisiz bölüm yanıtta hiç görünmez (bkz.
+		// service.DashboardService). super_admin requireTenant'ta 403
+		// tenant_context_required alır. Proje seçici GET /projects'i
+		// KULLANMAZ (o uç tutar döner) -- tutar alanı içermeyen, üyelik
+		// kapsamlı ayrı bir uçtur.
+		r.With(requireAuth, requireTenant, requireOnboarded, loadAuthorization).
+			Get("/dashboard", d.Dashboard.Get)
+		r.With(requireAuth, requireTenant, requireOnboarded, loadAuthorization, perm(domain.PermProjectsRead)).
+			Get("/dashboard/project-options", d.Dashboard.ProjectOptions)
 
 		// Bildirimler -- her zaman ÇAĞIRANIN KENDİ kaydı (user_id context'ten,
 		// istekten ASLA), bu yüzden proje üyeliği ekseni YOK -- notifications.

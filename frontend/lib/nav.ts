@@ -12,11 +12,11 @@ type GatedNavItem = NavItem & { permission?: string };
 // olsun sidebar aynı, role'e göre değişen nav listesini gösterir. "Özet"
 // admin için "Ana Sayfa" ile aynı fikri taşıdığından aynı etiketle
 // gösterilir -- route'lar (Mesai/Ürünler/Kullanıcılar dahil) DEĞİŞMEDİ.
-// İkon eşlemesi BİLİNÇLİ OLARAK burada değil, NavLinks.tsx içinde
-// (client tarafında) tutulur -- lucide ikon bileşen referansları bir
-// Server Component'ten (bu dosyanın çağrıldığı yer) "use client" olan
-// NavLinks'e prop olarak GEÇİRİLEMEZ (React Server Components ham
-// fonksiyon referanslarının sınırı geçmesine izin vermez).
+// İkon eşlemesi BİLİNÇLİ OLARAK burada değil, lib/nav-icons.ts'te tutulur
+// ve NavLinks.tsx (client) onu kendisi içe aktarır -- lucide ikon bileşen
+// referansları bir Server Component'ten (bu dosyanın çağrıldığı yer) "use
+// client" olan NavLinks'e prop olarak GEÇİRİLEMEZ (React Server Components
+// ham fonksiyon referanslarının sınırı geçmesine izin vermez).
 // Platform (super_admin) kabuğunun menüsü -- YALNIZCA backend'de karşılığı
 // olan öğeler: Firmalar (/platform/organizations + lifecycle/plan/owner
 // provisioning firma detayında), Planlar (GET /platform/plans, salt okunur

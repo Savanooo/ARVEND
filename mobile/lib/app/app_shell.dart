@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../core/auth/auth_controller.dart';
 import '../core/theme/app_colors.dart';
+import '../features/dashboard/data/dashboard_providers.dart';
 
 class _BranchTab {
   const _BranchTab(this.item, this.permission);
@@ -74,6 +75,11 @@ class AppShell extends ConsumerWidget {
           currentIndex: safeCurrentIndex,
           onTap: (tappedVisibleIndex) {
             final branchIndex = visible[tappedVisibleIndex];
+            // Zaten açık olan Ana Sayfa'ya tekrar dokunmak: ekran başa kayar
+            // ve yenilenir (bkz. DashboardScreen, homeTabReselectProvider).
+            if (branchIndex == 0 && navigationShell.currentIndex == 0) {
+              ref.read(homeTabReselectProvider.notifier).state++;
+            }
             navigationShell.goBranch(
               branchIndex,
               initialLocation: branchIndex == navigationShell.currentIndex,

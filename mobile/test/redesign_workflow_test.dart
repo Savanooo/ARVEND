@@ -9,6 +9,7 @@ import 'package:arvend/features/dashboard/presentation/dashboard_screen.dart';
 import 'package:arvend/features/offers/presentation/offer_create_screen.dart';
 import 'package:arvend/features/projects/presentation/project_detail_screen.dart';
 
+import 'features/dashboard/fixtures.dart';
 import 'test_utils/fake_api_client.dart';
 
 Map<String, dynamic> _meJson({List<String> permissions = const []}) => {
@@ -244,10 +245,11 @@ void main() {
   });
 
   group('DashboardScreen — karşılama + izin bazlı hızlı işlemler', () {
+    // Ana sayfa artık TEK uçtan (/dashboard) beslenir -- eski /projects ve
+    // /tasks/mine çağrıları yok. Gövde ortak sözleşme fixture'ıdır.
     Map<String, List<ScriptedResponse>> baseScript(List<String> permissions) => {
           '/auth/me': [(status: 200, body: _meJson(permissions: permissions))],
-          '/projects': [(status: 200, body: {'projects': <dynamic>[], 'total': 0})],
-          '/tasks/mine': [(status: 200, body: {'tasks': <dynamic>[]})],
+          '/dashboard': [(status: 200, body: fixtureJson('owner'))],
           '/notifications/unread-count': [(status: 200, body: {'unread_count': 0})],
         };
 
@@ -270,6 +272,9 @@ void main() {
 
       expect(find.text('Merhaba, Ayşe'), findsOneWidget);
       expect(find.text('ARVEND Yapı A.Ş.'), findsOneWidget);
+      expect(adapter.calls, contains('/dashboard'));
+      expect(adapter.calls, isNot(contains('/projects')));
+      expect(adapter.calls, isNot(contains('/tasks/mine')));
     });
 
     testWidgets('offers.create izni olmayan kullanıcı "Teklif Oluştur" hızlı işlemini görmez', (tester) async {

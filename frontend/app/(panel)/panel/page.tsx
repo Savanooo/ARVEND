@@ -1,23 +1,16 @@
-import { Card, CardBody, CardHeader } from "@/components/ui/Card";
-import { PageHeader } from "@/components/layout/PageHeader";
+import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+
+import { HomeDashboard } from "@/components/dashboard/HomeDashboard";
 import { getCurrentUser } from "@/lib/auth";
 
-export default async function PanelPage() {
+export const metadata: Metadata = { title: "Ana Sayfa" };
+
+// Sahip/Yönetici dışındaki üyelerin ana sayfası -- /admin ile aynı özet;
+// hangi bölümlerin görüneceğine sunucu kişinin etkin izinlerine göre karar
+// verir.
+export default async function PanelAnaSayfaPage() {
   const user = await getCurrentUser();
-  return (
-    <>
-      <PageHeader title="Ana Sayfa" />
-      <div className="p-8">
-        <Card className="max-w-md">
-          <CardHeader>Hoş Geldin</CardHeader>
-          <CardBody>
-            <p className="text-sm text-text-muted">
-              Merhaba <span className="font-semibold text-text">{user?.full_name}</span>,
-              Arvend Yapı sistemine hoş geldin.
-            </p>
-          </CardBody>
-        </Card>
-      </div>
-    </>
-  );
+  if (!user) redirect("/giris");
+  return <HomeDashboard user={user} />;
 }

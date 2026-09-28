@@ -6,6 +6,7 @@ import 'package:arvend/app/app.dart';
 import 'package:arvend/core/api/api_providers.dart';
 import 'package:arvend/core/auth/auth_controller.dart';
 
+import '../features/dashboard/fixtures.dart';
 import '../test_utils/fake_api_client.dart';
 
 /// ARVEND — SUPER ADMIN + FİRMA/MAĞAZA YÖNETİMİ + MOBİL FIRST-LOGIN
@@ -87,8 +88,8 @@ void main() {
         (status: 200, body: _meBody(role: 'super_admin', onboardingCompleted: false, onboardingStep: 'company')),
       ],
       // ARVEND Mobile TAMAMEN bir kiracı uygulamasıdır -- super_admin
-      // giriş yapar yapmaz web-only ekrana düşmeli, /projects, /offers/,
-      // /tasks/mine, /notifications/unread-count gibi HİÇBİR kiracı ucu
+      // giriş yapar yapmaz web-only ekrana düşmeli, /dashboard, /offers/,
+      // /notifications/unread-count gibi HİÇBİR kiracı ucu
       // ÇAĞRILMAMALI (bkz. app_router.dart _forcedRouteFor). Script'te bu
       // yollar KASITLI OLARAK tanımsız bırakıldı -- adapter, script'te
       // olmayan bir yola istek gelirse StateError fırlatır, bu yüzden
@@ -99,7 +100,7 @@ void main() {
     expect(find.text('Bu hesap platform yönetimi içindir. Yönetim panelini web üzerinden kullanın.'),
         findsOneWidget);
     expect(find.text('Hesap: test_kullanici'), findsOneWidget);
-    expect(find.text('Aktif Projeler'), findsNothing);
+    expect(find.text('Dikkat Gerektirenler'), findsNothing);
     expect(find.text('Firma Kurulumu'), findsNothing);
     expect(find.text('Yeni Şifre Belirleyin'), findsNothing);
     expect(adapter.calls, ['/auth/me']);
@@ -125,14 +126,15 @@ void main() {
       (tester) async {
     final adapter = FakeHttpClientAdapter(script: {
       '/auth/me': [(status: 200, body: _meBody(role: 'kullanici'))],
-      '/projects': [(status: 200, body: {'projects': <dynamic>[], 'total': 0})],
+      // Ana sayfa TEK uçtan (/dashboard) beslenir -- eski /projects ve
+      // /tasks/mine çağrıları yok.
+      '/dashboard': [(status: 200, body: fixtureJson('owner'))],
       '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
-      '/tasks/mine': [(status: 200, body: {'tasks': <dynamic>[]})],
       '/notifications/unread-count': [(status: 200, body: {'unread_count': 0})],
     });
     await _pumpApp(tester, adapter);
 
-    expect(find.text('Aktif Projeler'), findsOneWidget);
+    expect(find.text('Dikkat Gerektirenler'), findsOneWidget);
     expect(find.text('Firma Kurulumu'), findsNothing);
     expect(find.text('Yeni Şifre Belirleyin'), findsNothing);
   });
@@ -140,14 +142,15 @@ void main() {
   testWidgets('logout: Diğer > Profil > Çıkış Yap ile oturum kapanır, giriş ekranına dönülür', (tester) async {
     final adapter = FakeHttpClientAdapter(script: {
       '/auth/me': [(status: 200, body: _meBody())],
-      '/projects': [(status: 200, body: {'projects': <dynamic>[], 'total': 0})],
+      // Ana sayfa TEK uçtan (/dashboard) beslenir -- eski /projects ve
+      // /tasks/mine çağrıları yok.
+      '/dashboard': [(status: 200, body: fixtureJson('owner'))],
       '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
-      '/tasks/mine': [(status: 200, body: {'tasks': <dynamic>[]})],
       '/notifications/unread-count': [(status: 200, body: {'unread_count': 0})],
       '/auth/logout': [(status: 200, body: null)],
     });
     await _pumpApp(tester, adapter);
-    expect(find.text('Aktif Projeler'), findsOneWidget);
+    expect(find.text('Dikkat Gerektirenler'), findsOneWidget);
 
     await tester.tap(find.text('Diğer'));
     await tester.pumpAndSettle();
@@ -163,7 +166,7 @@ void main() {
 
     expect(adapter.calls, contains('/auth/logout'));
     expect(find.byType(TextFormField), findsWidgets); // Giriş ekranındaki kullanıcı adı/şifre alanları
-    expect(find.text('Aktif Projeler'), findsNothing);
+    expect(find.text('Dikkat Gerektirenler'), findsNothing);
   });
 
   group('oturum-içi organizasyon/kullanıcı engeli (FINAL entegrasyon fazı)', () {
@@ -188,25 +191,23 @@ void main() {
         'özel hesap-engeli ekranına düşülür, istek TEKRARLANMAZ', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
         '/auth/me': [(status: 200, body: _meBody(role: 'kullanici'))],
-        '/projects': [(status: 403, body: {'error': 'firma askıya alınmış veya erişilemiyor'})],
+        '/dashboard': [(status: 403, body: {'error': 'firma askıya alınmış veya erişilemiyor'})],
         '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
-        '/tasks/mine': [(status: 200, body: {'tasks': <dynamic>[]})],
         '/notifications/unread-count': [(status: 200, body: {'unread_count': 0})],
       });
       await pumpWithHooks(tester, adapter);
 
       expect(find.text('Firmanızın platform erişimi şu anda kapalı.'), findsOneWidget);
-      expect(find.text('Aktif Projeler'), findsNothing);
-      expect(adapter.calls.where((p) => p == '/projects').length, 1);
+      expect(find.text('Dikkat Gerektirenler'), findsNothing);
+      expect(adapter.calls.where((p) => p == '/dashboard').length, 1);
     });
 
     testWidgets('organizasyon engeli ekranından çıkış yapınca düz giriş ekranına dönülür (döngüye girmez)',
         (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
         '/auth/me': [(status: 200, body: _meBody(role: 'kullanici'))],
-        '/projects': [(status: 403, body: {'error': 'firma askıya alınmış veya erişilemiyor'})],
+        '/dashboard': [(status: 403, body: {'error': 'firma askıya alınmış veya erişilemiyor'})],
         '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
-        '/tasks/mine': [(status: 200, body: {'tasks': <dynamic>[]})],
         '/notifications/unread-count': [(status: 200, body: {'unread_count': 0})],
         '/auth/logout': [(status: 200, body: null)],
       });
@@ -225,16 +226,15 @@ void main() {
         'bilgilendirici mesaj gösterilir', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
         '/auth/me': [(status: 200, body: _meBody(role: 'kullanici'))],
-        '/projects': [(status: 403, body: {'error': 'kullanıcı pasif durumda'})],
+        '/dashboard': [(status: 403, body: {'error': 'kullanıcı pasif durumda'})],
         '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
-        '/tasks/mine': [(status: 200, body: {'tasks': <dynamic>[]})],
         '/notifications/unread-count': [(status: 200, body: {'unread_count': 0})],
       });
       await pumpWithHooks(tester, adapter);
 
       expect(find.byType(TextFormField), findsWidgets);
       expect(find.text('Hesabınıza erişiminiz kapatılmıştır. Bilgi için yöneticinizle görüşün.'), findsOneWidget);
-      expect(find.text('Aktif Projeler'), findsNothing);
+      expect(find.text('Dikkat Gerektirenler'), findsNothing);
     });
   });
 }

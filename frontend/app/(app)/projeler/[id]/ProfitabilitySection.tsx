@@ -1,3 +1,4 @@
+import { PROJECT_EVENT_LABELS } from "@/lib/events";
 import { formatMoney } from "@/lib/format";
 import type { FinancialSummary, ProjectEvent } from "@/lib/types";
 
@@ -55,51 +56,8 @@ export function ProfitabilitySection({ summary }: { summary: FinancialSummary })
   );
 }
 
-const EVENT_LABELS: Record<string, string> = {
-  project_created: "Proje oluşturuldu",
-  project_updated: "Proje bilgileri güncellendi",
-  project_status_changed: "Proje durumu değişti",
-  payment_plan_created: "Ödeme planı kalemi eklendi",
-  payment_plan_updated: "Ödeme planı kalemi güncellendi",
-  payment_plan_cancelled: "Ödeme planı kalemi iptal edildi",
-  collection_received: "Tahsilat kaydedildi",
-  collection_voided: "Tahsilat iptal edildi",
-  expense_added: "Masraf eklendi",
-  expense_updated: "Masraf güncellendi",
-  expense_voided: "Masraf iptal edildi",
-  invoice_created: "Fatura eklendi",
-  invoice_status_changed: "Fatura durumu değişti",
-  subcontractor_added: "Taşeron eklendi",
-  subcontractor_updated: "Taşeron güncellendi",
-  subcontractor_payment_added: "Taşerona ödeme yapıldı",
-  subcontractor_payment_voided: "Taşeron ödemesi iptal edildi",
-  // Faz 7: operasyon olayları (aynı zaman çizelgesinde finans olaylarıyla birlikte).
-  member_assigned: "Ekibe personel atandı",
-  member_removed: "Personel ekipten çıkarıldı",
-  schedule_created: "Planlama aşaması eklendi",
-  schedule_updated: "Planlama aşaması güncellendi",
-  schedule_completed: "Planlama aşaması tamamlandı",
-  task_created: "Görev oluşturuldu",
-  task_assigned: "Görev atandı",
-  task_completed: "Görev tamamlandı",
-  task_updated: "Görev güncellendi",
-  file_uploaded: "Dosya yüklendi",
-  file_removed: "Dosya silindi",
-  photo_uploaded: "Şantiye fotoğrafı yüklendi",
-  photo_removed: "Şantiye fotoğrafı silindi",
-  note_added: "Not eklendi",
-  // Faz 8: ek iş (değişiklik emri) olayları.
-  change_order_created: "Ek iş oluşturuldu",
-  change_order_updated: "Ek iş güncellendi",
-  change_order_sent: "Ek iş müşteriye gönderildi",
-  change_order_viewed: "Müşteri ek işi görüntüledi",
-  change_order_approved: "Müşteri ek işi onayladı",
-  change_order_rejected: "Müşteri ek işi reddetti",
-  change_order_cancelled: "Ek iş iptal edildi",
-  change_order_superseded: "Ek iş revize edildi",
-  change_order_email_sent: "Ek iş e-postası gönderildi",
-  change_order_email_failed: "Ek iş e-postası gönderilemedi",
-};
+// Olay etiketleri lib/events.ts'e taşındı (ana sayfa "Son Hareketler" de
+// aynı haritayı kullanır).
 
 function detail(e: ProjectEvent, currency: string): string {
   const m = e.metadata ?? {};
@@ -139,7 +97,7 @@ export function ProjectActivitySection({
             <span className="w-24 shrink-0 tabular-nums text-text-muted">{stamp}</span>
             <span className="text-text-muted">—</span>
             <span>
-              {EVENT_LABELS[e.event_type] ?? e.event_type}
+              {PROJECT_EVENT_LABELS[e.event_type] ?? e.event_type}
               {extra && <span className="text-text-muted"> · {extra}</span>}
             </span>
           </li>

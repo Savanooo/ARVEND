@@ -73,6 +73,7 @@ func main() {
 	supplierSvc := service.NewSupplierService(pool, q, secretBox)
 	notificationSvc := service.NewNotificationService(q)
 	priceSourceSvc := service.NewPriceSourceService(pool, q, service.HTTPPriceFetchers(nil))
+	dashboardSvc := service.NewDashboardService(pool, q)
 
 	jwtIssuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL)
 	authSvc := service.NewAuthService(q, jwtIssuer, cfg.RefreshTTL)
@@ -100,6 +101,7 @@ func main() {
 		CostCodes:         handler.NewCostCodeHandler(costCodeSvc),
 		Suppliers:         handler.NewSupplierHandler(supplierSvc),
 		Notifications:     handler.NewNotificationHandler(notificationSvc),
+		Dashboard:         handler.NewDashboardHandler(dashboardSvc),
 		CORSOrigins:       cfg.CORSOrigins,
 	})
 

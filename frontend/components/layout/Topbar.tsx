@@ -9,8 +9,10 @@ import { PLATFORM_CONTEXT_LABEL, userRoleLabel, type User } from "@/lib/types";
 // giriş alanı yanıltıcı olurdu.
 export function Topbar({ user }: { user: User }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-border bg-surface px-6 py-3">
-      <div className="relative w-full max-w-xs">
+    <div className="flex items-center justify-between gap-4 border-b border-border bg-surface px-4 py-3 sm:px-6">
+      {/* Arama henüz çalışmadığı için telefon genişliğinde hiç gösterilmez;
+          yer açılınca ad tek satıra sığar. min-w-0: daralabilsin, sayfa yatay kaymasın. */}
+      <div className="relative hidden w-full min-w-0 max-w-xs sm:block">
         <Search
           size={16}
           strokeWidth={1.75}
@@ -21,11 +23,11 @@ export function Topbar({ user }: { user: User }) {
           placeholder="Ara... (yakında)"
           disabled
           aria-disabled
-          className="w-full rounded-md border border-border bg-surface-hover py-1.5 pl-9 pr-3 text-sm text-text-muted placeholder:text-text-muted/70 outline-none disabled:cursor-not-allowed"
+          className="w-full min-w-0 rounded-md border border-border bg-surface-hover py-1.5 pl-9 pr-3 text-sm text-text-muted placeholder:text-text-muted/70 outline-none disabled:cursor-not-allowed"
         />
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="ml-auto flex min-w-0 items-center gap-3">
         <button
           type="button"
           disabled
@@ -35,10 +37,11 @@ export function Topbar({ user }: { user: User }) {
         >
           <Bell size={18} strokeWidth={1.75} />
         </button>
-        <div className="flex items-center gap-2 border-l border-border pl-3">
-          <div className="text-right">
-            <div className="text-sm font-medium leading-tight">{user.full_name}</div>
-            <div className="text-[11px] leading-tight text-text-muted">
+        <div className="flex min-w-0 items-center gap-2 border-l border-border pl-3">
+          <div className="min-w-0 text-right">
+            <div className="truncate text-sm font-medium leading-tight">{user.full_name}</div>
+            {/* Rol · firma satırı telefonda gizli: dar ekranda ad 5 satıra bölünüyordu. */}
+            <div className="hidden truncate text-[11px] leading-tight text-text-muted sm:block">
               {userRoleLabel(user)}
               {user.role === "super_admin"
                 ? ` · ${PLATFORM_CONTEXT_LABEL}`

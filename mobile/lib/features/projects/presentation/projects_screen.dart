@@ -11,16 +11,32 @@ import '../data/projects_providers.dart';
 import 'project_list_card.dart';
 
 class ProjectsScreen extends ConsumerStatefulWidget {
-  const ProjectsScreen({super.key});
+  const ProjectsScreen({super.key, this.initialStatus});
+
+  /// `/projeler?status=completed` -- ana sayfadaki "Tamamlananlar"
+  /// bağlantısı gibi derin bağlantılar için başlangıç süzgeci. Tanınmayan
+  /// değer yok sayılır ("Tümü").
+  final String? initialStatus;
 
   @override
   ConsumerState<ProjectsScreen> createState() => _ProjectsScreenState();
 }
 
 class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
-  String? _status;
+  late String? _status = _known(widget.initialStatus);
   final _searchController = TextEditingController();
   String _query = '';
+
+  static String? _known(String? status) => StatusRegistry.project.containsKey(status) ? status : null;
+
+  @override
+  void didUpdateWidget(covariant ProjectsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Sekme dalı açık kalır: aynı ekrana yeni bir ?status= ile gelinirse
+    // süzgeç ona geçer.
+    final next = _known(widget.initialStatus);
+    if (widget.initialStatus != oldWidget.initialStatus && next != null) _status = next;
+  }
 
   @override
   void dispose() {

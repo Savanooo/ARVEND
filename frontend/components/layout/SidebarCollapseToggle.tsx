@@ -24,7 +24,7 @@ export function SidebarCollapseToggle({ collapsed }: { collapsed: boolean }) {
       disabled={pending}
       title={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
       aria-label={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
-      className="sidebar-nav-link flex items-center justify-center rounded-md p-2 disabled:opacity-50"
+      className="sidebar-nav-link sidebar-collapse-toggle flex items-center justify-center rounded-md p-2 disabled:opacity-50"
     >
       {collapsed ? (
         <PanelLeftOpen size={18} strokeWidth={1.75} />

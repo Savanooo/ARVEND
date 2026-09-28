@@ -194,7 +194,9 @@ func (s *ProjectService) ListPaymentPlan(ctx context.Context, projectID, organiz
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now()
+	// Vade karşılaştırması İstanbul takvim günüyle yapılır (sunucu UTC'de
+	// çalışsa bile 00:00-03:00 arasında dünü "bugün" saymasın).
+	now := IstanbulNow(time.Now())
 	out := make([]domain.PaymentPlanItem, len(rows))
 	for i, r := range rows {
 		item := repository.ToDomainPaymentPlanItem(r)

@@ -1,0 +1,299 @@
+{
+  "generated_at": "2026-09-28T09:41:12+03:00",
+  "today": "2026-09-28",
+  "timezone": "Europe/Istanbul",
+  "is_workday": true,
+  "period": {
+    "month_start": "2026-09-01",
+    "next_month_start": "2026-10-01",
+    "upcoming_end": "2026-10-11"
+  },
+  "primary_currency": "TRY",
+  "viewer": {
+    "user_id": "0c000000-0000-4000-8000-000000000002",
+    "organization_role_code": "owner",
+    "is_admin": true,
+    "all_projects": true,
+    "accessible_project_count": 0
+  },
+  "onboarding": {
+    "steps": [
+      {
+        "key": "customer",
+        "done": false,
+        "detail": null
+      },
+      {
+        "key": "catalog",
+        "done": true,
+        "detail": "628 ürün"
+      },
+      {
+        "key": "employee",
+        "done": false,
+        "detail": null
+      },
+      {
+        "key": "team",
+        "done": false,
+        "detail": null
+      },
+      {
+        "key": "first_offer",
+        "done": false,
+        "detail": null
+      },
+      {
+        "key": "convert",
+        "done": false,
+        "detail": null
+      }
+    ],
+    "done_count": 1,
+    "total": 6
+  },
+  "agenda": {
+    "groups": [
+      {
+        "code": "price_sync_never",
+        "module": "products",
+        "lane": "mine",
+        "severity": "action",
+        "count": 1,
+        "amounts": [],
+        "oldest_days": null,
+        "items": [
+          {
+            "ref": {
+              "kind": "price_source",
+              "id": "demirprofil",
+              "project_id": null,
+              "parent_id": null,
+              "action": "open"
+            },
+            "label": "Demir Profil",
+            "project_name": null,
+            "amount": null,
+            "date": null,
+            "days": null,
+            "pct": null
+          }
+        ]
+      }
+    ],
+    "upcoming": [],
+    "mine_count": 1,
+    "mine_danger_count": 0,
+    "watching_count": 0
+  },
+  "sections": {
+    "projects": {
+      "counts": {
+        "planned": 0,
+        "active": 0,
+        "paused": 0,
+        "completed": 0,
+        "cancelled": 0,
+        "total": 0
+      },
+      "past_end_date": 0,
+      "ending_within_30d": 0,
+      "top": []
+    },
+    "finance": {
+      "by_currency": []
+    },
+    "change_orders": {
+      "by_currency": []
+    },
+    "offers": {
+      "total_active": 0,
+      "by_currency": [],
+      "expiring_within_7d": 0,
+      "expired_awaiting": 0,
+      "viewed_by_customer_7d": 0,
+      "accepted_not_converted": 0,
+      "conversion_rate_90d_pct": null
+    },
+    "procurement": {
+      "purchase_requests": {
+        "draft": 0,
+        "submitted": 0
+      },
+      "rfqs": {
+        "issued": 0,
+        "awaiting_award": 0,
+        "past_due_no_quote": 0
+      },
+      "purchase_orders": {
+        "draft": 0,
+        "approved_open": 0,
+        "late_delivery": 0
+      },
+      "approved_this_month": []
+    },
+    "subcontracts": {
+      "active_count": 0,
+      "by_currency": [],
+      "claims": {
+        "submitted": {
+          "count": 0,
+          "amounts": []
+        },
+        "certified_unpaid": {
+          "count": 0,
+          "amounts": []
+        }
+      },
+      "change_orders_submitted": {
+        "count": 0,
+        "amounts": []
+      }
+    },
+    "cost_control": {
+      "budgets": {
+        "none": 0,
+        "draft": 0,
+        "baselined": 0,
+        "open_projects": 0
+      },
+      "pending_adjustments": {
+        "count": 0,
+        "amounts": []
+      },
+      "committed_active": [],
+      "over_budget": {
+        "count": 0,
+        "worst": null
+      }
+    },
+    "contracts": {
+      "counts": {
+        "draft": 0,
+        "active": 0,
+        "completed": 0,
+        "cancelled": 0,
+        "terminated": 0
+      },
+      "active_projects_without_contract": 0,
+      "past_planned_completion": 0
+    },
+    "tasks": {
+      "mine": {
+        "linked_employee": false,
+        "open": 0,
+        "overdue": 0,
+        "due_today": 0,
+        "items": []
+      },
+      "team": {
+        "open": 0,
+        "overdue": 0,
+        "due_today": 0,
+        "unassigned": 0,
+        "completed_7d": 0
+      }
+    },
+    "operations": {
+      "active_crew": 0,
+      "milestones": {
+        "due_7d": 0,
+        "overdue": 0
+      },
+      "photos_7d": 0
+    },
+    "attendance": {
+      "date": "2026-09-28",
+      "scope": "organization",
+      "active_employees": 0,
+      "present": 0,
+      "half_day": 0,
+      "absent": 0,
+      "on_leave": 0,
+      "not_recorded": 0,
+      "on_site": 0,
+      "month_work_hours": 0
+    },
+    "employees": {
+      "active": 0,
+      "inactive": 0,
+      "with_user_account": 0,
+      "new_this_month": 0
+    },
+    "customers": {
+      "active": 0,
+      "new_this_month": 0,
+      "with_active_projects": 0
+    },
+    "products": {
+      "total": 628,
+      "by_source": {
+        "manual": 0,
+        "ulas": 628,
+        "demirprofil": 0
+      },
+      "price_changes_30d": {
+        "increased_count": 0,
+        "decreased_count": 0,
+        "products_increased": 0,
+        "avg_increase_percent": null,
+        "max_increase": null
+      },
+      "price_sources": [
+        {
+          "source": "demirprofil",
+          "last_synced_at": null,
+          "last_status": "never",
+          "auto_sync": false,
+          "days_since_sync": null
+        },
+        {
+          "source": "ulas",
+          "last_synced_at": "2026-09-28T08:10:03+03:00",
+          "last_status": "success",
+          "auto_sync": false,
+          "days_since_sync": 0
+        }
+      ]
+    },
+    "calculations": {
+      "groups": 12,
+      "categories": 95,
+      "used_in_offer_lines_30d": 0,
+      "recipe_items_unlinked": 814
+    },
+    "suppliers": {
+      "active": 0,
+      "inactive": 0,
+      "ordered_this_month": 0
+    },
+    "cost_codes": {
+      "active": 0,
+      "inactive": 0,
+      "expenses_without_code_month": 0
+    },
+    "users": {
+      "active": 1,
+      "inactive": 0,
+      "never_logged_in": 0,
+      "restricted_without_project": 0,
+      "without_employee_link": 1,
+      "by_role": [
+        {
+          "code": "owner",
+          "name": "Sahip",
+          "count": 1
+        }
+      ],
+      "with_personal_overrides": 0
+    },
+    "notifications": {
+      "unread": 0,
+      "latest": []
+    },
+    "activity": {
+      "items": []
+    }
+  },
+  "section_errors": {}
+}

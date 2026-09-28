@@ -7,11 +7,23 @@ import '../theme/app_typography.dart';
 /// Dashboard / Proje Özeti "Hızlı İşlemler" satırındaki tek bir kutucuk --
 /// ikon + kısa etiket, tek elle kolay dokunulacak boyutta.
 class QuickActionButton extends StatelessWidget {
-  const QuickActionButton({super.key, required this.icon, required this.label, required this.onPressed});
+  const QuickActionButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.busy = false,
+  });
 
   final IconData icon;
   final String label;
-  final VoidCallback onPressed;
+
+  /// null = pasif (ör. başka bir hızlı işlem sürerken).
+  final VoidCallback? onPressed;
+
+  /// İşlem sürüyor (ör. proje listesi yükleniyor): ikonun yerinde küçük
+  /// bir dönen gösterge -- dokunuşun alındığı hemen görünür.
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +50,12 @@ class QuickActionButton extends StatelessWidget {
                   color: AppColors.gold.withValues(alpha: 0.12),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(icon, color: AppColors.gold, size: 20),
+                child: busy
+                    ? const Padding(
+                        padding: EdgeInsets.all(11),
+                        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.gold),
+                      )
+                    : Icon(icon, color: AppColors.gold, size: 20),
               ),
               const SizedBox(height: 8),
               Text(

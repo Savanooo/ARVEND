@@ -7,6 +7,7 @@ import { ControlledTabPanel, ControlledTabs } from "@/components/ui/Tabs";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
+import { parseProjectTab } from "@/lib/dashboard";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
 import { hasPermission, PAGE_PERMISSIONS } from "@/lib/permissions";
 import { PROJECT_STATUS } from "@/lib/status";
@@ -109,10 +110,15 @@ function settled<T>(r: PromiseSettledResult<T>): T | null {
 
 export default async function ProjeDetayPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  // ?tab=genel|finans|maliyet|satinalma|operasyon|dosyalar|aktivite -- ana
+  // sayfadaki kayıt bağlantıları ilgili sekmeyi açar; bilinmeyen değer "genel".
+  searchParams: Promise<{ tab?: string | string[] }>;
 }) {
   const { id } = await params;
+  const defaultTab = parseProjectTab((await searchParams).tab);
   const cookieHeader = (await cookies()).toString();
   const base = `/api/v1/projects/${id}`;
   // Proje üyesi olan ama teklif görme izni olmayan roller (Proje Yöneticisi/
@@ -312,8 +318,11 @@ export default async function ProjeDetayPage({
           />
         </div>
 
+        {/* key: aynı sayfadayken ?tab= değişirse (ör. başka bir derin
+            bağlantı) sekme durumu yeni değerle baştan kurulur. */}
         <ControlledTabs
-          defaultTab="genel"
+          key={defaultTab}
+          defaultTab={defaultTab}
           items={[
             { key: "genel", label: "Genel" },
             { key: "finans", label: "Finans" },

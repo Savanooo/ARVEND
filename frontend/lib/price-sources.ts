@@ -1,6 +1,7 @@
 // Tedarikçi fiyat kaynakları (Ulaş, Demir Profil) ekranının saf
 // yardımcıları -- next/* ya da React içermez; hem Ürünler sayfaları hem
 // node testleri (price-sources.test.mts) içe aktarabilir.
+import { formatPercent } from "./format.ts";
 import type {
   PriceSource,
   PriceSourceCategoryMarkup,
@@ -124,10 +125,9 @@ export function formatMarkupInput(value: number): string {
   return value.toLocaleString("tr-TR", { useGrouping: false, maximumFractionDigits: 2 });
 }
 
-/** Türkçe yüzde yazımı: 15 -> "%15", 12.5 -> "%12,5". */
-export function formatPercent(value: number): string {
-  return `%${formatMarkupInput(value)}`;
-}
+// Türkçe yüzde yazımı lib/format.ts'e taşındı (ana sayfa da kullanıyor);
+// mevcut içe aktarmalar bozulmasın diye buradan da dışa verilir.
+export { formatPercent };
 
 /**
  * Satış fiyatı = tedarikçi fiyatı × (1 + oran/100), 2 ondalığa yarım

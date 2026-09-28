@@ -11,11 +11,15 @@ export function DropdownMenu({
   triggerLabel,
   children,
   align = "right",
+  triggerClassName,
 }: {
   trigger: React.ReactNode;
   triggerLabel: string;
   children: React.ReactNode;
   align?: "left" | "right";
+  // Verilirse varsayılan (çerçevesiz ikon) tetik görünümünün YERİNE geçer
+  // (ör. ana sayfa hızlı işlemlerindeki çerçeveli "Diğer işlemler").
+  triggerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -45,7 +49,10 @@ export function DropdownMenu({
         aria-expanded={open}
         aria-label={triggerLabel}
         title={triggerLabel}
-        className="inline-flex items-center justify-center rounded-md p-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+        className={
+          triggerClassName ??
+          "inline-flex items-center justify-center rounded-md p-2 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+        }
       >
         {trigger}
       </button>

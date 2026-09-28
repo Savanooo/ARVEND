@@ -1,13 +1,18 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { cache } from "react";
 
 import { apiServer, ApiError } from "./api";
 import { canAccess } from "./permissions";
 import { homeFor } from "./route-policy";
 import type { User } from "./types";
 
-/** Server Component'lerde oturum sahibini okur; oturum yoksa/geçersizse null döner. */
-export async function getCurrentUser(): Promise<User | null> {
+/**
+ * Server Component'lerde oturum sahibini okur; oturum yoksa/geçersizse null
+ * döner. React cache() ile sarılıdır: aynı istekte layout ve sayfa (ana
+ * sayfa, requirePagePermission...) /auth/me'yi TEK kez çağırır.
+ */
+export const getCurrentUser = cache(async (): Promise<User | null> => {
   const cookieStore = await cookies();
   const cookieHeader = cookieStore.toString();
   if (!cookieHeader) return null;
@@ -20,7 +25,7 @@ export async function getCurrentUser(): Promise<User | null> {
     }
     throw err;
   }
-}
+});
 
 /**
  * Bir sayfanın asıl verisini çekmeden ÖNCE çağrılır: kullanıcının rolünde

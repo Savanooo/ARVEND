@@ -35,6 +35,25 @@ abstract final class AppTypography {
     fontFeatures: [FontFeature.tabularFigures()],
   );
 
+  /// Ana sayfa KPI kutucuğunun büyük değeri.
+  static const metricHero = TextStyle(
+    fontSize: 22,
+    fontWeight: FontWeight.w800,
+    color: AppColors.textPrimary,
+    height: 1.1,
+    fontFeatures: [FontFeature.tabularFigures()],
+  );
+
+  /// Küçük büyük-harfli bölüm etiketi (ana sayfa bant başlıkları, Dikkat
+  /// şeritleri). Metin ÇAĞIRAN tarafından büyük harfle yazılır --
+  /// `toUpperCase()` Türkçe "i"yi bozar.
+  static const overline = TextStyle(
+    fontSize: 11.5,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 0.8,
+    color: AppColors.textMuted,
+  );
+
   static const body = TextStyle(
     fontSize: 14,
     fontWeight: FontWeight.w500,

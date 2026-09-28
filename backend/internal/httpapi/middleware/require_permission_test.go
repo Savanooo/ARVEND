@@ -89,6 +89,9 @@ func rbacCleanupOrg(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM subcontract_change_order_items WHERE organization_id = $1",
 		"DELETE FROM subcontract_change_orders WHERE organization_id = $1",
 		"DELETE FROM subcontract_items WHERE organization_id = $1",
+		// subcontract_payments (migration 0039), project_subcontracts'a
+		// CASCADE'siz FK taşır -- ondan ÖNCE (tenant_isolation_test.go ile aynı).
+		"DELETE FROM subcontract_payments WHERE organization_id = $1",
 		"DELETE FROM project_subcontracts WHERE organization_id = $1",
 		"DELETE FROM suppliers WHERE organization_id = $1",
 		"DELETE FROM projects WHERE organization_id = $1",
@@ -156,6 +159,9 @@ type rbacTestDeps struct {
 	projectSvc  *service.ProjectService
 	costCodeSvc *service.CostCodeService
 	supplierSvc *service.SupplierService
+	// dashboardSvc, ana sayfa özeti (GET /dashboard) -- FailSection test
+	// kancası için doğrudan erişilir (bkz. dashboard_security_test.go).
+	dashboardSvc *service.DashboardService
 
 	// priceFetch/demirFetch, Ulaş ve Demir Profil senkronunun sahte
 	// listeleri -- testler ulas.com.tr'ye/demirprofil.com.tr'ye ASLA gitmez
@@ -206,6 +212,8 @@ func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
 		domain.PriceSourceDemirProfil: demirFetch.fetch,
 	})
 
+	dashboardSvc := service.NewDashboardService(pool, q)
+
 	issuer := auth.NewJWTIssuer("test-secret-rbac-matrix", 15*time.Minute)
 	authSvc := service.NewAuthService(q, issuer, 24*time.Hour)
 
@@ -231,6 +239,7 @@ func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
 		AuthorizationSvc:  authzSvc,
 		CostCodes:         handler.NewCostCodeHandler(costCodeSvc),
 		Suppliers:         handler.NewSupplierHandler(supplierSvc),
+		Dashboard:         handler.NewDashboardHandler(dashboardSvc),
 		CORSOrigins:       []string{"*"},
 	})
 
@@ -238,6 +247,7 @@ func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
 		pool: pool, q: q, router: router, issuer: issuer, priceFetch: priceFetch, demirFetch: demirFetch,
 		userSvc: userSvc, platform: platformSvc, authzSvc: authzSvc,
 		offerSvc: offerSvc, projectSvc: projectSvc, costCodeSvc: costCodeSvc, supplierSvc: supplierSvc,
+		dashboardSvc: dashboardSvc,
 	}
 }
 

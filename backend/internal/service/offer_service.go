@@ -761,7 +761,12 @@ func (s *OfferService) UpdateStatus(ctx context.Context, id, organizationID, sta
 			}
 		}
 	}
-	if err := logOfferEvent(ctx, txq, orgID, offerRow.ID, offerRow.CurrentRevisionID, eventType, actorID, nil, "", ""); err != nil {
+	// from_status/to_status: iç (panelden verilen) kabul/red kararının
+	// tarihi bu olaydan okunur (ana sayfa "son 90 gün" kabul oranı, bkz.
+	// DashboardOffersByCurrency) -- offers.updated_at her düzenlemede
+	// değiştiği için karar tarihi olarak KULLANILMAZ.
+	statusMeta := map[string]any{"from_status": previousStatus, "to_status": status}
+	if err := logOfferEvent(ctx, txq, orgID, offerRow.ID, offerRow.CurrentRevisionID, eventType, actorID, statusMeta, "", ""); err != nil {
 		return nil, err
 	}
 	if err := notifyOfferDecision(ctx, txq, orgID, offerRow.ID, offerRow.OfferNo, offerRow.CreatedBy, status); err != nil {

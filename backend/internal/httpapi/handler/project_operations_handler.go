@@ -194,7 +194,7 @@ func toTaskResponse(t domain.ProjectTask) taskResponse {
 		ID: t.ID, ScheduleItemID: t.ScheduleItemID, Title: t.Title, Description: t.Description,
 		AssignedEmployeeID: t.AssignedEmployeeID, AssignedName: t.AssignedName,
 		Priority: t.Priority, Status: t.Status, DueDate: dateStrPtr(t.DueDate),
-		CompletedAt: tsStrPtr(t.CompletedAt), IsOverdue: t.IsOverdue(time.Now()),
+		CompletedAt: tsStrPtr(t.CompletedAt), IsOverdue: t.IsOverdue(service.IstanbulNow(time.Now())),
 	}
 }
 

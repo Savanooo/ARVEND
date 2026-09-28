@@ -1,0 +1,5 @@
+# Ekran görüntüsü (golden) testleri macOS'ta üretilir; başka bir işletim
+# sisteminde font rasterleştirmesi farklı olduğu için
+# `flutter test --exclude-tags golden` ile hariç tutulabilir (spec §6.8).
+tags:
+  golden: {}

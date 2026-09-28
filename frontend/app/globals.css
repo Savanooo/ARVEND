@@ -26,6 +26,13 @@
   --color-info: #2f6fb0;
   --color-info-soft: rgba(47, 111, 176, 0.1);
 
+  /* Ana sayfa grafik takma adları -- YENİ renk değil (spec D7): tahsilat
+     her yerde success (yeşil), çıkış nötr grafit, çubuk zemini hover
+     yüzeyi. */
+  --color-chart-in: var(--color-success);
+  --color-chart-out: var(--color-graphite);
+  --color-track: var(--color-surface-hover);
+
   /* Sidebar bilinçli olarak ayrı, koyu bir palet kullanır -- marka
      kimliği (logo, altın) orada yaşar; asıl çalışma alanı (tablo/form
      dolu sayfalar) göz yormasın diye açık kalır. --color- önekiyle
@@ -62,6 +69,9 @@
   --color-success-soft: var(--color-success-soft);
   --color-info: var(--color-info);
   --color-info-soft: var(--color-info-soft);
+  --color-chart-in: var(--color-chart-in);
+  --color-chart-out: var(--color-chart-out);
+  --color-track: var(--color-track);
   --color-sidebar-bg: var(--color-sidebar-bg);
   --color-sidebar-border: var(--color-sidebar-border);
   --color-sidebar-hover: var(--color-sidebar-hover);
@@ -98,4 +108,35 @@ body {
 }
 .app-sidebar-collapsed {
   width: var(--sidebar-width-collapsed);
+}
+
+/* W0 -- telefon genişliğinde web: mobil çekmece menü YOK (spec §9), bunun
+   yerine sidebar cookie'den bağımsız olarak daraltılmış çizilir; etiketler
+   (sidebar-label) gizlenir, ikonlar daraltılmış hâldeki gibi ortalanır.
+   Daralt/genişlet düğmesi burada işe yaramadığı için gizlenir. Bu kurallar
+   katmansız CSS olduğundan Tailwind utility'lerini (px-5, w-full...) ezer. */
+@media (max-width: 767px) {
+  .app-sidebar {
+    width: var(--sidebar-width-collapsed);
+  }
+  .app-sidebar .sidebar-label,
+  .app-sidebar .sidebar-collapse-toggle {
+    display: none;
+  }
+  .app-sidebar .sidebar-section {
+    align-items: center;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+  .app-sidebar .sidebar-brand {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .app-sidebar .sidebar-user-row {
+    flex-direction: column;
+    width: auto;
+  }
+  .app-sidebar .sidebar-nav-link {
+    justify-content: center;
+  }
 }

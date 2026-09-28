@@ -12,6 +12,7 @@ import '../features/auth/presentation/super_admin_unsupported_screen.dart';
 import '../features/calculations/presentation/metraj_screen.dart';
 import '../features/customers/presentation/customer_detail_screen.dart';
 import '../features/customers/presentation/customers_screen.dart';
+import '../features/dashboard/presentation/attention_screen.dart';
 import '../features/dashboard/presentation/dashboard_screen.dart';
 import '../features/attendance/presentation/attendance_screen.dart';
 import '../features/offers/domain/offer.dart';
@@ -147,16 +148,34 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state, navigationShell) => AppShell(navigationShell: navigationShell),
         branches: [
           StatefulShellBranch(routes: [
-            GoRoute(path: '/ana-sayfa', builder: (context, state) => const DashboardScreen()),
+            GoRoute(
+              path: '/ana-sayfa',
+              builder: (context, state) => const DashboardScreen(),
+              routes: [
+                // Ana sayfanın "Dikkat Gerektirenler" tam listesi; ?kod= ile
+                // gelen grup açık başlar (spec §6.4).
+                GoRoute(
+                  path: 'dikkat',
+                  builder: (context, state) => AttentionScreen(initialCode: state.uri.queryParameters['kod']),
+                ),
+              ],
+            ),
           ]),
           StatefulShellBranch(routes: [
             GoRoute(
               path: '/projeler',
-              builder: (context, state) => const ProjectsScreen(),
+              // ?status=completed -- ana sayfanın "Tamamlananlar" bağlantısı.
+              builder: (context, state) => ProjectsScreen(initialStatus: state.uri.queryParameters['status']),
               routes: [
                 GoRoute(
                   path: ':id',
-                  builder: (context, state) => ProjectDetailScreen(projectId: state.pathParameters['id']!),
+                  // ?grup=ozet|finans|operasyon|dokumanlar&alt=<alt görünüm> --
+                  // ana sayfa derin bağlantıları (spec D4, bkz. mobileRouteFor).
+                  builder: (context, state) => ProjectDetailScreen(
+                    projectId: state.pathParameters['id']!,
+                    initialGroup: state.uri.queryParameters['grup'],
+                    initialView: state.uri.queryParameters['alt'],
+                  ),
                   routes: [
                     GoRoute(
                       path: 'gorevler/yeni',

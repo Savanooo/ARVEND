@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"time"
-	_ "time/tzdata" // Europe/Istanbul, sunucuda zoneinfo olmasa da çözülsün.
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
@@ -794,13 +793,6 @@ const (
 	// geç bu kadar sonra "vakit geldi mi" tekrar kontrol edilir.
 	schedulerMaxSleep = 15 * time.Minute
 )
-
-var istanbulLocation = func() *time.Location {
-	if loc, err := time.LoadLocation("Europe/Istanbul"); err == nil {
-		return loc
-	}
-	return time.FixedZone("TRT", 3*60*60) // 2016'dan beri kalıcı UTC+3
-}()
 
 // NextPriceSyncRun, now'dan KESİNLİKLE sonraki ilk 00:05 (Europe/Istanbul)
 // anını döner. Saf fonksiyon: takvim günü üzerinden time.Date ile kurulur,

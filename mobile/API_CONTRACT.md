@@ -77,7 +77,25 @@ legacy_user|<custom>`; empty for `super_admin`), `must_change_password`,
 `onboarding_completed`, `onboarding_step` (always `true`/`"completed"` for
 `super_admin`, which has no organization to onboard), `permissions` (full
 permission-code array, empty for `super_admin` — UX-only, the real
-enforcement boundary is always server-side per request).
+enforcement boundary is always server-side per request). Since 2026-09-27
+this is the EFFECTIVE set: role permissions minus per-person revokes plus
+per-person grants (owner is never restricted).
+
+## Dashboard (Ana Sayfa) — added 2026-09-28
+- `GET /dashboard` (`requireAuth`+tenant+onboarded; NO single `perm()` —
+  every section gates itself server-side). One read-only snapshot; 200 even
+  when individual sections fail (a failed section comes back as an error
+  marker, the rest is intact). A section key that is ABSENT means "no
+  permission" → render nothing (no locked teaser); a permission-gated field
+  inside a visible section is `null` → hide that sub-block. Project-scoped
+  numbers respect project membership (owner/admin/legacy_user see all).
+  Links are neutral `ref` objects mapped by `mobileRouteFor(ref)`; the client
+  never sums money (`by_currency` arrays: primary currency first).
+  Canonical shape: `docs/dashboard/SPEC.md` §4.4 and the fixtures in
+  `docs/dashboard/fixtures/*.json` (the mobile model tests decode them).
+- `GET /dashboard/project-options?q=` (`projects.read`) → slim project picker
+  rows `{id, project_no, name, customer_name, currency, status}` — NO money
+  fields; use this instead of `GET /projects` for pickers.
 
 ## Offers (`requireAuth`, no admin gate; creation ALSO gated by RBAC — `offers.create`, checked in `offers_screen.dart`/`metraj_screen.dart`/`dashboard_screen.dart`/`customer_detail_screen.dart` before showing any "new offer" entry point. Internal pricing visibility is a SEPARATE pair, `offers.internal_pricing.read`/`.manage`, see `kPermOffersInternalPricingRead`/`Manage` in `lib/features/offers/domain/offer.dart` — mobile has NOT found/confirmed distinct edit/status-change/delete permission codes beyond these; do not invent one without verifying against the backend first)
 - `GET /offers/` — params: `filter=pasif|*`, `page`, `limit` (max 200). **No search/status/date filter server-side.** List rows never include `items`.
@@ -173,7 +191,9 @@ write action here without checking the matching permission first.
 - `GET/POST/PUT/DELETE(soft)` — `customerResponse`: id,name,phone,email,address,tax_office,tax_number,notes,is_active. Phone/email always `""` not null — check non-empty for call/email actions.
 
 ## Employees / Attendance (`requireAuth`; employee C/U/D requires admin)
-- `GET /employees?filter=` — no text search at all.
+- `GET /employees?filter=` — no text search at all. Since 2026-09-27
+  `salary`/`daily_wage` are `null` unless the caller holds
+  `employees.manage` (listing personnel must not expose wages).
 - Attendance is **pure manual entry, no GPS/geofence, no separate check-in/out calls**: `GET /attendance?month=YYYY-MM`, `POST/PUT /attendance` `{employee_id, date, check_in, check_out, work_hours(number), status, note}`. Status ∈ `geldi|yarım gün|gelmedi|izinli`. One record per employee+date (409 on dup).
 
 ## Organization (`requireAuth`, mostly `requireAdmin`) — undocumented until 2026-09-22
