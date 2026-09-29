@@ -55,6 +55,9 @@ class ProjectsRepository {
     String invoiceNo = '',
     String notes = '',
     String changeOrderId = '',
+    String costCodeId = '',
+    String budgetLineId = '',
+    String? idempotencyKey,
   }) async {
     final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/expenses', data: {
       'category': category,
@@ -65,8 +68,12 @@ class ProjectsRepository {
       'supplier_name': supplierName,
       'invoice_no': invoiceNo,
       'notes': notes,
-      'idempotency_key': '${DateTime.now().microsecondsSinceEpoch}',
+      'idempotency_key': idempotencyKey ?? '${DateTime.now().microsecondsSinceEpoch}',
       'change_order_id': changeOrderId,
+      // Maliyet Kontrolü eşlemesi -- ikisi de opsiyonel; bütçe kalemi
+      // seçildiyse maliyet kodunu sunucu kalemden alır.
+      'cost_code_id': costCodeId,
+      'budget_line_id': budgetLineId,
     });
     return Expense.fromJson(json);
   }
@@ -86,6 +93,8 @@ class ProjectsRepository {
     String paymentMethod = '',
     String description = '',
     String referenceNo = '',
+    String? paymentPlanItemId,
+    String? idempotencyKey,
   }) async {
     final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/collections', data: {
       'amount': amount,
@@ -93,7 +102,9 @@ class ProjectsRepository {
       'payment_method': paymentMethod,
       'description': description,
       'reference_no': referenceNo,
-      'idempotency_key': '${DateTime.now().microsecondsSinceEpoch}',
+      // Ödeme planı kalemi bağı (web ile aynı: seçilmediyse null).
+      'payment_plan_item_id': paymentPlanItemId,
+      'idempotency_key': idempotencyKey ?? '${DateTime.now().microsecondsSinceEpoch}',
     });
     return Collection.fromJson(json);
   }

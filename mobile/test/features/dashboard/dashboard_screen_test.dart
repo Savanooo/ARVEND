@@ -341,6 +341,35 @@ void main() {
       expect(find.text('TEKLİF 10000000-0000-4000-8000-000000000031'), findsOneWidget);
     });
 
+    testWidgets('kayıt ekranından dönülünce ana sayfa tazelenir (orada yapılan işlem bayat kalmasın)', (tester) async {
+      final adapter = await _pump(
+        tester,
+        user: ownerUser,
+        script: {
+          ..._script(fixtureJson('owner')),
+          '/dashboard': [_ok(fixtureJson('owner')), _ok(fixtureJson('owner'))],
+          '/notifications/unread-count': [
+            _ok({'unread_count': 4}),
+            _ok({'unread_count': 4}),
+          ],
+        },
+      );
+      expect(_count(adapter.calls, '/dashboard'), 1);
+
+      // Dikkat satırı (tek kayıt) ve kart altı hakediş satırı: ikisi de
+      // kaydın ekranına push eder.
+      final line = find.text('1 taşeron hakedişi onay bekliyor');
+      await _scrollTo(tester, line.last);
+      await tester.tap(line.last);
+      await tester.pumpAndSettle();
+      expect(find.text('HAKEDİŞ 11000000-0000-4000-8000-000000000004'), findsOneWidget);
+      expect(_count(adapter.calls, '/dashboard'), 1, reason: 'kayıt açıkken istek yok');
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(_count(adapter.calls, '/dashboard'), 2);
+    });
+
     testWidgets('tek kayıtlı hakediş satırı (kart altı) tam hakediş ekranını açar', (tester) async {
       await _pump(tester, user: ownerUser, script: _script(fixtureJson('owner')));
 
@@ -685,7 +714,11 @@ void main() {
       'created_at': '2026-09-01T00:00:00Z',
     };
 
-    Future<FakeHttpClientAdapter> pumpProject(WidgetTester tester, String location) async {
+    Future<FakeHttpClientAdapter> pumpProject(
+      WidgetTester tester,
+      String location, {
+      Size size = const Size(400, 1600),
+    }) async {
       final adapter = FakeHttpClientAdapter(
         script: {
           '/projects/p1': [_ok(project())],
@@ -698,10 +731,19 @@ void main() {
           '/projects/p1/notes': [
             _ok({'notes': <dynamic>[]}),
           ],
+          '/projects/p1/contract': [
+            (status: 404, body: {'error': 'sözleşme bulunamadı'}),
+          ],
+          '/projects/p1/schedule': [
+            _ok({'items': <dynamic>[]}),
+          ],
+          '/projects/p1/access': [
+            _ok({'users': <dynamic>[]}),
+          ],
         },
       );
       final client = await buildFakeApiClient(adapter);
-      await tester.binding.setSurfaceSize(const Size(400, 1600));
+      await tester.binding.setSurfaceSize(size);
       addTearDown(() => tester.binding.setSurfaceSize(null));
       final router = GoRouter(
         initialLocation: location,
@@ -729,29 +771,64 @@ void main() {
       return adapter;
     }
 
-    String selectedSegment(WidgetTester tester) {
-      final button = tester.widget(find.byWidgetPredicate((w) => w is SegmentedButton).first) as dynamic;
-      return (button.selected as Set).single.toString();
+    /// Grubun alt görünüm çiplerinden seçili olanın `?alt=` değeri (gövde
+    /// içindeki başka çipler -- ör. fatura filtresi -- sayılmaz).
+    String selectedAlt(WidgetTester tester) {
+      final selected = tester
+          .widgetList<ChoiceChip>(find.byType(ChoiceChip))
+          .where((c) => c.selected && c.key is ValueKey<String>)
+          .map((c) => (c.key! as ValueKey<String>).value)
+          .where((k) => k.startsWith('proje-alt-'))
+          .toList();
+      return selected.single.substring('proje-alt-'.length);
     }
 
     testWidgets('grup=finans&alt=ek-isler doğrudan Ek İşler görünümünü açar', (tester) async {
       final adapter = await pumpProject(tester, '/projeler/p1?grup=finans&alt=ek-isler');
-      expect(selectedSegment(tester), endsWith('.ekIsler'));
+      expect(selectedAlt(tester), 'ek-isler');
       expect(adapter.calls, contains('/projects/p1/change-orders'));
       // Özet sekmesi kurulmadı (ilk sekme atlandı).
-      expect(adapter.calls, isNot(contains('/projects/p1/financial-summary')));
+      expect(find.text('Proje Alanları'), findsNothing);
+    });
+
+    testWidgets('grup=finans&alt=sozlesme Sözleşme görünümünü açar', (tester) async {
+      final adapter = await pumpProject(tester, '/projeler/p1?grup=finans&alt=sozlesme');
+      expect(selectedAlt(tester), 'sozlesme');
+      expect(adapter.calls, contains('/projects/p1/contract'));
     });
 
     testWidgets('grup=operasyon&alt=satin-alma Satın Alma görünümünü açar', (tester) async {
       final adapter = await pumpProject(tester, '/projeler/p1?grup=operasyon&alt=satin-alma');
-      expect(selectedSegment(tester), endsWith('.satinAlma'));
+      expect(selectedAlt(tester), 'satin-alma');
       expect(adapter.calls, contains('/projects/p1/purchase-requests'));
+    });
+
+    testWidgets('grup=operasyon&alt=planlama Planlama görünümünü açar', (tester) async {
+      final adapter = await pumpProject(tester, '/projeler/p1?grup=operasyon&alt=planlama');
+      expect(selectedAlt(tester), 'planlama');
+      expect(adapter.calls, contains('/projects/p1/schedule'));
+    });
+
+    testWidgets('grup=operasyon&alt=erisim son çipteki Erişim görünümünü açar ve çipi görünür alana kaydırır', (
+      tester,
+    ) async {
+      final adapter = await pumpProject(tester, '/projeler/p1?grup=operasyon&alt=erisim', size: const Size(360, 800));
+      expect(selectedAlt(tester), 'erisim');
+      expect(adapter.calls, contains('/projects/p1/access'));
+      final chip = tester.getRect(find.byKey(const ValueKey('proje-alt-erisim')));
+      expect(chip.right, lessThanOrEqualTo(360));
+      expect(chip.left, greaterThanOrEqualTo(0));
     });
 
     testWidgets('grup=dokumanlar&alt=notlar Notlar görünümünü açar', (tester) async {
       final adapter = await pumpProject(tester, '/projeler/p1?grup=dokumanlar&alt=notlar');
-      expect(selectedSegment(tester), endsWith('.notlar'));
+      expect(selectedAlt(tester), 'notlar');
       expect(adapter.calls, contains('/projects/p1/notes'));
+    });
+
+    testWidgets('bilinmeyen alt değeri grubun ilk görünümüne düşer', (tester) async {
+      await pumpProject(tester, '/projeler/p1?grup=operasyon&alt=yok-boyle');
+      expect(selectedAlt(tester), 'taseronlar');
     });
   });
 }

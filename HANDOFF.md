@@ -476,6 +476,51 @@ testleri ve mobil model/golden testleri AYNI fixture'ları kullanır.
   yeşil; 6 rol web taramasında 0 çökme; Saha kullanıcısının yanıtında/DOM'unda
   hiç para değeri yok.
 
+## 7.2 Mobil 1.4.0+5 — web proje sayfasının kalanı (2026-09-29, commit'lenmedi)
+
+Web `/projeler/[id]` sayfasının mobilde eksik kalan her bölümü eklendi;
+her modül kendi klasöründe (`mobile/lib/features/projects/<modül>/`),
+kendi repository/provider'ı, `*_routes.dart` (proje rotasına GÖRELİ) ve
+bölüm tanımıyla:
+- `contract_co/` — Sözleşme (taslak, not, aktifleştir/iptal/tamamla/feshet)
+  + Ek İşler (oluştur/düzenle/gönder/mail/link/revize/iptal).
+- `budget/` — Maliyet Kontrolü yönetimi (bütçe, kalemler, baseline, WBS,
+  revizyonlar, taahhütler, tahmin, gerçekleşen).
+- `finance_plan/` — Ödeme Planı ve Faturalar.
+- `finance_ledger/` — masraf/tahsilat ayrıntısı + gerekçeli iptal, bağ
+  etiketleri, legacy "Taşeron Ödemeleri" (web Finans > Taşeronlar).
+- `ops_team/` — Planlama (iş programı), Proje Ekibi, Proje Erişimi.
+- `activity/` — proje Aktivite Geçmişi (`/projeler/:id/aktivite`).
+- `offers/history/` — teklif Aktivite + Mail Geçmişi.
+Proje detayı artık grup başına yatay kaydırılabilir çip şeridi kullanır
+(Finans 7, Operasyon 6 alt görünüm); grup, alt görünümlerinden biri
+görünürse görünür (Proje Yöneticisi Finans'ı yalnızca Sözleşme ile görür).
+Finans izni olmayan hiç kimse hiçbir ekranda GELİR/KÂR tutarı görmez (Özet'teki
+"Sözleşme Tutarı", Maliyet Kontrolü'ndeki "Sözleşme Bedeli"/"Tahmini Kâr"/
+"Tahmini Marj" dahil — web bunları herkese gösterir, mobil daha sıkı).
+Maliyet rakamları (bütçe, EAC, taahhüt, gerçekleşen, varyans) ise
+`projects.budget.read`/`projects.cost_control.read` ile görünür: varsayılan
+Proje Yöneticisi rolü bunları görmek için tasarlandı (migration 0035).
+Tutar girişleri Türkçe ayrıştırılır ("64.000" = 64 000). Ana sayfa derin
+bağlantıları gerçek kayıt ekranlarına gider (docs/dashboard/SPEC.md §6.6).
+Bulunan backend eksikleri: `mobile/MOBILE_BACKEND_GAPS.md` §13 (backend
+DEĞİŞTİRİLMEDİ). Yeni APK henüz derlenmedi/yayınlanmadı.
+
+İnceleme düzeltmeleri (aynı gün, commit'lenmedi): Ek İş formu Türkçe sayı
+okur ("8.500" = 8 500; eskiden 8,5) ve canlı ara toplam/KDV/toplam gösterir;
+ödeme planı yüzdesi ayrı ayrıştırıcıyla (≤ %100, en çok 2 ondalık); fatura
+birincil aksiyonu türe (alışta "Gönderildi" yok) ve vadeye (gecikmişte
+doğrudan "Ödendi") göre; alış faturasında tedarikçi zorunlu; ödeme planı
+kaleminde bağlı tahsilatlar + "Tahsilat Ekle"; kapalı projede sözleşme
+yalnızca kapatılabilir (Tamamla/Feshet/İptal Et — backend bunlara izin
+verir, web gizliyor); "Ekibe Ekle" employees.read, "Erişim Ver" Yönetici +
+organization.users.read ister; ek iş paylaşım linki metni yalnızca finans
+yönetimi iznine; `await` sonrası tazelemeler kapsayıcıyla (ekran kapansa da
+olur); işlem sürerken alt sayfalar kapanmaz; "bugün" sağlayıcıları gün
+değişince yenilenir; proje detayı grupları canlı tutulur (seçili çip ve
+kaydırma korunur); ana sayfa kayıt ekranından dönünce tazelenir; tüm proje
+modüllerinde tek kilit cümlesi ve kırmızı, ayrı iptal düğmesi.
+
 ---
 
 ## 8. Bilinen eksikler / bir sonraki oturumun bilmesi gerekenler

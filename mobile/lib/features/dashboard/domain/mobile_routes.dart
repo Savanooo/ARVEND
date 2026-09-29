@@ -2,8 +2,11 @@ import 'dashboard.dart';
 
 /// Nötr `DashRef` -> mobil rota (spec §6.6, D3). Sunucu ASLA yol göndermez;
 /// satırlar tam kayıt ekranını açar (talep, RFQ, sipariş, hakediş,
-/// değişiklik emri, görev, ürün, kullanıcı). Tanınmayan türler null döner
-/// -> satır dokunulamaz (çağıran modül rotasına düşebilir).
+/// değişiklik emri, görev, iş programı aşaması, ek iş, sözleşme, ödeme
+/// planı kalemi, fatura, bütçe revizyonu, ürün, kullanıcı). Tanınmayan
+/// türler null döner -> satır dokunulamaz (çağıran modül rotasına düşebilir).
+/// Yollar proje alt modüllerinin `*_paths.dart` yardımcılarıyla aynıdır
+/// (kimlikler burada zaten kodlanmış olduğu için düz metin kurulur).
 ///
 /// Proje sayfasının alt görünümleri `?grup=ozet|finans|operasyon|dokumanlar`
 /// ve `&alt=` ile açılır (spec D4; bkz. ProjectDetailScreen).
@@ -31,7 +34,8 @@ String? mobileRouteFor(DashRef ref) {
     case 'task':
       return inProject((p) => '/projeler/$p/gorevler/$id');
     case 'milestone':
-      return inProject((p) => '/projeler/$p?grup=operasyon&alt=gorevler');
+      // Dashboard "aşama" kayıtları iş programı (schedule) kalemleridir.
+      return inProject((p) => '/projeler/$p/planlama/$id');
     case 'purchase_request':
       return inProject((p) => '/projeler/$p/satin-alma/talepler/$id');
     case 'rfq':
@@ -57,13 +61,17 @@ String? mobileRouteFor(DashRef ref) {
             : '/projeler/$p/taseronlar/$parent/degisiklik-emirleri/$id',
       );
     case 'change_order':
-      return inProject((p) => '/projeler/$p?grup=finans&alt=ek-isler');
+      return inProject((p) => '/projeler/$p/ek-isler/$id');
     case 'budget_adjustment':
-      return inProject((p) => '/projeler/$p?grup=finans&alt=maliyet');
+      // Onay bekleyen revizyonlar listesi (tekil revizyon ekranı yok).
+      return inProject((p) => '/projeler/$p/maliyet/revizyonlar');
     case 'contract':
+      // Projenin TEK sözleşmesi -- proje bazlı ekran.
+      return inProject((p) => '/projeler/$p/sozlesme');
     case 'payment_plan_item':
+      return inProject((p) => '/projeler/$p/odeme-plani/$id');
     case 'invoice':
-      return inProject((p) => '/projeler/$p?grup=finans&alt=finans');
+      return inProject((p) => '/projeler/$p/faturalar/$id');
     case 'customer':
       return '/diger/musteriler/$id';
     case 'product':

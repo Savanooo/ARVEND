@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
@@ -10,6 +9,7 @@ import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_section_header.dart';
 import '../../domain/dashboard.dart';
 import '../../domain/mobile_routes.dart';
+import 'dashboard_nav.dart';
 import 'section_error_body.dart';
 
 /// "Son Hareketler" (spec §2 F2/§6.4): en çok 5 satır, TUTAR YOK. Satır
@@ -81,7 +81,7 @@ class _ActivityRow extends StatelessWidget {
     ].join(' · ');
     final route = mobileRouteFor(item.ref);
     return InkWell(
-      onTap: route == null ? null : () => context.push(route),
+      onTap: route == null ? null : () => openRecordRoute(context, route),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: 10),
         child: Row(

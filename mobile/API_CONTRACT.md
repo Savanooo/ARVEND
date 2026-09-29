@@ -136,6 +136,7 @@ Server: `backend/internal/service/app_release_service.go`; client:
 ## Offers (`requireAuth`, no admin gate; creation ALSO gated by RBAC — `offers.create`, checked in `offers_screen.dart`/`metraj_screen.dart`/`dashboard_screen.dart`/`customer_detail_screen.dart` before showing any "new offer" entry point. Internal pricing visibility is a SEPARATE pair, `offers.internal_pricing.read`/`.manage`, see `kPermOffersInternalPricingRead`/`Manage` in `lib/features/offers/domain/offer.dart` — mobile has NOT found/confirmed distinct edit/status-change/delete permission codes beyond these; do not invent one without verifying against the backend first)
 - `GET /offers/` — params: `filter=pasif|*`, `page`, `limit` (max 200). **No search/status/date filter server-side.** List rows never include `items`.
 - `GET/PUT /offers/{id}`, `POST /offers/` (create), `POST /offers/{id}/revise`, `GET /offers/{id}/revisions[/{revisionId}]`, `PUT /offers/{id}/status`, `POST /offers/{id}/toggle-passive`, `DELETE /offers/{id}`, `POST /offers/{id}/send-email`, share-links CRUD, `/events`, `/email-logs`.
+- History (mobile since 1.4.0+5, `lib/features/offers/history/`, `offers.read`): `GET /offers/{id}/events` → `{events}` (created_at ASC; view events feed the "görüntülenme" summary), `GET /offers/{id}/email-logs` → `{email_logs}` (sent_at DESC, status sent|failed), `GET /offers/{id}/revisions` (only for revision_id → revision_no). Shown on the offer detail ("Aktivite / Zaman Çizelgesi", "Mail Geçmişi") and in full at `/teklifler/:id/gecmis[?sekme=eposta]`; refreshed after status change, revise, share link, email and convert.
 - Status enum (exact, Turkish): `taslak`, `gönderildi`, `kabul edildi`, `reddedildi`. Once `kabul edildi`, locked forever (no further status change, no delete).
 - Item fields: `product_id`(nullable), `product_name`, `quantity`(number), `unit_price`(number), `line_total`(number, server-computed), `unit`, `section_label`, `calc_category_id`, `calc_snapshot`(opaque JSON) — last 4 `omitempty`.
 - Create validation: >=1 item after dropping blank-name/qty<=0/price<0 rows; `customer_id` OR free-text `customer_name` required; `vat_rate` omit→20%, explicit 0 respected.
@@ -158,7 +159,11 @@ to backend enforcement)
 
 ### Finance sub-resources (all under `/projects/{id}/...`)
 - `payment-plan` (GET/POST/PUT/DELETE-soft), `collections` (GET/POST/void), `expenses` (GET/POST/PUT/void), `invoices` (GET/POST/PUT status), `subcontractors` + `subcontractor-payments` (GET/POST/PUT/void).
-- Expense create `{category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, idempotency_key, change_order_id}`. `category` ∈ `material|personnel|transport|accommodation|food|equipment|other`. Void via `POST .../{id}/void {reason}`.
+- Expense create `{category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, idempotency_key, change_order_id, cost_code_id, budget_line_id}` (links optional, empty string = none; when a budget line is chosen the server takes the cost code from the line). `category` ∈ `material|personnel|transport|accommodation|food|equipment|other`. Void via `POST .../{id}/void {reason}`.
+- Collection create `{amount, received_date, payment_method, description, reference_no, payment_plan_item_id (null = not linked), idempotency_key}`; `currency` omitted = project currency. A linked collection raises the plan item's "Tahsil Edilen".
+- Mobile (since 1.4.0+5, Finans > "Finans" view, `lib/features/projects/finance_ledger/`): tapping an expense/collection opens its detail (links resolved to "EK-… · title", cost code, plan item) and "İptal Et" (`projects.finance.manage`, open project only, reason REQUIRED in the app — the web allows an empty one). Expense form offers Ek İş / Bütçe Kalemi / Maliyet Kodu pickers (each loaded only with its read permission: `projects.finance.read`, `projects.budget.read`, `organization.cost_codes.read`), collection form offers the open plan items. Both forms keep one `idempotency_key` per form instance and parse Turkish amounts ("64.000" = 64 000, "1.250,50"). Add/void hidden on completed/cancelled projects (backend 409).
+- Legacy subcontractors ("Taşeron Ödemeleri", `projects.finance.read/.manage`, same folder): `GET /subcontractors` → `{subcontractors}` (server computes `paid_amount`/`remaining_amount`), `GET /subcontractor-payments` → `{payments}`, `POST /subcontractors {name, company_name, work_description, contract_amount, currency}`, `POST /subcontractors/{subId}/payments {amount, currency, paid_date, description, idempotency_key}` (key per subcontractor + form). Payments count as realized cost — never also entered as expenses. Separate from the Sprint 5 subcontract CONTRACTS (`/subcontracts`, Operasyon > Taşeronlar).
+- Activity (`projects.read`, `lib/features/projects/activity/`, `/projeler/:id/aktivite`): `GET /projects/{id}/events` → `{events: [{id, event_type, user_id, metadata, created_at}]}` (created_at ASC; the app shows newest first, grouped by Istanbul day, Turkish labels from `core/utils/event_labels.dart`). The endpoint returns money fields (`amount`, `planned_amount`, `contract_amount`, `grand_total`) to every project reader; the app shows them ONLY with `projects.finance.read`.
 - `change-orders`: state machine `draft→sent→{approved(final),rejected}`, `sent|rejected→(revise)→superseded+new draft`, `draft|sent→(cancel)→cancelled`. **No staff approve/reject endpoint** — only via public link. **Cancel takes no reason body.**
 
 ### Procurement & Subcontracts sub-resources (all under `/projects/{id}/...`) — undocumented until 2026-09-22, verified against `lib/features/projects/data/projects_repository.dart`
@@ -213,6 +218,41 @@ write action here without checking the matching permission first.
 - `members` (GET/POST/DELETE-end), `schedule` (GET/POST/PUT, no DELETE), `tasks` (GET/POST/PUT/POST .../complete, no DELETE, **no cross-project endpoint — gap**), `photos` (GET/POST multipart field `file`/GET .../content/DELETE), `files` (same pattern, .../download has Content-Disposition), `notes` (GET/POST only — no PUT/DELETE despite SQL existing), `events` (GET, shared timeline with finance), `operations-summary` (GET — `task_completion_ratio` is ALREADY ×100, a percentage).
 - Upload: multipart field name `file` for both files and photos. 25 MiB hard cap (`ErrFileTooLarge` after write+delete). Content-type sniffed server-side, client header ignored. Photos: `stage` (before|progress|after), `taken_at` send date-only, get back full RFC3339. Files: `category` (contract|drawing|invoice|report|other).
 - Task priority: `low|normal|high|urgent`. Task status: `todo|in_progress|completed|cancelled`. Create cannot set status=completed directly.
+
+### Project modules added in 1.4.0+5 (2026-09-29) — contract, change orders, budget/cost control, payment plan, invoices, schedule, team, access
+All `projPerm` (permission + project membership, checked server-side on
+every request). Mobile gates each read with the fail-open `UserCan.can`
+(same decision as `_failOpen` in `project_detail_screen.dart`) and makes NO
+request while `/auth/me` is still loading; every write button is hidden
+without the matching `.manage`/`.lifecycle` code and on completed/cancelled
+projects (web `locked`). 403 → "yetkin yok" view, never a crash; 409 →
+server message + reload. Sources: the doc comment at the top of each
+repository below.
+
+**Contract** (`projects.contracts.read/.manage/.lifecycle`, `lib/features/projects/contract_co/`):
+- `GET /projects/{id}/contract` (404 = no contract yet → "Sözleşme Oluştur" CTA, manage only), `POST /contract` (201; 409 = already exists → reload), `PUT /contract` (draft only: scope, payment/progress/advance terms, `effective_date`/`planned_completion_date`, cleared date sent as `null`), `PUT /contract/notes` (draft + active).
+- Lifecycle: `POST /contract/activate` (draft→active), `/cancel {reason}` (draft→cancelled, reason REQUIRED), `/complete` (active→completed), `/terminate {reason}` (active→terminated, reason REQUIRED). Project Manager role has manage but NOT lifecycle.
+
+**Project change orders** (NO own permission — `projects.finance.read/.manage`, same folder):
+- `GET /change-orders` → `{change_orders}` (includes internal profitability + active share link), `GET /change-orders/{coId}` (items; NO profitability — app merges it from the list row), `POST /change-orders` (201), `PUT /change-orders/{coId}` (draft only). Item: `{product_id?, description, quantity, unit, unit_price, estimated_unit_cost?}` — keep `product_id`/`estimated_unit_cost` on edit.
+- `POST .../{coId}/send` (draft→sent + share link `/ek-is/{token}`), `POST .../{coId}/send-email {to, subject, message}`, `POST .../{coId}/revise` (sent|rejected → new draft, old one superseded), `POST .../{coId}/cancel` (NO body — cancel takes no reason). Approve/reject only via the public link.
+- There is NO change-order email-log list endpoint; the mail history is read from `GET /projects/{id}/events` rows `change_order_email_sent|failed` (payload carries the recipient).
+
+**Budget / cost control** (`lib/features/projects/budget/`):
+- `projects.budget.read`: `GET /wbs`, `GET /budget` (404 = no budget), `GET /budget/lines` (404 = no budget), `GET /budget/adjustments`.
+- `projects.budget.manage`: `POST /wbs`, `PUT/DELETE /wbs/{nodeId}` (DELETE = archive), `POST /budget`, `POST /budget/baseline`, `POST /budget/lines`, `PUT/DELETE /budget/lines/{lineId}` (draft budget), `POST /budget/adjustments` (non-zero, may be negative), `POST /budget/adjustments/{adjId}/approve|reject`.
+- `projects.cost_control.read`: `GET /commitments`, `GET /forecasts`, `GET /cost-control`. `projects.cost_control.manage`: `POST /commitments` (manual, `idempotency_key`), `POST /commitments/{cId}/void {reason}` (app offers void ONLY for active manual commitments), `PUT /budget/lines/{lineId}/forecast`.
+- Pickers/breakdown: `GET /organization/cost-codes` (`organization.cost_codes.read`), `GET /projects/{id}/expenses` (`projects.finance.read`; the "Gerçekleşen" card is hidden without it).
+
+**Payment plan & invoices** (`projects.finance.read/.manage`, `lib/features/projects/finance_plan/`):
+- `GET /payment-plan` → `{items, planned_total}`, `POST /payment-plan` (amount OR percentage, optional `due_date`, `notes`), `PUT /payment-plan/{itemId}` (full body), `DELETE /payment-plan/{itemId}` (cancels the item; row kept, no restore). No single-item GET — detail is derived from the list.
+- `GET /invoices` → `{invoices}`, `POST /invoices` (`invoice_type` sales|purchase, `invoice_no`, amounts, `invoice_date`, `due_date?`, `customer_name?`, `notes?`), `PUT /invoices/{invoiceId}/status {status}` (any of the 5 statuses; no state machine server-side). No invoice field-edit endpoint.
+
+**Schedule, team, access** (`lib/features/projects/ops_team/`):
+- `projects.operations.read/.manage`: `GET/POST /schedule`, `PUT /schedule/{itemId}` (rewrites EVERY field — always send `{name, description, start_date, end_date, status, sort_order}`; no DELETE — the app "cancels" instead), `GET/POST /members {employee_id, role_title, start_date, notes}` (409 if already active), `DELETE /members/{memberId}` (ends the membership, sets `end_date`), `GET /employees?filter=aktif` (member picker, `employees.read`).
+- `projects.access.read/.manage`: `GET /access` → `{users}`, `POST /access {user_id, project_role}`, `PUT /access/{userId} {project_role}`, `DELETE /access/{userId}`, `GET /users?limit=200` (user picker; coarse admin + `organization.users.read`, fetched only when the grant sheet opens).
+
+**Deep links** (`lib/features/dashboard/domain/mobile_routes.dart`): `milestone` → `/projeler/{p}/planlama/{id}`, `change_order` → `/projeler/{p}/ek-isler/{id}`, `contract` → `/projeler/{p}/sozlesme`, `payment_plan_item` → `/projeler/{p}/odeme-plani/{id}`, `invoice` → `/projeler/{p}/faturalar/{id}`, `budget_adjustment` → `/projeler/{p}/maliyet/revizyonlar`. Project sub-views: `?grup=finans&alt=finans|sozlesme|odeme-plani|faturalar|taseron-odemeleri|ek-isler|maliyet`, `?grup=operasyon&alt=taseronlar|satin-alma|gorevler|planlama|ekip|erisim`, `?grup=dokumanlar&alt=dosyalar|notlar`.
 
 ## Calculations (`requireAuth`; read = `calculations.read`, group/category/recipe-item CUD = `calculations.manage` — no coarse admin gate any more)
 - Recipe admin (mobile Diğer > Metraj Reçeteleri, `lib/features/calc_admin/`, since 1.3.0+4): `POST /calculations/groups`, `PUT /calculations/groups/{id}`, `POST /calculations/categories`, `PUT /calculations/categories/{id}`, `POST/PUT/DELETE /calculations/recipe-items[/{id}]`. Group/category edits send the existing `image_file_id` back unchanged. Deactivating a group/category hides it (lists return active only). The product picker pages `GET /products` (limit 200) only with `products.read`.
@@ -290,5 +330,14 @@ sends a test mail with the SAVED settings.
 2. No text search on `/employees`; `/customers` search is name-only.
 3. No staff-side approve/reject for **project-level** change orders (public link only) — subcontract-level change orders DO have an authenticated approve action (see Procurement & Subcontracts below); these are two separate features, do not conflate them.
 4. Notes: create+list only (PUT/DELETE SQL exists, unwired).
+5. Project change orders: no email-log list endpoint (history comes from project `events`); detail GET has no profitability (merged from the list); cancel takes no reason.
+6. Invoices: no field-edit endpoint (only POST + PUT status) and no status state machine (any status, including un-cancelling, is accepted); no single-invoice GET.
+7. Payment plan: no single-item GET, no restore for a cancelled item; `DELETE` on a missing/already-cancelled item answers "proje bulunamadı" (the app shows its own text).
+8. Schedule: no DELETE (items are set to `cancelled`).
+9. `DELETE /payment-plan/{itemId}` and `PUT /invoices/{id}/status` do not call `requireOpenProject`; the completed/cancelled lock is UI-only there (web and app).
+10. `POST /commitments/{id}/void` does not check `source_type` — purchase-order/subcontract commitments can be voided via API/web (the app offers void only for manual ones).
+11. `GET /budget` and `GET /budget/lines` return 404 both for "no budget" and "project not found".
+12. `GET /projects/{id}/events` returns money in `metadata` to users without `projects.finance.read` (HANDOFF §8); the app hides it client-side.
+13. Legacy subcontractors: the web neither edits a subcontractor nor voids its payments, so the app does not either (the backend has the endpoints).
 
 (The cross-project "my tasks" endpoint and organization name/id on auth responses — formerly gaps #1/#2 here — are both RESOLVED; see MOBILE_BACKEND_GAPS.md for the history.)

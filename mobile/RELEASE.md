@@ -68,7 +68,7 @@ güvenlik katmanı) hariç tutulur. `*.jks`/`*.keystore`/`*.p12` de aynı
 |---|---|---|
 | Application ID | `com.arvendyapi.arvend` | Zaten geçerli bir üretim kimliği (dev/example paket adı DEĞİL) — **değiştirilmedi**, bilinçli karar. Play Store'a yüklendikten sonra bu ID KALICIDIR. |
 | Uygulama etiketi (launcher) | `ARVEND` | Zaten uygun, değiştirilmedi. |
-| `version` (pubspec.yaml) | `1.3.0+4` | 2026-09-28: web'deki yönetim modülleri mobile geldi (Ürünler, Zam Geçmişi, Fiyat Kaynakları, Personel, Kullanıcılar, Roller & Yetkiler, Tedarikçiler, Maliyet Kodları, Metraj Reçeteleri, E-posta Ayarları, proje bilgilerini düzenle) — yeni özellik, küçük sürüm artışı (bkz. §5 Versiyonlama). Önceki: `1.2.0+3` (uzaktan güncelleme). |
+| `version` (pubspec.yaml) | `1.4.0+5` | 2026-09-29: web proje sayfasının kalan bölümleri mobile geldi — Sözleşme (taslak/aktifleştir/tamamla/feshet), Ek İşler (oluştur/düzenle/gönder/mail/revize/iptal), Ödeme Planı, Faturalar, Maliyet Kontrolü yönetimi (bütçe, WBS, revizyonlar, taahhütler, tahmin, gerçekleşen), Planlama (iş programı), Proje Ekibi, Proje Erişimi, Taşeron Ödemeleri (legacy taşeron kaydı + ödemeler), masraf/tahsilat ayrıntısı ve gerekçeli iptali, masraf bağlantıları (ek iş, bütçe kalemi, maliyet kodu), tahsilatın ödeme planı kalemine bağlanması, proje Aktivite Geçmişi (tutarlar yalnızca finans izniyle) ve teklif Aktivite / Mail Geçmişi — yeni özellik, küçük sürüm artışı (bkz. §5 Versiyonlama). Önceki: `1.3.0+4` (yönetim modülleri). |
 | compileSdk / minSdk / targetSdk | 36 / 24 / 36 | Flutter 3.44.8'in kendi varsayılanları (`flutter.compileSdkVersion` vb. üzerinden), Play Store'un güncel targetSdk şartını karşılıyor. minSdk 24 = Android 7.0+. |
 | Launcher ikonu (adaptive) | `android/app/src/main/res/mipmap-*/ic_launcher*.png` | **Hazır** — gerçek ARVEND "AY" monogramı (gold #D89A22, adaptive foreground) + navy (#111827) arka plan. Placeholder DEĞİL. |
 | Açılış ekranı (splash) | `android/app/src/main/res/drawable/launch_background.xml` | **Hazır** — navy zemin + ARVEND monogramı, marka diliyle tutarlı. |
@@ -173,8 +173,8 @@ flutter build ipa
 
 ## 5. Versiyonlama Kuralları
 
-Mevcut: `pubspec.yaml` → `version: 1.3.0+4` (`1.3.0` = semantik sürüm,
-`4` = build numarası — Android `versionCode`/iOS `CFBundleVersion` bu
+Mevcut: `pubspec.yaml` → `version: 1.4.0+5` (`1.4.0` = semantik sürüm,
+`5` = build numarası — Android `versionCode`/iOS `CFBundleVersion` bu
 build numarasından TÜRETİLİR, ayrıca elle senkronize EDİLMEZ).
 
 Gelecek sürümler için kural:
@@ -187,7 +187,7 @@ Gelecek sürümler için kural:
   `CFBundleVersion` `flutter build`'in `--build-number` bayrağıyla (veya
   pubspec'teki `+N`'den) AYNI kaynaktan gelir, elle ayrı ayrı
   YÖNETİLMEZ.
-- Örnek bir sonraki sürüm: `1.3.1+5` (hata düzeltmesi) veya `1.4.0+5`
+- Örnek bir sonraki sürüm: `1.4.1+6` (hata düzeltmesi) veya `1.5.0+6`
   (yeni özellik).
 
 ---
@@ -214,7 +214,9 @@ Gelecek sürümler için kural:
 
 **Mobilde SMTP gönderim kodu/sırrı YOK — doğrulandı.**
 
-- Teklif e-postaları backend'den gönderilir
+- Teklif ve Ek İş e-postaları backend'den gönderilir (1.4.0+5'ten beri
+  Ek İş detayındaki "Mail Gönder" yalnızca `POST .../send-email` çağırır;
+  alıcı ve mesaj istek gövdesindedir)
   (`backend/internal/platform/mailer/mailer.go`,
   `backend/internal/config/config.go`'daki `SMTP_*` env değişkenleri).
 - Mobilde mail gönderen paket/kod YOK. 1.3.0+4'ten beri yalnızca bir
@@ -312,6 +314,8 @@ kaynak olarak kullanılabilir.
 | Personel kaydı (ad, telefon, görev, başlangıç tarihi, maaş/yevmiye) | Diğer > Personel (1.3.0+4) | Maaş/yevmiye backend'den YALNIZCA `employees.manage` sahibine döner, diğerlerinde hiç gelmez. |
 | Kullanıcı hesapları (kullanıcı adı, ad, rol, kişiye özel yetkiler) | Diğer > Kullanıcılar, Roller & Yetkiler (1.3.0+4, yalnız Sahip/Yönetici) | Yeni hesap / şifre sıfırlama parolası yalnızca istek gövdesinde backend'e gider, cihazda saklanmaz. |
 | Tedarikçi verisi (unvan, vergi no/dairesi, iletişim, adres) | Diğer > Tedarikçiler (1.3.0+4) | Ticari veri. IBAN yalnızca yazılır; okunamaz, ekranda yalnızca "IBAN kayıtlı / değil". |
+| Proje ekibi ve proje erişimi (personel adı/görevi, kullanıcı adı, proje rolü) | Proje > Operasyon > Ekip / Erişim (1.4.0+5) | Kullanıcı seçici (`/users`) yalnızca `projects.access.manage` ile, "Erişim Ver" açılınca çekilir. Maaş/yevmiye bu ekranlarda hiç yoktur. |
+| Ek İş / teklif mail alıcıları (müşteri e-postası) | Ek İş detayı "Mail Gönder", teklif "Mail Geçmişi" (1.4.0+5) | Alıcı adresi müşteri kaydından önerilir; cihazda saklanmaz. |
 | Uygulama içi bildirimler | Bildirim modülü | Yalnızca uygulama içinde, cihaz push token'ı YOK. |
 
 ### Mobil uygulamanın TOPLAMADIĞI veriler (doğrulandı, tahmin değil)

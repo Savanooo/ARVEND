@@ -20,6 +20,7 @@ import '../../../core/widgets/money_text.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../data/offers_providers.dart';
 import '../domain/offer.dart';
+import '../history/offer_history_routes.dart' show OfferHistorySection, invalidateOfferHistory;
 
 class OfferDetailScreen extends ConsumerStatefulWidget {
   const OfferDetailScreen({super.key, required this.offerId});
@@ -36,23 +37,30 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
 
   String get offerId => widget.offerId;
 
+  // Yazmalar kapsayıcının `invalidate`'ini ilk await'ten ÖNCE alır: istek
+  // sürerken geri basılıp ekran kapansa da liste/geçmiş tazelenir
+  // (`WidgetRef` dispose sonrası StateError atardı).
   Future<void> _setStatus(String status) async {
+    final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
     try {
       await ref.read(offersRepositoryProvider).updateStatus(offerId, status);
-      ref.invalidate(offerDetailProvider(offerId));
-      ref.invalidate(offersListProvider(''));
-      ref.invalidate(offerRevisionsProvider(offerId));
+      invalidate(offerDetailProvider(offerId));
+      invalidate(offersListProvider(''));
+      invalidate(offerRevisionsProvider(offerId));
+      invalidateOfferHistory(invalidate, offerId);
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
   }
 
   Future<void> _reviseAndEdit() async {
+    final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
     try {
       final revised = await ref.read(offersRepositoryProvider).revise(offerId);
-      ref.invalidate(offerDetailProvider(offerId));
-      ref.invalidate(offersListProvider(''));
-      ref.invalidate(offerRevisionsProvider(offerId));
+      invalidate(offerDetailProvider(offerId));
+      invalidate(offersListProvider(''));
+      invalidate(offerRevisionsProvider(offerId));
+      invalidateOfferHistory(invalidate, offerId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Revizyon #${revised.revisionNo} oluşturuldu')),
@@ -65,9 +73,11 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
 
   Future<void> _convert() async {
     setState(() => _converting = true);
+    final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
     try {
       final result = await ref.read(offersRepositoryProvider).convertToProject(offerId);
-      ref.invalidate(offerLinkedProjectIdProvider(offerId));
+      invalidate(offerLinkedProjectIdProvider(offerId));
+      invalidateOfferHistory(invalidate, offerId);
       if (!mounted) return;
       final projectId = result['id'] as String?;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Proje oluşturuldu')));
@@ -85,8 +95,11 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
 
   Future<void> _createShareLink() async {
     setState(() => _creatingLink = true);
+    final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
     try {
       final link = await ref.read(offersRepositoryProvider).createShareLink(offerId);
+      // Link oluşturma bir olay (share_link_created) üretir.
+      invalidateOfferHistory(invalidate, offerId);
       if (!mounted) return;
       // Ağ çağrısı bitti -- diyalog açık kaldığı sürece (kullanıcı kopyala/
       // kapat'a basana kadar) buton sonsuza dek "yükleniyor" görünmesin.
@@ -130,17 +143,21 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
     setState(() => _sendingEmail = true);
+    final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
     try {
       await ref.read(offersRepositoryProvider).sendEmail(offerId);
-      ref.invalidate(offerDetailProvider(offerId));
-      ref.invalidate(offersListProvider(''));
+      invalidate(offerDetailProvider(offerId));
+      invalidate(offersListProvider(''));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('E-posta gönderildi')));
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
+      // Başarısız gönderim de "Mail Geçmişi"ne (failed) düşer -- her iki
+      // durumda da geçmiş tazelenir.
+      invalidateOfferHistory(invalidate, offerId);
       if (mounted) setState(() => _sendingEmail = false);
     }
   }
@@ -181,6 +198,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
             ref.invalidate(offerDetailProvider(offerId));
             ref.invalidate(offerRevisionsProvider(offerId));
             ref.invalidate(offerLinkedProjectIdProvider(offerId));
+            invalidateOfferHistory(ref.invalidate, offerId);
           },
           child: ListView(
             padding: const EdgeInsets.all(AppSpacing.lg),
@@ -266,6 +284,10 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                   );
                 },
               ),
+              // Web teklif detayındaki "Aktivite / Zaman Çizelgesi" + "Mail
+              // Geçmişi" (görüntülenme özeti dahil); tamamı /teklifler/:id/gecmis.
+              const SizedBox(height: AppSpacing.xl),
+              OfferHistorySection(offerId: offerId),
               const SizedBox(height: AppSpacing.xl),
               if (offer.isEditable)
                 PrimaryButton(

@@ -19,6 +19,17 @@ class Project {
   final String description;
   final String createdAt;
 
+  /// Web "Müşteri Bilgileri" / "Genel" karşılıkları (tekil GET'te dolu).
+  final String customerAddress;
+
+  /// Dahili notlar (müşteri görmez) -- `PUT /projects/{id}` ile yazılır.
+  final String internalNotes;
+
+  /// Projenin doğduğu teklif (tekliften dönüşüm) -- yoksa null/boş.
+  final String? sourceOfferId;
+  final String sourceOfferNo;
+  final int? sourceRevisionNo;
+
   final double? currentContractValue;
   final double? collectedAmount;
   final double? remainingReceivable;
@@ -39,6 +50,11 @@ class Project {
     required this.endDate,
     required this.description,
     required this.createdAt,
+    this.customerAddress = '',
+    this.internalNotes = '',
+    this.sourceOfferId,
+    this.sourceOfferNo = '',
+    this.sourceRevisionNo,
     this.currentContractValue,
     this.collectedAmount,
     this.remainingReceivable,
@@ -60,6 +76,11 @@ class Project {
         endDate: json['end_date'] as String?,
         description: json['description'] as String? ?? '',
         createdAt: json['created_at'] as String? ?? '',
+        customerAddress: json['customer_address'] as String? ?? '',
+        internalNotes: json['internal_notes'] as String? ?? '',
+        sourceOfferId: _nonEmptyId(json['source_offer_id'] as String?),
+        sourceOfferNo: json['source_offer_no'] as String? ?? '',
+        sourceRevisionNo: (json['source_revision_no'] as num?)?.toInt(),
         currentContractValue: (json['current_contract_value'] as num?)?.toDouble(),
         collectedAmount: (json['collected_amount'] as num?)?.toDouble(),
         remainingReceivable: (json['remaining_receivable'] as num?)?.toDouble(),
@@ -130,6 +151,12 @@ class Expense {
   final String voidReason;
   final String createdAt;
 
+  /// Opsiyonel bağlar (web ExpensesSection): müşteri ek işi, maliyet kodu,
+  /// bütçe kalemi (seçilince maliyet kodu ondan gelir, sunucu da uygular).
+  final String? changeOrderId;
+  final String? costCodeId;
+  final String? budgetLineId;
+
   const Expense({
     required this.id,
     required this.category,
@@ -143,6 +170,9 @@ class Expense {
     required this.voidedAt,
     required this.voidReason,
     required this.createdAt,
+    this.changeOrderId,
+    this.costCodeId,
+    this.budgetLineId,
   });
 
   bool get isVoided => voidedAt != null;
@@ -160,12 +190,18 @@ class Expense {
         voidedAt: json['voided_at'] as String?,
         voidReason: json['void_reason'] as String? ?? '',
         createdAt: json['created_at'] as String? ?? '',
+        changeOrderId: _nonEmptyId(json['change_order_id'] as String?),
+        costCodeId: _nonEmptyId(json['cost_code_id'] as String?),
+        budgetLineId: _nonEmptyId(json['budget_line_id'] as String?),
       );
 }
 
-/// `/projects/{id}/collections` (Tahsilat). Var olan `payment_plan_item_id`
-/// bağı opsiyoneldir (backend serbest kayda izin verir) — mobil şimdilik
-/// yalnızca serbest tahsilat oluşturur (ödeme planına bağlama yok).
+String? _nonEmptyId(String? v) => (v == null || v.isEmpty) ? null : v;
+
+/// `/projects/{id}/collections` (Tahsilat). `payment_plan_item_id` bağı
+/// opsiyoneldir (backend serbest kayda izin verir); 1.4.0+5'ten beri tahsilat
+/// formu açık bir ödeme planı kalemine bağlanabilir (web CollectionsSection)
+/// -- kalemin "Tahsil Edilen"i bu bağdan hesaplanır.
 class Collection {
   final String id;
   final String? paymentPlanItemId;

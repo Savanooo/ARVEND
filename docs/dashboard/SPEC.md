@@ -1501,16 +1501,18 @@ DashboardScreen (ConsumerStatefulWidget)
 | project_operations | `?grup=operasyon&alt=gorevler` |
 | offer | `/teklifler/{id}` (convert has no mobile screen; it opens the offer) |
 | task | `/projeler/{p}/gorevler/{id}` |
-| milestone | `/projeler/{p}?grup=operasyon&alt=gorevler` |
+| milestone | `/projeler/{p}/planlama/{id}` (schedule item; mobile 1.4.0+5) |
 | purchase_request | `/projeler/{p}/satin-alma/talepler/{id}` |
 | rfq | `/projeler/{p}/satin-alma/rfqlar/{id}`, or with action award `/projeler/{p}/satin-alma/rfqlar/{id}/karsilastir` |
 | purchase_order | `/projeler/{p}/satin-alma/siparisler/{id}` |
 | subcontract | `/projeler/{p}/taseronlar/{id}` |
 | progress_claim | `/projeler/{p}/taseronlar/{parent}/hakedisler/{id}` |
 | subcontract_change_order | `/projeler/{p}/taseronlar/{parent}/degisiklik-emirleri/{id}` |
-| change_order | `/projeler/{p}?grup=finans&alt=ek-isler` |
-| budget_adjustment | `?grup=finans&alt=maliyet` |
-| contract, payment_plan_item, invoice | `?grup=finans&alt=finans` |
+| change_order | `/projeler/{p}/ek-isler/{id}` (mobile 1.4.0+5) |
+| budget_adjustment | `/projeler/{p}/maliyet/revizyonlar` (no single-adjustment screen; mobile 1.4.0+5) |
+| contract | `/projeler/{p}/sozlesme` (mobile 1.4.0+5) |
+| payment_plan_item | `/projeler/{p}/odeme-plani/{id}` (mobile 1.4.0+5) |
+| invoice | `/projeler/{p}/faturalar/{id}` (mobile 1.4.0+5) |
 | customer | `/diger/musteriler/{id}` |
 | product | `/diger/urunler/{id}` (mobile 1.3.0+4) |
 | user | `/diger/kullanicilar/{id}` (mobile 1.3.0+4) |

@@ -20,6 +20,7 @@ import '../features/dashboard/presentation/dashboard_screen.dart';
 import '../features/attendance/presentation/attendance_screen.dart';
 import '../features/employees/employees_routes.dart';
 import '../features/offers/domain/offer.dart';
+import '../features/offers/history/offer_history_routes.dart' show offerHistoryRoutes;
 import '../features/offers/presentation/offer_create_screen.dart';
 import '../features/offers/presentation/offer_detail_screen.dart';
 import '../features/offers/presentation/offer_revision_detail_screen.dart';
@@ -31,6 +32,11 @@ import '../features/profile/presentation/about_screen.dart';
 import '../features/profile/presentation/other_menu_screen.dart';
 import '../features/products/products_routes.dart';
 import '../features/profile/presentation/profile_screen.dart';
+import '../features/projects/activity/activity_routes.dart' show projectActivityRoutes;
+import '../features/projects/budget/budget_routes.dart' show budgetRoutes;
+import '../features/projects/contract_co/contract_co_routes.dart' show contractCoRoutes;
+import '../features/projects/finance_plan/finance_plan_routes.dart' show financePlanRoutes;
+import '../features/projects/ops_team/ops_team_routes.dart' show opsTeamRoutes;
 import '../features/projects/presentation/project_detail_screen.dart';
 import '../features/projects/projects_routes.dart';
 import '../features/projects/presentation/projects_screen.dart';
@@ -188,6 +194,15 @@ final routerProvider = Provider<GoRouter>((ref) {
                     // /projeler/:id/duzenle -- proje bilgilerini düzenle
                     // (projects.update; ekran izni kendisi de denetler).
                     ...projectEditRoutes,
+                    // Proje alt modülleri (web /projeler/[id] sekmeleri). Yollar
+                    // her modülün kendi *_routes.dart dosyasında GÖRELİ tanımlı;
+                    // rota düzeyinde guard YOK -- her ekran veri çekmeden önce
+                    // kendi proje iznini denetler (403'te çökmez).
+                    ...contractCoRoutes, // sozlesme, sozlesme/duzenle, ek-isler, ek-isler/{yeni,:coId,:coId/duzenle}
+                    ...budgetRoutes, // maliyet, maliyet/{butce,butce/kalemler/…,wbs,revizyonlar,taahhutler,tahmin,gerceklesen}
+                    ...financePlanRoutes, // odeme-plani, odeme-plani/{yeni,:itemId,:itemId/duzenle}, faturalar/{yeni,:invoiceId}
+                    ...opsTeamRoutes, // planlama, planlama/{yeni,:itemId,:itemId/duzenle}, ekip, erisim
+                    ...projectActivityRoutes, // aktivite (web Aktivite sekmesi)
                     GoRoute(
                       path: 'gorevler/yeni',
                       builder: (context, state) => TaskFormScreen(projectId: state.pathParameters['id']!),
@@ -399,6 +414,8 @@ final routerProvider = Provider<GoRouter>((ref) {
                 GoRoute(
                   path: ':id',
                   builder: (context, state) => OfferDetailScreen(offerId: state.pathParameters['id']!),
+                  // /teklifler/:id/gecmis -- aktivite + mail geçmişi (?sekme=eposta).
+                  routes: offerHistoryRoutes,
                 ),
 
               ],

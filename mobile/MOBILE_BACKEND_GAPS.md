@@ -117,3 +117,56 @@ insert and present on the raw SQL row, but `repository.ToDomainTask`
 the task's own row — never reach `taskResponse` at all. The mobile task
 detail screen has no "creator"/"created" fields since the API has none to
 show; not invented client-side.
+
+## 13. Project modules added in 1.4.0+5 — backend gaps found (not changed)
+Found while bringing the web's project page to mobile (contract, change
+orders, budget/cost control, payment plan, invoices, schedule, team,
+access, legacy subcontractor payments, activity). The app works around
+each one; none needs a mobile change once fixed server-side.
+- **Change orders:** no email-log list endpoint (history is read from
+  project `events`); detail GET has no profitability (merged from the list
+  row); cancel takes no reason (see §7).
+- **Invoices:** no field-edit endpoint (only POST + `PUT .../status`), no
+  status state machine (any status, including un-cancelling), no
+  single-invoice GET.
+- **Payment plan:** no single-item GET, no restore for a cancelled item;
+  `DELETE` on a missing/already-cancelled item answers "proje bulunamadı".
+- **Lock rule is UI-only** for `DELETE /payment-plan/{id}` and
+  `PUT /invoices/{id}/status` (no `requireOpenProject`); contract
+  Complete/Terminate is allowed on a closed project by design.
+- **Schedule:** no DELETE — items are set to `cancelled`.
+- **Commitments:** `POST /commitments/{id}/void` does not check
+  `source_type`, so purchase-order/subcontract commitments can be voided via
+  API/web (contradicts docs/cost-control.md §5); the app only offers void on
+  manual ones.
+- **Budget:** `GET /budget` and `GET /budget/lines` return 404 both for "no
+  budget" and "project not found".
+- **Permissions text:** `projects.cost_control.manage`'s description names
+  WBS, but router.go gates WBS writes with `projects.budget.manage`.
+- **Money leak (already in HANDOFF §8):** `GET /projects/{id}/events`
+  returns `amount`/`planned_amount`/`contract_amount`/`grand_total` to users
+  without `projects.finance.read`; the app hides them client-side.
+- **Revenue in cost control:** `GET /projects/{id}/cost-control` returns
+  `contract_value`, `forecast_profit` and `forecast_margin_percent` to
+  anyone with `projects.cost_control.read` (the default Proje Yöneticisi
+  role has it, but not `projects.finance.read`). The app shows cost figures
+  (budget, EAC, commitments, actuals, variance) under cost-control/budget
+  permissions and hides the three revenue/profit fields without
+  finance.read (2026-09-29 review fix). Server-side fix: null them without
+  finance.read, like the dashboard does.
+- **Change-order share token:** the list/detail response carries
+  `active_share_token` under `projects.finance.read`. That token lets whoever
+  opens `/ek-is/{token}` approve or reject the change order as the customer.
+  The app shows/copies the link only with `projects.finance.manage`; the
+  token itself should be returned only to finance.manage.
+- **Pickers need org-level permissions:** "Ekibe Ekle" needs
+  `GET /employees` (`employees.read`) and "Erişim Ver" needs `GET /users`
+  (`requireAdmin` + `organization.users.read`). The default Proje Yöneticisi
+  / Saha roles have `projects.operations.manage` but not `employees.read`,
+  so the app hides these buttons (with a note) instead of opening a picker
+  that can never load. A project-scoped option list (e.g.
+  `GET /projects/{id}/member-options`) would let them add team members.
+- **Legacy subcontractor create has no idempotency key**
+  (`POST /projects/{id}/subcontractors`); a retried or double-submitted
+  request creates a duplicate. The app blocks closing the sheet while the
+  request is in flight.

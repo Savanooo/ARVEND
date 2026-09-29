@@ -7,6 +7,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:arvend/core/api/api_providers.dart';
 import 'package:arvend/features/dashboard/presentation/dashboard_screen.dart';
 import 'package:arvend/features/offers/presentation/offer_create_screen.dart';
+import 'package:arvend/features/projects/activity/activity_routes.dart';
 import 'package:arvend/features/projects/presentation/project_detail_screen.dart';
 
 import 'features/dashboard/fixtures.dart';
@@ -99,6 +100,8 @@ GoRouter _buildProjectTestRouter(String projectId) => GoRouter(
         GoRoute(
           path: '/projeler/:id',
           builder: (c, s) => ProjectDetailScreen(projectId: s.pathParameters['id']!),
+          // Gerçek uygulamadaki gibi: Aktivite /projeler/:id/aktivite.
+          routes: projectActivityRoutes,
         ),
       ],
     );
@@ -183,7 +186,8 @@ void main() {
 
     testWidgets('Aktivite artık birincil sekme değil -- AppBar geçmiş simgesiyle açılır', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
-        '/auth/me': [(status: 200, body: _meJson(permissions: ['projects.finance.read']))],
+        // Olaylar projects.read ister (proje sayfasının kendisi gibi).
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['projects.read', 'projects.finance.read']))],
         '/projects/p1': [(status: 200, body: _projectJson())],
         '/projects/p1/events': [(status: 200, body: {'events': <dynamic>[]})],
         ..._defensiveProjectScripts('p1'),
@@ -194,10 +198,11 @@ void main() {
 
       // Aynı Icons.history hem AppBar'da hem Özet'in alt satırında var --
       // AppBar'daki, tooltip'iyle tekil olarak hedeflenir.
-      await tester.tap(find.byTooltip('Proje Hareketleri'));
+      await tester.tap(find.byTooltip('Aktivite Geçmişi'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Proje Hareketleri'), findsOneWidget);
+      expect(find.text('Aktivite Geçmişi'), findsOneWidget);
+      expect(find.text('Henüz kayıtlı bir olay yok.'), findsOneWidget);
     });
   });
 

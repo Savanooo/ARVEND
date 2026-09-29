@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
@@ -9,6 +8,7 @@ import '../../../../core/utils/formatters.dart';
 import '../../domain/dashboard.dart';
 import '../../domain/dashboard_registry.dart';
 import '../../domain/mobile_routes.dart';
+import 'dashboard_nav.dart';
 
 /// "Yaklaşan · 14 gün" satırı: uyarı renginde takvim ikonu, nötr metin
 /// (spec D7), "Bugün" / "Yarın" / "30 Eyl".
@@ -27,7 +27,7 @@ class UpcomingRow extends StatelessWidget {
       if (item.amount != null) Formatters.money(item.amount!.amount, currency: item.amount!.currency),
     ].join(' · ');
     return InkWell(
-      onTap: route == null ? null : () => context.push(route),
+      onTap: route == null ? null : () => openRecordRoute(context, route),
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: 56),
         child: Padding(

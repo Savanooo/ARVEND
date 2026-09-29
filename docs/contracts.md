@@ -344,6 +344,29 @@ sprint"):
   gereksizdir (`CostControlLine`'ın Sprint 2'deki AYNI minimalizm
   ilkesi).
 
+**Güncelleme (mobil 1.4.0+5, 2026-09-29):** yukarıdaki kapsam ESKİDİ.
+Mobilde artık Sözleşme ekranı VAR (`mobile/lib/features/projects/
+contract_co/`, Finans > Sözleşme, `/projeler/:id/sozlesme`): taslak
+oluştur/düzenle, dahili not, Aktifleştir / İptal Et (gerekçe zorunlu) /
+Tamamla / Feshet (gerekçe zorunlu); 3 katmanlı izin (read/manage/
+lifecycle) aynen uygulanır — Proje Yöneticisi taslağı düzenler ama durum
+değiştiremez, finans izni yoksa hiçbir tutar görmez. Finans grubu
+`projects.contracts.read` ile de görünür (§11'deki web hatasının mobil
+karşılığı baştan önlendi). Ek İşler de tam yönetimli: oluştur/düzenle
+(kalemler, KDV), Gönder, Mail Gönder, Linki Kopyala, Revize Et, İptal Et
+(`projects.finance.manage`, kapalı projede gizli), detayda kârlılık ve
+mail/olay geçmişi. Onay/red yine yalnızca müşterinin herkese açık
+linkinden.
+
+**Kapalı projede yaşam döngüsü (mobil, 2026-09-29 inceleme):** backend
+Tamamla/Feshet/İptal Et'i `requireOpenProject`'e bilinçli olarak bağlamaz
+(kapanış eylemi, bkz. `project_contract_service.go`). Mobil artık bunu
+izler: tamamlanmış/iptal edilmiş projede şartlar ve not kilitli, yeni
+sözleşme ve Aktifleştir yok, ama `projects.contracts.lifecycle` ile
+sözleşme kapatılabilir. Web bu düğmeleri `locked` iken hâlâ gizliyor (web
+tarafında açık fark). Ek iş paylaşım linkinin METNİ de artık yalnızca
+"Linki Kopyala"yı görebilene (`projects.finance.manage`) gösterilir.
+
 ---
 
 ## 11. Web UI Yerleşimi

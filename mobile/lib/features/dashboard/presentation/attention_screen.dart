@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -215,7 +214,7 @@ class _RecordRow extends StatelessWidget {
     final route = mobileRouteFor(record.ref);
     final amount = record.amount;
     return InkWell(
-      onTap: route == null ? null : () => context.push(route),
+      onTap: route == null ? null : () => openRecordRoute(context, route),
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: 48),
         child: Padding(

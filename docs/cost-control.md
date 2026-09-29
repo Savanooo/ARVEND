@@ -556,6 +556,19 @@ Marj) ve salt-okunur bütçe kalemi listesini gösterir —
 taahhüt oluşturma/düzenleme, maliyet kodu yönetimi mobilde YOKTUR** —
 hepsi web'e yönlendirilir.
 
+**Güncelleme (mobil 1.4.0+5, 2026-09-29):** yukarıdaki salt-okunur kapsam
+ESKİDİ. Mobilde Finans > Maliyet Kontrolü artık web ile aynı yönetimi
+sunar (`mobile/lib/features/projects/budget/`): bütçe oluşturma, taslak
+kalem ekle/düzenle/sil, baseline, WBS ağacı, revizyon oluştur/onayla/
+reddet, manuel taahhüt (idempotency anahtarlı) ve gerekçeli iptal, ETC
+tahmini, gerçekleşen maliyet kırılımı. İzinler router.go ile birebir
+(`projects.budget.*` bütçe/WBS/kalem/revizyon, `projects.cost_control.*`
+taahhüt/tahmin/özet). Bilinçli fark: mobil yalnızca MANUEL taahhüdü iptal
+ettirir (satın alma/taşeron kaynaklı taahhüdün elle iptali §5 ile çelişir;
+backend `POST /commitments/{id}/void` bunu şu an engellemiyor). Masraf
+formu da bütçe kalemi / maliyet kodu bağını gönderir. Maliyet kodu kataloğu
+yönetimi Diğer > Maliyet Kodları'ndadır (1.3.0+4).
+
 ---
 
 ## 18. Yeni Bir İzin/Alan Eklerken

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
@@ -392,7 +391,7 @@ class CardListRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final target = route;
     return InkWell(
-      onTap: target == null ? null : () => context.push(target),
+      onTap: target == null ? null : () => openRecordRoute(context, target),
       borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),

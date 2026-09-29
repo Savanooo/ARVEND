@@ -1,18 +1,37 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_status_colors.dart';
+import '../../data/dashboard_providers.dart';
 import '../../domain/dashboard_registry.dart';
 
 /// Sekme kökleri (`/projeler`, `/teklifler`, `/gorevler`) `go` ile dal
 /// değiştirir; kayıt ekranları ve Diğer altındaki ekranlar `push` edilir
 /// (spec §2 "go"/"push" sütunu).
+///
+/// `push` edilen ekrandan dönülünce anlık görüntü tazelenir ([openRecordRoute]);
+/// ana sayfanın kendi Dikkat listesi (aynı anlık görüntü) hariç.
 void openModuleRoute(BuildContext context, ModuleRoute route) {
-  if (route.push) {
+  if (route.push && !route.path.startsWith('/ana-sayfa')) {
+    openRecordRoute(context, route.path);
+  } else if (route.push) {
     context.push(route.path);
   } else {
     context.go(route.path);
   }
+}
+
+/// Ana sayfa / Dikkat satırından bir KAYIT ekranına (ek iş, ödeme planı
+/// kalemi, fatura, aşama, revizyon...) gider; geri dönülünce ana sayfa anlık
+/// görüntüsü tazelenir -- orada yapılan bir işlem (ör. gecikmiş kalemi iptal
+/// etmek) listede bayat kalmasın. Ana sayfa dalı StatefulShellRoute'ta canlı
+/// kaldığı için kendiliğinden yenilenmez. Kapsayıcı `push`'tan ÖNCE alınır
+/// (satır bu arada ağaçtan kalkabilir); hızlı işlemlerle aynı desen.
+Future<void> openRecordRoute(BuildContext context, String route) async {
+  final container = ProviderScope.containerOf(context, listen: false);
+  await context.push(route);
+  container.invalidate(dashboardProvider);
 }
 
 /// Bölüm başlığının sağındaki "Tümü" bağlantısı. Sıkı çizilir (iç boşluk
