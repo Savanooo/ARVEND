@@ -14,6 +14,21 @@ class AppConfig {
 
   static const String apiPrefix = '/api/v1';
 
+  /// Dağıtım kanalı: `play` (Google Play) ya da `sideload` (mağaza öncesi,
+  /// sunucudan kendini güncelleyen APK). Yalnızca `--dart-define=DISTRIBUTION=`
+  /// ile verilir ve Gradle flavor'ıyla AYNI olmalıdır -- scripts/derle.sh
+  /// ikisini tek argümandan verir.
+  ///
+  /// Play sürümü kendini güncellemez (Play politikası; bkz.
+  /// android/app/src/play/AndroidManifest.xml): updateSupportedProvider bu
+  /// bayrağa bakar, otomatik denetim ve "Güncellemeleri denetle" satırı kapanır.
+  static const String distribution = String.fromEnvironment(
+    'DISTRIBUTION',
+    defaultValue: 'sideload',
+  );
+
+  static const bool isPlayBuild = distribution == 'play';
+
   static String api(String path) => '$apiBaseUrl$apiPrefix$path';
 
   /// 25 MiB - backend'in project_operations_handler.go'daki

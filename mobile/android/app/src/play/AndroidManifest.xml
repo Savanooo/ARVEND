@@ -1,0 +1,19 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Play sürümünde kendi kendini güncelleme yok.
+
+         Google Play'in Device and Network Abuse politikası, Play'den dağıtılan
+         bir uygulamanın kendini Play dışında bir yöntemle güncellemesini
+         yasaklıyor; REQUEST_INSTALL_PACKAGES'ın self-update için kullanılması
+         da ayrıca yasak. tools:node="remove" manifest birleşmesinde hem
+         src/main'deki tanımı hem de open_filex gibi eklentilerin kendi
+         manifest'lerinden gelen tanımı düşürür.
+
+         İzni düşürmek tek başına yetmez: güncelleme denetimi Dart tarafında da
+         kapalı (AppConfig.isPlayBuild -> updateSupportedProvider), yani Play
+         sürümü sunucuya sürüm sormaz ve APK indirmez. -->
+    <uses-permission
+        android:name="android.permission.REQUEST_INSTALL_PACKAGES"
+        tools:node="remove" />
+</manifest>

@@ -7,7 +7,7 @@
 # "Uzaktan güncelleme (Store öncesi)".
 #
 # Kullanım (mobile/ dizininde):
-#   flutter build apk --release
+#   ./scripts/derle.sh sideload
 #   ./scripts/yayinla.sh "sürüm notları" [--zorunlu] [--deneme] [--imza-degisti]
 #
 #   --zorunlu       Bu sürümün altındaki her cihaz güncellemeden devam
@@ -48,7 +48,9 @@ set -euo pipefail
 
 MOBIL="$(cd "$(dirname "$0")/.." && pwd)"
 PUBSPEC="$MOBIL/pubspec.yaml"
-APK="$MOBIL/build/app/outputs/flutter-apk/app-release.apk"
+# Flavor eklendiğinden beri (play/sideload) sideload APK'nın adı bu; eski
+# app-release.apk artık üretilmiyor. Play AAB'si buradan YAYINLANMAZ.
+APK="$MOBIL/build/app/outputs/flutter-apk/app-sideload-release.apk"
 HEDEF_DOSYA="$MOBIL/.yayin_hedefi"
 VARSAYILAN_HEDEF="szutech2@192.168.77.77:/var/lib/arvend/app-releases"
 API_TABANI="${ARVEND_API_TABANI:-https://app.arvendyapi.com.tr}"

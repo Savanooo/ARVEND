@@ -20,45 +20,52 @@ analyze`/`flutter test`/`flutter build apk --debug`/`--release`/`appbundle
 
 ## 1. Android Production Signing
 
-**Durum: yapılandırma hazır, gerçek keystore/parola YOK (kasıtlı olarak
-üretilmedi).**
+**Durum (2026-10-02): upload anahtarı VAR, Play'e hazır AAB üretildi.**
 
-`android/app/build.gradle.kts`, artık `android/key.properties` dosyasını
-okuyacak şekilde güncellendi:
+| | |
+|---|---|
+| Keystore | `~/.arvend/secrets/arvend-upload.jks` (PKCS12, RSA 4096, 2054'e kadar) |
+| Alias | `arvend` |
+| Parola | macOS Keychain, servis `arvend-upload-keystore`, hesap `arvend` |
+| Sertifika SHA-256 | `E2:0C:0B:18:B8:7D:31:39:0A:48:93:AC:AF:D0:6C:BB:EE:D5:48:8E:23:44:CC:AC:C0:E3:CD:4F:32:DC:42:F4` |
 
-- Dosya **varsa**: `release` build type o dosyadaki gerçek üretim
-  anahtarıyla imzalanır.
-- Dosya **yoksa**: `release` build type debug anahtarıyla imzalanır
-  (yerel `flutter build apk --release` çalışmaya devam eder) AMA Gradle
-  build çıktısında AÇIKÇA bir uyarı basılır — bu APK/AAB Play Store'a
-  YÜKLENEMEZ.
+Derleme **her zaman** `scripts/derle.sh` ile:
 
-`android/key.properties` hem `android/.gitignore` (proje şablonundan
-zaten vardı) hem de `mobile/.gitignore`'da (bu görevde eklendi, ikinci
-güvenlik katmanı) hariç tutulur. `*.jks`/`*.keystore`/`*.p12` de aynı
-şekilde.
+```bash
+./scripts/derle.sh play        # Google Play AAB'si
+./scripts/derle.sh sideload    # sunucudan dağıtılan APK (sonra scripts/yayinla.sh)
+```
 
-### Kullanıcının yapması gerekenler
+Betik parolayı Keychain'den okur (hiçbir dosyaya yazmaz), Gradle flavor'ı ile
+`--dart-define=DISTRIBUTION`'ı aynı argümandan verir ve derleme SONRASI
+çıktının sertifikasını keystore'dakiyle karşılaştırır — eşleşmezse paketi
+reddeder. Parolayı okumak için:
 
-1. **Keystore üretin** (yalnızca siz, kendi makinenizde — bu ajan/oturum
-   sizin adınıza üretmez):
-   ```bash
-   keytool -genkey -v -keystore /güvenli/yol/arvend-release.jks \
-     -keyalg RSA -keysize 2048 -validity 10000 -alias arvend
-   ```
-   `/güvenli/yol/` bu reponun DIŞINDA olmalı (ör. şifreli bir parola
-   kasası/yedek diski). **Bu dosyayı kaybederseniz Play Store'daki
-   uygulamayı bir daha ASLA güncelleyemezsiniz** — App Signing by Google
-   Play kullanmıyorsanız bu geri dönüşü olmayan bir kayıptır.
-2. `mobile/android/key.properties.example` dosyasını
-   `mobile/android/key.properties` olarak kopyalayıp gerçek
-   `storeFile`/`storePassword`/`keyAlias`/`keyPassword` değerlerini girin.
-3. Doğrulayın: `git status` bu dosyayı GÖSTERMEMELİ (ignore'lanmış
-   olmalı). Gösteriyorsa commit ETMEDEN durun ve `.gitignore`'u kontrol
-   edin.
-4. CI/CD kullanıyorsanız bu dört değeri (+ keystore dosyasının kendisini
-   base64 olarak) CI'ın kendi secret store'una (GitHub Actions secrets
-   vb.) koyun — asla repoya değil.
+```bash
+security find-generic-password -a arvend -s arvend-upload-keystore -w
+```
+
+**Debug imzaya düşme artık play'de imkânsız.** `build.gradle.kts` anahtar
+bulamazsa release'i debug ile imzalamaya devam ediyor (yerel doğrulama için),
+ama `play` flavor'ının release görevleri istenmişse build **reddedilir**.
+Sebep somut: 2026-10-02'de sunucuda yayında olan `arvend-4.apk` (1.3.0) bu
+yoldan, uyarıya rağmen debug imzalı çıktı. Uyarı loglamak yetmedi.
+
+**Yedek — bugün yapılmalı.** Keystore dosyasını ve Keychain'deki parolayı
+makine dışına (parola yöneticisi + şifreli yedek) kopyalayın. Play App
+Signing kullanılıyorsa (§16) bu anahtar yalnızca *upload* anahtarıdır ve
+kaybı Google desteğiyle sıfırlanabilir — ama bu birkaç gün sürer ve o sürede
+güncelleme yüklenemez.
+
+**Neden parola kabuk değişkeninde değil:** RestoFlow'un ilk production
+anahtarının parolası `openssl rand` ile üretilip yalnızca o kabukta tutuldu;
+kabuk kapanınca anahtar kalıcı olarak açılamaz hâle geldi. Burada parola
+anahtar üretilmeden ÖNCE Keychain'e yazıldı ve geri okunabildiği doğrulandı.
+
+`android/key.properties` hâlâ desteklenir (CI ya da Keychain'siz makine
+için; `key.properties.example`'a bakın) ve git'e girmez. Ortam değişkenleri
+(`ARVEND_UPLOAD_STORE_FILE`, `ARVEND_UPLOAD_KEY_ALIAS`,
+`ARVEND_UPLOAD_STORE_PASSWORD`) varsa önceliklidir.
 
 ---
 
@@ -669,4 +676,82 @@ imzalanıyor (§1). Sonuçları:
   `--imza-degisti` verilir; sonrası normal akış.
 - **Play Store'a geçerken** uzaktan güncelleme kapatılmalı: Google Play,
   `REQUEST_INSTALL_PACKAGES` iznini ve uygulamanın kendini mağaza dışından
-  güncellemesini yasaklar (bkz. `AndroidManifest.xml` yorumu, §14).
+  güncellemesini yasaklar. Bu artık `play` flavor'ında otomatik — bkz. §16.
+
+---
+
+## 16. Google Play
+
+### Dağıtım kanalları (flavor)
+
+| | `play` | `sideload` |
+|---|---|---|
+| Çıktı | AAB (Play yalnızca bunu kabul eder) | APK |
+| Derleme | `./scripts/derle.sh play` | `./scripts/derle.sh sideload` |
+| Kendini güncelleme | **yok** | var (`scripts/yayinla.sh`) |
+| `REQUEST_INSTALL_PACKAGES` | manifest birleşmesinde düşürülür | var |
+| `applicationId` | `com.arvendyapi.arvend` | aynı |
+
+Play'in Device and Network Abuse politikası, Play'den dağıtılan bir
+uygulamanın kendini Play dışında güncellemesini ve
+`REQUEST_INSTALL_PACKAGES`'ın bu amaçla kullanımını yasaklıyor. İki katman:
+`android/app/src/play/AndroidManifest.xml` izni `tools:node="remove"` ile
+düşürür (eklenti manifest'lerinden geleni de), `AppConfig.isPlayBuild` ise
+`updateSupportedProvider`'ı kapatır — Play sürümü sunucuya sürüm sormaz, APK
+indirmez. `derle.sh play` derleme sonrası AAB'de iznin olmadığını doğrular.
+
+**Play sürümünde zorunlu-güncelleme yok.** `min_build` barajı uzaktan
+güncellemeyle birlikte kapanıyor; Play'deki karşılığı In-App Updates API
+(henüz eklenmedi).
+
+### Play App Signing — KARAR (2026-10-04): Google yeni anahtar üretir
+
+Seçilen: aşağıdaki **1. seçenek**. `arvend-upload.jks` yalnızca upload
+anahtarı; Play'den kurulan uygulama Google'ın anahtarıyla imzalı olacak.
+
+**Bunun sonucu — Play yayına çıkana kadar sideload ile YENİ SÜRÜM
+YAYINLANMAZ.** Upload anahtarıyla imzalı bir sideload APK, ne sahadaki debug
+imzalı kurulumların üzerine kurulabilir ne de sonradan Play'den güncellenebilir;
+o kişiler iki kez kaldırıp kurmak zorunda kalır. `yayinla.sh` bunu zaten
+engelliyor (yayındaki debug sertifikasından farklı imzayı `--imza-degisti`
+verilmeden reddeder) — o bayrağı Play yayına çıkmadan VERMEYİN. Tek istisna,
+Play sayfası yayına çıktıktan sonra sahadakilere "kaldırıp Play'den kurun"
+diyen son sürüm.
+
+Seçenekler (kayıt için):
+
+Play Console ilk AAB yüklenirken uygulama imzalama anahtarını sorar:
+
+1. **Google yeni anahtar üretsin (varsayılan, önerilen).** `arvend-upload.jks`
+   yalnızca *upload* anahtarı olur; kaybolursa Google desteği sıfırlar.
+   Sonuç: Play'den kurulan uygulama Google'ın anahtarıyla imzalıdır, yani
+   sideload APK'larıyla imza uyuşmaz — Play yayına çıkınca sideload kanalı
+   bırakılır.
+2. **Kendi anahtarımı kullan** (`arvend-upload.jks`'i PEPK aracıyla
+   yükle). Play ve sideload aynı imzayı taşır; o arada sideload ile 1.4.0
+   kurmuş biri sonradan Play'den sorunsuz güncelleme alır. Karşılığı: Google
+   önerisi upload ve imzalama anahtarlarının ayrı olması.
+
+**Her iki durumda da** sahadaki debug imzalı kurulumlar (1.3.0 / build 4 ve
+öncesi) Play'den güncelleme ALAMAZ — bir kereliğine kaldırılıp Play'den
+kurulmalı. Play sayfası yayına çıkınca, sideload kanalından bu yönergeyi
+taşıyan son bir sürüm (`yayinla.sh --imza-degisti`, notlarında Play linki)
+o kullanıcılara ulaşmanın tek yolu.
+
+### Play Console kontrol listesi
+
+- [ ] **Geliştirici hesabı.** 13 Kasım 2023 sonrası açılan *kişisel* hesaplar
+      production'dan önce **12 test kullanıcısıyla kesintisiz 14 gün** kapalı
+      test ister; *kurumsal* hesaplar (D-U-N-S numarası gerekir) muaf.
+      Şirket adına kurumsal hesap haftalar kazandırır.
+- [ ] **Gizlilik Politikası + KVKK metni URL'si** — §9, SERT ENGEL.
+- [ ] **Data safety formu** — §10'daki envanter (fiili koda dayalı) birebir
+      kullanılabilir.
+- [ ] **İnceleme için demo hesabı** — uygulama girişsiz hiçbir şey
+      göstermiyor; inceleme ekibine kalıcı bir test kullanıcısı verilmeli.
+- [ ] **Mağaza varlıkları** — §8 (512×512 ikon, feature graphic, ekran
+      görüntüleri, açıklamalar).
+- [ ] **İçerik derecelendirmesi, hedef kitle, reklam beyanı** (reklam yok).
+- [ ] **İzin gerekçeleri:** `CAMERA` (proje fotoğrafları).
+- [ ] İlk AAB: `build/app/outputs/bundle/playRelease/app-play-release.aab`
+      → önce *Dahili test* kanalına yükleyip kendi cihazınızda deneyin.

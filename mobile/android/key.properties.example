@@ -7,10 +7,10 @@
 # (şifrelenmiş yedek/parola kasası) saklanmalıdır -- kaybedilirse Play
 # Store'daki uygulamayı bir daha ASLA güncelleyemezsiniz.
 #
-# Keystore oluşturmak için (yalnızca siz, yerel makinenizde çalıştırın --
-# bu ajan/oturum sizin adınıza bir keystore ÜRETMEZ):
-#   keytool -genkey -v -keystore /güvenli/yol/arvend-release.jks \
-#     -keyalg RSA -keysize 2048 -validity 10000 -alias arvend
+# NOT: Asıl yol bu dosya DEĞİL. Upload anahtarı ~/.arvend/secrets/arvend-upload.jks,
+# parolası macOS Keychain'de (servis arvend-upload-keystore); scripts/derle.sh
+# parolayı oradan okur, hiçbir dosyaya yazmaz. Bu dosya yalnızca CI ya da
+# Keychain'siz bir makine için -- bkz. mobile/RELEASE.md §1.
 #
 # storeFile: keystore dosyasının MUTLAK yolu (bu reponun dışında bir yer
 #            önerilir) VEYA android/ dizinine göre göreli bir yol.

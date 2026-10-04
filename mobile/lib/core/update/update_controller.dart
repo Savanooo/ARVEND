@@ -7,18 +7,22 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../api/api_providers.dart';
+import '../config/app_config.dart';
 import 'apk_installer.dart';
 import 'app_release.dart';
 import 'update_postpone_store.dart';
 import 'update_repository.dart';
 import 'update_service.dart';
 
-/// Uzaktan güncelleme yalnızca Android'de çalışır -- store'a çıkana kadar
-/// APK sunucudan dağıtılıyor. iOS/web'de modülün TAMAMI no-op'tur (denetim
-/// yapılmaz, "Güncellemeleri denetle" gösterilmez). Testler bunu override
-/// eder (flutter test macOS/Linux üstünde koşar, `Platform.isAndroid`
-/// false'tur -- bu yüzden mevcut testlerin hiçbiri ek bir istek görmez).
-final updateSupportedProvider = Provider<bool>((ref) => !kIsWeb && Platform.isAndroid);
+/// Uzaktan güncelleme yalnızca sideload Android sürümünde çalışır -- store'a
+/// çıkana kadar APK sunucudan dağıtılıyor. iOS/web'de ve Google Play
+/// sürümünde modülün TAMAMI no-op'tur (denetim yapılmaz, "Güncellemeleri
+/// denetle" gösterilmez): Play, Play dışı güncellemeyi yasaklıyor, güncellemeyi
+/// mağaza yapıyor (bkz. AppConfig.isPlayBuild). Testler bunu override eder
+/// (flutter test macOS/Linux üstünde koşar, `Platform.isAndroid` false'tur --
+/// bu yüzden mevcut testlerin hiçbiri ek bir istek görmez).
+final updateSupportedProvider =
+    Provider<bool>((ref) => !kIsWeb && Platform.isAndroid && !AppConfig.isPlayBuild);
 
 /// Test edilebilir saat (erteleme süresi / 6 saatlik yeniden denetim).
 final updateClockProvider = Provider<DateTime Function()>((ref) => DateTime.now);

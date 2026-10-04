@@ -7,19 +7,38 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-// Production release signing -- bkz. mobile/RELEASE.md "Android Production Signing".
-// `android/key.properties`, GİT'E ASLA COMMIT EDİLMEZ (zaten android/.gitignore'da) --
-// yalnızca geliştiricinin kendi makinesinde veya güvenli bir CI secret store'unda
-// bulunur, gerçek keystore de repo DIŞINDA tutulur. Dosya yoksa release build
-// DEBUG anahtarıyla imzalanır (yerel doğrulama/CI için ÇALIŞMAYA devam eder) ama
-// Play Store'a YÜKLENEMEZ -- bu durum aşağıda her release build'de AÇIKÇA
-// loglanır, sessizce "production" gibi davranılmaz.
+// Production (upload) imzalama -- bkz. mobile/RELEASE.md "Android Production Signing".
+//
+// İki kaynak, bu sırayla:
+//   1. Ortam değişkenleri ARVEND_UPLOAD_STORE_FILE / ARVEND_UPLOAD_KEY_ALIAS /
+//      ARVEND_UPLOAD_STORE_PASSWORD (anahtar parolası ayrıca verilmezse aynısı).
+//      scripts/derle.sh parolayı macOS Keychain'den okuyup bunları verir --
+//      parola hiçbir dosyaya yazılmaz.
+//   2. android/key.properties -- GİT'E ASLA COMMIT EDİLMEZ (android/.gitignore'da);
+//      CI ya da Keychain'siz makineler için.
+// İkisi de yoksa release build DEBUG anahtarıyla imzalanır (yerel doğrulama
+// için çalışmaya devam eder) AMA `play` flavor'ında build REDDEDİLİR (aşağıda
+// taskGraph kontrolü): 2026-10-02'de sunucudaki arvend-4.apk tam bu yoldan,
+// sessizce debug imzalı çıktı. Bir paket bir kez debug imzayla dağıtılırsa,
+// gerçek anahtara geçildiği gün o kurulumların hepsi güncellenemez hale gelir.
 val keystorePropertiesFile = rootProject.file("key.properties")
-val hasReleaseKeystore = keystorePropertiesFile.exists()
 val keystoreProperties = Properties()
-if (hasReleaseKeystore) {
+if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
+val releaseStoreFile: String? =
+    System.getenv("ARVEND_UPLOAD_STORE_FILE") ?: keystoreProperties.getProperty("storeFile")
+val releaseKeyAlias: String? =
+    System.getenv("ARVEND_UPLOAD_KEY_ALIAS") ?: keystoreProperties.getProperty("keyAlias")
+val releaseStorePassword: String? =
+    System.getenv("ARVEND_UPLOAD_STORE_PASSWORD") ?: keystoreProperties.getProperty("storePassword")
+val releaseKeyPassword: String? =
+    System.getenv("ARVEND_UPLOAD_KEY_PASSWORD")
+        ?: System.getenv("ARVEND_UPLOAD_STORE_PASSWORD")
+        ?: keystoreProperties.getProperty("keyPassword")
+val hasReleaseKeystore =
+    listOf(releaseStoreFile, releaseKeyAlias, releaseStorePassword, releaseKeyPassword)
+        .all { !it.isNullOrBlank() }
 
 android {
     namespace = "com.arvendyapi.arvend"
@@ -42,13 +61,29 @@ android {
         versionName = flutter.versionName
     }
 
+    // Dağıtım kanalı. applicationId ikisinde de aynı (Play kimliği kalıcı).
+    //   play     -> Google Play (AAB). Kendi kendini güncelleme YOK: Play'in
+    //               Device and Network Abuse politikası Play dışı güncellemeyi ve
+    //               REQUEST_INSTALL_PACKAGES'ın bu amaçla kullanımını yasaklıyor.
+    //               İzin src/play/AndroidManifest.xml'de düşürülür, denetim Dart
+    //               tarafında AppConfig.isPlayBuild ile kapanır.
+    //   sideload -> mağaza öncesi, sunucudan kendini güncelleyen APK
+    //               (scripts/yayinla.sh).
+    // Flavor + eşleşen --dart-define=DISTRIBUTION çiftini scripts/derle.sh
+    // verir; ayrı düşerlerse play paketi olmayan bir izinle güncellemeye kalkar.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("play") { dimension = "distribution" }
+        create("sideload") { dimension = "distribution" }
+    }
+
     signingConfigs {
         if (hasReleaseKeystore) {
             create("release") {
-                storeFile = file(keystoreProperties["storeFile"] as String)
-                storePassword = keystoreProperties["storePassword"] as String
-                keyAlias = keystoreProperties["keyAlias"] as String
-                keyPassword = keystoreProperties["keyPassword"] as String
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
@@ -75,6 +110,20 @@ android {
                 )
             }
         }
+    }
+}
+
+// Play'e giden bir paket ASLA debug imzayla üretilmez. Yukarıdaki debug
+// geri dönüşü yerel doğrulama içindir; play release görevleri istenmişse ve
+// gerçek anahtar yoksa burada durulur -- uyarı loglamak yetmedi, uyarıya
+// rağmen debug imzalı bir APK yayına çıktı.
+gradle.taskGraph.whenReady {
+    if (!hasReleaseKeystore && allTasks.any { it.name.contains("PlayRelease") }) {
+        throw GradleException(
+            "play release için upload anahtarı yok.\n" +
+                "scripts/derle.sh play ile derleyin (parolayı Keychain'den okur) ya da\n" +
+                "android/key.properties oluşturun. bkz. mobile/RELEASE.md «Android Production Signing»."
+        )
     }
 }
 

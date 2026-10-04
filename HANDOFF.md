@@ -527,9 +527,12 @@ modüllerinde tek kilit cümlesi ve kırmızı, ayrı iptal düğmesi.
 
 - **`README.md` köke güncel DEĞİL** (yalnızca ilk modülü listeliyor) — bu
   `HANDOFF.md` şimdilik daha güncel referans.
-- **Canlı durum (2026-09-28):** `app.arvendyapi.com.tr` szutech2'de çalışıyor;
-  2026-09-28'de `97f1699` + `a92343d` (kilit dosyası düzeltmesi) sürümüne
-  güncellendi, veritabanı şeması `0047`. `docs/production-deployment-plan-
+- **Canlı durum (2026-10-02):** `app.arvendyapi.com.tr` szutech2'de çalışıyor;
+  2026-10-02'de `824a2ae` sürümüne güncellendi (mobil uzaktan güncelleme uçları
+  + web "Uygulamayı indir" linki; migration yok), veritabanı şeması `0047`.
+  Release: `~/arvend-release-824a2ae/` (`deploy.sh` + `rollback.sh`).
+  Sunucuda yayında olan mobil APK 1.3.0 (build 4) — **debug imzalı**, bkz.
+  mobile/RELEASE.md §16. (Önceki: 2026-09-28 `97f1699` + `a92343d`.) `docs/production-deployment-plan-
   szutech2.md` ESKİMİŞ: gerçekte Caddy `:8088` → API `127.0.0.1:8081`
   (8080'de başka bir proje var) + web `127.0.0.1:3000`; `/opt/arvend/src`
   git deposu değil düz kopya; sunucu GitHub'dan çekemiyor. Güncelleme yolu:
@@ -562,8 +565,9 @@ modüllerinde tek kilit cümlesi ve kırmızı, ayrı iptal düğmesi.
 - **Mobil store-release blokerleri** (mobile/RELEASE.md §9, §14'te tam
   liste): Gizlilik Politikası/KVKK metni YOK (her iki mağaza için SERT
   blokaj), Apple Developer Program üyeliği + tam Xcode kurulumu YOK,
-  Android production keystore henüz üretilmedi (kullanıcının kendisi
-  yapmalı, ajan/oturum üretemez).
+  Android: upload keystore 2026-10-02'de üretildi (parola Keychain'de),
+  Play AAB'si `scripts/derle.sh play` ile üretiliyor — bkz. mobile/RELEASE.md
+  §1 ve §16.
 - **`.contract-source/*.md`** (mobile/) — 2026-09-15 tarihli derin-dalış
   dokümanları, auth kısmı artık KISMEN eski (API_CONTRACT.md'nin kendisi
   şimdi bu konuda otoriter, orada açıkça not edildi).
