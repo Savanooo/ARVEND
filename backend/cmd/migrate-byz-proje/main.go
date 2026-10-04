@@ -23,10 +23,21 @@
 // Aktarılmayanlar: plan.expenses ({name, amount} -- "TAHA 222", "TAHA 5",
 // "0") deneme verisi; arşiv dosyasında zaten duruyor.
 //
+// Aynı iş ARVEND'de BAŞKA bir tekliften zaten projeye dönüşmüş olabilir
+// (2026-10-04: ARVEND'in TKF-2026-0003'ünden açılan PRJ-2026-0001 "serkan",
+// BYZ'nin 0008 "Serkan Bey"i olabilir). İki araç:
+//   - COMPARE="TKF-2026-0008=PRJ-2026-0001": salt-okunur; iki tarafın teklif
+//     kalemlerini, masraflarını ve ekibini yan yana basar, hiçbir şey yazmaz.
+//   - PROJECT_FOR="TKF-2026-0008=PRJ-2026-0001": BYZ teklifinin verisini
+//     source_offer_id yerine bu proje numarasına yazar.
+//
+// Hedef projede AYNI GÜN ve AYNI TUTARDA (iptal edilmemiş) bir masraf zaten
+// varsa BYZ satırı yazılmaz -- elle tekrar girilmiş masraf iki kez sayılmasın.
+//
 // Kullanım:
 //
 //	SOURCE_MONGO_URI=... SOURCE_MONGO_DB=... DB_URL=... TARGET_ORG_SLUG=arvend-yapi1 \
-//	  [APPLY=1] go run ./cmd/migrate-byz-proje
+//	  [COMPARE=...] [PROJECT_FOR=...] [APPLY=1] go run ./cmd/migrate-byz-proje
 package main
 
 import (
@@ -41,6 +52,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -68,12 +80,23 @@ type byzPlan struct {
 	EmployeeIDs []string `bson:"employee_ids"`
 }
 
+type byzItem struct {
+	ProductName string  `bson:"product_name"`
+	Quantity    float64 `bson:"quantity"`
+	UnitPrice   float64 `bson:"unit_price"`
+	LineTotal   float64 `bson:"line_total"`
+}
+
 type byzOffer struct {
-	OfferNo   string      `bson:"offer_no"`
-	Status    string      `bson:"status"`
-	IsPassive *bool       `bson:"is_passive"`
-	Masraflar []byzMasraf `bson:"masraflar"`
-	Plan      *byzPlan    `bson:"plan"`
+	OfferNo      string      `bson:"offer_no"`
+	CustomerName string      `bson:"customer_name"`
+	GrandTotal   float64     `bson:"grand_total"`
+	OfferDate    *time.Time  `bson:"offer_date"`
+	Items        []byzItem   `bson:"items"`
+	Status       string      `bson:"status"`
+	IsPassive    *bool       `bson:"is_passive"`
+	Masraflar    []byzMasraf `bson:"masraflar"`
+	Plan         *byzPlan    `bson:"plan"`
 }
 
 type byzEmployee struct {
@@ -113,6 +136,8 @@ func main() {
 	sourceURI, sourceDB := os.Getenv("SOURCE_MONGO_URI"), os.Getenv("SOURCE_MONGO_DB")
 	pgURL, orgSlug := os.Getenv("DB_URL"), os.Getenv("TARGET_ORG_SLUG")
 	apply := os.Getenv("APPLY") == "1"
+	projectFor := pairs(os.Getenv("PROJECT_FOR"))
+	compare := pairs(os.Getenv("COMPARE"))
 	if sourceURI == "" || sourceDB == "" || pgURL == "" || orgSlug == "" {
 		log.Fatal("SOURCE_MONGO_URI, SOURCE_MONGO_DB, DB_URL ve TARGET_ORG_SLUG gerekli")
 	}
@@ -169,6 +194,14 @@ func main() {
 	}
 	fmt.Printf("Hedef: %s (%s)\n", orgName, orgSlug)
 
+	if len(compare) > 0 {
+		for base, prjNo := range compare {
+			compareSides(ctx, pool, src, orgID, base, prjNo, empName, ist)
+		}
+		fmt.Println("\nKARŞILAŞTIRMA BİTTİ -- hiçbir şey yazılmadı.")
+		return
+	}
+
 	arvEmp := map[string]string{} // nameKey -> ARVEND employee id
 	rows, err := pool.Query(ctx, `SELECT id, full_name FROM employees WHERE organization_id = $1`, orgID)
 	if err != nil {
@@ -201,11 +234,19 @@ func main() {
 
 		var projectID, projectNo, projectName, currency string
 		var startDate *time.Time
-		err := pool.QueryRow(ctx, `
-			SELECT p.id, p.project_no, p.name, p.currency, p.start_date
-			FROM projects p JOIN offers ofr ON ofr.id = p.source_offer_id
-			WHERE p.organization_id = $1 AND ofr.offer_no = $2`, orgID, base,
-		).Scan(&projectID, &projectNo, &projectName, &currency, &startDate)
+		var err error
+		if prjNo, ok := projectFor[base]; ok {
+			err = pool.QueryRow(ctx, `
+				SELECT id, project_no, name, currency, start_date FROM projects
+				WHERE organization_id = $1 AND project_no = $2`, orgID, prjNo,
+			).Scan(&projectID, &projectNo, &projectName, &currency, &startDate)
+		} else {
+			err = pool.QueryRow(ctx, `
+				SELECT p.id, p.project_no, p.name, p.currency, p.start_date
+				FROM projects p JOIN offers ofr ON ofr.id = p.source_offer_id
+				WHERE p.organization_id = $1 AND ofr.offer_no = $2`, orgID, base,
+			).Scan(&projectID, &projectNo, &projectName, &currency, &startDate)
+		}
 		if err != nil {
 			missingProjects = append(missingProjects, base)
 			continue
@@ -229,11 +270,24 @@ func main() {
 			var exists bool
 			_ = pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM project_expenses WHERE project_id = $1 AND idempotency_key = $2)`,
 				projectID, key).Scan(&exists)
+			var similar bool
+			if !exists {
+				_ = pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM project_expenses
+					WHERE project_id = $1 AND voided_at IS NULL AND expense_date = $2::date AND amount = $3)`,
+					projectID, date.Format("2006-01-02"), repository.Float64ToNumeric(m.Tutar)).Scan(&similar)
+			}
 			mark := "+"
-			if exists {
+			switch {
+			case exists:
 				mark, nExpDone = "=", nExpDone+1
+			case similar:
+				mark, nExpDone = "≈", nExpDone+1
+				dateNote += "  <- projede aynı gün/aynı tutarda masraf VAR, yazılmadı"
 			}
 			fmt.Printf("  %s masraf %-26s %-13s %10.2f  %s%s\n", mark, quoteTR(kalem), cat, m.Tutar, date.Format("2006-01-02"), dateNote)
+			if similar {
+				continue
+			}
 			totalAmount += m.Tutar
 			if exists || !apply {
 				if !exists {
@@ -328,6 +382,118 @@ func main() {
 		return
 	}
 	fmt.Println("\nAKTARIM TAMAM.")
+}
+
+// pairs, "A=B,C=D" -> {A:B, C:D}.
+func pairs(s string) map[string]string {
+	out := map[string]string{}
+	for _, p := range strings.Split(s, ",") {
+		if a, b, ok := strings.Cut(strings.TrimSpace(p), "="); ok && strings.TrimSpace(a) != "" && strings.TrimSpace(b) != "" {
+			out[strings.TrimSpace(a)] = strings.TrimSpace(b)
+		}
+	}
+	return out
+}
+
+// compareSides, "aynı iş mi?" kararı için iki tarafı yan yana basar.
+// Salt-okunur.
+func compareSides(ctx context.Context, pool *pgxpool.Pool, src *mongo.Database, orgID, base, prjNo string, empName map[string]string, ist *time.Location) {
+	fmt.Printf("\n================ %s  <->  %s ================\n", base, prjNo)
+
+	var pid, name, cust, offerNo string
+	var amount float64
+	var start *time.Time
+	if err := pool.QueryRow(ctx, `
+		SELECT p.id, p.name, p.customer_name, p.contract_amount::float8, p.start_date, COALESCE(o.offer_no, '')
+		FROM projects p LEFT JOIN offers o ON o.id = p.source_offer_id
+		WHERE p.organization_id = $1 AND p.project_no = $2`, orgID, prjNo,
+	).Scan(&pid, &name, &cust, &amount, &start, &offerNo); err != nil {
+		fmt.Printf("ARVEND projesi %s bulunamadı: %v\n", prjNo, err)
+		return
+	}
+	sd := "—"
+	if start != nil {
+		sd = start.Format("2006-01-02")
+	}
+	fmt.Printf("\nARVEND %s \"%s\"  müşteri=%s  bedel=%.2f  başlangıç=%s  kaynak teklif=%s\n", prjNo, name, cust, amount, sd, offerNo)
+	fmt.Println("  Teklif kalemleri:")
+	rows, _ := pool.Query(ctx, `
+		SELECT i.product_name, i.quantity::float8, i.unit_price::float8, i.line_total::float8
+		FROM projects p JOIN offers o ON o.id = p.source_offer_id
+		JOIN offer_revision_items i ON i.revision_id = p.source_revision_id
+		WHERE p.id = $1 ORDER BY i.sort_order`, pid)
+	for rows.Next() {
+		var n string
+		var q, u, t float64
+		_ = rows.Scan(&n, &q, &u, &t)
+		fmt.Printf("    %-48s %8.2f x %12.2f = %13.2f\n", quoteN(n, 48), q, u, t)
+	}
+	rows.Close()
+	fmt.Println("  Masraflar:")
+	rows, _ = pool.Query(ctx, `
+		SELECT expense_date::text, category, description, amount::float8, notes
+		FROM project_expenses WHERE project_id = $1 AND voided_at IS NULL ORDER BY expense_date, created_at`, pid)
+	var sum float64
+	for rows.Next() {
+		var d, c, desc, notes string
+		var a float64
+		_ = rows.Scan(&d, &c, &desc, &a, &notes)
+		sum += a
+		fmt.Printf("    %s  %-10s %-34s %12.2f  %s\n", d, c, quoteN(desc, 34), a, notes)
+	}
+	rows.Close()
+	fmt.Printf("    toplam %.2f\n", sum)
+	fmt.Println("  Ekip:")
+	rows, _ = pool.Query(ctx, `SELECT employee_name FROM project_members WHERE project_id = $1 ORDER BY employee_name`, pid)
+	for rows.Next() {
+		var n string
+		_ = rows.Scan(&n)
+		fmt.Println("    " + n)
+	}
+	rows.Close()
+
+	// BYZ: grubun en son belgesi.
+	var docs []byzOffer
+	cur, err := src.Collection("offers").Find(ctx, bson.M{"offer_no": bson.M{"$regex": "^" + regexp.QuoteMeta(base) + "(-R\\d+)?$"}})
+	if err != nil || cur.All(ctx, &docs) != nil || len(docs) == 0 {
+		fmt.Printf("\nBYZ'de %s bulunamadı\n", base)
+		return
+	}
+	sort.Slice(docs, func(i, j int) bool { return docs[i].OfferNo < docs[j].OfferNo })
+	d := docs[len(docs)-1]
+	od := "—"
+	if d.OfferDate != nil {
+		od = d.OfferDate.In(ist).Format("2006-01-02")
+	}
+	fmt.Printf("\nBYZ %s  müşteri=%s  toplam=%.2f  teklif tarihi=%s\n", d.OfferNo, d.CustomerName, d.GrandTotal, od)
+	fmt.Println("  Teklif kalemleri:")
+	for _, it := range d.Items {
+		fmt.Printf("    %-48s %8.2f x %12.2f = %13.2f\n", quoteN(it.ProductName, 48), it.Quantity, it.UnitPrice, it.LineTotal)
+	}
+	fmt.Println("  Masraflar:")
+	sum = 0
+	for _, m := range d.Masraflar {
+		sum += m.Tutar
+		day := m.Tarih
+		if day == "" && m.Eklenme != nil {
+			day = m.Eklenme.In(ist).Format("2006-01-02")
+		}
+		fmt.Printf("    %-10s %-10s %-34s %12.2f  %s\n", day, categorize(m.Kalem, m.Not), quoteN(m.Kalem, 34), m.Tutar, m.Not)
+	}
+	fmt.Printf("    toplam %.2f\n", sum)
+	if d.Plan != nil {
+		fmt.Printf("  Ekip (plan, başlangıç %s):\n", d.Plan.StartDate)
+		for _, id := range d.Plan.EmployeeIDs {
+			fmt.Println("    " + empName[strings.TrimSpace(id)])
+		}
+	}
+}
+
+func quoteN(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n-1]) + "…"
+	}
+	return s
 }
 
 // parseDay, "YYYY-MM-DD" -> İstanbul gününün başı; boş/geçersizse sıfır.
