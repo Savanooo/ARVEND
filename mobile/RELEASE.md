@@ -709,10 +709,17 @@ güncellemeyle birlikte kapanıyor; Play'deki karşılığı In-App Updates API
 Seçilen: aşağıdaki **1. seçenek**. `arvend-upload.jks` yalnızca upload
 anahtarı; Play'den kurulan uygulama Google'ın anahtarıyla imzalı olacak.
 
-**Bunun sonucu — Play yayına çıkana kadar sideload ile YENİ SÜRÜM
-YAYINLANMAZ.** Upload anahtarıyla imzalı bir sideload APK, ne sahadaki debug
-imzalı kurulumların üzerine kurulabilir ne de sonradan Play'den güncellenebilir;
-o kişiler iki kez kaldırıp kurmak zorunda kalır. `yayinla.sh` bunu zaten
+**Bunun sonucu — Play yayına çıkana kadar sideload ile UPLOAD ANAHTARLI
+sürüm yayınlanmaz.** Upload anahtarıyla imzalı bir sideload APK, ne sahadaki
+debug imzalı kurulumların üzerine kurulabilir ne de sonradan Play'den
+güncellenebilir; o kişiler iki kez kaldırıp kurmak zorunda kalır.
+
+O arada sahaya güncelleme **`./scripts/derle.sh saha`** ile gider: sideload
+flavor'ı, sahadaki kurulumlarla AYNI (bu Mac'in debug) anahtarıyla imzalı,
+betik bunu derleme sonrası doğrular. Telefonlar uygulama içinden günceller,
+kaldır/kur gerekmez; Play'e geçişteki tek seferlik kaldır/kur zaten
+kaçınılmazdı, buna bir yenisi eklenmez. Sonra her zamanki gibi
+`./scripts/yayinla.sh "notlar"` (`--imza-degisti` VERİLMEZ). `yayinla.sh` bunu zaten
 engelliyor (yayındaki debug sertifikasından farklı imzayı `--imza-degisti`
 verilmeden reddeder) — o bayrağı Play yayına çıkmadan VERMEYİN. Tek istisna,
 Play sayfası yayına çıktıktan sonra sahadakilere "kaldırıp Play'den kurun"

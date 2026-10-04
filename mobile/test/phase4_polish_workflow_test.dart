@@ -49,7 +49,7 @@ void main() {
     testWidgets('marka + alanlar + birincil CTA render edilir', (tester) async {
       await _pump(tester, FakeHttpClientAdapter(script: {}), const LoginScreen());
 
-      expect(find.text('ARVEND YAPI'), findsOneWidget);
+      expect(find.bySemanticsLabel('ARVEND YAPI'), findsOneWidget, reason: 'logo görseli, yazısı içinde');
       expect(find.byType(TextFormField), findsNWidgets(2));
       expect(find.widgetWithText(ElevatedButton, 'Giriş Yap'), findsOneWidget);
     });

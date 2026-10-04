@@ -147,37 +147,17 @@ class _Wordmark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          width: 64,
-          height: 64,
-          decoration: BoxDecoration(
-            color: AppColors.navDark,
-            borderRadius: BorderRadius.circular(AppRadius.card),
-          ),
-          alignment: Alignment.center,
-          child: const Text(
-            'AY',
-            style: TextStyle(
-              color: AppColors.gold,
-              fontWeight: FontWeight.w800,
-              fontSize: 22,
-              letterSpacing: 1,
-            ),
-          ),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        const Text(
-          'ARVEND YAPI',
-          style: TextStyle(
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.w800,
-            fontSize: 18,
-            letterSpacing: 1.5,
-          ),
-        ),
-      ],
+    // Web'deki logonun aynısı (frontend/public/logo.png'den
+    // scripts/ikon_uret.py ile kırpıldı). Yazı görselin içinde; ekran
+    // okuyucu için etiket ayrıca verilir.
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppRadius.card),
+      child: Image.asset(
+        'assets/brand/arvend_logo.png',
+        width: 160,
+        height: 160,
+        semanticLabel: 'ARVEND YAPI',
+      ),
     );
   }
 }

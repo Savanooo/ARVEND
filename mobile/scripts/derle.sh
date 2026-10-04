@@ -4,6 +4,9 @@
 # Kullanım (mobile/ dizininde):
 #   ./scripts/derle.sh play        # Google Play'e yüklenecek AAB
 #   ./scripts/derle.sh sideload    # sunucudan dağıtılan APK (sonra scripts/yayinla.sh)
+#   ./scripts/derle.sh saha        # sideload APK, SAHADAKİ kurulumlarla aynı (debug)
+#                                  # anahtarla -- Play yayına çıkana kadar sahaya
+#                                  # giden tek yol (RELEASE.md §16)
 #
 # Neden elle `flutter build` değil: üç şey birbirinden ayrı düştüğünde sessizce
 # yanlış bir paket çıkıyor ve bu betik üçünü tek argümana bağlıyor:
@@ -32,9 +35,20 @@ hata() { printf '\n!!! HATA: %s\n' "$*" >&2; exit 1; }
 
 kanal="${1:-}"
 case "$kanal" in
-  play|sideload) ;;
-  *) echo "Kullanım: $0 {play|sideload}" >&2; exit 2 ;;
+  play|sideload|saha) ;;
+  *) echo "Kullanım: $0 {play|sideload|saha}" >&2; exit 2 ;;
 esac
+# saha: sideload flavor'ı, ama upload anahtarı YOK -> build.gradle.kts debug
+# anahtarına düşer. Sahadaki 1.3.0 (build 4) ve öncesi bu Mac'in debug
+# anahtarıyla imzalı; upload anahtarlı bir APK onların üzerine kurulmaz ve
+# sonra Play'e geçerken ikinci kez kaldır/kur gerekir (RELEASE.md §16).
+flavor="$kanal"
+if [ "$kanal" = "saha" ]; then
+  flavor="sideload"
+  KEYSTORE="$HOME/.android/debug.keystore"
+  KEY_ALIAS="androiddebugkey"
+  unset ARVEND_UPLOAD_STORE_FILE ARVEND_UPLOAD_KEY_ALIAS ARVEND_UPLOAD_STORE_PASSWORD ARVEND_UPLOAD_KEY_PASSWORD
+fi
 
 # --- Araçlar (yayinla.sh ile aynı arama sırası) -----------------------------
 jdk_bul() {
@@ -67,9 +81,13 @@ JDK=$(jdk_bul) || hata "JDK bulunamadı (keytool gerekli). JAVA_HOME verin."
 KEYTOOL="$JDK/bin/keytool"
 
 # --- Anahtar ------------------------------------------------------------------
-[ -f "$KEYSTORE" ] || hata "upload keystore yok: $KEYSTORE (bkz. RELEASE.md «Android Production Signing»)"
-PW=$(security find-generic-password -a "$KEYCHAIN_ACCOUNT" -s "$KEYCHAIN_SERVICE" -w 2>/dev/null) \
-  || hata "keystore parolası Keychain'de yok (servis: $KEYCHAIN_SERVICE). Anahtar Zinciri Erişimi'nde arayın ya da yedeğinizden geri yükleyin."
+[ -f "$KEYSTORE" ] || hata "keystore yok: $KEYSTORE (bkz. RELEASE.md «Android Production Signing»)"
+if [ "$kanal" = "saha" ]; then
+  PW=android  # Android debug keystore'unun herkesçe bilinen sabit parolası
+else
+  PW=$(security find-generic-password -a "$KEYCHAIN_ACCOUNT" -s "$KEYCHAIN_SERVICE" -w 2>/dev/null) \
+    || hata "keystore parolası Keychain'de yok (servis: $KEYCHAIN_SERVICE). Anahtar Zinciri Erişimi'nde arayın ya da yedeğinizden geri yükleyin."
+fi
 
 # Beklenen sertifika özeti (apksigner'ın 'certificate SHA-256 digest' biçimi:
 # DER sertifikanın SHA-256'sı, küçük harf, ayraçsız).
@@ -77,9 +95,11 @@ BEKLENEN=$("$KEYTOOL" -exportcert -alias "$KEY_ALIAS" -keystore "$KEYSTORE" -sto
   | shasum -a 256 | cut -d' ' -f1) || hata "keystore açılamadı (parola ya da alias yanlış)"
 [ -n "$BEKLENEN" ] || hata "keystore'dan sertifika okunamadı"
 
-export ARVEND_UPLOAD_STORE_FILE="$KEYSTORE"
-export ARVEND_UPLOAD_KEY_ALIAS="$KEY_ALIAS"
-export ARVEND_UPLOAD_STORE_PASSWORD="$PW"
+if [ "$kanal" != "saha" ]; then
+  export ARVEND_UPLOAD_STORE_FILE="$KEYSTORE"
+  export ARVEND_UPLOAD_KEY_ALIAS="$KEY_ALIAS"
+  export ARVEND_UPLOAD_STORE_PASSWORD="$PW"
+fi
 unset PW
 
 SURUM=$(sed -n 's/^version: *//p' "$MOBIL/pubspec.yaml" | head -n1)
@@ -92,13 +112,13 @@ echo "Anahtar    : $KEYSTORE ($KEY_ALIAS)"
 echo
 
 cd "$MOBIL"
-DEFINES=(--dart-define=API_BASE_URL="$API_BASE_URL" --dart-define=DISTRIBUTION="$kanal")
+DEFINES=(--dart-define=API_BASE_URL="$API_BASE_URL" --dart-define=DISTRIBUTION="$flavor")
 
 if [ "$kanal" = "play" ]; then
   flutter build appbundle --release --flavor play "${DEFINES[@]}"
   CIKTI="build/app/outputs/bundle/playRelease/app-play-release.aab"
 else
-  flutter build apk --release --flavor sideload "${DEFINES[@]}"
+  flutter build apk --release --flavor "$flavor" "${DEFINES[@]}"
   CIKTI="build/app/outputs/flutter-apk/app-sideload-release.apk"
 fi
 unset ARVEND_UPLOAD_STORE_PASSWORD
@@ -125,12 +145,16 @@ fi
 
 [ -n "$GERCEK" ] || hata "çıktının imza sertifikası okunamadı"
 if [ "$GERCEK" != "$BEKLENEN" ]; then
-  hata "çıktı upload anahtarıyla imzalanmamış!
+  hata "çıktı beklenen anahtarla ($KEYSTORE) imzalanmamış!
     beklenen: $BEKLENEN
     bulunan : $GERCEK
-  (debug anahtarına düşmüş olabilir) -- bu paketi YAYINLAMAYIN."
+  -- bu paketi YAYINLAMAYIN."
 fi
-echo "İmza                     : upload anahtarı (${GERCEK:0:16}…) -- doğru"
+if [ "$kanal" = "saha" ]; then
+  echo "İmza                     : debug anahtarı, sahadakiyle aynı (${GERCEK:0:16}…) -- doğru"
+else
+  echo "İmza                     : upload anahtarı (${GERCEK:0:16}…) -- doğru"
+fi
 echo "versionCode              : $BUILD"
 echo
 echo "Çıktı: $MOBIL/$CIKTI ($(du -h "$CIKTI" | cut -f1))"

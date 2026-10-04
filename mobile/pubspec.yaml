@@ -72,6 +72,10 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
+  # Giriş ekranı logosu (scripts/ikon_uret.py üretir).
+  assets:
+    - assets/brand/arvend_logo.png
+
   # Tek değişken-genişlikli (variable) dosya, ağırlık ekseni 100-900 --
   # her `weight:` girişi AYNI dosyaya işaret eder, Flutter doğru ağırlığı
   # dosyanın kendi 'wght' ekseninden çözer. Google Fonts'tan (Apache 2.0)
