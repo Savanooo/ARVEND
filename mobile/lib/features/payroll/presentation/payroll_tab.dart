@@ -71,12 +71,29 @@ class PayrollTab extends ConsumerWidget {
             // Düğme satırın YANINDA değil altında: tema birincil düğmeyi tam
             // genişlik yapar (minimumSize: Size.fromHeight) ve bir Row içinde
             // sonsuz genişlik ister -- sahada o satır gri kutu olarak çıkardı.
+            // Avans ayrı düğme: yalnızca formdaki "Tür" kutusunda dururken
+            // sahada bulunamadı (2026-10). İkisi de Expanded içinde -- tema
+            // düğmeleri tam genişlik yapar, Row'da sonlu genişlik şart.
             if (canManage) ...[
               const SizedBox(height: AppSpacing.md),
-              PrimaryButton(
-                label: 'Ödeme Ekle',
-                icon: Icons.add,
-                onPressed: () => _showPaymentForm(context, data, onSaved: refresh),
+              Row(
+                children: [
+                  Expanded(
+                    child: PrimaryButton(
+                      label: 'Ödeme Ekle',
+                      icon: Icons.add,
+                      onPressed: () => _showPaymentForm(context, data, onSaved: refresh),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: SecondaryButton(
+                      label: 'Avans Ver',
+                      icon: Icons.payments_outlined,
+                      onPressed: () => _showPaymentForm(context, data, onSaved: refresh, type: 'avans'),
+                    ),
+                  ),
+                ],
               ),
             ],
             const SizedBox(height: AppSpacing.lg),
@@ -92,6 +109,11 @@ class PayrollTab extends ConsumerWidget {
                   row: r,
                   onPay: canManage && r.isWaiting
                       ? () => _showPaymentForm(context, data, onSaved: refresh, payFor: r)
+                      : null,
+                  // Avans çoğu zaman ay başında, henüz hakediş yokken verilir:
+                  // kalan sıfır olsa da sunulur (pasif personele değil).
+                  onAdvance: canManage && r.isActive
+                      ? () => _showPaymentForm(context, data, onSaved: refresh, payFor: r, type: 'avans')
                       : null,
                 ),
               ),
@@ -143,6 +165,7 @@ class PayrollTab extends ConsumerWidget {
     PayrollMonth data, {
     required VoidCallback onSaved,
     PayrollSummaryRow? payFor,
+    String type = 'maaş',
   }) {
     showModalBottomSheet(
       context: context,
@@ -152,7 +175,9 @@ class PayrollTab extends ConsumerWidget {
         employees: data.payableEmployees,
         initialPeriod: month,
         initialEmployeeId: payFor?.employeeId,
-        initialAmount: payFor?.remaining,
+        // Avansta tutar önerilmez: kalan, avansın tutarı değildir.
+        initialAmount: type == 'avans' ? null : payFor?.remaining,
+        initialType: type,
         onSaved: onSaved,
       ),
     );
@@ -195,9 +220,10 @@ class PayrollTab extends ConsumerWidget {
 }
 
 class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({required this.row, this.onPay});
+  const _SummaryCard({required this.row, this.onPay, this.onAdvance});
   final PayrollSummaryRow row;
   final VoidCallback? onPay;
+  final VoidCallback? onAdvance;
 
   String get _wage => switch (row.wageBasis) {
     'günlük' when row.dailyWage != null => '${Formatters.money(row.dailyWage!)}/gün',
@@ -212,14 +238,22 @@ class _SummaryCard extends StatelessWidget {
       if (row.hasWage) 'Hesaplanan ${Formatters.money(row.earned)} · ödenen ${Formatters.money(row.paidTotal)}',
       if (!row.hasWage && row.paidTotal > 0) 'Ödenen ${Formatters.money(row.paidTotal)}',
       if (row.carryOver > 0) '${Formatters.money(row.carryOver)} önceki aydan devir düşüldü',
-      if (row.remaining < 0) '${Formatters.money(-row.remaining)} fazla — sonraki aya devreder',
+      // Ay içinde verilen avans hakedişi geçebilir; ay ilerledikçe kapanır.
+      if (row.remaining < 0) '${Formatters.money(-row.remaining)} fazla ödendi · ay sonunda kalırsa devreder',
       if (row.extraPaid > 0) '${Formatters.money(row.extraPaid)} prim/diğer',
     ];
+    // "Ödendi" yalnızca gerçekten hakediş ödenmişse: hiç çalışmamış ve
+    // ödeme almamış kişi, ya da hakedişini aşan avans alan kişi eskiden de
+    // "Ödendi" görünüyordu.
     final (String, StatusTone) status = !row.hasWage
         ? ('Ücret tanımsız', StatusTone.muted)
-        : row.isSettled
-        ? ('Ödendi', StatusTone.success)
-        : ('Bekliyor', StatusTone.gold);
+        : row.isWaiting
+        ? ('Bekliyor', StatusTone.gold)
+        : row.remaining < 0
+        ? ('Fazla ödendi', StatusTone.info)
+        : row.earned == 0 && row.paidTotal == 0
+        ? ('Çalışma yok', StatusTone.muted)
+        : ('Ödendi', StatusTone.success);
 
     return AppCard(
       onTap: onPay,
@@ -262,6 +296,15 @@ class _SummaryCard extends StatelessWidget {
                   ),
                   child: const Text('Öde'),
                 ),
+              if (onAdvance != null)
+                TextButton(
+                  onPressed: onAdvance,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                    minimumSize: const Size(0, 32),
+                  ),
+                  child: const Text('Avans'),
+                ),
             ],
           ),
         ],
@@ -280,6 +323,7 @@ class PaymentFormSheet extends ConsumerStatefulWidget {
     required this.onSaved,
     this.initialEmployeeId,
     this.initialAmount,
+    this.initialType = 'maaş',
   });
 
   final List<PayrollSummaryRow> employees;
@@ -287,6 +331,7 @@ class PaymentFormSheet extends ConsumerStatefulWidget {
   final VoidCallback onSaved;
   final String? initialEmployeeId;
   final double? initialAmount;
+  final String initialType;
 
   @override
   ConsumerState<PaymentFormSheet> createState() => _PaymentFormSheetState();
@@ -294,7 +339,7 @@ class PaymentFormSheet extends ConsumerStatefulWidget {
 
 class _PaymentFormSheetState extends ConsumerState<PaymentFormSheet> {
   String? _employeeId;
-  String _type = 'maaş';
+  late String _type = kPaymentTypes.contains(widget.initialType) ? widget.initialType : 'maaş';
   DateTime _paidDate = DateTime.now();
   late final TextEditingController _amountController;
   late final TextEditingController _periodController;
@@ -336,9 +381,9 @@ class _PaymentFormSheetState extends ConsumerState<PaymentFormSheet> {
         : row.remaining < 0
         ? 'Kalan yok (${Formatters.money(-row.remaining)} fazla ödendi)'
         : 'Kalan yok';
-    return _extraTypes.contains(_type)
-        ? '$rest · Prim ve diğer kalandan düşmez.'
-        : '$rest · Fazla ödeme sonraki aya devreder.';
+    if (_extraTypes.contains(_type)) return '$rest · Prim ve diğer kalandan düşmez.';
+    if (_type == 'avans') return '$rest · Avans bu ayın maaşından düşülür.';
+    return '$rest · Fazla ödeme sonraki aya devreder.';
   }
 
   @override
@@ -356,7 +401,7 @@ class _PaymentFormSheetState extends ConsumerState<PaymentFormSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Ödeme Ekle', style: AppTypography.pageTitle.copyWith(fontSize: 17)),
+            Text(_type == 'avans' ? 'Avans Ver' : 'Ödeme Ekle', style: AppTypography.pageTitle.copyWith(fontSize: 17)),
             const SizedBox(height: AppSpacing.lg),
             if (widget.employees.isEmpty)
               Text('Önce aktif personel eklemelisiniz.', style: AppTypography.error)

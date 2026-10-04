@@ -32,7 +32,13 @@ class PrimaryButton extends StatelessWidget {
               ? Text(label)
               : Row(
                   mainAxisSize: MainAxisSize.min,
-                  children: [Icon(icon, size: 18), const SizedBox(width: 8), Text(label)],
+                  // Dar alanda (yan yana iki düğme, büyük yazı) etiket
+                  // satırı taşırmak yerine "…" ile kısalır.
+                  children: [
+                    Icon(icon, size: 18),
+                    const SizedBox(width: 8),
+                    Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                  ],
                 ),
     );
   }
@@ -62,7 +68,13 @@ class SecondaryButton extends StatelessWidget {
               ? Text(label)
               : Row(
                   mainAxisSize: MainAxisSize.min,
-                  children: [Icon(icon, size: 18), const SizedBox(width: 8), Text(label)],
+                  // Dar alanda (yan yana iki düğme, büyük yazı) etiket
+                  // satırı taşırmak yerine "…" ile kısalır.
+                  children: [
+                    Icon(icon, size: 18),
+                    const SizedBox(width: 8),
+                    Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                  ],
                 ),
     );
   }

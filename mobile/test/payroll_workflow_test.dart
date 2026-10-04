@@ -192,6 +192,83 @@ void main() {
     });
   });
 
+  group('avans (sahada "avans verme yok" -- 2026-10)', () {
+    Map<String, dynamic> monthStart() => {
+          'period': '2026-09',
+          'summary': [
+            {
+              'employee_id': 'e1',
+              'full_name': 'Ahmet Usta',
+              'position': 'Usta',
+              'salary': null,
+              'daily_wage': 1500,
+              'is_active': true,
+              'worked_days': 0,
+              'work_hours': 0,
+              'paid_total': 0,
+              'payment_count': 0,
+              'wage_basis': 'günlük',
+              'earned': 0,
+              'salary_paid': 0,
+              'extra_paid': 0,
+              'carry_over': 0,
+              'remaining': 0,
+            },
+          ],
+          'payments': <dynamic>[],
+        };
+
+    FakeHttpClientAdapter adapter() => FakeHttpClientAdapter(script: {
+          '/auth/me': [(status: 200, body: _meJson(['attendance.read', 'payroll.read', 'payroll.manage']))],
+          '/attendance': [
+            (status: 200, body: {'attendance': <Map<String, dynamic>>[]}),
+          ],
+          '/payroll': [
+            (status: 200, body: monthStart()),
+            (status: 201, body: _paymentJson(id: 'p9', type: 'avans', amount: 5000)),
+            (status: 200, body: monthStart()),
+          ],
+        });
+
+    testWidgets('ay başında (hakediş 0) kart "Çalışma yok" der, "Ödendi" DEĞİL; yine de Avans verilebilir',
+        (tester) async {
+      final a = adapter();
+      await _pump(tester, a);
+      await tester.tap(find.text('Maaş'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Çalışma yok'), findsOneWidget);
+      expect(find.text('Ödendi'), findsNothing);
+      expect(find.text('Öde'), findsNothing, reason: 'kalan yok');
+      expect(find.text('Avans'), findsOneWidget, reason: 'avans kalandan bağımsız');
+
+      await tester.tap(find.text('Avans'));
+      await tester.pumpAndSettle();
+      expect(find.text('Avans Ver'), findsWidgets, reason: 'form başlığı');
+      final amount = tester.widget<TextField>(find.byKey(const Key('payment-amount')));
+      expect(amount.controller!.text, isEmpty, reason: 'avansta kalan önerilmez');
+
+      await tester.enterText(find.byKey(const Key('payment-amount')), '5.000');
+      await tester.tap(find.text('Kaydet'));
+      await tester.pumpAndSettle();
+
+      final body = a.requestBodies[a.calls.lastIndexOf('/payroll') - 1] as Map;
+      expect(body['payment_type'], 'avans');
+      expect(body['employee_id'], 'e1');
+      expect(body['amount'], 5000);
+    });
+
+    testWidgets('üstteki "Avans Ver" formu avans türüyle açar', (tester) async {
+      await _pump(tester, adapter());
+      await tester.tap(find.text('Maaş'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Avans Ver'));
+      await tester.pumpAndSettle();
+      expect(find.text('Avans'), findsWidgets, reason: 'Tür kutusunda Avans seçili');
+      expect(find.textContaining('Avans bu ayın maaşından düşülür'), findsOneWidget);
+    });
+  });
+
   group('attendance delete (web "Sil" parity)', () {
     testWidgets('editing a record offers "Kaydı Sil"; DELETE only after confirmation, list refreshes', (tester) async {
       final record = {
