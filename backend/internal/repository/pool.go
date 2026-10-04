@@ -441,6 +441,50 @@ func TimePtrToDate(t *time.Time) pgtype.Date {
 	return pgtype.Date{Time: *t, Valid: true}
 }
 
+func ToDomainSalaryPayment(p sqlc.SalaryPayment) domain.SalaryPayment {
+	return domain.SalaryPayment{
+		ID:             p.ID.String(),
+		OrganizationID: p.OrganizationID.String(),
+		EmployeeID:     p.EmployeeID.String(),
+		Period:         p.Period,
+		PaymentType:    p.PaymentType,
+		Amount:         NumericToFloat64(p.Amount),
+		PaidDate:       p.PaidDate.Time,
+		Description:    p.Description,
+		CreatedAt:      p.CreatedAt.Time,
+	}
+}
+
+func ToDomainSalaryPaymentRow(r sqlc.ListSalaryPaymentsByPeriodRow) domain.SalaryPayment {
+	return domain.SalaryPayment{
+		ID:             r.ID.String(),
+		OrganizationID: r.OrganizationID.String(),
+		EmployeeID:     r.EmployeeID.String(),
+		EmployeeName:   r.EmployeeName,
+		Period:         r.Period,
+		PaymentType:    r.PaymentType,
+		Amount:         NumericToFloat64(r.Amount),
+		PaidDate:       r.PaidDate.Time,
+		Description:    r.Description,
+		CreatedAt:      r.CreatedAt.Time,
+	}
+}
+
+func ToDomainPayrollSummaryRow(r sqlc.PayrollSummaryByPeriodRow) domain.PayrollSummaryRow {
+	return domain.PayrollSummaryRow{
+		EmployeeID:   r.EmployeeID.String(),
+		FullName:     r.FullName,
+		Position:     r.Position,
+		Salary:       NumericToFloat64Ptr(r.Salary),
+		DailyWage:    NumericToFloat64Ptr(r.DailyWage),
+		IsActive:     r.IsActive,
+		WorkedDays:   NumericToFloat64(r.WorkedDays),
+		WorkHours:    NumericToFloat64(r.WorkHours),
+		PaidTotal:    NumericToFloat64(r.PaidTotal),
+		PaymentCount: int(r.PaymentCount),
+	}
+}
+
 func ToDomainAttendance(a sqlc.AttendanceLog) domain.AttendanceLog {
 	return domain.AttendanceLog{
 		ID:             a.ID.String(),

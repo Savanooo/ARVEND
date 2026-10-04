@@ -565,6 +565,44 @@ export interface AttendanceLog {
   note: string;
 }
 
+// ---------- Maaş ve mesai ödemeleri (migration 0048) ----------
+
+// backend/internal/domain/payroll.go ve salary_payments_payment_type_check ile
+// BİREBİR aynı küme.
+export type PaymentType = "maaş" | "avans" | "mesai" | "prim" | "diğer";
+
+export interface SalaryPayment {
+  id: string;
+  employee_id: string;
+  employee_name?: string;
+  period: string; // ödemenin ait olduğu ay, YYYY-MM
+  payment_type: PaymentType;
+  amount: number;
+  paid_date: string; // ödemenin yapıldığı gün, YYYY-MM-DD
+  description: string;
+}
+
+// Kalan borç bilerek YOK -- aylık maaş mı yevmiye mi esas alınacağı firmaya
+// göre değişiyor; backend ham sayıları verir (bkz. PayrollSummaryByPeriod).
+export interface PayrollSummaryRow {
+  employee_id: string;
+  full_name: string;
+  position: string;
+  salary: number | null;
+  daily_wage: number | null;
+  is_active: boolean;
+  worked_days: number; // geldi = 1, yarım gün = 0.5
+  work_hours: number;
+  paid_total: number;
+  payment_count: number;
+}
+
+export interface PayrollResponse {
+  period: string;
+  summary: PayrollSummaryRow[];
+  payments: SalaryPayment[];
+}
+
 // ---------- Faz 6: proje finans ----------
 
 export type PlanItemStatus = "pending" | "partial" | "paid" | "overdue" | "cancelled";

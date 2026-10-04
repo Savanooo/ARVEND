@@ -209,3 +209,29 @@ export function formatRelativeTime(ts: string, nowIso: string): string {
   if (tp.yyyy === np.yyyy) return `${tp.dd}.${tp.mm} ${tp.hm}`;
   return `${tp.dd}.${tp.mm}.${tp.yyyy}`;
 }
+
+/**
+ * Kullanıcının yazdığı tutarı sayıya çevirir; Türkçe ve nokta-ondalık
+ * yazımın İKİSİNİ de doğru okur. Geçersizse NaN.
+ *
+ *   "1.250,50" -> 1250.5    (Türkçe: nokta binlik, virgül ondalık)
+ *   "1250,5"   -> 1250.5
+ *   "1.250"    -> 1250      (yalnızca binlik gruplar: "12.500.000" de)
+ *   "1250.50"  -> 1250.5    (nokta ondalık -- binlik grubu değil)
+ *   "1.25"     -> 1.25
+ *
+ * Neden: noktaları körü körüne silmek "1250.50"yi 125050 yapar -- bir maaş
+ * ödemesinde 100 katlık hata.
+ */
+export function parseAmountTR(input: string): number {
+  const s = input.trim().replace(/\s/g, "").replace(/₺|TL$/i, "");
+  if (s === "") return NaN;
+  if (s.includes(",")) {
+    // Virgül varsa ondalık ayraç odur; noktalar yalnızca binlik olabilir.
+    if (!/^\d{1,3}(\.\d{3})*(,\d+)?$|^\d+(,\d+)?$/.test(s)) return NaN;
+    return Number(s.replace(/\./g, "").replace(",", "."));
+  }
+  if (/^\d{1,3}(\.\d{3})+$/.test(s)) return Number(s.replace(/\./g, ""));
+  if (!/^\d+(\.\d+)?$/.test(s)) return NaN;
+  return Number(s);
+}

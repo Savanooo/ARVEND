@@ -1056,6 +1056,20 @@ type RolePermission struct {
 	PermissionCode     string      `json:"permission_code"`
 }
 
+type SalaryPayment struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	EmployeeID     pgtype.UUID        `json:"employee_id"`
+	Period         string             `json:"period"`
+	PaymentType    string             `json:"payment_type"`
+	Amount         pgtype.Numeric     `json:"amount"`
+	PaidDate       pgtype.Date        `json:"paid_date"`
+	Description    string             `json:"description"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type SmtpSetting struct {
 	Host           string             `json:"host"`
 	Port           int32              `json:"port"`

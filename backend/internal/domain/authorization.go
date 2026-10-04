@@ -166,6 +166,13 @@ const (
 	// (read) -- bir "manage" izni yok, bildirimler kullanıcı isteğiyle
 	// DEĞİL yalnızca backend'in kendi iş akışlarıyla üretilir.
 	PermNotificationsRead = "notifications.read"
+
+	// Maaş ve mesai ödemeleri (bkz. migration 0048). attendance.*'tan
+	// KASITLI OLARAK AYRI: puantaj girebilen herkes (ör. Saha) personelin ne
+	// kadar maaş aldığını görmemeli. Ödemenin onay durumu yok -> read/manage.
+	// Varsayılan olarak yalnızca owner/admin'de.
+	PermPayrollRead   = "payroll.read"
+	PermPayrollManage = "payroll.manage"
 )
 
 // adminRoleOnlyPermissions, uçları izne EK OLARAK kaba requireAdmin

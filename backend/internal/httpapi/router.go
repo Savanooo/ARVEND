@@ -29,6 +29,7 @@ type Deps struct {
 	Customers         *handler.CustomerHandler
 	Employees         *handler.EmployeeHandler
 	Attendance        *handler.AttendanceHandler
+	Payroll           *handler.SalaryPaymentHandler
 	Settings          *handler.SettingsHandler
 	PublicOffer       *handler.PublicOfferHandler
 	PublicChangeOrder *handler.PublicChangeOrderHandler
@@ -603,6 +604,19 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/", d.Attendance.Create)
 				r.Put("/{id}", d.Attendance.Update)
 				r.Delete("/{id}", d.Attendance.Delete)
+			})
+		})
+
+		r.Route("/payroll", func(r chi.Router) {
+			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
+			// Maaş/mesai ödemeleri attendance.*'tan AYRI izinde: puantaj
+			// girebilen herkes personelin ne aldığını görmemeli (bkz.
+			// domain.PermPayrollRead, migration 0048).
+			r.With(perm(domain.PermPayrollRead)).Get("/", d.Payroll.List)
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermPayrollManage))
+				r.Post("/", d.Payroll.Create)
+				r.Delete("/{id}", d.Payroll.Delete)
 			})
 		})
 

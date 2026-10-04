@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  parseAmountTR,
   formatAgeDays,
   formatCompactMoney,
   formatCompactNumber,
@@ -129,5 +130,32 @@ describe("formatRelativeTime", () => {
 
   it("gelecekteki damga (saat kayması) 'az önce'", () => {
     assert.equal(formatRelativeTime("2026-09-28T10:00:00+03:00", now), "az önce");
+  });
+});
+
+describe("parseAmountTR", () => {
+  it("Türkçe yazımı okur (nokta binlik, virgül ondalık)", () => {
+    assert.equal(parseAmountTR("1.250,50"), 1250.5);
+    assert.equal(parseAmountTR("1250,5"), 1250.5);
+    assert.equal(parseAmountTR("12.500.000"), 12500000);
+    assert.equal(parseAmountTR("1.250"), 1250);
+  });
+
+  it("nokta-ondalık yazımı 100 katına çıkarmaz", () => {
+    // Noktaları körü körüne silen ayrıştırıcı bunu 125050 yapıyordu.
+    assert.equal(parseAmountTR("1250.50"), 1250.5);
+    assert.equal(parseAmountTR("1.25"), 1.25);
+    assert.equal(parseAmountTR("35950"), 35950);
+  });
+
+  it("boşluk ve TL/₺ işaretini tolere eder", () => {
+    assert.equal(parseAmountTR(" 2 500 ₺"), 2500);
+    assert.equal(parseAmountTR("750 TL"), 750);
+  });
+
+  it("geçersiz girişte NaN döner", () => {
+    for (const bad of ["", "abc", "1,2,3", "1.2.3,4.5", "-500", "12,50.0"]) {
+      assert.ok(Number.isNaN(parseAmountTR(bad)), `"${bad}" NaN olmalıydı`);
+    }
   });
 });

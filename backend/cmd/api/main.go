@@ -65,6 +65,7 @@ func main() {
 	customerSvc := service.NewCustomerService(q)
 	employeeSvc := service.NewEmployeeService(q)
 	attendanceSvc := service.NewAttendanceService(q)
+	salaryPaymentSvc := service.NewSalaryPaymentService(q)
 	calcSvc := service.NewCalcService(q)
 	platformSvc := service.NewPlatformService(pool, q, userSvc, calcSvc, productSvc)
 	onboardingSvc := service.NewOnboardingService(q, secretBox)
@@ -92,6 +93,7 @@ func main() {
 		Customers:         handler.NewCustomerHandler(customerSvc),
 		Employees:         handler.NewEmployeeHandler(employeeSvc),
 		Attendance:        handler.NewAttendanceHandler(attendanceSvc),
+		Payroll:           handler.NewSalaryPaymentHandler(salaryPaymentSvc),
 		Settings:          handler.NewSettingsHandler(settingsSvc),
 		PublicOffer:       handler.NewPublicOfferHandler(offerSvc),
 		PublicChangeOrder: handler.NewPublicChangeOrderHandler(projectSvc),

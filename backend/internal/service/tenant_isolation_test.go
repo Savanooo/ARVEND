@@ -63,6 +63,10 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 	ctx := context.Background()
 	stmts := []string{
 		"DELETE FROM attendance_logs WHERE organization_id = $1",
+		// salary_payments (migration 0048) employees'a CASCADE'siz FK taşır
+		// (ödeme geçmişi personelle birlikte sessizce silinmesin diye) --
+		// employees'tan ÖNCE temizlenmezse firma silinemez.
+		"DELETE FROM salary_payments WHERE organization_id = $1",
 		// project_users (RBAC/Project Membership sprint'i, migration 0034),
 		// projects'e CASCADE FK taşır ama organization_id'ye taşımaz --
 		// yine de açıkça, projects'ten ÖNCE temizlenir (tutarlılık).

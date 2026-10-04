@@ -6,7 +6,7 @@ import { ADMIN_ROLE_ONLY_PERMISSIONS, PAGE_PERMISSIONS } from "./permissions.ts"
 import { isPlatformPath, isTenantPath, PERMISSION_GATED_ADMIN_PREFIXES, resolveRoleRedirect } from "./route-policy.ts";
 
 // Süper Admin kabuğunda ASLA görünmemesi gereken tenant modül etiketleri.
-const TENANT_LABELS = ["Teklifler", "Projeler", "Müşteriler", "Mesai", "Metraj", "Tedarik", "Taşeron", "Personel", "Ürünler"];
+const TENANT_LABELS = ["Teklifler", "Projeler", "Müşteriler", "Mesai & Maaş", "Metraj", "Tedarik", "Taşeron", "Personel", "Ürünler"];
 
 // Bir rolün Roller & Yetkiler'de TÜM sayfa okuma izinlerine sahip olduğu durum.
 const ALL_PAGE_PERMISSIONS = Object.values(PAGE_PERMISSIONS);

@@ -1,0 +1,231 @@
+package service_test
+
+import (
+	"context"
+	"errors"
+	"math"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Savanooo/ARVEND/backend/internal/domain"
+	"github.com/Savanooo/ARVEND/backend/internal/repository"
+	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
+	"github.com/Savanooo/ARVEND/backend/internal/service"
+)
+
+// TestSalaryPayments, maaş/mesai ödemeleri modülünü (migration 0048) gerçek
+// bir PostgreSQL üzerinde doğrular: aynı ay için birden çok ödeme, aylık
+// özetin puantajla birleşmesi, doğrulama kuralları ve -- en önemlisi --
+// tenant sınırı (hem servis hem DB tetikleyicisi katmanında).
+func TestSalaryPayments(t *testing.T) {
+	ctx := context.Background()
+	dbURL := testDBURL(t)
+
+	pool, err := repository.NewPool(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	t.Cleanup(func() { pool.Close() })
+
+	q := sqlc.New(pool)
+	orgSvc := service.NewOrganizationService(q)
+	svc := service.NewSalaryPaymentService(q)
+
+	orgA := mustCreateOrg(t, ctx, orgSvc, pool, "Maaş Test Firma A", "maas-test-firma-a")
+	orgB := mustCreateOrg(t, ctx, orgSvc, pool, "Maaş Test Firma B", "maas-test-firma-b")
+
+	empA := mustCreateEmployee(t, ctx, pool, orgA.ID, "Ahmet Usta", true)
+	empA2 := mustCreateEmployee(t, ctx, pool, orgA.ID, "Pasif Kalfa", false)
+	empB := mustCreateEmployee(t, ctx, pool, orgB.ID, "Başka Firmanın Personeli", true)
+
+	const period = "2026-09"
+
+	t.Run("1_multiple_payments_same_month_are_allowed", func(t *testing.T) {
+		for _, in := range []service.SalaryPaymentInput{
+			{EmployeeID: empA, Period: period, PaymentType: domain.PaymentTypeAvans, Amount: 5000, PaidDate: day(2026, 9, 15)},
+			{EmployeeID: empA, Period: period, PaymentType: domain.PaymentTypeMaas, Amount: 25000.5, PaidDate: day(2026, 10, 5)},
+		} {
+			if _, err := svc.Create(ctx, orgA.ID, in); err != nil {
+				t.Fatalf("ödeme eklenemedi: %v", err)
+			}
+		}
+		list, err := svc.ListByPeriod(ctx, orgA.ID, period)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(list) != 2 {
+			t.Fatalf("2 ödeme beklendi, %d geldi", len(list))
+		}
+		if list[0].EmployeeName != "Ahmet Usta" {
+			t.Errorf("personel adı JOIN'den gelmeli, %q geldi", list[0].EmployeeName)
+		}
+		// En son ödenen önce.
+		if got := list[0].PaidDate.Format("2006-01-02"); got != "2026-10-05" {
+			t.Errorf("sıralama: ilk satır 2026-10-05 olmalı, %s geldi", got)
+		}
+	})
+
+	t.Run("2_summary_joins_attendance_and_payments", func(t *testing.T) {
+		mustAttendance(t, ctx, pool, orgA.ID, empA, "2026-09-01", "geldi", 9)
+		mustAttendance(t, ctx, pool, orgA.ID, empA, "2026-09-02", "yarım gün", 4)
+		mustAttendance(t, ctx, pool, orgA.ID, empA, "2026-09-03", "gelmedi", 0)
+		mustAttendance(t, ctx, pool, orgA.ID, empA, "2026-08-31", "geldi", 9) // önceki ay, sayılmamalı
+
+		rows, err := svc.Summary(ctx, orgA.ID, period)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var row *domain.PayrollSummaryRow
+		for i := range rows {
+			if rows[i].EmployeeID == empA {
+				row = &rows[i]
+			}
+			if rows[i].EmployeeID == empA2 {
+				t.Errorf("o ay verisi olmayan pasif personel özette görünmemeli")
+			}
+		}
+		if row == nil {
+			t.Fatal("aktif personel özette yok")
+		}
+		if row.WorkedDays != 1.5 {
+			t.Errorf("çalışılan gün: geldi(1) + yarım gün(0.5) = 1.5 beklendi, %v geldi", row.WorkedDays)
+		}
+		if row.WorkHours != 13 {
+			t.Errorf("saat: 13 beklendi, %v geldi", row.WorkHours)
+		}
+		if row.PaidTotal != 30000.5 || row.PaymentCount != 2 {
+			t.Errorf("ödenen: 30000.5 / 2 adet beklendi, %v / %d geldi", row.PaidTotal, row.PaymentCount)
+		}
+	})
+
+	t.Run("3_inactive_employee_with_payment_still_in_summary", func(t *testing.T) {
+		if _, err := svc.Create(ctx, orgA.ID, service.SalaryPaymentInput{
+			EmployeeID: empA2, Period: period, Amount: 1000, PaidDate: day(2026, 9, 30),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		rows, _ := svc.Summary(ctx, orgA.ID, period)
+		found := false
+		for _, r := range rows {
+			if r.EmployeeID == empA2 {
+				found = true
+			}
+		}
+		if !found {
+			t.Error("işten ayrılan personelin o ayki ödemesi özette kaybolmamalı")
+		}
+	})
+
+	t.Run("4_validation", func(t *testing.T) {
+		cases := []struct {
+			name string
+			in   service.SalaryPaymentInput
+			want error
+		}{
+			{"ay 13", service.SalaryPaymentInput{EmployeeID: empA, Period: "2026-13", Amount: 1}, service.ErrInvalidPeriod},
+			{"ay tek hane", service.SalaryPaymentInput{EmployeeID: empA, Period: "2026-9", Amount: 1}, service.ErrInvalidPeriod},
+			{"tür", service.SalaryPaymentInput{EmployeeID: empA, Period: period, PaymentType: "ikramiye", Amount: 1}, service.ErrInvalidPaymentType},
+			{"sıfır", service.SalaryPaymentInput{EmployeeID: empA, Period: period, Amount: 0}, service.ErrInvalidAmount},
+			{"eksi", service.SalaryPaymentInput{EmployeeID: empA, Period: period, Amount: -5}, service.ErrInvalidAmount},
+			{"NaN", service.SalaryPaymentInput{EmployeeID: empA, Period: period, Amount: math.NaN()}, service.ErrInvalidAmount},
+			{"çok büyük", service.SalaryPaymentInput{EmployeeID: empA, Period: period, Amount: 1e12}, service.ErrAmountTooLarge},
+			{"personel yok", service.SalaryPaymentInput{EmployeeID: "00000000-0000-0000-0000-000000000000", Period: period, Amount: 1}, service.ErrInvalidEmployee},
+		}
+		for _, c := range cases {
+			if _, err := svc.Create(ctx, orgA.ID, c.in); !errors.Is(err, c.want) {
+				t.Errorf("%s: %v beklendi, %v geldi", c.name, c.want, err)
+			}
+		}
+		if _, err := svc.ListByPeriod(ctx, orgA.ID, "2026/09"); !errors.Is(err, service.ErrInvalidPeriod) {
+			t.Errorf("liste geçersiz ayı reddetmeli, %v geldi", err)
+		}
+	})
+
+	t.Run("5_default_type_and_paid_date", func(t *testing.T) {
+		p, err := svc.Create(ctx, orgA.ID, service.SalaryPaymentInput{EmployeeID: empA, Period: "2026-08", Amount: 10})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.PaymentType != domain.PaymentTypeMaas {
+			t.Errorf("tür verilmezse 'maaş' olmalı, %q geldi", p.PaymentType)
+		}
+		if p.PaidDate.IsZero() {
+			t.Error("ödeme tarihi verilmezse bugün olmalı")
+		}
+	})
+
+	t.Run("6_tenant_isolation", func(t *testing.T) {
+		// B, A'nın personeline ödeme yazamaz.
+		if _, err := svc.Create(ctx, orgB.ID, service.SalaryPaymentInput{EmployeeID: empA, Period: period, Amount: 1}); !errors.Is(err, service.ErrInvalidEmployee) {
+			t.Errorf("başka firmanın personeline ödeme reddedilmeli, %v geldi", err)
+		}
+		// B, A'nın ödemelerini göremez.
+		list, _ := svc.ListByPeriod(ctx, orgB.ID, period)
+		if len(list) != 0 {
+			t.Errorf("B, A'nın %d ödemesini görüyor", len(list))
+		}
+		rows, _ := svc.Summary(ctx, orgB.ID, period)
+		for _, r := range rows {
+			if r.EmployeeID == empA {
+				t.Error("B'nin özetinde A'nın personeli var")
+			}
+		}
+		// B, A'nın ödemesini ID'siyle de silemez.
+		aList, _ := svc.ListByPeriod(ctx, orgA.ID, period)
+		if err := svc.Delete(ctx, aList[0].ID, orgB.ID); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("B'nin silmesi ErrNotFound olmalı, %v geldi", err)
+		}
+		after, _ := svc.ListByPeriod(ctx, orgA.ID, period)
+		if len(after) != len(aList) {
+			t.Error("B'nin silme denemesi A'nın kaydını sildi")
+		}
+	})
+
+	t.Run("7_db_trigger_blocks_cross_tenant_insert", func(t *testing.T) {
+		// Servisi atlayan bir yazıcı (ör. BYZ aktarım aracı) da sınırı geçememeli.
+		_, err := pool.Exec(ctx, `
+			INSERT INTO salary_payments (organization_id, employee_id, period, amount)
+			VALUES ($1, $2, '2026-09', 1)`, orgB.ID, empA)
+		if err == nil {
+			t.Fatal("DB tetikleyicisi başka firmanın personeline yazmayı engellemeli")
+		}
+		_ = empB
+	})
+
+	t.Run("8_delete", func(t *testing.T) {
+		p, err := svc.Create(ctx, orgA.ID, service.SalaryPaymentInput{EmployeeID: empA, Period: "2026-07", Amount: 7})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.Delete(ctx, p.ID, orgA.ID); err != nil {
+			t.Fatalf("silinemedi: %v", err)
+		}
+		if err := svc.Delete(ctx, p.ID, orgA.ID); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("ikinci silme ErrNotFound olmalı, %v geldi", err)
+		}
+	})
+}
+
+func day(y int, m time.Month, d int) time.Time { return time.Date(y, m, d, 0, 0, 0, 0, time.UTC) }
+
+func mustCreateEmployee(t *testing.T, ctx context.Context, pool *pgxpool.Pool, orgID, name string, active bool) string {
+	t.Helper()
+	var id string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO employees (organization_id, full_name, is_active) VALUES ($1, $2, $3) RETURNING id`,
+		orgID, name, active).Scan(&id); err != nil {
+		t.Fatalf("personel oluşturulamadı: %v", err)
+	}
+	return id
+}
+
+func mustAttendance(t *testing.T, ctx context.Context, pool *pgxpool.Pool, orgID, empID, date, status string, hours float64) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO attendance_logs (organization_id, employee_id, date, status, work_hours)
+		VALUES ($1, $2, $3::date, $4, $5)`, orgID, empID, date, status, hours); err != nil {
+		t.Fatalf("mesai eklenemedi: %v", err)
+	}
+}
