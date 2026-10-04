@@ -186,7 +186,7 @@ void main() {
         ModuleKey.employees: '/diger/personel',
         ModuleKey.products: '/diger/urunler/zamlar?period=30',
         ModuleKey.users: '/diger/kullanicilar',
-        ModuleKey.calculations: '/diger/metraj',
+        ModuleKey.calculations: '/diger/metraj-receteleri',
         ModuleKey.suppliers: '/diger/tedarikciler',
         ModuleKey.costCodes: '/diger/maliyet-kodlari',
       };

@@ -31,7 +31,6 @@ class OfferDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
-  bool _converting = false;
   bool _creatingLink = false;
   bool _sendingEmail = false;
 
@@ -71,25 +70,28 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     }
   }
 
-  Future<void> _convert() async {
-    setState(() => _converting = true);
+  /// Web'deki projeye-donustur formunun karşılığı: ad / tip / tarihler /
+  /// açıklama sorulur, istek formun içinden atılır (hata olursa form açık
+  /// kalır, girilenler kaybolmaz). Eskiden tek dokunuşla boş değerlerle
+  /// dönüştürülüyordu.
+  Future<void> _convert(Offer offer) async {
     final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
-    try {
-      final result = await ref.read(offersRepositoryProvider).convertToProject(offerId);
-      invalidate(offerLinkedProjectIdProvider(offerId));
-      invalidateOfferHistory(invalidate, offerId);
-      if (!mounted) return;
-      final projectId = result['id'] as String?;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Proje oluşturuldu')));
-      if (projectId != null) {
-        context.go('/projeler/$projectId');
-      } else {
-        context.go('/projeler');
-      }
-    } on ApiException catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } finally {
-      if (mounted) setState(() => _converting = false);
+    final result = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _ConvertToProjectSheet(offer: offer),
+    );
+    if (result == null) return;
+    invalidate(offerLinkedProjectIdProvider(offerId));
+    invalidateOfferHistory(invalidate, offerId);
+    if (!mounted) return;
+    final projectId = result['id'] as String?;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Proje oluşturuldu')));
+    if (projectId != null) {
+      context.go('/projeler/$projectId');
+    } else {
+      context.go('/projeler');
     }
   }
 
@@ -100,6 +102,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
       final link = await ref.read(offersRepositoryProvider).createShareLink(offerId);
       // Link oluşturma bir olay (share_link_created) üretir.
       invalidateOfferHistory(invalidate, offerId);
+      invalidate(offerShareLinksProvider(offerId));
       if (!mounted) return;
       // Ağ çağrısı bitti -- diyalog açık kaldığı sürece (kullanıcı kopyala/
       // kapat'a basana kadar) buton sonsuza dek "yükleniyor" görünmesin.
@@ -128,6 +131,36 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
       if (mounted) setState(() => _creatingLink = false);
+    }
+  }
+
+  Future<void> _delete(Offer offer) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Teklifi Sil'),
+        content: Text('${offer.offerNo} (${offer.customerName}) silinsin mi? Bu işlem geri alınamaz.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
+    try {
+      await ref.read(offersRepositoryProvider).delete(offerId);
+      invalidate(offersListProvider(''));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${offer.offerNo} silindi')));
+      context.go('/teklifler');
+    } on ApiException catch (e) {
+      // Kabul edilmiş teklif backend'de de reddedilir; mesaj olduğu gibi.
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
   }
 
@@ -169,6 +202,8 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     final user = ref.watch(authControllerProvider).valueOrNull;
     final canReadInternal = user?.hasPermission(kPermOffersInternalPricingRead) ?? false;
     final canConvert = user?.hasPermission(kPermProjectsCreate) ?? false;
+    final canUpdate = user?.hasPermission(kPermOffersUpdate) ?? false;
+    final canDelete = user?.hasPermission(kPermOffersDelete) ?? false;
     // İzni olmayan VEYA henüz "kabul edildi" durumuna gelmemiş bir teklif
     // İÇİN bu sorgu hiç atılmaz -- yalnızca kabul edilmiş teklifler
     // dönüştürülebilir, gereksiz bir /offers/{id}/project isteği YOK.
@@ -189,6 +224,30 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
               : const SizedBox.shrink(),
           orElse: () => const SizedBox.shrink(),
         ),
+        // Kabul edilmiş teklif silinemez (backend ErrOfferAccepted) -- seçenek
+        // hiç sunulmaz; web'deki "Sil" düğmesinin karşılığı.
+        if (canDelete)
+          offerAsync.maybeWhen(
+            data: (o) => o.status == Offer.statusKabulEdildi
+                ? const SizedBox.shrink()
+                : PopupMenuButton<String>(
+                    tooltip: 'Diğer işlemler',
+                    onSelected: (v) {
+                      if (v == 'sil') _delete(o);
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'sil',
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.delete_outline, color: AppColors.danger),
+                          title: Text('Teklifi Sil', style: TextStyle(color: AppColors.danger)),
+                        ),
+                      ),
+                    ],
+                  ),
+            orElse: () => const SizedBox.shrink(),
+          ),
       ],
       body: AsyncStateView<Offer>(
         value: offerAsync,
@@ -286,6 +345,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
               ),
               // Web teklif detayındaki "Aktivite / Zaman Çizelgesi" + "Mail
               // Geçmişi" (görüntülenme özeti dahil); tamamı /teklifler/:id/gecmis.
+              _ShareLinksSection(offerId: offerId, canRevoke: canUpdate),
               const SizedBox(height: AppSpacing.xl),
               OfferHistorySection(offerId: offerId),
               const SizedBox(height: AppSpacing.xl),
@@ -324,8 +384,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                       : PrimaryButton(
                           icon: Icons.business_center_outlined,
                           label: 'Projeye Dönüştür',
-                          loading: _converting,
-                          onPressed: _convert,
+                          onPressed: () => _convert(offer),
                         ),
                   orElse: () => const SizedBox.shrink(),
                 ),
@@ -357,6 +416,269 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
               ],
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Web teklif detayındaki "Paylaşım" kartının karşılığı: oluşturulmuş
+/// linkler, kopyala ve iptal et. Hiç link yoksa bölüm görünmez (yeni link
+/// aşağıdaki "Paylaşım Linki" düğmesiyle oluşturulur).
+class _ShareLinksSection extends ConsumerStatefulWidget {
+  const _ShareLinksSection({required this.offerId, required this.canRevoke});
+  final String offerId;
+  final bool canRevoke;
+
+  @override
+  ConsumerState<_ShareLinksSection> createState() => _ShareLinksSectionState();
+}
+
+class _ShareLinksSectionState extends ConsumerState<_ShareLinksSection> {
+  String? _revokingId;
+  bool _showPast = false;
+
+  String _url(ShareLink l) => '${AppConfig.apiBaseUrl}/paylas/${l.token}';
+
+  Future<void> _revoke(ShareLink link) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Linki İptal Et'),
+        content: const Text('Bu paylaşım linki iptal edilsin mi? Müşteri bu linkten teklifi artık göremez.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            child: const Text('İptal Et'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _revokingId = link.id);
+    final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
+    try {
+      await ref.read(offersRepositoryProvider).revokeShareLink(widget.offerId, link.id);
+      invalidate(offerShareLinksProvider(widget.offerId));
+      invalidateOfferHistory(invalidate, widget.offerId);
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _revokingId = null);
+    }
+  }
+
+  String _pastLabel(ShareLink l) {
+    if (l.revokedAt != null) return 'İptal edildi · ${Formatters.dateTime(l.revokedAt)}';
+    if (l.expiresAt != null) return 'Süresi doldu · ${Formatters.dateTime(l.expiresAt)}';
+    return 'Geçersiz';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final links = ref.watch(offerShareLinksProvider(widget.offerId)).valueOrNull ?? const <ShareLink>[];
+    if (links.isEmpty) return const SizedBox.shrink();
+    final active = links.where((l) => l.isActive).toList();
+    final past = links.where((l) => !l.isActive).toList();
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const AppSectionHeader(title: 'Paylaşım Linkleri'),
+          const SizedBox(height: AppSpacing.sm),
+          if (active.isEmpty)
+            const AppCard(child: Text('Aktif link yok', style: AppTypography.metadata)),
+          for (final l in active)
+            AppCard(
+              margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const StatusBadge(label: 'Aktif', tone: StatusTone.success),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          l.expiresAt == null ? 'Süresiz' : 'Bitiş: ${Formatters.dateTime(l.expiresAt)}',
+                          style: AppTypography.metadata,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  SelectableText(_url(l), style: AppTypography.body),
+                  Text('Oluşturuldu: ${Formatters.dateTime(l.createdAt)}', style: AppTypography.helper),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton.icon(
+                        icon: const Icon(Icons.copy_outlined, size: 18),
+                        label: const Text('Kopyala'),
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: _url(l)));
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Link kopyalandı')));
+                        },
+                      ),
+                      if (widget.canRevoke)
+                        TextButton(
+                          onPressed: _revokingId == null ? () => _revoke(l) : null,
+                          style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+                          child: Text(_revokingId == l.id ? 'İptal ediliyor…' : 'İptal Et'),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          if (past.isNotEmpty)
+            TextButton(
+              onPressed: () => setState(() => _showPast = !_showPast),
+              child: Text(_showPast ? 'Eski linkleri gizle' : 'Eski linkler (${past.length})'),
+            ),
+          if (_showPast)
+            for (final l in past)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+                child: Text(_pastLabel(l), style: AppTypography.metadata),
+              ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConvertToProjectSheet extends ConsumerStatefulWidget {
+  const _ConvertToProjectSheet({required this.offer});
+  final Offer offer;
+
+  @override
+  ConsumerState<_ConvertToProjectSheet> createState() => _ConvertToProjectSheetState();
+}
+
+class _ConvertToProjectSheetState extends ConsumerState<_ConvertToProjectSheet> {
+  late final TextEditingController _name;
+  final _type = TextEditingController();
+  final _description = TextEditingController();
+  DateTime? _start;
+  DateTime? _end;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    // Web ile aynı öneri: "Müşteri - TeklifNo".
+    _name = TextEditingController(text: '${widget.offer.customerName} - ${widget.offer.offerNo}');
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _type.dispose();
+    _description.dispose();
+    super.dispose();
+  }
+
+  static String _iso(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  Future<void> _pick({required bool start}) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: (start ? _start : _end) ?? _start ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null) setState(() => start ? _start = picked : _end = picked);
+  }
+
+  Future<void> _submit() async {
+    if (_name.text.trim().isEmpty) {
+      setState(() => _error = 'Proje adı boş olamaz.');
+      return;
+    }
+    if (_start != null && _end != null && _end!.isBefore(_start!)) {
+      setState(() => _error = 'Planlanan bitiş, başlangıçtan önce olamaz.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final result = await ref.read(offersRepositoryProvider).convertToProject(
+            widget.offer.id,
+            name: _name.text.trim(),
+            projectType: _type.text.trim(),
+            startDate: _start == null ? null : _iso(_start!),
+            endDate: _end == null ? null : _iso(_end!),
+            description: _description.text.trim(),
+          );
+      if (mounted) Navigator.of(context).pop(result);
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Widget _dateTile(String label, DateTime? value, {required bool start}) => ListTile(
+        contentPadding: EdgeInsets.zero,
+        title: Text(label),
+        subtitle: Text(value == null ? 'Seçilmedi' : Formatters.date(_iso(value))),
+        trailing: value == null
+            ? const Icon(Icons.calendar_today_outlined, size: 18, color: AppColors.textMuted)
+            : IconButton(
+                tooltip: '$label temizle',
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: () => setState(() => start ? _start = null : _end = null),
+              ),
+        onTap: () => _pick(start: start),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: AppSpacing.xl,
+        right: AppSpacing.xl,
+        top: AppSpacing.xl,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.xl,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Projeye Dönüştür', style: AppTypography.pageTitle.copyWith(fontSize: 17)),
+            Text('${widget.offer.offerNo} · ${Formatters.money(widget.offer.grandTotal)}', style: AppTypography.metadata),
+            const SizedBox(height: AppSpacing.lg),
+            TextField(
+              key: const Key('convert-name'),
+              controller: _name,
+              decoration: const InputDecoration(labelText: 'Proje Adı'),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            TextField(
+              controller: _type,
+              decoration: const InputDecoration(labelText: 'Proje Tipi (opsiyonel)', hintText: 'ör. Konut, Tadilat'),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            _dateTile('Başlangıç Tarihi', _start, start: true),
+            _dateTile('Planlanan Bitiş', _end, start: false),
+            TextField(
+              controller: _description,
+              decoration: const InputDecoration(labelText: 'Açıklama (opsiyonel)'),
+              maxLines: 2,
+            ),
+            if (_error != null) ...[const SizedBox(height: AppSpacing.md), Text(_error!, style: AppTypography.error)],
+            const SizedBox(height: AppSpacing.xl),
+            PrimaryButton(label: 'Projeyi Oluştur', loading: _saving, onPressed: _submit),
+          ],
         ),
       ),
     );

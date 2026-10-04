@@ -388,7 +388,7 @@ void main() {
         'employees': '/diger/personel',
         'products': '/diger/urunler/zamlar?period=30',
         'users': '/diger/kullanicilar',
-        'calculations': '/diger/metraj',
+        'calculations': '/diger/metraj-receteleri',
         'suppliers': '/diger/tedarikciler',
         'cost_codes': '/diger/maliyet-kodlari',
       };

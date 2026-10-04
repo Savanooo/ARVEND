@@ -62,4 +62,6 @@ class AttendanceRepository {
     });
     return AttendanceRecord.fromJson(json);
   }
+
+  Future<void> delete(String id) => _client.delete<void>('/attendance/$id');
 }

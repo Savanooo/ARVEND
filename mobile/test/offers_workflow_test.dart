@@ -60,12 +60,30 @@ GoRouter _buildDetailTestRouter(String offerId) => GoRouter(
         GoRoute(path: '/teklifler/:id', builder: (c, s) => OfferDetailScreen(offerId: s.pathParameters['id']!)),
         GoRoute(path: '/teklifler/:id/duzenle', builder: (c, s) => const Scaffold(body: Text('Düzenle ekranı'))),
         GoRoute(path: '/projeler', builder: (c, s) => const Scaffold(body: Text('Proje Listesi'))),
+        GoRoute(path: '/teklifler', builder: (c, s) => const Scaffold(body: Text('Teklif Listesi'))),
         GoRoute(
           path: '/projeler/:id',
           builder: (c, s) => Scaffold(body: Text('Proje: ${s.pathParameters['id']}')),
         ),
       ],
     );
+
+Map<String, dynamic> _linkJson({
+  String id = 'l1',
+  String token = 'tok-abc',
+  bool active = true,
+  String? revokedAt,
+}) =>
+    {
+      'id': id,
+      'offer_id': 'o1',
+      'revision_id': 'r1',
+      'token': token,
+      'created_at': '2026-09-20T10:00:00Z',
+      'expires_at': null,
+      'revoked_at': revokedAt,
+      'is_active': active,
+    };
 
 Future<void> _pumpDetail(WidgetTester tester, FakeHttpClientAdapter adapter, String offerId) async {
   final client = await buildFakeApiClient(adapter);
@@ -400,6 +418,18 @@ void main() {
       await tester.tap(find.text('Projeye Dönüştür'));
       await tester.pumpAndSettle();
 
+      // Web'deki gibi önce form: ad "Müşteri - TeklifNo" ile dolu gelir,
+      // istek ancak "Projeyi Oluştur" ile atılır.
+      expect(adapter.calls, isNot(contains('/projects/from-offer/o1')));
+      final name = tester.widget<TextField>(find.byKey(const Key('convert-name')));
+      expect(name.controller!.text, 'Ali Veli - TKF-001');
+      await tester.enterText(find.byKey(const Key('convert-name')), 'Ali Veli Villa');
+      await tester.tap(find.text('Projeyi Oluştur'));
+      await tester.pumpAndSettle();
+
+      final body = adapter.requestBodies[adapter.calls.indexOf('/projects/from-offer/o1')] as Map;
+      expect(body['name'], 'Ali Veli Villa');
+      expect(body['start_date'], isNull);
       expect(find.text('Proje: p1'), findsOneWidget);
     });
 
@@ -445,23 +475,75 @@ void main() {
         '/auth/me': [(status: 200, body: _meJson())],
         '/offers/o1': [(status: 200, body: _offerJson(status: 'taslak'))],
         '/offers/o1/revisions': [(status: 200, body: {'revisions': <dynamic>[]})],
+        // Sahte adaptör yolu sırayla tüketir: açılışta liste (boş), sonra
+        // oluşturma, sonra oluşturmanın tetiklediği liste tazelemesi.
         '/offers/o1/share-links': [
-          (
-            status: 201,
-            body: {
-              'id': 'l1', 'offer_id': 'o1', 'revision_id': 'r1', 'token': 'tok-abc',
-              'created_at': '2026-09-20T10:00:00Z', 'is_active': true,
-            },
-          ),
+          (status: 200, body: {'share_links': <dynamic>[]}),
+          (status: 201, body: _linkJson()),
+          (status: 200, body: {'share_links': [_linkJson()]}),
         ],
       });
       await _pumpDetail(tester, adapter, 'o1');
+      expect(find.text('Paylaşım Linkleri'), findsNothing, reason: 'hiç link yokken bölüm görünmez');
       await tester.scrollUntilVisible(find.text('Paylaşım Linki'), 300);
 
       await tester.tap(find.text('Paylaşım Linki'));
       await tester.pumpAndSettle();
 
-      expect(find.text('${AppConfig.apiBaseUrl}/paylas/tok-abc'), findsOneWidget);
+      expect(find.descendant(of: find.byType(AlertDialog), matching: find.text('${AppConfig.apiBaseUrl}/paylas/tok-abc')),
+          findsOneWidget);
+      await tester.tap(find.text('Kapat'));
+      await tester.pumpAndSettle();
+      expect(find.text('Paylaşım Linkleri', skipOffstage: false), findsOneWidget, reason: 'yeni link listede');
+    });
+
+    testWidgets('an active share link can be revoked after confirmation (offers.update)', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['offers.read', 'offers.update']))],
+        '/offers/o1': [(status: 200, body: _offerJson(status: 'gönderildi'))],
+        '/offers/o1/revisions': [(status: 200, body: {'revisions': <dynamic>[]})],
+        '/offers/o1/share-links': [
+          (
+            status: 200,
+            body: {
+              'share_links': [
+                _linkJson(),
+                _linkJson(id: 'l0', token: 'eski', active: false, revokedAt: '2026-09-19T08:00:00Z'),
+              ],
+            },
+          ),
+          (status: 200, body: {'share_links': [_linkJson(active: false, revokedAt: '2026-09-21T08:00:00Z')]}),
+        ],
+        '/offers/o1/share-links/l1': [(status: 200, body: {'ok': true})],
+      });
+      await _pumpDetail(tester, adapter, 'o1');
+      await tester.scrollUntilVisible(find.text('İptal Et'), 300, scrollable: find.byType(Scrollable).first);
+      expect(find.text('Eski linkler (1)'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('İptal Et'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('İptal Et'));
+      await tester.pumpAndSettle();
+      expect(adapter.calls, isNot(contains('/offers/o1/share-links/l1')), reason: 'onaydan önce istek yok');
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('İptal Et')));
+      await tester.pumpAndSettle();
+
+      expect(adapter.calls, contains('/offers/o1/share-links/l1'));
+      expect(find.text('Aktif link yok'), findsOneWidget);
+    });
+
+    testWidgets('without offers.update there is no revoke button', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['offers.read']))],
+        '/offers/o1': [(status: 200, body: _offerJson(status: 'gönderildi'))],
+        '/offers/o1/revisions': [(status: 200, body: {'revisions': <dynamic>[]})],
+        '/offers/o1/share-links': [
+          (status: 200, body: {'share_links': [_linkJson()]}),
+        ],
+      });
+      await _pumpDetail(tester, adapter, 'o1');
+      await tester.scrollUntilVisible(find.text('Kopyala'), 300, scrollable: find.byType(Scrollable).first);
+      expect(find.text('İptal Et'), findsNothing);
     });
 
     testWidgets('send email prompts for confirmation, then posts and shows success', (tester) async {
@@ -516,6 +598,50 @@ void main() {
 
       expect(find.text('Paylaşım Linki'), findsNothing);
       expect(find.text('E-posta Gönder'), findsNothing);
+    });
+  });
+
+  group('OfferDetailScreen — delete', () {
+    testWidgets('offers.delete: menu deletes after confirmation and returns to the list', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['offers.read', 'offers.delete']))],
+        '/offers/o1': [
+          (status: 200, body: _offerJson(status: 'taslak')),
+          (status: 200, body: {'ok': true}),
+        ],
+        '/offers/o1/revisions': [(status: 200, body: {'revisions': <dynamic>[]})],
+        '/offers/o1/share-links': [(status: 200, body: {'share_links': <dynamic>[]})],
+      });
+      await _pumpDetail(tester, adapter, 'o1');
+
+      await tester.tap(find.byTooltip('Diğer işlemler'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Teklifi Sil'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('silinsin mi'), findsOneWidget);
+      expect(adapter.calls.where((c) => c == '/offers/o1').length, 1, reason: 'onaydan önce DELETE yok');
+
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Sil')));
+      await tester.pumpAndSettle();
+
+      expect(adapter.calls.where((c) => c == '/offers/o1').length, 2, reason: 'DELETE /offers/o1');
+      expect(find.text('Teklif Listesi'), findsOneWidget);
+    });
+
+    testWidgets('accepted offers and users without offers.delete get no delete option', (tester) async {
+      for (final (status, perms) in [
+        ('kabul edildi', ['offers.read', 'offers.delete']),
+        ('taslak', ['offers.read']),
+      ]) {
+        final adapter = FakeHttpClientAdapter(script: {
+          '/auth/me': [(status: 200, body: _meJson(permissions: perms))],
+          '/offers/o1': [(status: 200, body: _offerJson(status: status))],
+          '/offers/o1/revisions': [(status: 200, body: {'revisions': <dynamic>[]})],
+          '/offers/o1/share-links': [(status: 200, body: {'share_links': <dynamic>[]})],
+        });
+        await _pumpDetail(tester, adapter, 'o1');
+        expect(find.byTooltip('Diğer işlemler'), findsNothing, reason: '$status / $perms');
+      }
     });
   });
 }

@@ -8,6 +8,7 @@ import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_data_row.dart';
 import '../../../core/widgets/app_filter_bar.dart';
@@ -15,6 +16,7 @@ import '../../../core/widgets/app_list_card.dart';
 import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
+import '../../payroll/data/payroll_providers.dart';
 import '../../payroll/presentation/payroll_tab.dart';
 import '../data/attendance_providers.dart';
 import '../domain/attendance.dart';
@@ -72,7 +74,12 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> with Single
     return _month.year == now.year && _month.month == now.month;
   }
 
-  void _refresh() => ref.invalidate(attendanceListProvider(_monthKey));
+  // Maaş sekmesinin "hesaplanan"ı puantajdan gelir: mesai eklenince,
+  // düzeltilince ya da silinince o ayın maaş tablosu da tazelenir.
+  void _refresh() {
+    ref.invalidate(attendanceListProvider(_monthKey));
+    ref.invalidate(payrollMonthProvider(_monthKey));
+  }
 
   @override
   void dispose() {
@@ -434,10 +441,57 @@ class _AttendanceFormSheetState extends ConsumerState<_AttendanceFormSheet> {
               loading: _submitting,
               onPressed: _submit,
             ),
+            // Web puantaj tablosundaki "Sil"in karşılığı (aynı izin:
+            // attendance.manage -- form zaten yalnızca o izinle açılır).
+            if (widget.isEdit) ...[
+              const SizedBox(height: AppSpacing.sm),
+              TextButton.icon(
+                onPressed: _submitting ? null : _delete,
+                style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('Kaydı Sil'),
+              ),
+            ],
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _delete() async {
+    final r = widget.existing!;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Mesai kaydı silinsin mi?'),
+        content: Text(
+          '${r.employeeName} — ${Formatters.longDate(r.date)} (${r.status})\n'
+          'Bu ayın maaş hesabı da buna göre değişir.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Vazgeç')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    try {
+      await ref.read(attendanceRepositoryProvider).delete(r.id);
+      widget.onSaved();
+      if (mounted) Navigator.of(context).pop();
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
   }
 
   Future<void> _submit() async {

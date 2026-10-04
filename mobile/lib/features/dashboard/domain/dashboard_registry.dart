@@ -216,7 +216,10 @@ const kModules = <ModuleKey, ModuleDef>{
     icon: Icons.straighten,
     band: BandKey.registry,
     compact: true,
-    route: ModuleRoute('/diger/metraj', push: true),
+    // Kartın içeriği reçete durumu (grup/kategori, ürüne bağlanmamış kalem):
+    // web'deki gibi reçete yönetimine gider. Hesap makinesi "Metraj Hesapla"
+    // hızlı işleminden açılır (/diger/metraj).
+    route: ModuleRoute('/diger/metraj-receteleri', push: true),
   ),
   ModuleKey.suppliers: ModuleDef(
     key: ModuleKey.suppliers,

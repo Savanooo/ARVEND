@@ -190,6 +190,55 @@ void main() {
       expect(find.text('Ahmet Usta'), findsWidgets);
     });
   });
+
+  group('attendance delete (web "Sil" parity)', () {
+    testWidgets('editing a record offers "Kaydı Sil"; DELETE only after confirmation, list refreshes', (tester) async {
+      final record = {
+        'id': 'a1',
+        'employee_id': 'e1',
+        'employee_name': 'Ahmet Usta',
+        'date': '2026-09-15',
+        'check_in': '08:00',
+        'check_out': '17:00',
+        'work_hours': 9,
+        'status': 'geldi',
+        'note': '',
+      };
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(['attendance.read', 'attendance.manage', 'employees.read']))],
+        '/attendance': [
+          (status: 200, body: {'attendance': [record]}),
+          (status: 200, body: {'attendance': <Map<String, dynamic>>[]}),
+        ],
+        '/employees': [
+          (
+            status: 200,
+            body: {
+              'employees': [
+                {'id': 'e1', 'full_name': 'Ahmet Usta', 'position': 'Usta', 'is_active': true},
+              ],
+            },
+          ),
+        ],
+        '/attendance/a1': [(status: 200, body: {'ok': true})],
+      });
+      await _pump(tester, adapter);
+
+      await tester.tap(find.textContaining('2026-09-15').first);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Kaydı Sil'));
+      await tester.tap(find.text('Kaydı Sil'));
+      await tester.pumpAndSettle();
+      expect(find.text('Mesai kaydı silinsin mi?'), findsOneWidget);
+      expect(adapter.calls, isNot(contains('/attendance/a1')));
+
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Sil')));
+      await tester.pumpAndSettle();
+
+      expect(adapter.calls, contains('/attendance/a1'));
+      expect(adapter.calls.where((c) => c == '/attendance').length, 2, reason: 'silince liste tazelenir');
+    });
+  });
 }
 
 FakeHttpClientAdapter _adapter({required List<String> permissions, bool withPayroll = false}) {

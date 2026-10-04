@@ -242,6 +242,8 @@ class OfferRevision {
 /// İzin kodları — backend/internal/domain/authorization.go ile birebir.
 const kPermOffersInternalPricingRead = 'offers.internal_pricing.read';
 const kPermOffersInternalPricingManage = 'offers.internal_pricing.manage';
+const kPermOffersUpdate = 'offers.update';
+const kPermOffersDelete = 'offers.delete';
 
 /// Teklif → proje dönüştürme, /projects/from-offer/{offerId} üzerinden
 /// bu izni ister (offers.* eksenine değil, projects.create'e bağlı).

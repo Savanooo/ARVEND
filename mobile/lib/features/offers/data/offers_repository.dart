@@ -146,12 +146,22 @@ class OffersRepository {
     }
   }
 
-  Future<Map<String, dynamic>> convertToProject(String offerId, {String name = '', String description = ''}) =>
+  /// Web'deki "Projeye Dönüştür" formuyla aynı alanlar. Boş ad/tip
+  /// gönderilirse backend varsayılanı kullanır ("Müşteri - TeklifNo");
+  /// tarihler 'YYYY-MM-DD' ya da null.
+  Future<Map<String, dynamic>> convertToProject(
+    String offerId, {
+    String name = '',
+    String projectType = '',
+    String? startDate,
+    String? endDate,
+    String description = '',
+  }) =>
       _client.post<Map<String, dynamic>>('/projects/from-offer/$offerId', data: {
         'name': name,
-        'project_type': '',
-        'start_date': null,
-        'end_date': null,
+        'project_type': projectType,
+        'start_date': startDate,
+        'end_date': endDate,
         'description': description,
       });
 

@@ -40,3 +40,8 @@ final offerRevisionDetailProvider = FutureProvider.autoDispose.family<OfferRevis
 final offerLinkedProjectIdProvider = FutureProvider.autoDispose.family<String?, String>(
   (ref, id) => ref.watch(offersRepositoryProvider).linkedProjectId(id),
 );
+
+/// Teklifin paylaşım linkleri (aktif + iptal edilmiş/süresi dolmuş).
+final offerShareLinksProvider = FutureProvider.autoDispose.family<List<ShareLink>, String>(
+  (ref, id) => ref.watch(offersRepositoryProvider).shareLinks(id),
+);
