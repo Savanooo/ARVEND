@@ -18,6 +18,7 @@ import 'widgets/attention_card.dart';
 import 'widgets/cash_flow_card.dart';
 import 'widgets/dashboard_header.dart';
 import 'widgets/dashboard_skeleton.dart';
+import 'widgets/idle_modules_card.dart';
 import 'widgets/kpi_grid.dart';
 import 'widgets/module_band.dart';
 import 'widgets/module_card.dart';
@@ -194,6 +195,7 @@ class _DashboardContent extends ConsumerWidget {
     final panel = onboarding ? SecondaryPanel.none : secondaryPanel(data);
     final actions = quickActionsFor(user);
     final bands = layoutBands(data, onboardingActive: onboarding);
+    final idle = idleModules(data, onboardingActive: onboarding);
     // Son Hareketler: kayıt varsa ya da bölüm o an hesaplanamadıysa (kart
     // başlığıyla hata gövdesi, spec §6.7).
     final hasActivity = (data.sections.activity?.items.isNotEmpty ?? false) || data.sectionErrors.contains('activity');
@@ -229,6 +231,7 @@ class _DashboardContent extends ConsumerWidget {
       if (panel == SecondaryPanel.myTasks) _inset(MyTasksCard(data: data)),
       for (final band in bands) _inset(ModuleBand(band: band, cardContext: cardContext)),
       if (hasActivity) _inset(ActivityCard(data: data, onRetry: onRefresh)),
+      if (idle.isNotEmpty) _inset(IdleModulesCard(modules: idle)),
     ];
 
     return CustomScrollView(

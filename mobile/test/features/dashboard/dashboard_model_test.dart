@@ -554,4 +554,64 @@ void main() {
       expect(eventLabel('offer', 'customer_viewed'), 'Müşteri teklifi görüntüledi');
     });
   });
+
+  group('boş modüller (sahada 2026-10: boş kartlar ana sayfayı ekranlarca uzatıyordu)', () {
+    Dashboard owner(void Function(Map<String, dynamic> d) edit) {
+      final d = fixtureJson('owner');
+      edit(d);
+      return Dashboard.fromJson(d);
+    }
+
+    Map<String, dynamic> sections(Map<String, dynamic> d) => d['sections'] as Map<String, dynamic>;
+    void dropAgenda(Map<String, dynamic> d, String module) {
+      final a = d['agenda'] as Map<String, dynamic>;
+      a['groups'] = [
+        for (final g in (a['groups'] as List).cast<Map<String, dynamic>>())
+          if (g['module'] != module) g,
+      ];
+    }
+
+    test('dolu fixture: hiçbir modül boş sayılmaz', () {
+      expect(idleModules(dash['owner']!, onboardingActive: false), isEmpty);
+    });
+
+    test('kartı yalnızca boş durumu gösterecek modül kart olarak çizilmez, sona listelenir', () {
+      final d = owner((d) {
+        sections(d)['subcontracts'] = {'active_count': 0, 'by_currency': <dynamic>[]};
+        sections(d)['suppliers'] = {'active': 0, 'inactive': 0};
+        dropAgenda(d, 'subcontracts');
+      });
+      expect(idleModules(d, onboardingActive: false), [ModuleKey.subcontracts, ModuleKey.suppliers]);
+      final drawn = {for (final b in layoutBands(d, onboardingActive: false)) ...b.all};
+      expect(drawn, isNot(contains(ModuleKey.subcontracts)));
+      expect(drawn, isNot(contains(ModuleKey.suppliers)));
+      expect(drawn, contains(ModuleKey.finance));
+    });
+
+    test('bekleyen dikkat grubu olan boş modül GİZLENMEZ', () {
+      final d = owner((d) => sections(d)['subcontracts'] = {'active_count': 0, 'by_currency': <dynamic>[]});
+      expect(moduleIdle(d, ModuleKey.subcontracts), isFalse, reason: 'fixture\'da taşeron dikkat grubu var');
+    });
+
+    test('hesaplanamayan bölüm boş sayılmaz (hata kartı görünmeli)', () {
+      final d = owner((d) {
+        sections(d)['suppliers'] = {'active': 0, 'inactive': 0};
+        d['section_errors'] = {'suppliers': 'hesaplanamadı'};
+      });
+      expect(moduleIdle(d, ModuleKey.suppliers), isFalse);
+    });
+
+    test('görevler: her sayı sıfırsa boş', () {
+      final d = owner((d) {
+        final t = sections(d)['tasks'] as Map<String, dynamic>;
+        t['mine'] = {'linked_employee': true, 'open': 0, 'overdue': 0, 'due_today': 0, 'items': <dynamic>[]};
+        t['team'] = {'open': 0, 'overdue': 0, 'due_today': 0, 'unassigned': 0, 'completed_7d': 0};
+      });
+      expect(moduleIdle(d, ModuleKey.tasks), isTrue);
+    });
+
+    test('kurulum modunda süzme yok: boş durum cümleleri rehberin parçası', () {
+      expect(idleModules(dash['empty_company']!, onboardingActive: true), isEmpty);
+    });
+  });
 }

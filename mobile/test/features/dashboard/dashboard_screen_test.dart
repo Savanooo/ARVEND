@@ -405,6 +405,20 @@ void main() {
       expect(find.text(kCopyRegistryFooter), findsNothing);
     });
 
+    testWidgets('boş modül kart olarak çizilmez; sondaki "kullanılmayan bölümler" satırından açılır', (tester) async {
+      final d = fixtureJson('owner');
+      (d['sections'] as Map<String, dynamic>)['suppliers'] = {'active': 0, 'inactive': 0};
+      await _pump(tester, user: ownerUser, script: _script(d));
+
+      expect(find.byKey(const ValueKey('kayit-suppliers'), skipOffstage: false), findsNothing);
+      expect(find.text('Bekleyen iş yok', skipOffstage: false), findsNothing, reason: 'tekrar eden sessiz satır yok');
+      final chip = find.widgetWithText(ActionChip, 'Tedarikçiler');
+      await _scrollTo(tester, chip);
+      await tester.tap(chip);
+      await tester.pumpAndSettle();
+      expect(find.text('DİĞER /diger/tedarikciler'), findsOneWidget);
+    });
+
     testWidgets('yeni firma: boş satır ve kurulum CTA\'ları Personel/Kullanıcı Ekle ekranlarını açar', (tester) async {
       await _pump(tester, user: emptyOwnerUser, script: _script(fixtureJson('empty_company')));
 

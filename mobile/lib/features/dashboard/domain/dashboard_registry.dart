@@ -330,8 +330,93 @@ Set<ModuleKey> visibleModules(Dashboard d) => {
 
 bool onboardingActive(Dashboard d, {required bool hidden}) => d.onboarding != null && !hidden;
 
+/// Ana sayfada KART OLARAK GÖSTERİLMEYEN boş modül: kartı yalnızca boş
+/// durum cümlesini ("Henüz taşeron sözleşmesi yok." vb.) gösterecekti ve
+/// bekleyen dikkat grubu yok. Koşullar kartların kendi boş durumlarıyla
+/// BİREBİR aynıdır (presentation/widgets/module_cards.dart,
+/// records_group_card.dart). Görevler kartının boş durumu yok; her sayısı
+/// sıfırsa boş sayılır.
+///
+/// Neden: küçük bir firma modüllerin çoğunu kullanmıyor; sahadaki ana
+/// sayfa (2026-10) boş kartlar ve tekrar eden "Bekleyen iş yok"
+/// satırlarıyla ekranlarca uzuyor, işe yarayan kart aralarında
+/// kayboluyordu. Boş modüller sayfanın sonunda tek satırda listelenir
+/// (bkz. idleModules) -- hiçbiri erişilemez olmaz.
+///
+/// Hesaplanamayan (section_errors) bölüm boş SAYILMAZ: hata kartı görünmeli.
+bool moduleIdle(Dashboard d, ModuleKey m) {
+  if (d.sectionErrors.contains(m.wire) || !d.sections.has(m.wire)) return false;
+  if (moduleGroups(d, m).isNotEmpty) return false;
+  final s = d.sections;
+  switch (m) {
+    case ModuleKey.finance:
+      return s.finance!.byCurrency.isEmpty;
+    case ModuleKey.offers:
+      return s.offers!.totalActive == 0;
+    case ModuleKey.changeOrders:
+      return s.changeOrders!.byCurrency.isEmpty;
+    case ModuleKey.projects:
+      return s.projects!.counts.total == 0;
+    case ModuleKey.tasks:
+      final t = s.tasks!;
+      return t.mine.open + t.mine.overdue + t.mine.dueToday == 0 &&
+          t.team.open + t.team.overdue + t.team.unassigned + t.team.completed7d == 0;
+    case ModuleKey.operations:
+      final o = s.operations!;
+      return o.activeCrew == 0 && o.milestonesDue7d == 0 && o.milestonesOverdue == 0 && o.photos7d == 0;
+    case ModuleKey.contracts:
+      final k = s.contracts!;
+      return k.draft + k.active + k.completed + k.cancelled + k.terminated == 0 &&
+          k.activeProjectsWithoutContract == 0;
+    case ModuleKey.attendance:
+      return s.attendance!.activeEmployees == 0;
+    case ModuleKey.procurement:
+      final p = s.procurement!;
+      return p.prDraft + p.prSubmitted + p.rfqIssued + p.poDraft + p.poApprovedOpen == 0 &&
+          p.approvedThisMonth.isEmpty;
+    case ModuleKey.subcontracts:
+      final c = s.subcontracts!;
+      return c.activeCount == 0 && c.byCurrency.isEmpty;
+    case ModuleKey.costControl:
+      final k = s.costControl!;
+      final b = k.budgets;
+      final noBudgets = b != null && b.draft + b.baselined == 0;
+      return noBudgets && (k.overBudget?.count ?? 0) == 0 && (k.committedActive?.isEmpty ?? true);
+    case ModuleKey.customers:
+      final v = s.customers!;
+      return v.active == 0 && v.newThisMonth == 0;
+    case ModuleKey.employees:
+      final v = s.employees!;
+      return v.active + v.inactive == 0;
+    case ModuleKey.products:
+      return s.products!.total == 0;
+    case ModuleKey.users:
+      return s.users!.active <= 1;
+    case ModuleKey.calculations:
+      return s.calculations!.groups == 0;
+    case ModuleKey.suppliers:
+      final v = s.suppliers!;
+      return v.active + v.inactive == 0;
+    case ModuleKey.costCodes:
+      final v = s.costCodes!;
+      return v.active + v.inactive == 0;
+  }
+}
+
+/// Kart olarak çizilmeyen boş modüller, bant sırasıyla (sayfa sonundaki
+/// "Henüz kullanılmayan bölümler" satırı). Kurulum modunda boş: orada boş
+/// durum cümleleri kurulum rehberinin parçası, kartlar olduğu gibi kalır.
+List<ModuleKey> idleModules(Dashboard d, {required bool onboardingActive}) {
+  if (onboardingActive) return const [];
+  return [
+    for (final b in kBands)
+      for (final m in b.modules)
+        if (moduleIdle(d, m)) m,
+  ];
+}
+
 List<LayoutBand> layoutBands(Dashboard d, {required bool onboardingActive}) {
-  final visible = visibleModules(d);
+  var visible = visibleModules(d);
   if (onboardingActive) {
     final ordered = [
       for (final m in _onboardingOrder)
@@ -354,6 +439,8 @@ List<LayoutBand> layoutBands(Dashboard d, {required bool onboardingActive}) {
     ];
   }
 
+  final idle = idleModules(d, onboardingActive: false).toSet();
+  visible = visible.difference(idle);
   final canonical = [for (final b in kBands) ...b.modules];
   final standardCount = visible.where((m) => !kModules[m]!.compact).length;
   if (standardCount <= 5) {

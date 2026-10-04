@@ -40,8 +40,7 @@ class DashCardContext {
 }
 
 /// Standart modül kartının tek anatomisi (spec §1.3/§6.4): başlık (ikon,
-/// ad, dikkat çipi, ok), gövde, altta en çok 2 dikkat satırı ya da sessiz
-/// "Bekleyen iş yok". Kartların kenarlığı ASLA renklenmez -- renk yalnızca
+/// ad, dikkat çipi, ok), gövde, varsa altta en çok 2 dikkat satırı. Kartların kenarlığı ASLA renklenmez -- renk yalnızca
 /// alt satırlardadır.
 class ModuleCardFrame extends StatelessWidget {
   const ModuleCardFrame({
@@ -97,7 +96,10 @@ class ModuleCardFrame extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.md),
           if (failed) SectionErrorBody(onRetry: onRetry ?? () {}) else child,
-          if (!failed) ...[
+          // Alt satır yalnızca bekleyen iş varsa: her kartın altında tekrar
+          // eden "Bekleyen iş yok" sahada gürültüydü (2026-10); "her şey
+          // yolunda" bilgisi Dikkat Gerektirenler kartında tek yerde.
+          if (!failed && groups.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.md),
             const Divider(height: 1),
             AttentionFooter(groups: groups),
