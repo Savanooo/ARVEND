@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/app_shell.dart';
 import '../../../core/auth/auth_controller.dart';
+import '../../../core/auth/permissions.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -14,6 +15,7 @@ import '../../../core/widgets/app_list_card.dart';
 import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
+import '../../payroll/presentation/payroll_tab.dart';
 import '../data/attendance_providers.dart';
 import '../domain/attendance.dart';
 
@@ -40,7 +42,26 @@ class AttendanceScreen extends ConsumerStatefulWidget {
   ConsumerState<AttendanceScreen> createState() => _AttendanceScreenState();
 }
 
-class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
+class _AttendanceScreenState extends ConsumerState<AttendanceScreen> with SingleTickerProviderStateMixin {
+  // Puantaj | Maaş. Maaş sekmesi yalnızca payroll.read varken görünür; yoksa
+  // controller hiç kullanılmaz ve ekran eskisi gibi tek listedir.
+  //
+  // initState'te OLUŞTURULUR, `late final ... = ` ile tembel değil: maaş izni
+  // olmayan kullanıcıda build hiç dokunmadığı için tembel alan ilk kez
+  // dispose()'ta oluşuyor, ticker devre dışı bir elemana bakıp çöküyordu
+  // (payroll_workflow_test bunu yakaladı).
+  late final TabController _tabs;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabs = TabController(length: 2, vsync: this)..addListener(_onTabChanged);
+  }
+
+  void _onTabChanged() {
+    // FAB yalnızca Puantaj sekmesinde -- sekme değişince yeniden çiz.
+    if (!_tabs.indexIsChanging) setState(() {});
+  }
   DateTime _month = DateTime.now();
   String? _employeeFilter;
   String? _statusFilter;
@@ -54,15 +75,41 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
   void _refresh() => ref.invalidate(attendanceListProvider(_monthKey));
 
   @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final recordsAsync = ref.watch(attendanceListProvider(_monthKey));
     final employeesAsync = ref.watch(employeesProvider);
     final user = ref.watch(authControllerProvider).valueOrNull;
     final canManage = user == null || user.permissions.isEmpty || user.hasPermission('attendance.manage');
+    // Maaş tutarı hassas: mesainin yukarıdaki "izin listesi boşsa her şey
+    // görünür" (fail-open) kuralı burada KULLANILMAZ -- canAccess fail-CLOSED'dır
+    // (kullanıcı yüklenmemişse ya da izni yoksa sekme hiç yok, /payroll hiç
+    // çağrılmaz). Web'deki "Mesai & Maaş" sayfasıyla aynı karar.
+    final canSeePayroll = user.canAccess('payroll.read');
+    final canPay = canSeePayroll && user.canAccess('payroll.manage');
+    final onPuantaj = !canSeePayroll || _tabs.index == 0;
+
+    final attendanceBody = RefreshIndicator(
+      onRefresh: () async => _refresh(),
+      child: AsyncStateView(
+        value: recordsAsync,
+        onRetry: () async => _refresh(),
+        data: (context, records) => employeesAsync.when(
+          loading: () => _buildList(context, records, const [], canManage),
+          error: (_, _) => _buildList(context, records, const [], canManage),
+          data: (employees) => _buildList(context, records, employees, canManage),
+        ),
+      ),
+    );
 
     return Scaffold(
-      appBar: buildAppBar('Mesai'),
-      floatingActionButton: canManage
+      appBar: buildAppBar(canSeePayroll ? 'Mesai & Maaş' : 'Mesai'),
+      floatingActionButton: canManage && onPuantaj
           ? FloatingActionButton(
               onPressed: () => _showFormSheet(context),
               child: const Icon(Icons.add),
@@ -92,19 +139,21 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
               ],
             ),
           ),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: () async => _refresh(),
-              child: AsyncStateView(
-                value: recordsAsync,
-                onRetry: () async => _refresh(),
-                data: (context, records) => employeesAsync.when(
-                  loading: () => _buildList(context, records, const [], canManage),
-                  error: (_, _) => _buildList(context, records, const [], canManage),
-                  data: (employees) => _buildList(context, records, employees, canManage),
-                ),
-              ),
+          if (canSeePayroll)
+            TabBar(
+              controller: _tabs,
+              tabs: const [Tab(text: 'Puantaj'), Tab(text: 'Maaş')],
             ),
+          Expanded(
+            child: canSeePayroll
+                ? TabBarView(
+                    controller: _tabs,
+                    children: [
+                      attendanceBody,
+                      PayrollTab(month: _monthKey, canManage: canPay),
+                    ],
+                  )
+                : attendanceBody,
           ),
         ],
       ),
