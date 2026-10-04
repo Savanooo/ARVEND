@@ -57,34 +57,28 @@ class PayrollTab extends ConsumerWidget {
         data: (context, data) => ListView(
           padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, 88),
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Ödenecek', style: AppTypography.metadata),
-                      MoneyText(
-                        data.toPay,
-                        style: AppTypography.sectionTitle,
-                        color: data.toPay > 0 ? AppColors.danger : null,
-                      ),
-                      Text(
-                        '${data.waitingCount > 0 ? '${data.waitingCount} kişi bekliyor' : 'Bekleyen yok'}'
-                        '  ·  ödenen ${Formatters.money(data.paidTotal)}',
-                        style: AppTypography.helper,
-                      ),
-                    ],
-                  ),
-                ),
-                if (canManage)
-                  PrimaryButton(
-                    label: 'Ödeme Ekle',
-                    icon: Icons.add,
-                    onPressed: () => _showPaymentForm(context, data, onSaved: refresh),
-                  ),
-              ],
+            Text('Ödenecek', style: AppTypography.metadata),
+            MoneyText(
+              data.toPay,
+              style: AppTypography.sectionTitle,
+              color: data.toPay > 0 ? AppColors.danger : null,
             ),
+            Text(
+              '${data.waitingCount > 0 ? '${data.waitingCount} kişi bekliyor' : 'Bekleyen yok'}'
+              '  ·  ödenen ${Formatters.money(data.paidTotal)}',
+              style: AppTypography.helper,
+            ),
+            // Düğme satırın YANINDA değil altında: tema birincil düğmeyi tam
+            // genişlik yapar (minimumSize: Size.fromHeight) ve bir Row içinde
+            // sonsuz genişlik ister -- sahada o satır gri kutu olarak çıkardı.
+            if (canManage) ...[
+              const SizedBox(height: AppSpacing.md),
+              PrimaryButton(
+                label: 'Ödeme Ekle',
+                icon: Icons.add,
+                onPressed: () => _showPaymentForm(context, data, onSaved: refresh),
+              ),
+            ],
             const SizedBox(height: AppSpacing.lg),
             const AppSectionHeader(title: 'Personel'),
             if (data.summary.isEmpty)

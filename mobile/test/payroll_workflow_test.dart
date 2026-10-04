@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:arvend/core/api/api_providers.dart';
+import 'package:arvend/core/theme/app_theme.dart';
 import 'package:arvend/features/attendance/presentation/attendance_screen.dart';
 import 'package:arvend/features/payroll/data/payroll_repository.dart';
 import 'package:arvend/features/payroll/domain/payroll.dart';
@@ -268,7 +269,10 @@ Future<void> _pump(WidgetTester tester, FakeHttpClientAdapter adapter) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [apiClientProvider.overrideWithValue(client)],
-      child: const MaterialApp(home: AttendanceScreen()),
+      // Uygulamanın GERÇEK teması: birincil düğmeyi tam genişlik yapan
+      // minimumSize'ı içerir. Temasız çalışınca Maaş sekmesindeki "Ödeme
+      // Ekle" bir Row içinde sonsuz genişlik isterken test bunu görmüyordu.
+      child: MaterialApp(theme: AppTheme.light(), home: const AttendanceScreen()),
     ),
   );
   await tester.pumpAndSettle();
