@@ -593,8 +593,16 @@ export interface PayrollSummaryRow {
   is_active: boolean;
   worked_days: number; // geldi = 1, yarım gün = 0.5
   work_hours: number;
-  paid_total: number;
+  paid_total: number; // bu aya ait TÜM ödemeler
   payment_count: number;
+  // Hesap backend'de (BYZ kuralı, domain.PayrollSummaryRow.Calculate).
+  // wage_basis "" ise ücret tanımsız: earned/remaining anlamsız.
+  wage_basis: "günlük" | "aylık" | "";
+  earned: number;
+  salary_paid: number; // maaş/avans/mesai -- kalandan düşülen
+  extra_paid: number; // prim/diğer -- kalanı etkilemez
+  carry_over: number; // önceki ayın fazla ödemesi
+  remaining: number; // eksi = fazla ödendi, sonraki aya devreder
 }
 
 export interface PayrollResponse {

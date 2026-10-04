@@ -52,9 +52,9 @@ class SalaryPayment {
   );
 }
 
-/// Ayın ödeme tablosunda personel başına bir satır. Kalan borç bilerek YOK:
-/// aylık maaş mı yevmiye mi esas alınacağı firmaya göre değişiyor, backend
-/// ham sayıları verir (web ile aynı karar).
+/// Ayın ödeme tablosunda personel başına bir satır. Hesaplanan / devir /
+/// kalan BACKEND'de hesaplanır (BYZ kuralı, domain.PayrollSummaryRow.Calculate)
+/// -- web ile telefon aynı rakamı göstersin diye burada yeniden hesaplanmaz.
 class PayrollSummaryRow {
   final String employeeId;
   final String fullName;
@@ -64,8 +64,16 @@ class PayrollSummaryRow {
   final bool isActive;
   final double workedDays; // geldi = 1, yarım gün = 0.5
   final double workHours;
-  final double paidTotal;
+  final double paidTotal; // bu aya ait TÜM ödemeler
   final int paymentCount;
+
+  /// 'günlük' (yevmiye x gün), 'aylık' (sabit maaş) ya da '' (ücret
+  /// tanımsız -- [earned]/[remaining] anlamsız).
+  final String wageBasis;
+  final double earned;
+  final double extraPaid; // prim/diğer -- kalandan düşmez
+  final double carryOver; // önceki ayın fazla ödemesi, bu aydan düşüldü
+  final double remaining; // eksi = fazla ödendi, sonraki aya devreder
 
   const PayrollSummaryRow({
     required this.employeeId,
@@ -78,7 +86,16 @@ class PayrollSummaryRow {
     required this.workHours,
     required this.paidTotal,
     required this.paymentCount,
+    this.wageBasis = '',
+    this.earned = 0,
+    this.extraPaid = 0,
+    this.carryOver = 0,
+    this.remaining = 0,
   });
+
+  bool get hasWage => wageBasis.isNotEmpty;
+  bool get isSettled => hasWage && remaining <= 0;
+  bool get isWaiting => hasWage && remaining > 0;
 
   factory PayrollSummaryRow.fromJson(Map<String, dynamic> json) => PayrollSummaryRow(
     employeeId: json['employee_id'] as String,
@@ -91,6 +108,11 @@ class PayrollSummaryRow {
     workHours: (json['work_hours'] as num?)?.toDouble() ?? 0,
     paidTotal: (json['paid_total'] as num?)?.toDouble() ?? 0,
     paymentCount: (json['payment_count'] as num?)?.toInt() ?? 0,
+    wageBasis: json['wage_basis'] as String? ?? '',
+    earned: (json['earned'] as num?)?.toDouble() ?? 0,
+    extraPaid: (json['extra_paid'] as num?)?.toDouble() ?? 0,
+    carryOver: (json['carry_over'] as num?)?.toDouble() ?? 0,
+    remaining: (json['remaining'] as num?)?.toDouble() ?? 0,
   );
 }
 
@@ -113,8 +135,15 @@ class PayrollMonth {
 
   double get paidTotal => summary.fold(0, (sum, r) => sum + r.paidTotal);
 
-  /// Ödeme formunun personel seçicisi: yalnızca aktif personel. Özetten
-  /// gelir (aktif personel her zaman özette) -- ödeme girmek için ayrıca
-  /// employees.read gerekmesin (web ile aynı).
-  List<PayrollSummaryRow> get payableEmployees => summary.where((r) => r.isActive).toList();
+  /// Ödenecek toplam: kalanı artı olanların toplamı (fazla ödeme başkasının
+  /// borcunu kapatmaz).
+  double get toPay => summary.where((r) => r.isWaiting).fold(0, (sum, r) => sum + r.remaining);
+  int get waitingCount => summary.where((r) => r.isWaiting).length;
+
+  /// Ödeme formunun personel seçicisi: özetteki herkes. Özetten gelir
+  /// (aktif personel her zaman özette) -- ödeme girmek için ayrıca
+  /// employees.read gerekmesin. Pasif personel yalnızca o ay verisi varsa
+  /// özettedir ve seçicide KALIR: işten ayrılanın son maaşı da ödenebilmeli
+  /// (web ile aynı).
+  List<PayrollSummaryRow> get payableEmployees => summary;
 }

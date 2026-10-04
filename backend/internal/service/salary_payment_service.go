@@ -86,6 +86,7 @@ func (s *SalaryPaymentService) Summary(ctx context.Context, organizationID, peri
 	out := make([]domain.PayrollSummaryRow, len(rows))
 	for i, r := range rows {
 		out[i] = repository.ToDomainPayrollSummaryRow(r)
+		out[i].Calculate()
 	}
 	return out, nil
 }

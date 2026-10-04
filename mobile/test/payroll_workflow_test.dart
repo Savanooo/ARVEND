@@ -24,23 +24,41 @@ void main() {
     test('PayrollMonth.fromJson reads summary + payments exactly as the backend sends them', () {
       final m = PayrollMonth.fromJson(_payrollJson());
       expect(m.period, '2026-09');
-      expect(m.summary, hasLength(2));
+      expect(m.summary, hasLength(3));
       final ahmet = m.summary.first;
       expect(ahmet.fullName, 'Ahmet Usta');
       expect(ahmet.salary, isNull, reason: 'maaşı tanımsız personel null gelir, 0 değil');
       expect(ahmet.dailyWage, 1500);
-      expect(ahmet.workedDays, 1.5);
+      expect(ahmet.workedDays, 21.5);
       expect(ahmet.paidTotal, 30000.5);
       expect(ahmet.paymentCount, 2);
+      // Hesap backend'den gelir, burada yeniden yapılmaz.
+      expect(ahmet.wageBasis, 'günlük');
+      expect(ahmet.earned, 32250);
+      expect(ahmet.remaining, 2249.5);
+      expect(ahmet.isWaiting, isTrue);
+      final kalfa = m.summary[1];
+      expect(kalfa.extraPaid, 1000);
+      expect(kalfa.isSettled, isTrue);
+      expect(m.summary[2].hasWage, isFalse);
       expect(m.payments, hasLength(2));
       expect(m.payments.first.paymentType, 'avans');
       expect(m.payments.first.paidDate, '2026-09-15');
     });
 
-    test('paidTotal sums the summary; payableEmployees excludes inactive', () {
+    test('toPay sums only rows still owed; payableEmployees keeps the inactive one', () {
       final m = PayrollMonth.fromJson(_payrollJson());
-      expect(m.paidTotal, 30000.5 + 1000);
-      expect(m.payableEmployees.map((e) => e.employeeId), ['e1']);
+      expect(m.paidTotal, 30000.5 + 21000);
+      expect(m.toPay, 2249.5, reason: 'ödenmiş ve ücreti tanımsız satır toplama girmez');
+      expect(m.waitingCount, 1);
+      // İşten ayrılanın son maaşı da ödenebilmeli.
+      expect(m.payableEmployees.map((e) => e.employeeId), ['e1', 'e2', 'e3']);
+    });
+
+    test('older server without the calculation fields: nothing is claimed as owed', () {
+      final row = PayrollSummaryRow.fromJson({'employee_id': 'e1', 'full_name': 'Eski Sunucu'});
+      expect(row.hasWage, isFalse);
+      expect(row.isWaiting, isFalse);
     });
 
     test('isValidPeriod matches the backend CHECK', () {
@@ -128,6 +146,10 @@ void main() {
       expect(adapter.calls, contains('/payroll'));
       expect(find.text('Ahmet Usta'), findsWidgets);
       expect(find.text('Ödeme Ekle'), findsNothing);
+      expect(find.text('Öde'), findsNothing, reason: 'manage yoksa kartta Öde yok');
+      expect(find.text('Bekliyor'), findsOneWidget);
+      expect(find.text('Ödendi'), findsOneWidget);
+      expect(find.text('Ücret tanımsız'), findsOneWidget);
       // Sekme değişince Puantaj'ın "+" düğmesi kaybolmalı (zaten manage yok).
       expect(find.byType(FloatingActionButton), findsNothing);
     });
@@ -146,6 +168,26 @@ void main() {
 
       expect(find.text('Ödeme Ekle'), findsOneWidget);
       expect(find.byType(FloatingActionButton), findsNothing, reason: 'Maaş sekmesinde Puantaj FAB\'ı karışıklık yaratır');
+    });
+
+    testWidgets('"Öde" opens the form with the employee selected and the remaining amount filled in',
+        (tester) async {
+      final adapter = _adapter(
+        permissions: ['attendance.read', 'payroll.read', 'payroll.manage'],
+        withPayroll: true,
+      );
+      await _pump(tester, adapter);
+      await tester.tap(find.text('Maaş'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Öde'), findsOneWidget, reason: 'yalnızca kalanı olan satırda');
+      await tester.tap(find.text('Öde'));
+      await tester.pumpAndSettle();
+
+      final amount = tester.widget<TextField>(find.byKey(const Key('payment-amount')));
+      expect(amount.controller!.text, '2249,5');
+      expect(find.textContaining('Kalan:'), findsOneWidget);
+      expect(find.text('Ahmet Usta'), findsWidgets);
     });
   });
 }
@@ -218,10 +260,16 @@ Map<String, dynamic> _payrollJson() => {
           'salary': null,
           'daily_wage': 1500,
           'is_active': true,
-          'worked_days': 1.5,
+          'worked_days': 21.5,
           'work_hours': 13,
           'paid_total': 30000.5,
           'payment_count': 2,
+          'wage_basis': 'günlük',
+          'earned': 32250,
+          'salary_paid': 30000.5,
+          'extra_paid': 0,
+          'carry_over': 0,
+          'remaining': 2249.5,
         },
         {
           'employee_id': 'e2',
@@ -232,8 +280,32 @@ Map<String, dynamic> _payrollJson() => {
           'is_active': false,
           'worked_days': 0,
           'work_hours': 0,
-          'paid_total': 1000,
-          'payment_count': 1,
+          'paid_total': 21000,
+          'payment_count': 2,
+          'wage_basis': 'aylık',
+          'earned': 20000,
+          'salary_paid': 20000,
+          'extra_paid': 1000,
+          'carry_over': 0,
+          'remaining': 0,
+        },
+        {
+          'employee_id': 'e3',
+          'full_name': 'Yeni Çırak',
+          'position': '',
+          'salary': null,
+          'daily_wage': null,
+          'is_active': true,
+          'worked_days': 3,
+          'work_hours': 27,
+          'paid_total': 0,
+          'payment_count': 0,
+          'wage_basis': '',
+          'earned': 0,
+          'salary_paid': 0,
+          'extra_paid': 0,
+          'carry_over': 0,
+          'remaining': 0,
         },
       ],
       'payments': [

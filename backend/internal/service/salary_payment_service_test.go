@@ -206,6 +206,74 @@ func TestSalaryPayments(t *testing.T) {
 			t.Errorf("ikinci silme ErrNotFound olmalı, %v geldi", err)
 		}
 	})
+
+	t.Run("9_calculation_matches_byz_rule", func(t *testing.T) {
+		// Yevmiye 1000. Ağustos: 2 gün çalıştı (hakediş 2000), 3000 maaş
+		// ödendi -> 1000 fazla, Eylül'e devir. Ağustostaki 500 prim fazla
+		// ödeme SAYILMAZ. Eylül: 3 gün (3000), 1000 avans + 700 prim.
+		// Beklenen kalan: 3000 - 1000 (avans) - 1000 (devir) = 1000.
+		emp := mustCreateEmployee(t, ctx, pool, orgA.ID, "Yevmiyeli Usta", true)
+		if _, err := pool.Exec(ctx, `UPDATE employees SET daily_wage = 1000, salary = 40000 WHERE id = $1`, emp); err != nil {
+			t.Fatal(err)
+		}
+		mustAttendance(t, ctx, pool, orgA.ID, emp, "2026-08-10", "geldi", 9)
+		mustAttendance(t, ctx, pool, orgA.ID, emp, "2026-08-11", "geldi", 9)
+		for _, d := range []string{"2026-09-01", "2026-09-02", "2026-09-03"} {
+			mustAttendance(t, ctx, pool, orgA.ID, emp, d, "geldi", 9)
+		}
+		for _, in := range []service.SalaryPaymentInput{
+			{EmployeeID: emp, Period: "2026-08", PaymentType: domain.PaymentTypeMaas, Amount: 3000},
+			{EmployeeID: emp, Period: "2026-08", PaymentType: domain.PaymentTypePrim, Amount: 500},
+			{EmployeeID: emp, Period: period, PaymentType: domain.PaymentTypeAvans, Amount: 1000},
+			{EmployeeID: emp, Period: period, PaymentType: domain.PaymentTypePrim, Amount: 700},
+		} {
+			if _, err := svc.Create(ctx, orgA.ID, in); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		rows, err := svc.Summary(ctx, orgA.ID, period)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var r *domain.PayrollSummaryRow
+		for i := range rows {
+			if rows[i].EmployeeID == emp {
+				r = &rows[i]
+			}
+		}
+		if r == nil {
+			t.Fatal("personel özette yok")
+		}
+		if r.WageBasis != domain.WageBasisDaily || r.Earned != 3000 {
+			t.Errorf("yevmiye esası, hakediş 3000 beklendi: %q / %v", r.WageBasis, r.Earned)
+		}
+		if r.PaidTotal != 1700 || r.SalaryPaid != 1000 {
+			t.Errorf("ödenen 1700, kalandan düşülen 1000 beklendi: %v / %v", r.PaidTotal, r.SalaryPaid)
+		}
+		if r.CarryOver != 1000 {
+			t.Errorf("devir 1000 beklendi (Ağustos fazla ödemesi, prim hariç): %v", r.CarryOver)
+		}
+		if r.Remaining != 1000 {
+			t.Errorf("kalan 1000 beklendi: %v", r.Remaining)
+		}
+
+		// Ocak'ın önceki ayı bir önceki yılın Aralık'ı.
+		if _, err := svc.Create(ctx, orgA.ID, service.SalaryPaymentInput{
+			EmployeeID: emp, Period: "2025-12", Amount: 250,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		jan, err := svc.Summary(ctx, orgA.ID, "2026-01")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, j := range jan {
+			if j.EmployeeID == emp && j.CarryOver != 250 {
+				t.Errorf("Aralık 2025'teki 250 fazla ödeme Ocak 2026'ya devretmeli: %v", j.CarryOver)
+			}
+		}
+	})
 }
 
 func day(y int, m time.Month, d int) time.Time { return time.Date(y, m, d, 0, 0, 0, 0, time.UTC) }

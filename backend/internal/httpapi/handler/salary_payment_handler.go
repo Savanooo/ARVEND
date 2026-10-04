@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"math"
 	"net/http"
 	"time"
 
@@ -56,6 +57,14 @@ type payrollSummaryResponse struct {
 	WorkHours    float64  `json:"work_hours"`
 	PaidTotal    float64  `json:"paid_total"`
 	PaymentCount int      `json:"payment_count"`
+	// Hesap (domain.PayrollSummaryRow.Calculate). wage_basis "" ise ücret
+	// tanımsız: earned/remaining anlamsızdır, istemci "ücret tanımsız" der.
+	WageBasis  string  `json:"wage_basis"`
+	Earned     float64 `json:"earned"`
+	SalaryPaid float64 `json:"salary_paid"` // kalandan düşülen kısmı (maaş/avans/mesai)
+	ExtraPaid  float64 `json:"extra_paid"`  // prim/diğer -- kalanı etkilemez
+	CarryOver  float64 `json:"carry_over"`
+	Remaining  float64 `json:"remaining"`
 }
 
 // payrollPeriodParam, ?month=YYYY-MM'i okur; verilmezse içinde bulunulan ay.
@@ -91,6 +100,9 @@ func (h *SalaryPaymentHandler) List(w http.ResponseWriter, r *http.Request) {
 			Salary: s.Salary, DailyWage: s.DailyWage, IsActive: s.IsActive,
 			WorkedDays: s.WorkedDays, WorkHours: s.WorkHours,
 			PaidTotal: s.PaidTotal, PaymentCount: s.PaymentCount,
+			WageBasis: s.WageBasis, Earned: s.Earned,
+			SalaryPaid: s.SalaryPaid, ExtraPaid: math.Round((s.PaidTotal-s.SalaryPaid)*100) / 100,
+			CarryOver: s.CarryOver, Remaining: s.Remaining,
 		}
 	}
 	pay := make([]salaryPaymentResponse, len(payments))

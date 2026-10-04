@@ -7,12 +7,13 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_buttons.dart';
+import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_list_card.dart';
 import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/money_text.dart';
 import '../../../core/widgets/status_badge.dart';
-import '../../projects/budget/domain/budget.dart' show parseTrDecimal;
+import '../../projects/budget/domain/budget.dart' show formatTrDecimalInput, parseTrDecimal;
 import '../data/payroll_providers.dart';
 import '../domain/payroll.dart';
 
@@ -23,6 +24,9 @@ const _paymentTypeTones = {
   'prim': ('Prim', StatusTone.success),
   'diğer': ('Diğer', StatusTone.muted),
 };
+
+/// Kalandan düşülmeyen türler -- backend PayrollSummaryByPeriod ile aynı küme.
+const _extraTypes = {'prim', 'diğer'};
 
 String _isoDay(DateTime d) =>
     '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -59,8 +63,17 @@ class PayrollTab extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Bu ay ödenen', style: AppTypography.metadata),
-                      MoneyText(data.paidTotal, style: AppTypography.sectionTitle),
+                      Text('Ödenecek', style: AppTypography.metadata),
+                      MoneyText(
+                        data.toPay,
+                        style: AppTypography.sectionTitle,
+                        color: data.toPay > 0 ? AppColors.danger : null,
+                      ),
+                      Text(
+                        '${data.waitingCount > 0 ? '${data.waitingCount} kişi bekliyor' : 'Bekleyen yok'}'
+                        '  ·  ödenen ${Formatters.money(data.paidTotal)}',
+                        style: AppTypography.helper,
+                      ),
                     ],
                   ),
                 ),
@@ -80,10 +93,22 @@ class PayrollTab extends ConsumerWidget {
                 child: EmptyStateView(message: 'Bu ay için personel yok.', icon: Icons.people_outline),
               )
             else
-              ...data.summary.map((r) => _SummaryCard(row: r)),
+              ...data.summary.map(
+                (r) => _SummaryCard(
+                  row: r,
+                  onPay: canManage && r.isWaiting
+                      ? () => _showPaymentForm(context, data, onSaved: refresh, payFor: r)
+                      : null,
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.only(top: AppSpacing.xs, bottom: AppSpacing.lg),
-              child: Text('Çalışılan gün puantajdan: geldi = 1, yarım gün = 0,5.', style: AppTypography.helper),
+              child: Text(
+                'Hesaplanan: yevmiye tanımlıysa yevmiye × çalışılan gün (geldi = 1, yarım gün = 0,5), '
+                'değilse aylık maaşın tamamı. Kalan = hesaplanan − maaş, avans ve mesai ödemeleri − '
+                'önceki aydan devir. Prim ve diğer kalandan düşmez. Fazla ödeme sonraki aya devreder.',
+                style: AppTypography.helper,
+              ),
             ),
             const AppSectionHeader(title: 'Ödemeler'),
             if (data.payments.isEmpty)
@@ -117,12 +142,25 @@ class PayrollTab extends ConsumerWidget {
     );
   }
 
-  void _showPaymentForm(BuildContext context, PayrollMonth data, {required VoidCallback onSaved}) {
+  /// [payFor] verilirse (kartın "Öde"si) form o personel seçili ve tutar =
+  /// kalan olarak açılır.
+  void _showPaymentForm(
+    BuildContext context,
+    PayrollMonth data, {
+    required VoidCallback onSaved,
+    PayrollSummaryRow? payFor,
+  }) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => PaymentFormSheet(employees: data.payableEmployees, initialPeriod: month, onSaved: onSaved),
+      builder: (_) => PaymentFormSheet(
+        employees: data.payableEmployees,
+        initialPeriod: month,
+        initialEmployeeId: payFor?.employeeId,
+        initialAmount: payFor?.remaining,
+        onSaved: onSaved,
+      ),
     );
   }
 
@@ -163,30 +201,75 @@ class PayrollTab extends ConsumerWidget {
 }
 
 class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({required this.row});
+  const _SummaryCard({required this.row, this.onPay});
   final PayrollSummaryRow row;
+  final VoidCallback? onPay;
+
+  String get _wage => switch (row.wageBasis) {
+    'günlük' when row.dailyWage != null => '${Formatters.money(row.dailyWage!)}/gün',
+    'aylık' when row.salary != null => '${Formatters.money(row.salary!)}/ay',
+    _ => 'ücret tanımsız',
+  };
 
   @override
   Widget build(BuildContext context) {
-    final pay = [
-      if (row.salary != null) 'Maaş ${Formatters.money(row.salary!)}',
-      if (row.dailyWage != null) 'Yevmiye ${Formatters.money(row.dailyWage!)}',
+    final lines = [
+      '${Formatters.decimal(row.workedDays)} gün · $_wage',
+      if (row.hasWage) 'Hesaplanan ${Formatters.money(row.earned)} · ödenen ${Formatters.money(row.paidTotal)}',
+      if (!row.hasWage && row.paidTotal > 0) 'Ödenen ${Formatters.money(row.paidTotal)}',
+      if (row.carryOver > 0) '${Formatters.money(row.carryOver)} önceki aydan devir düşüldü',
+      if (row.remaining < 0) '${Formatters.money(-row.remaining)} fazla — sonraki aya devreder',
+      if (row.extraPaid > 0) '${Formatters.money(row.extraPaid)} prim/diğer',
     ];
-    return AppListCard(
-      title: row.isActive ? row.fullName : '${row.fullName} (pasif)',
-      subtitle: [
-        '${Formatters.decimal(row.workedDays)} gün · ${Formatters.decimal(row.workHours)} sa',
-        ...pay,
-      ].join('  ·  '),
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.end,
+    final (String, StatusTone) status = !row.hasWage
+        ? ('Ücret tanımsız', StatusTone.muted)
+        : row.isSettled
+        ? ('Ödendi', StatusTone.success)
+        : ('Bekliyor', StatusTone.gold);
+
+    return AppCard(
+      onTap: onPay,
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (row.paidTotal > 0)
-            MoneyText(row.paidTotal, style: AppTypography.body.copyWith(fontWeight: FontWeight.w700))
-          else
-            Text('—', style: AppTypography.metadata),
-          if (row.paymentCount > 1) Text('${row.paymentCount} ödeme', style: AppTypography.helper),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  row.isActive ? row.fullName : '${row.fullName} (pasif)',
+                  style: AppTypography.cardTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                for (final l in lines) Text(l, style: AppTypography.metadata),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              StatusBadge(label: status.$1, tone: status.$2),
+              if (row.isWaiting) ...[
+                const SizedBox(height: AppSpacing.xs),
+                MoneyText(row.remaining, style: AppTypography.body.copyWith(fontWeight: FontWeight.w700)),
+                Text('kalan', style: AppTypography.helper),
+              ],
+              if (onPay != null)
+                TextButton(
+                  onPressed: onPay,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                    minimumSize: const Size(0, 32),
+                  ),
+                  child: const Text('Öde'),
+                ),
+            ],
+          ),
         ],
       ),
     );
@@ -196,11 +279,20 @@ class _SummaryCard extends StatelessWidget {
 /// Ödeme ekleme formu. Herkese açık değil: çağıran yalnızca payroll.manage
 /// varsa açar (backend de ayrıca zorlar).
 class PaymentFormSheet extends ConsumerStatefulWidget {
-  const PaymentFormSheet({super.key, required this.employees, required this.initialPeriod, required this.onSaved});
+  const PaymentFormSheet({
+    super.key,
+    required this.employees,
+    required this.initialPeriod,
+    required this.onSaved,
+    this.initialEmployeeId,
+    this.initialAmount,
+  });
 
   final List<PayrollSummaryRow> employees;
   final String initialPeriod;
   final VoidCallback onSaved;
+  final String? initialEmployeeId;
+  final double? initialAmount;
 
   @override
   ConsumerState<PaymentFormSheet> createState() => _PaymentFormSheetState();
@@ -219,8 +311,14 @@ class _PaymentFormSheetState extends ConsumerState<PaymentFormSheet> {
   @override
   void initState() {
     super.initState();
-    _employeeId = widget.employees.isEmpty ? null : widget.employees.first.employeeId;
-    _amountController = TextEditingController();
+    final preselected = widget.employees.any((e) => e.employeeId == widget.initialEmployeeId);
+    _employeeId = preselected
+        ? widget.initialEmployeeId
+        : (widget.employees.isEmpty ? null : widget.employees.first.employeeId);
+    final amount = widget.initialAmount;
+    _amountController = TextEditingController(
+      text: preselected && amount != null && amount > 0 ? formatTrDecimalInput(amount) : '',
+    );
     _periodController = TextEditingController(text: widget.initialPeriod);
     _descriptionController = TextEditingController();
   }
@@ -233,8 +331,25 @@ class _PaymentFormSheetState extends ConsumerState<PaymentFormSheet> {
     super.dispose();
   }
 
+  /// Seçili personelin bu ayki kalanı -- yalnızca form tablodaki ayla aynı
+  /// aya yazıyorsa ve ücret tanımlıysa (başka ayın kalanı bilinmiyor).
+  String? get _remainingHint {
+    if (_periodController.text.trim() != widget.initialPeriod) return null;
+    final row = widget.employees.where((e) => e.employeeId == _employeeId).firstOrNull;
+    if (row == null || !row.hasWage) return null;
+    final rest = row.remaining > 0
+        ? 'Kalan: ${Formatters.money(row.remaining)}'
+        : row.remaining < 0
+        ? 'Kalan yok (${Formatters.money(-row.remaining)} fazla ödendi)'
+        : 'Kalan yok';
+    return _extraTypes.contains(_type)
+        ? '$rest · Prim ve diğer kalandan düşmez.'
+        : '$rest · Fazla ödeme sonraki aya devreder.';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final hint = _remainingHint;
     return Padding(
       padding: EdgeInsets.only(
         left: AppSpacing.xl,
@@ -254,9 +369,19 @@ class _PaymentFormSheetState extends ConsumerState<PaymentFormSheet> {
             else
               DropdownButtonFormField<String>(
                 initialValue: _employeeId,
+                // Uzun ad + "(pasif)" dar ekranda satırı taşırmasın.
+                isExpanded: true,
                 decoration: const InputDecoration(labelText: 'Personel'),
                 items: widget.employees
-                    .map((e) => DropdownMenuItem(value: e.employeeId, child: Text(e.fullName)))
+                    .map(
+                      (e) => DropdownMenuItem(
+                        value: e.employeeId,
+                        child: Text(
+                          e.isActive ? e.fullName : '${e.fullName} (pasif)',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
                     .toList(),
                 onChanged: (v) => setState(() => _employeeId = v),
               ),
@@ -274,12 +399,18 @@ class _PaymentFormSheetState extends ConsumerState<PaymentFormSheet> {
               key: const Key('payment-amount'),
               controller: _amountController,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Tutar (₺)', hintText: 'ör. 25.000 veya 1250,50'),
+              decoration: InputDecoration(
+                labelText: 'Tutar (₺)',
+                hintText: 'ör. 25.000 veya 1250,50',
+                helperText: hint,
+                helperMaxLines: 2,
+              ),
             ),
             const SizedBox(height: AppSpacing.md),
             TextField(
               key: const Key('payment-period'),
               controller: _periodController,
+              onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(labelText: 'Ait olduğu ay (YYYY-AA)'),
             ),
             const SizedBox(height: AppSpacing.sm),

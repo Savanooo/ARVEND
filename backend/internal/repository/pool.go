@@ -472,16 +472,19 @@ func ToDomainSalaryPaymentRow(r sqlc.ListSalaryPaymentsByPeriodRow) domain.Salar
 
 func ToDomainPayrollSummaryRow(r sqlc.PayrollSummaryByPeriodRow) domain.PayrollSummaryRow {
 	return domain.PayrollSummaryRow{
-		EmployeeID:   r.EmployeeID.String(),
-		FullName:     r.FullName,
-		Position:     r.Position,
-		Salary:       NumericToFloat64Ptr(r.Salary),
-		DailyWage:    NumericToFloat64Ptr(r.DailyWage),
-		IsActive:     r.IsActive,
-		WorkedDays:   NumericToFloat64(r.WorkedDays),
-		WorkHours:    NumericToFloat64(r.WorkHours),
-		PaidTotal:    NumericToFloat64(r.PaidTotal),
-		PaymentCount: int(r.PaymentCount),
+		EmployeeID:     r.EmployeeID.String(),
+		FullName:       r.FullName,
+		Position:       r.Position,
+		Salary:         NumericToFloat64Ptr(r.Salary),
+		DailyWage:      NumericToFloat64Ptr(r.DailyWage),
+		IsActive:       r.IsActive,
+		WorkedDays:     NumericToFloat64(r.WorkedDays),
+		WorkHours:      NumericToFloat64(r.WorkHours),
+		PaidTotal:      NumericToFloat64(r.PaidTotal),
+		SalaryPaid:     NumericToFloat64(r.SalaryPaid),
+		PaymentCount:   int(r.PaymentCount),
+		PrevWorkedDays: NumericToFloat64(r.PrevWorkedDays),
+		PrevSalaryPaid: NumericToFloat64(r.PrevSalaryPaid),
 	}
 }
 

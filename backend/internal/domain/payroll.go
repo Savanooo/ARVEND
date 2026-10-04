@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"math"
 	"regexp"
 	"time"
 )
@@ -43,17 +44,73 @@ type SalaryPayment struct {
 	CreatedAt      time.Time
 }
 
+// Ücret esası: personelin o ayki hakedişi neye göre hesaplandı.
+const (
+	WageBasisDaily   = "günlük" // yevmiye x çalışılan gün
+	WageBasisMonthly = "aylık"  // sabit aylık maaş
+	WageBasisNone    = ""       // ikisi de tanımsız -- hesaplanamaz
+)
+
 // PayrollSummaryRow, bir ayın ödeme tablosunda personel başına bir satırdır.
-// Kalan borç bilerek HESAPLANMAZ -- bkz. PayrollSummaryByPeriod sorgusu.
+// İlk blok veritabanından gelir (PayrollSummaryByPeriod), ikinci blok
+// Calculate ile doldurulur.
 type PayrollSummaryRow struct {
-	EmployeeID   string
-	FullName     string
-	Position     string
-	Salary       *float64
-	DailyWage    *float64
-	IsActive     bool
-	WorkedDays   float64 // geldi = 1, yarım gün = 0.5
-	WorkHours    float64
-	PaidTotal    float64
-	PaymentCount int
+	EmployeeID     string
+	FullName       string
+	Position       string
+	Salary         *float64
+	DailyWage      *float64
+	IsActive       bool
+	WorkedDays     float64 // geldi = 1, yarım gün = 0.5
+	WorkHours      float64
+	PaidTotal      float64 // bu aya ait TÜM ödemeler
+	SalaryPaid     float64 // bunların maaş/avans/mesai olanları -- kalandan düşülen
+	PaymentCount   int
+	PrevWorkedDays float64 // bir önceki ay -- devir hesabı için
+	PrevSalaryPaid float64
+
+	WageBasis string
+	Earned    float64 // hesaplanan hakediş
+	CarryOver float64 // önceki ayın fazla ödemesi, bu aydan düşülür
+	Remaining float64 // ödenecek; eksi ise fazla ödendi (sonraki aya devreder)
 }
+
+// EarnedFor, BYZ'nin calculate_salary kuralıdır (taşınan rakamlar BYZ'de
+// görülenle aynı çıksın diye birebir): yevmiye tanımlıysa yevmiye x
+// çalışılan gün, değilse aylık maaşın tamamı. İkisi de doluysa YEVMİYE
+// esastır (BYZ'den gelen personelin hepsinde ikisi de dolu).
+func EarnedFor(salary, dailyWage *float64, workedDays float64) (float64, string) {
+	if dailyWage != nil && *dailyWage > 0 {
+		return roundKurus(*dailyWage * workedDays), WageBasisDaily
+	}
+	if salary != nil && *salary > 0 {
+		return roundKurus(*salary), WageBasisMonthly
+	}
+	return 0, WageBasisNone
+}
+
+// Calculate, hesaplanan / devir / kalan alanlarını doldurur.
+//
+// Devir yalnızca FAZLA ödemeyi taşır ve yalnızca bir önceki aya bakar (BYZ
+// get_carry_over ile aynı): geçen ay hakedişten fazla ödendiyse fark bu
+// aydan düşülür. Eksik ödeme taşınmaz -- o ayın kendi satırında "kalan"
+// olarak görünmeye devam eder.
+//
+// Ücreti tanımsız personelde hiçbir şey hesaplanmaz: hakediş 0 sayılsaydı
+// yapılan her ödeme "fazla ödeme" görünür ve sonraki aya devrederdi.
+func (r *PayrollSummaryRow) Calculate() {
+	earned, basis := EarnedFor(r.Salary, r.DailyWage, r.WorkedDays)
+	r.Earned, r.WageBasis = earned, basis
+	if basis == WageBasisNone {
+		r.CarryOver, r.Remaining = 0, 0
+		return
+	}
+	prevEarned, _ := EarnedFor(r.Salary, r.DailyWage, r.PrevWorkedDays)
+	r.CarryOver = roundKurus(math.Max(0, r.PrevSalaryPaid-prevEarned))
+	r.Remaining = roundKurus(earned - r.SalaryPaid - r.CarryOver)
+}
+
+// roundKurus, kuruşa yuvarlar. subcontract.go'daki round2 burada
+// KULLANILMAZ: o yalnızca artı değerler için yazılmış (int64(v*100+0.5) eksi
+// sayıyı yanlış yuvarlar: -500 -> -499.99), "kalan" ise fazla ödemede eksidir.
+func roundKurus(v float64) float64 { return math.Round(v*100) / 100 }

@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
+import { StatCard } from "@/components/ui/StatCard";
+import { buttonClass } from "@/components/ui/styles";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
@@ -15,6 +17,7 @@ import type {
   Employee,
   PaymentType,
   PayrollResponse,
+  PayrollSummaryRow,
 } from "@/lib/types";
 
 import { AddAttendanceForm } from "./AddAttendanceForm";
@@ -38,6 +41,18 @@ const STATUS_TONE: Record<AttendanceStatus, "success" | "gold" | "danger" | "mut
   gelmedi: "danger",
   izinli: "muted",
 };
+
+function wageLabel(r: PayrollSummaryRow): string {
+  if (r.wage_basis === "günlük" && r.daily_wage != null) return `${formatTL(r.daily_wage)} / gün`;
+  if (r.wage_basis === "aylık" && r.salary != null) return `${formatTL(r.salary)} / ay`;
+  return "Tanımsız";
+}
+
+function PayStatus({ r }: { r: PayrollSummaryRow }) {
+  if (r.wage_basis === "") return <Badge tone="muted">Ücret tanımsız</Badge>;
+  if (r.remaining <= 0) return <Badge tone="success">Ödendi</Badge>;
+  return <Badge tone="gold">Bekliyor</Badge>;
+}
 
 function shiftMonth(month: string, delta: number): string {
   const [y, m] = month.split("-").map(Number);
@@ -80,21 +95,31 @@ async function fetchData(month: string, withEmployees: boolean, withPayroll: boo
 export default async function MesaiPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string }>;
+  searchParams: Promise<{ month?: string; ode?: string }>;
 }) {
   const user = await requirePagePermission(PAGE_PERMISSIONS.attendance);
   const canManage = hasPermission(user.permissions, "attendance.manage");
   const canAdd = canManage && hasPermission(user.permissions, PAGE_PERMISSIONS.employees);
   const canSeePayroll = hasPermission(user.permissions, "payroll.read");
   const canPay = canSeePayroll && hasPermission(user.permissions, "payroll.manage");
-  const { month = currentMonth() } = await searchParams;
+  const { month = currentMonth(), ode } = await searchParams;
   const { attendance, employees, payroll } = await fetchData(month, canAdd, canSeePayroll);
+  const summary = payroll?.summary ?? [];
   // Ödeme formunun personel listesi özetten gelir (aktif personel her zaman
-  // özette) -- ödeme girmek için ayrıca employees.read gerekmesin.
-  const payable = (payroll?.summary ?? [])
-    .filter((r) => r.is_active)
-    .map((r) => ({ id: r.employee_id, full_name: r.full_name }));
-  const paidThisMonth = (payroll?.summary ?? []).reduce((sum, r) => sum + r.paid_total, 0);
+  // özette) -- ödeme girmek için ayrıca employees.read gerekmesin. Pasif
+  // personel yalnızca o ay verisi varsa özette olur ve listede KALIR: işten
+  // ayrılanın son maaşı da ödenebilmeli.
+  const payable = summary.map((r) => ({
+    id: r.employee_id,
+    full_name: r.is_active ? r.full_name : `${r.full_name} (pasif)`,
+    remaining: r.wage_basis === "" ? null : r.remaining,
+  }));
+  const calculated = summary.filter((r) => r.wage_basis !== "");
+  const toPay = calculated.reduce((sum, r) => sum + Math.max(0, r.remaining), 0);
+  const waiting = calculated.filter((r) => r.remaining > 0).length;
+  const earnedTotal = calculated.reduce((sum, r) => sum + r.earned, 0);
+  const paidThisMonth = summary.reduce((sum, r) => sum + r.paid_total, 0);
+  const paying = ode ? summary.find((r) => r.employee_id === ode) : undefined;
 
   return (
     <>
@@ -120,58 +145,128 @@ export default async function MesaiPage({
 
         {payroll && (
           <section className="flex flex-col gap-3">
-            <div className="flex items-baseline justify-between">
-              <h2 className="text-lg font-semibold">Maaş ve Ödemeler</h2>
-              <span className="text-sm text-text-muted">
-                Bu ay ödenen:{" "}
-                <span className="font-semibold text-text">{formatTL(paidThisMonth)}</span>
-              </span>
+            <h2 className="text-lg font-semibold">Maaş ve Ödemeler</h2>
+
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <StatCard
+                label="Ödenecek"
+                value={formatTL(toPay)}
+                tone={toPay > 0 ? "danger" : null}
+                sub={[waiting > 0 ? `${waiting} kişi bekliyor` : "Bekleyen yok"]}
+              />
+              <StatCard
+                label="Hesaplanan"
+                value={formatTL(earnedTotal)}
+                sub={[`${calculated.length} personel`]}
+              />
+              <StatCard
+                label="Ödenen"
+                value={formatTL(paidThisMonth)}
+                sub={[`${payroll.payments.length} ödeme`]}
+              />
+              <StatCard
+                label="Durum"
+                value={`${calculated.length - waiting}/${calculated.length}`}
+                sub={["ödendi"]}
+              />
             </div>
 
-            {canPay && <AddPaymentForm employees={payable} month={month} />}
+            {canPay && (
+              <AddPaymentForm
+                // "Öde" ile gelince form o personel ve kalanıyla YENİDEN kurulur.
+                key={`${month}:${ode ?? ""}`}
+                employees={payable}
+                month={month}
+                initialEmployeeId={paying?.employee_id}
+                initialAmount={paying && paying.remaining > 0 ? paying.remaining : undefined}
+              />
+            )}
 
             <Card>
               <Table>
                 <thead>
                   <tr>
                     <Th>Personel</Th>
-                    <Th>Görev</Th>
-                    <Th className="text-right">Aylık Maaş</Th>
-                    <Th className="text-right">Yevmiye</Th>
+                    <Th>Ücret</Th>
                     <Th className="text-right">Çalışılan Gün</Th>
-                    <Th className="text-right">Saat</Th>
-                    <Th className="text-right">Bu Ay Ödenen</Th>
+                    <Th className="text-right">Hesaplanan</Th>
+                    <Th className="text-right">Ödenen</Th>
+                    <Th className="text-right">Kalan</Th>
+                    <Th>Durum</Th>
+                    <Th />
                   </tr>
                 </thead>
                 <tbody>
-                  {payroll.summary.map((r) => (
+                  {summary.map((r) => (
                     <Tr key={r.employee_id}>
                       <Td className="font-medium">
                         {r.full_name}
                         {!r.is_active && (
                           <span className="ml-2 text-xs text-text-muted">(pasif)</span>
                         )}
+                        {r.position && (
+                          <div className="text-xs font-normal text-text-muted">{r.position}</div>
+                        )}
                       </Td>
-                      <Td className="text-text-muted">{r.position || "—"}</Td>
-                      <Td className="text-right">{r.salary != null ? formatTL(r.salary) : "—"}</Td>
+                      <Td className="text-text-muted">{wageLabel(r)}</Td>
                       <Td className="text-right">
-                        {r.daily_wage != null ? formatTL(r.daily_wage) : "—"}
+                        {num.format(r.worked_days)}
+                        {r.work_hours > 0 && (
+                          <div className="text-xs text-text-muted">
+                            {num.format(r.work_hours)} sa
+                          </div>
+                        )}
                       </Td>
-                      <Td className="text-right">{num.format(r.worked_days)}</Td>
-                      <Td className="text-right">{num.format(r.work_hours)}</Td>
-                      <Td className="text-right font-semibold">
+                      <Td className="text-right">
+                        {r.wage_basis === "" ? "—" : formatTL(r.earned)}
+                      </Td>
+                      <Td className="text-right">
                         {r.paid_total > 0 ? formatTL(r.paid_total) : "—"}
                         {r.payment_count > 1 && (
-                          <span className="ml-1 text-xs font-normal text-text-muted">
-                            ({r.payment_count} ödeme)
-                          </span>
+                          <div className="text-xs text-text-muted">{r.payment_count} ödeme</div>
+                        )}
+                        {r.extra_paid > 0 && (
+                          <div className="text-xs text-text-muted">
+                            {formatTL(r.extra_paid)} prim/diğer
+                          </div>
+                        )}
+                      </Td>
+                      <Td className="text-right font-semibold">
+                        {r.wage_basis === ""
+                          ? "—"
+                          : r.remaining > 0
+                            ? formatTL(r.remaining)
+                            : formatTL(0)}
+                        {r.remaining < 0 && (
+                          <div className="text-xs font-normal text-text-muted">
+                            {formatTL(-r.remaining)} fazla, sonraki aya devreder
+                          </div>
+                        )}
+                        {r.carry_over > 0 && (
+                          <div className="text-xs font-normal text-text-muted">
+                            {formatTL(r.carry_over)} devir düşüldü
+                          </div>
+                        )}
+                      </Td>
+                      <Td>
+                        <PayStatus r={r} />
+                      </Td>
+                      <Td className="text-right">
+                        {canPay && r.wage_basis !== "" && r.remaining > 0 && (
+                          <Link
+                            href={`/mesai?month=${month}&ode=${r.employee_id}#odeme`}
+                            scroll={false}
+                            className={buttonClass("primary", "sm")}
+                          >
+                            Öde
+                          </Link>
                         )}
                       </Td>
                     </Tr>
                   ))}
-                  {payroll.summary.length === 0 && (
+                  {summary.length === 0 && (
                     <tr>
-                      <Td colSpan={7} className="text-center text-text-muted">
+                      <Td colSpan={8} className="text-center text-text-muted">
                         Bu ay için personel yok.
                       </Td>
                     </tr>
@@ -180,7 +275,10 @@ export default async function MesaiPage({
               </Table>
             </Card>
             <p className="text-xs text-text-muted">
-              Çalışılan gün puantajdan hesaplanır: geldi = 1, yarım gün = 0,5.
+              Hesaplanan: yevmiye tanımlıysa yevmiye × çalışılan gün (geldi = 1, yarım gün = 0,5),
+              değilse aylık maaşın tamamı. Kalan = hesaplanan − bu aya ait maaş, avans ve mesai
+              ödemeleri − önceki aydan devir. Prim ve diğer ek ödemedir, kalandan düşmez. Fazla
+              ödeme bir sonraki aya devreder.
             </p>
 
             <Card>
