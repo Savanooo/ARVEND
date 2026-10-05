@@ -32,15 +32,25 @@ const (
 // indiren (sabit URL, bkz. pricesource.FetchUlas / FetchDemirProfil)
 // paylaşımlı fetcher'ları döner. client nil ise varsayılan istemci. Süreç
 // başına BİR kez kurulmalıdır (önbellek fetcher'ın içindedir).
-func HTTPPriceFetchers(client *http.Client) map[string]PriceFetcher {
-	shared := func(fetch func(context.Context, *http.Client) (pricesource.List, error)) PriceFetcher {
-		return newSharedFetcher(func(ctx context.Context) (pricesource.List, error) {
-			return fetch(ctx, client)
-		}, priceFetchCacheTTL, priceFetchFailureTTL, time.Now)
+//
+// Her kaynak yedekli indirilir (bkz. priceFallbackFetcher): canlı site
+// çökerse Ulaş için Wayback Machine'deki son kopya, sonra store'da saklı
+// son başarılı liste. store nil ise yalnızca canlı (eski davranış).
+func HTTPPriceFetchers(client *http.Client, store PriceSnapshotStore) map[string]PriceFetcher {
+	type fetchFn = func(context.Context, *http.Client) (pricesource.List, error)
+	build := func(source string, live, archive fetchFn) PriceFetcher {
+		var arch PriceFetcher
+		if archive != nil {
+			arch = func(ctx context.Context) (pricesource.List, error) { return archive(ctx, client) }
+		}
+		chain := priceFallbackFetcher(source,
+			func(ctx context.Context) (pricesource.List, error) { return live(ctx, client) },
+			arch, store, time.Now)
+		return newSharedFetcher(chain, priceFetchCacheTTL, priceFetchFailureTTL, time.Now)
 	}
 	return map[string]PriceFetcher{
-		domain.PriceSourceUlas:        shared(pricesource.FetchUlas),
-		domain.PriceSourceDemirProfil: shared(pricesource.FetchDemirProfil),
+		domain.PriceSourceUlas:        build(domain.PriceSourceUlas, pricesource.FetchUlas, pricesource.FetchUlasArchive),
+		domain.PriceSourceDemirProfil: build(domain.PriceSourceDemirProfil, pricesource.FetchDemirProfil, nil),
 	}
 }
 

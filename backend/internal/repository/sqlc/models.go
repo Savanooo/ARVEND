@@ -298,6 +298,7 @@ type OrganizationPriceSource struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 	LastListLabel  string             `json:"last_list_label"`
+	LastListAsOf   pgtype.Timestamptz `json:"last_list_as_of"`
 }
 
 type OrganizationPriceSourceCategoryMarkup struct {
@@ -363,6 +364,16 @@ type PlatformPlan struct {
 	SortOrder   int32              `json:"sort_order"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type PriceSourceSnapshot struct {
+	Source    string             `json:"source"`
+	Origin    string             `json:"origin"`
+	AsOf      pgtype.Timestamptz `json:"as_of"`
+	Label     string             `json:"label"`
+	Items     []byte             `json:"items"`
+	ItemCount int32              `json:"item_count"`
+	SavedAt   pgtype.Timestamptz `json:"saved_at"`
 }
 
 type Product struct {

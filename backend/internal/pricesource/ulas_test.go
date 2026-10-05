@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shopspring/decimal"
 )
@@ -255,6 +256,7 @@ func TestParseUlasRealSnapshot(t *testing.T) {
 var supplierHosts = map[string]bool{
 	"ulas.com.tr": true, "www.ulas.com.tr": true,
 	"demirprofil.com.tr": true, "www.demirprofil.com.tr": true,
+	"web.archive.org": true,
 }
 
 // redirectTransport, tedarikçi hostlarına (ulas.com.tr, demirprofil.com.tr)
@@ -459,4 +461,60 @@ func TestPublicErrorMessage(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestFetchUlasArchive(t *testing.T) {
+	ctx := context.Background()
+	page := "<table><tr><td>Ürün</td></tr><tr><th>ÇATI MALZEMELERİ</th></tr>" +
+		"<tr><td>Onduline</td><td>adet</td><td>330 TL</td></tr></table>"
+
+	t.Run("en son kopyaya yönlendirme izlenir; tarih Memento-Datetime'dan, dönem etiketi arşivi söyler", func(t *testing.T) {
+		client, rt := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/web/2id_/") {
+				http.Redirect(w, r, "https://web.archive.org/web/20260615053615id_/https://ulas.com.tr/flist.asp", http.StatusFound)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html;charset=UTF-8")
+			w.Header().Set("Memento-Datetime", "Mon, 15 Jun 2026 05:36:15 GMT")
+			_, _ = io.WriteString(w, page)
+		})
+		list, err := FetchUlasArchive(ctx, client)
+		if err != nil {
+			t.Fatalf("hata: %v", err)
+		}
+		if list.Origin != OriginArchive || !list.IsFallback() {
+			t.Errorf("kaynak arşiv olmalı: %q", list.Origin)
+		}
+		if want := time.Date(2026, 6, 15, 5, 36, 15, 0, time.UTC); !list.AsOf.Equal(want) {
+			t.Errorf("tarih %v, beklenen %v", list.AsOf, want)
+		}
+		if list.Label != "Arşiv kopyası · 15.06.2026" {
+			t.Errorf("etiket %q", list.Label)
+		}
+		if len(list.Items) != 1 || list.Items[0].Name != "Onduline" {
+			t.Errorf("ürünler %+v", list.Items)
+		}
+		if !strings.Contains(rt.seen.URL.Path, "/web/20260615053615id_/") {
+			t.Errorf("son istek kopyanın kendisine gitmeli: %s", rt.seen.URL)
+		}
+	})
+
+	t.Run("tarihi olmayan kopya uygulanmaz", func(t *testing.T) {
+		client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(w, page)
+		})
+		if _, err := FetchUlasArchive(ctx, client); !errors.Is(err, ErrArchiveUndated) {
+			t.Fatalf("ErrArchiveUndated beklendi, geldi %v", err)
+		}
+	})
+
+	t.Run("arşivde kopya yoksa (404) hata", func(t *testing.T) {
+		client, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+			http.NotFound(w, r)
+		})
+		var statusErr *HTTPStatusError
+		if _, err := FetchUlasArchive(ctx, client); !errors.As(err, &statusErr) {
+			t.Fatalf("404 hatası bekleniyordu, geldi %v", err)
+		}
+	})
 }

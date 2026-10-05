@@ -48,7 +48,7 @@ func (q *Queries) DeletePriceSourceCategoryMarkups(ctx context.Context, arg Dele
 
 const getOrganizationPriceSource = `-- name: GetOrganizationPriceSource :one
 
-SELECT organization_id, source, markup_percent, auto_sync, last_synced_at, last_status, last_error, last_total, last_created, last_updated, last_unchanged, last_missing, updated_by, created_at, updated_at, last_list_label FROM organization_price_sources
+SELECT organization_id, source, markup_percent, auto_sync, last_synced_at, last_status, last_error, last_total, last_created, last_updated, last_unchanged, last_missing, updated_by, created_at, updated_at, last_list_label, last_list_as_of FROM organization_price_sources
 WHERE organization_id = $1 AND source = $2
 `
 
@@ -83,6 +83,47 @@ func (q *Queries) GetOrganizationPriceSource(ctx context.Context, arg GetOrganiz
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastListLabel,
+		&i.LastListAsOf,
+	)
+	return i, err
+}
+
+const getPriceSourceListAsOf = `-- name: GetPriceSourceListAsOf :one
+SELECT COALESCE(last_list_as_of, last_synced_at)::timestamptz AS as_of
+FROM organization_price_sources
+WHERE organization_id = $1 AND source = $2
+`
+
+type GetPriceSourceListAsOfParams struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Source         string      `json:"source"`
+}
+
+// Firmanın bu kaynaktaki fiyatlarının VERİ tarihi (yoksa son başarılı
+// senkron anı). Satır ya da başarılı senkron yoksa NULL.
+func (q *Queries) GetPriceSourceListAsOf(ctx context.Context, arg GetPriceSourceListAsOfParams) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, getPriceSourceListAsOf, arg.OrganizationID, arg.Source)
+	var as_of pgtype.Timestamptz
+	err := row.Scan(&as_of)
+	return as_of, err
+}
+
+const getPriceSourceSnapshot = `-- name: GetPriceSourceSnapshot :one
+SELECT source, origin, as_of, label, items, item_count, saved_at FROM price_source_snapshots WHERE source = $1
+`
+
+// Kaynağın son başarılı listesi (bkz. migration 0049).
+func (q *Queries) GetPriceSourceSnapshot(ctx context.Context, source string) (PriceSourceSnapshot, error) {
+	row := q.db.QueryRow(ctx, getPriceSourceSnapshot, source)
+	var i PriceSourceSnapshot
+	err := row.Scan(
+		&i.Source,
+		&i.Origin,
+		&i.AsOf,
+		&i.Label,
+		&i.Items,
+		&i.ItemCount,
+		&i.SavedAt,
 	)
 	return i, err
 }
@@ -453,12 +494,13 @@ func (q *Queries) RecordPriceSourceSyncFailure(ctx context.Context, arg RecordPr
 const recordPriceSourceSyncSuccess = `-- name: RecordPriceSourceSyncSuccess :one
 INSERT INTO organization_price_sources (
     organization_id, source, last_synced_at, last_status, last_error,
-    last_total, last_created, last_updated, last_unchanged, last_missing, last_list_label)
+    last_total, last_created, last_updated, last_unchanged, last_missing, last_list_label, last_list_as_of)
 VALUES ($1, $2, now(), 'success', '',
     $3, $4, $5, $6, $7,
-    $8)
+    $8, COALESCE($9::timestamptz, now()))
 ON CONFLICT (organization_id, source) DO UPDATE
 SET last_synced_at  = now(),
+    last_list_as_of = EXCLUDED.last_list_as_of,
     last_status     = 'success',
     last_error      = '',
     last_total      = EXCLUDED.last_total,
@@ -471,19 +513,22 @@ RETURNING last_synced_at
 `
 
 type RecordPriceSourceSyncSuccessParams struct {
-	OrganizationID pgtype.UUID `json:"organization_id"`
-	Source         string      `json:"source"`
-	Total          int32       `json:"total"`
-	Created        int32       `json:"created"`
-	Updated        int32       `json:"updated"`
-	Unchanged      int32       `json:"unchanged"`
-	Missing        int32       `json:"missing"`
-	ListLabel      string      `json:"list_label"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	Source         string             `json:"source"`
+	Total          int32              `json:"total"`
+	Created        int32              `json:"created"`
+	Updated        int32              `json:"updated"`
+	Unchanged      int32              `json:"unchanged"`
+	Missing        int32              `json:"missing"`
+	ListLabel      string             `json:"list_label"`
+	ListAsOf       pgtype.Timestamptz `json:"list_as_of"`
 }
 
 // last_synced_at = now(): aynı transaction'daki products.source_synced_at
 // ve product_price_history.changed_at ile BİREBİR aynı an (eksik ürün
 // hesabı ve "son senkronda zam gelen ürünler" bu eşitliğe dayanır).
+// last_list_as_of: listenin VERİ tarihi (canlı listede senkron anı,
+// arşiv kopyasında kopyanın tarihi -- bkz. migration 0049).
 func (q *Queries) RecordPriceSourceSyncSuccess(ctx context.Context, arg RecordPriceSourceSyncSuccessParams) (pgtype.Timestamptz, error) {
 	row := q.db.QueryRow(ctx, recordPriceSourceSyncSuccess,
 		arg.OrganizationID,
@@ -494,6 +539,7 @@ func (q *Queries) RecordPriceSourceSyncSuccess(ctx context.Context, arg RecordPr
 		arg.Unchanged,
 		arg.Missing,
 		arg.ListLabel,
+		arg.ListAsOf,
 	)
 	var last_synced_at pgtype.Timestamptz
 	err := row.Scan(&last_synced_at)
@@ -630,7 +676,7 @@ ON CONFLICT (organization_id, source) DO UPDATE
 SET markup_percent = EXCLUDED.markup_percent,
     auto_sync      = EXCLUDED.auto_sync,
     updated_by     = EXCLUDED.updated_by
-RETURNING organization_id, source, markup_percent, auto_sync, last_synced_at, last_status, last_error, last_total, last_created, last_updated, last_unchanged, last_missing, updated_by, created_at, updated_at, last_list_label
+RETURNING organization_id, source, markup_percent, auto_sync, last_synced_at, last_status, last_error, last_total, last_created, last_updated, last_unchanged, last_missing, updated_by, created_at, updated_at, last_list_label, last_list_as_of
 `
 
 type UpsertOrganizationPriceSourceSettingsParams struct {
@@ -667,6 +713,44 @@ func (q *Queries) UpsertOrganizationPriceSourceSettings(ctx context.Context, arg
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LastListLabel,
+		&i.LastListAsOf,
 	)
 	return i, err
+}
+
+const upsertPriceSourceSnapshot = `-- name: UpsertPriceSourceSnapshot :exec
+INSERT INTO price_source_snapshots (source, origin, as_of, label, items, item_count, saved_at)
+VALUES ($1, $2, $3, $4, $5, $6, now())
+ON CONFLICT (source) DO UPDATE
+SET origin     = EXCLUDED.origin,
+    as_of      = EXCLUDED.as_of,
+    label      = EXCLUDED.label,
+    items      = EXCLUDED.items,
+    item_count = EXCLUDED.item_count,
+    saved_at   = now()
+WHERE price_source_snapshots.as_of <= EXCLUDED.as_of
+`
+
+type UpsertPriceSourceSnapshotParams struct {
+	Source    string             `json:"source"`
+	Origin    string             `json:"origin"`
+	AsOf      pgtype.Timestamptz `json:"as_of"`
+	Label     string             `json:"label"`
+	Items     []byte             `json:"items"`
+	ItemCount int32              `json:"item_count"`
+}
+
+// Yalnızca daha YENİ (ya da aynı) tarihli liste eskisinin yerine geçer:
+// canlı site düzelince arşivden okunan eski bir kopya, saklı yeni listeyi
+// ezmesin.
+func (q *Queries) UpsertPriceSourceSnapshot(ctx context.Context, arg UpsertPriceSourceSnapshotParams) error {
+	_, err := q.db.Exec(ctx, upsertPriceSourceSnapshot,
+		arg.Source,
+		arg.Origin,
+		arg.AsOf,
+		arg.Label,
+		arg.Items,
+		arg.ItemCount,
+	)
+	return err
 }

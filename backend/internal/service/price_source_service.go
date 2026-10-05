@@ -419,17 +419,67 @@ func (s *PriceSourceService) fetch(ctx context.Context, src registeredSource) (p
 // applyAndRecord, apply'ı çalıştırır; meşgul (409) DIŞINDAKİ bir uygulama
 // hatasını da "failed" olarak kaydeder (iç ayrıntı sızdırmadan).
 func (s *PriceSourceService) applyAndRecord(ctx context.Context, orgID pgtype.UUID, src registeredSource, actorID string, list pricesource.List) (*domain.PriceSyncResult, error) {
-	res, err := s.apply(ctx, orgID, src, actorID, list)
+	res, err := s.applyIfFresh(ctx, orgID, src, actorID, list)
 	if err != nil && !errors.Is(err, domain.ErrPriceSyncBusy) && ctx.Err() == nil {
 		msg := "fiyat listesi kataloğa uygulanamadı (sunucu hatası)"
 		var short *priceListTooShortError
-		if errors.As(err, &short) {
+		var stale *staleFallbackError
+		switch {
+		case errors.As(err, &short):
 			msg = short.publicMessage()
+		case errors.As(err, &stale):
+			msg = stale.publicMessage()
 		}
 		s.recordFailure(ctx, orgID, src.info.Code, msg)
 	}
 	return res, err
 }
+
+// applyIfFresh: canlı liste her zaman uygulanır. Yedek (arşiv/saklı)
+// liste yalnızca firmanın elindeki fiyatların VERİ tarihinden yeniyse --
+// arşivdeki Haziran listesi canlıdan alınmış Eylül fiyatlarını geri almasın
+// ("site düzelene kadar o veriden devam etsin"). Değilse ürünler
+// değişmez, staleFallbackError döner.
+func (s *PriceSourceService) applyIfFresh(ctx context.Context, orgID pgtype.UUID, src registeredSource, actorID string, list pricesource.List) (*domain.PriceSyncResult, error) {
+	if list.IsFallback() {
+		current, err := s.q.GetPriceSourceListAsOf(ctx, sqlc.GetPriceSourceListAsOfParams{
+			OrganizationID: orgID, Source: src.info.Code,
+		})
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+		if err == nil && current.Valid && !list.AsOf.After(current.Time) {
+			return nil, &staleFallbackError{
+				name:     src.info.ShortName,
+				liveErr:  list.LiveErr,
+				current:  current.Time,
+				fallback: list.AsOf,
+			}
+		}
+	}
+	return s.apply(ctx, orgID, src, actorID, list)
+}
+
+// staleFallbackError: canlı site alınamadı ve elde firmanın fiyatlarından
+// yeni bir yedek liste yok -- ürünler OLDUĞU GİBİ kalır.
+type staleFallbackError struct {
+	name     string
+	liveErr  error
+	current  time.Time // firmanın fiyatlarının veri tarihi
+	fallback time.Time // en yeni yedeğin tarihi
+}
+
+func (e *staleFallbackError) publicMessage() string {
+	why := pricesource.PublicErrorMessage(e.name, e.liveErr)
+	if why == "" {
+		why = e.name + " sitesine ulaşılamadı"
+	}
+	return fmt.Sprintf("%s; fiyatlar korunuyor (elindeki liste %s tarihli, arşivde daha yenisi yok)",
+		why, e.current.In(istanbul()).Format("02.01.2006"))
+}
+
+func (e *staleFallbackError) Error() string { return e.publicMessage() }
+func (e *staleFallbackError) Unwrap() error { return domain.ErrPriceSourceFetch }
 
 // priceListTooShortError: liste, firmanın bu kaynaktaki son başarılı
 // senkronunun yarısından az ürün içeriyor -- yarım/bozuk bir liste
@@ -571,6 +621,7 @@ func (s *PriceSourceService) apply(ctx context.Context, orgID pgtype.UUID, src r
 		OrganizationID: orgID, Source: source,
 		Total: int32(res.Total), Created: int32(res.Created), Updated: int32(res.Updated),
 		Unchanged: int32(res.Unchanged), Missing: int32(res.Missing), ListLabel: label,
+		ListAsOf: pgtype.Timestamptz{Time: list.AsOf, Valid: !list.AsOf.IsZero()},
 	})
 	if err != nil {
 		return nil, err

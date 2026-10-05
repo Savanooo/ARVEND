@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/shopspring/decimal"
 	"golang.org/x/net/html"
@@ -22,6 +23,67 @@ const (
 	// UlasName, hata/log metinlerindeki kısa ad.
 	UlasName = "Ulaş"
 )
+
+// UlasArchiveURL: Wayback Machine'in flist.asp için EN SON kopyası; "id_"
+// eki sayfayı arşivin araç çubuğu eklenmeden, orijinal haliyle verir.
+// "/web/2id_/" en yeni kopyaya yönlendirir. Sabit adres -- yine yalnızca
+// web.archive.org içinde yönlendirme izlenir.
+const UlasArchiveURL = "https://web.archive.org/web/2id_/https://ulas.com.tr/flist.asp"
+
+var ulasArchiveFetchSpec = fetchSpec{
+	name:    UlasName + " (arşiv)",
+	url:     UlasArchiveURL,
+	accept:  "text/html,application/xhtml+xml",
+	hosts:   []string{"web.archive.org"},
+	timeout: 60 * time.Second,
+}
+
+// ErrArchiveUndated: arşiv yanıtında kopyanın tarihi yok. Tarihi
+// bilinmeyen bir liste, firmanın daha yeni fiyatlarıyla karşılaştırılamaz
+// -- uygulanmaz.
+var ErrArchiveUndated error = &publicError{"%s arşiv kopyasının tarihi okunamadı"}
+
+// FetchUlasArchive, Ulaş fiyat listesinin Wayback Machine'deki son
+// kopyasını indirip ayrıştırır (sahada 2026-10: canlı sayfa HTTP 500).
+// Liste dönemi "Arşiv kopyası · 15.06.2026" olur -- fiyatların hangi
+// tarihten geldiği ekranda hep görünsün. AsOf, kopyanın alındığı an
+// (Memento-Datetime başlığı).
+func FetchUlasArchive(ctx context.Context, client *http.Client) (List, error) {
+	body, header, err := fetchBodyWithHeader(ctx, client, ulasArchiveFetchSpec)
+	if err != nil {
+		return List{}, err
+	}
+	asOf, err := http.ParseTime(header.Get("Memento-Datetime"))
+	if err != nil || asOf.IsZero() {
+		return List{}, ErrArchiveUndated
+	}
+	utf8Body, err := charset.NewReader(bytes.NewReader(body), header.Get("Content-Type"))
+	if err != nil {
+		return List{}, fmt.Errorf("Ulaş (arşiv): %w: %v", ErrCharset, err)
+	}
+	items, err := ParseUlas(utf8Body)
+	if err != nil {
+		return List{}, err
+	}
+	return List{
+		Items:  items,
+		Label:  ArchiveLabel(asOf),
+		Origin: OriginArchive,
+		AsOf:   asOf,
+	}, nil
+}
+
+// ArchiveLabel: "Arşiv kopyası · 15.06.2026" (Türkiye saatiyle gün).
+func ArchiveLabel(asOf time.Time) string {
+	return "Arşiv kopyası · " + asOf.In(trLocation()).Format("02.01.2006")
+}
+
+func trLocation() *time.Location {
+	if loc, err := time.LoadLocation("Europe/Istanbul"); err == nil {
+		return loc
+	}
+	return time.FixedZone("TRT", 3*3600)
+}
 
 var ulasFetchSpec = fetchSpec{
 	name:   UlasName,

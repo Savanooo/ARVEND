@@ -73,7 +73,7 @@ func main() {
 	costCodeSvc := service.NewCostCodeService(pool, q)
 	supplierSvc := service.NewSupplierService(pool, q, secretBox)
 	notificationSvc := service.NewNotificationService(q)
-	priceSourceSvc := service.NewPriceSourceService(pool, q, service.HTTPPriceFetchers(nil))
+	priceSourceSvc := service.NewPriceSourceService(pool, q, service.HTTPPriceFetchers(nil, service.NewDBPriceSnapshotStore(q)))
 	dashboardSvc := service.NewDashboardService(pool, q)
 	appReleaseSvc := service.NewAppReleaseService(cfg.AppReleasesDir)
 	log.Printf("uygulama sürüm dizini (uzaktan güncelleme): %s", cfg.AppReleasesDir)

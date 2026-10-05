@@ -39,14 +39,17 @@ FROM (
 -- last_synced_at = now(): aynı transaction'daki products.source_synced_at
 -- ve product_price_history.changed_at ile BİREBİR aynı an (eksik ürün
 -- hesabı ve "son senkronda zam gelen ürünler" bu eşitliğe dayanır).
+-- last_list_as_of: listenin VERİ tarihi (canlı listede senkron anı,
+-- arşiv kopyasında kopyanın tarihi -- bkz. migration 0049).
 INSERT INTO organization_price_sources (
     organization_id, source, last_synced_at, last_status, last_error,
-    last_total, last_created, last_updated, last_unchanged, last_missing, last_list_label)
+    last_total, last_created, last_updated, last_unchanged, last_missing, last_list_label, last_list_as_of)
 VALUES (sqlc.arg(organization_id), sqlc.arg(source), now(), 'success', '',
     sqlc.arg(total), sqlc.arg(created), sqlc.arg(updated), sqlc.arg(unchanged), sqlc.arg(missing),
-    sqlc.arg(list_label))
+    sqlc.arg(list_label), COALESCE(sqlc.narg(list_as_of)::timestamptz, now()))
 ON CONFLICT (organization_id, source) DO UPDATE
 SET last_synced_at  = now(),
+    last_list_as_of = EXCLUDED.last_list_as_of,
     last_status     = 'success',
     last_error      = '',
     last_total      = EXCLUDED.last_total,
@@ -207,3 +210,29 @@ WHERE p.organization_id = sqlc.arg(organization_id)
   AND h.source = sqlc.arg(source)::text
   AND h.reason = 'supplier'
   AND h.changed_at = sqlc.arg(changed_at)::timestamptz;
+
+-- name: GetPriceSourceSnapshot :one
+-- Kaynağın son başarılı listesi (bkz. migration 0049).
+SELECT * FROM price_source_snapshots WHERE source = $1;
+
+-- name: UpsertPriceSourceSnapshot :exec
+-- Yalnızca daha YENİ (ya da aynı) tarihli liste eskisinin yerine geçer:
+-- canlı site düzelince arşivden okunan eski bir kopya, saklı yeni listeyi
+-- ezmesin.
+INSERT INTO price_source_snapshots (source, origin, as_of, label, items, item_count, saved_at)
+VALUES (sqlc.arg(source), sqlc.arg(origin), sqlc.arg(as_of), sqlc.arg(label), sqlc.arg(items), sqlc.arg(item_count), now())
+ON CONFLICT (source) DO UPDATE
+SET origin     = EXCLUDED.origin,
+    as_of      = EXCLUDED.as_of,
+    label      = EXCLUDED.label,
+    items      = EXCLUDED.items,
+    item_count = EXCLUDED.item_count,
+    saved_at   = now()
+WHERE price_source_snapshots.as_of <= EXCLUDED.as_of;
+
+-- name: GetPriceSourceListAsOf :one
+-- Firmanın bu kaynaktaki fiyatlarının VERİ tarihi (yoksa son başarılı
+-- senkron anı). Satır ya da başarılı senkron yoksa NULL.
+SELECT COALESCE(last_list_as_of, last_synced_at)::timestamptz AS as_of
+FROM organization_price_sources
+WHERE organization_id = $1 AND source = $2;

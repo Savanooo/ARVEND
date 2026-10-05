@@ -78,12 +78,36 @@ type List struct {
 	// başlık, hücre sayısı tutmayan satır...). Senkronu DURDURMAZ, servis
 	// loglar -- sessizce kaybolan bir bölüm fark edilsin diye.
 	Warnings []string
+
+	// Origin: listenin nereden geldiği -- OriginLive (tedarikçinin sitesi,
+	// varsayılan ""), OriginArchive (Wayback Machine kopyası) ya da
+	// OriginSnapshot (sunucuda saklı son başarılı liste). Bkz.
+	// service.priceFallbackFetcher.
+	Origin string
+	// AsOf: listenin VERİ tarihi. Canlı listede indirme anı, arşivde
+	// kopyanın alındığı an. Sıfırsa "şimdi" sayılır.
+	AsOf time.Time
+	// LiveErr: yedek bir liste döndüyse canlı sitenin neden alınamadığı
+	// (kullanıcıya PublicErrorMessage ile gösterilir).
+	LiveErr error
 }
+
+const (
+	OriginLive     = ""
+	OriginArchive  = "archive"
+	OriginSnapshot = "snapshot"
+)
+
+// IsFallback: liste canlı siteden değil yedekten (arşiv/saklı kopya) geldi.
+func (l List) IsFallback() bool { return l.Origin != OriginLive }
 
 // Clone, listenin (dilimler dahil) bağımsız bir kopyasını döner --
 // paylaşımlı önbellekten dönen liste çağıranlar arasında paylaşılmasın.
 func (l List) Clone() List {
-	return List{Items: slices.Clone(l.Items), Label: l.Label, Warnings: slices.Clone(l.Warnings)}
+	return List{
+		Items: slices.Clone(l.Items), Label: l.Label, Warnings: slices.Clone(l.Warnings),
+		Origin: l.Origin, AsOf: l.AsOf, LiveErr: l.LiveErr,
+	}
 }
 
 // publicError: metni kaynak adıyla tamamlanan, kullanıcıya gösterilebilir
@@ -160,6 +184,8 @@ type fetchSpec struct {
 	url    string   // sabit adres -- kullanıcıdan/istekten gelen URL ASLA indirilmez
 	accept string   // Accept başlığı
 	hosts  []string // yönlendirmede izin verilen hostlar (yalnızca https, varsayılan port)
+	// timeout: 0 ise fetchTimeout. Arşiv (web.archive.org) yavaş olabilir.
+	timeout time.Duration
 }
 
 // fetchBody, spec.url'i indirir: tarayıcı benzeri UA, 30 sn sınırı, 5 MiB
@@ -167,17 +193,31 @@ type fetchSpec struct {
 // istemci kullanılır; verilen istemcinin CheckRedirect'i (sığ kopyada)
 // spec.hosts politikasıyla değiştirilir -- çağıranın istemcisi değişmez.
 func fetchBody(ctx context.Context, client *http.Client, spec fetchSpec) (body []byte, contentType string, err error) {
+	body, header, err := fetchBodyWithHeader(ctx, client, spec)
+	return body, header.Get("Content-Type"), err
+}
+
+// fetchBodyWithHeader, fetchBody'nin yanıt başlıklarını da döneni (arşiv
+// kopyasının tarihi Memento-Datetime başlığındadır).
+func fetchBodyWithHeader(ctx context.Context, client *http.Client, spec fetchSpec) (body []byte, header http.Header, err error) {
 	c := http.Client{Timeout: fetchTimeout}
 	if client != nil {
 		c = *client // sığ kopya: çağıranın istemcisi değişmesin
 	}
 	c.CheckRedirect = redirectPolicy(spec.hosts)
-	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	timeout := fetchTimeout
+	if spec.timeout > 0 {
+		timeout = spec.timeout
+		if c.Timeout != 0 && c.Timeout < timeout {
+			c.Timeout = timeout
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, spec.url, nil)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", spec.accept)
@@ -185,21 +225,21 @@ func fetchBody(ctx context.Context, client *http.Client, spec fetchSpec) (body [
 
 	resp, err := c.Do(req)
 	if err != nil {
-		return nil, "", fmt.Errorf("%s fiyat listesi indirilemedi: %w", spec.name, err)
+		return nil, nil, fmt.Errorf("%s fiyat listesi indirilemedi: %w", spec.name, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, "", &HTTPStatusError{Source: spec.name, StatusCode: resp.StatusCode}
+		return nil, nil, &HTTPStatusError{Source: spec.name, StatusCode: resp.StatusCode}
 	}
 
 	body, err = io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
 	if err != nil {
-		return nil, "", fmt.Errorf("%s fiyat listesi okunamadı: %w", spec.name, err)
+		return nil, nil, fmt.Errorf("%s fiyat listesi okunamadı: %w", spec.name, err)
 	}
 	if len(body) > maxBodyBytes {
-		return nil, "", fmt.Errorf("%s: %w", spec.name, ErrTooLarge)
+		return nil, nil, fmt.Errorf("%s: %w", spec.name, ErrTooLarge)
 	}
-	return body, resp.Header.Get("Content-Type"), nil
+	return body, resp.Header, nil
 }
 
 // redirectPolicy: URL sabit olsa da yönlendirme hedefi üçüncü tarafın
