@@ -19,6 +19,7 @@ import '../../../core/widgets/status_badge.dart';
 import '../../payroll/data/payroll_providers.dart';
 import '../../payroll/domain/payroll.dart';
 import '../../payroll/presentation/payroll_tab.dart';
+import '../domain/attendance_entry.dart';
 import '../domain/attendance_people.dart';
 import 'person_month_screen.dart';
 import '../data/attendance_providers.dart';
@@ -306,9 +307,15 @@ Future<void> showAttendanceForm(
   );
 }
 
-/// Create + Edit AYNI form. Edit'te personel/tarih backend'de zaten
-/// DEĞİŞTİRİLEMEZ (bkz. dosya başı yorumu) -- bu yüzden salt-okunur
-/// gösterilir, yalnızca giriş/çıkış/saat/durum/not düzenlenebilir.
+/// Mesai girişi: tek gün, TOPLU (kişi(ler) + tarih aralığı) ve düzenleme
+/// aynı form. Düzenlemede personel/tarih backend'de DEĞİŞTİRİLEMEZ -- bu
+/// yüzden salt-okunur; yalnızca durum/giriş/çıkış/saat/not düzenlenir.
+///
+/// Toplu giriş (sahadan, 2026-10: "adamı seçecek, ayın 1'inden 5'ine"):
+/// sunucuda toplu uç yok, her gün için ayrı POST /attendance atılır. Aynı
+/// kişi + aynı güne ikinci kayıt sunucuda 409'dur -- toplu girişte hata
+/// değil "zaten kayıtlıydı, atlandı" sayılır. Başka bir hata (yetki, ağ)
+/// girişi durdurur; o ana kadar eklenenler kalır ve sonuç söylenir.
 class AttendanceFormSheet extends ConsumerStatefulWidget {
   const AttendanceFormSheet({
     super.key,
@@ -334,14 +341,20 @@ class AttendanceFormSheet extends ConsumerStatefulWidget {
 }
 
 class _AttendanceFormSheetState extends ConsumerState<AttendanceFormSheet> {
-  Employee? _employee;
+  bool _bulk = false;
+  String? _employeeId; // tek gün, serbest seçim
+  final Set<String> _bulkIds = {}; // toplu, serbest seçim
   late DateTime _date = widget.initialDate ?? DateTime.now();
+  late DateTimeRange _range = DateTimeRange(start: DateTime(_date.year, _date.month), end: _date);
+  bool _skipSundays = true;
   late String _status;
-  late final TextEditingController _checkInController;
-  late final TextEditingController _checkOutController;
+  late String _checkIn;
+  late String _checkOut;
   late final TextEditingController _hoursController;
   late final TextEditingController _noteController;
+  bool _hoursEdited = false;
   bool _submitting = false;
+  int _done = 0;
   String? _error;
 
   @override
@@ -349,9 +362,13 @@ class _AttendanceFormSheetState extends ConsumerState<AttendanceFormSheet> {
     super.initState();
     final e = widget.existing;
     _status = e?.status ?? 'geldi';
-    _checkInController = TextEditingController(text: e?.checkIn ?? '08:00');
-    _checkOutController = TextEditingController(text: e?.checkOut ?? '17:00');
-    _hoursController = TextEditingController(text: e != null ? _numStr(e.workHours) : '8');
+    _checkIn = (e?.checkIn.isNotEmpty ?? false) ? e!.checkIn : '08:00';
+    _checkOut = (e?.checkOut.isNotEmpty ?? false) ? e!.checkOut : '17:00';
+    _hoursController = TextEditingController(
+      text: e != null ? _numStr(e.workHours) : _numStr(hoursBetween(_checkIn, _checkOut) ?? 8),
+    );
+    // Düzenlemede kayıtlı saat korunur; yalnızca saatler değişince yeniden hesaplanır.
+    _hoursEdited = false;
     _noteController = TextEditingController(text: e?.note ?? '');
     if (e != null) {
       final parsed = DateTime.tryParse(e.date);
@@ -360,107 +377,230 @@ class _AttendanceFormSheetState extends ConsumerState<AttendanceFormSheet> {
   }
 
   static String _numStr(double v) => v == v.truncateToDouble() ? v.toInt().toString() : v.toString();
+  static String _d(DateTime d) => '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
 
   @override
   void dispose() {
-    _checkInController.dispose();
-    _checkOutController.dispose();
     _hoursController.dispose();
     _noteController.dispose();
     super.dispose();
   }
 
+  bool get _fixedPerson => widget.employeeId != null;
+
+  List<String> get _targetIds {
+    if (_fixedPerson) return [widget.employeeId!];
+    if (_bulk) return _bulkIds.toList();
+    return [?_employeeId];
+  }
+
+  List<DateTime> get _targetDays => _bulk ? entryDays(_range.start, _range.end, skipSundays: _skipSundays) : [_date];
+
+  Future<void> _pickTime({required bool checkIn}) async {
+    final current = checkIn ? _checkIn : _checkOut;
+    final parts = current.split(':');
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: int.tryParse(parts.first) ?? 8, minute: int.tryParse(parts.last) ?? 0),
+      builder: (ctx, child) => MediaQuery(data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true), child: child!),
+    );
+    if (picked == null) return;
+    final v = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+    setState(() {
+      if (checkIn) {
+        _checkIn = v;
+      } else {
+        _checkOut = v;
+      }
+      final h = hoursBetween(_checkIn, _checkOut);
+      if (h != null && !_hoursEdited) _hoursController.text = _numStr(h);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Personel seçici yalnızca serbest eklemede: düzenlemede ve kişinin
-    // ekranından eklerken personel sabit, liste hiç istenmez.
-    final employeesAsync = widget.isEdit || widget.employeeId != null ? null : ref.watch(employeesProvider);
+    // Personel listesi yalnızca serbest seçimde istenir: düzenlemede ve
+    // kişinin ekranından eklerken personel sabit.
+    final employeesAsync = widget.isEdit || _fixedPerson ? null : ref.watch(employeesProvider);
+    final hasHours = statusHasHours(_status);
+    final total = _targetIds.length * _targetDays.length;
 
     return Padding(
-      padding: EdgeInsets.only(left: AppSpacing.xl, right: AppSpacing.xl, top: AppSpacing.xl, bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.xl),
+      padding: EdgeInsets.only(
+        left: AppSpacing.xl,
+        right: AppSpacing.xl,
+        top: AppSpacing.xl,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.xl,
+      ),
       child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(widget.isEdit ? 'Mesai Kaydını Düzenle' : 'Mesai Kaydı Ekle',
+            Text(widget.isEdit ? 'Mesai Kaydını Düzenle' : 'Mesai Gir',
                 style: AppTypography.pageTitle.copyWith(fontSize: 17)),
-            const SizedBox(height: AppSpacing.lg),
+            const SizedBox(height: AppSpacing.md),
+            if (!widget.isEdit) ...[
+              SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(value: false, label: Text('Tek gün'), icon: Icon(Icons.today_outlined, size: 18)),
+                  ButtonSegment(value: true, label: Text('Toplu'), icon: Icon(Icons.date_range_outlined, size: 18)),
+                ],
+                selected: {_bulk},
+                showSelectedIcon: false,
+                onSelectionChanged: _submitting ? null : (v) => setState(() => _bulk = v.first),
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
+
+            // --- Kim
+            const Text('KİM', style: AppTypography.overline),
+            const SizedBox(height: AppSpacing.xs),
             if (widget.isEdit) ...[
               AppDataRow(
                 label: 'Personel',
                 value: widget.existing!.employeeName.isEmpty ? widget.existing!.employeeId : widget.existing!.employeeName,
               ),
-              AppDataRow(label: 'Tarih', value: widget.existing!.date),
-              const SizedBox(height: AppSpacing.xs),
+              AppDataRow(label: 'Tarih', value: _d(_date)),
               Text('Personel ve tarih düzenlenemez.', style: AppTypography.helper),
-            ] else if (widget.employeeId != null)
+            ] else if (_fixedPerson)
               AppDataRow(label: 'Personel', value: widget.employeeName ?? widget.employeeId!)
             else
               employeesAsync!.when(
-                data: (employees) => DropdownButtonFormField<Employee>(
-                  initialValue: _employee,
-                  decoration: const InputDecoration(labelText: 'Personel'),
-                  items: employees.map((e) => DropdownMenuItem(value: e, child: Text(e.fullName))).toList(),
-                  onChanged: (v) => setState(() => _employee = v),
-                ),
+                data: (employees) => _bulk
+                    ? _BulkPeoplePicker(
+                        employees: employees,
+                        selected: _bulkIds,
+                        onChanged: () => setState(() {}),
+                      )
+                    : DropdownButtonFormField<String>(
+                        initialValue: _employeeId,
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: 'Personel'),
+                        items: [
+                          for (final e in employees)
+                            DropdownMenuItem(value: e.id, child: Text(e.fullName, overflow: TextOverflow.ellipsis)),
+                        ],
+                        onChanged: (v) => setState(() => _employeeId = v),
+                      ),
                 loading: () => const LinearProgressIndicator(),
-                error: (e, st) => const Text('Personel listesi alınamadı'),
+                error: (e, st) => Text('Personel listesi alınamadı', style: AppTypography.error),
               ),
+
+            // --- Ne zaman
             if (!widget.isEdit) ...[
-              const SizedBox(height: AppSpacing.md),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Tarih'),
-                subtitle: Text('${_date.day.toString().padLeft(2, '0')}.${_date.month.toString().padLeft(2, '0')}.${_date.year}'),
-                trailing: const Icon(Icons.calendar_today_outlined, size: 18, color: AppColors.textMuted),
-                onTap: () async {
-                  final picked = await showDatePicker(
-                      context: context, initialDate: _date, firstDate: DateTime(2020), lastDate: DateTime(2100));
-                  if (picked != null) setState(() => _date = picked);
-                },
-              ),
-            ],
-            const SizedBox(height: AppSpacing.md),
-            DropdownButtonFormField<String>(
-              initialValue: _status,
-              decoration: const InputDecoration(labelText: 'Durum'),
-              items: kAttendanceStatuses
-                  .map((s) => DropdownMenuItem(value: s, child: Text(StatusRegistry.attendance[s]!.$1)))
-                  .toList(),
-              onChanged: (v) => setState(() => _status = v!),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(controller: _checkInController, decoration: const InputDecoration(labelText: 'Giriş')),
+              const SizedBox(height: AppSpacing.lg),
+              const Text('NE ZAMAN', style: AppTypography.overline),
+              if (!_bulk)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.event_outlined),
+                  title: Text(_d(_date)),
+                  subtitle: const Text('Tarihi değiştir'),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: _date,
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2100),
+                    );
+                    if (picked != null) setState(() => _date = picked);
+                  },
+                )
+              else ...[
+                ListTile(
+                  key: const ValueKey('mesai-aralik'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.date_range_outlined),
+                  title: Text('${_d(_range.start)} – ${_d(_range.end)}'),
+                  subtitle: Text('${_targetDays.length} gün${_skipSundays ? ' (pazarlar hariç)' : ''} · aralığı değiştir'),
+                  onTap: () async {
+                    final picked = await showDateRangePicker(
+                      context: context,
+                      initialDateRange: _range,
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2100),
+                    );
+                    if (picked != null) setState(() => _range = picked);
+                  },
                 ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: TextField(controller: _checkOutController, decoration: const InputDecoration(labelText: 'Çıkış')),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Pazar günlerini atla'),
+                  value: _skipSundays,
+                  onChanged: (v) => setState(() => _skipSundays = v),
                 ),
               ],
+            ],
+
+            // --- Durum
+            const SizedBox(height: AppSpacing.lg),
+            const Text('DURUM', style: AppTypography.overline),
+            const SizedBox(height: AppSpacing.xs),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xs,
+              children: [
+                for (final s in kAttendanceStatuses)
+                  ChoiceChip(
+                    label: Text(StatusRegistry.attendance[s]!.$1),
+                    selected: _status == s,
+                    onSelected: (_) => setState(() => _status = s),
+                  ),
+              ],
             ),
-            const SizedBox(height: AppSpacing.md),
-            TextField(
-              controller: _hoursController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Çalışma Saati'),
-            ),
+            if (hasHours) ...[
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                children: [
+                  Expanded(
+                    child: _TimeTile(label: 'Giriş', value: _checkIn, onTap: () => _pickTime(checkIn: true)),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: _TimeTile(label: 'Çıkış', value: _checkOut, onTap: () => _pickTime(checkIn: false)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                key: const Key('mesai-saat'),
+                controller: _hoursController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (_) => _hoursEdited = true,
+                decoration: const InputDecoration(
+                  labelText: 'Çalışma saati',
+                  helperText: 'Giriş-çıkıştan hesaplanır, istersen değiştir.',
+                ),
+              ),
+            ],
             const SizedBox(height: AppSpacing.md),
             TextField(
               controller: _noteController,
               decoration: const InputDecoration(labelText: 'Not (opsiyonel)'),
               maxLines: 2,
             ),
+            if (_bulk && !widget.isEdit) ...[
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                total == 0
+                    ? 'Kişi ve tarih aralığı seç.'
+                    : '${_targetIds.length} kişi × ${_targetDays.length} gün = $total kayıt girilecek.',
+                key: const ValueKey('mesai-toplu-ozet'),
+                style: AppTypography.body.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ],
+            if (_submitting && _bulk) ...[
+              const SizedBox(height: AppSpacing.sm),
+              LinearProgressIndicator(value: total == 0 ? null : _done / total),
+            ],
             if (_error != null) ...[
               const SizedBox(height: AppSpacing.md),
               Text(_error!, style: AppTypography.error),
             ],
             const SizedBox(height: AppSpacing.xl),
             PrimaryButton(
-              label: 'Kaydet',
+              label: _bulk && !widget.isEdit ? (total > 0 ? '$total kaydı gir' : 'Kaydet') : 'Kaydet',
               loading: _submitting,
               onPressed: _submit,
             ),
@@ -518,48 +658,158 @@ class _AttendanceFormSheetState extends ConsumerState<AttendanceFormSheet> {
   }
 
   Future<void> _submit() async {
-    final employeeId = widget.employeeId ?? _employee?.id;
-    if (!widget.isEdit && employeeId == null) {
-      setState(() => _error = 'Personel seçin');
+    final ids = _targetIds;
+    if (!widget.isEdit && ids.isEmpty) {
+      setState(() => _error = _bulk ? 'En az bir kişi seç.' : 'Personel seç.');
       return;
     }
+    final days = _targetDays;
+    if (!widget.isEdit && days.isEmpty) {
+      setState(() => _error = 'Seçilen aralıkta girilecek gün yok.');
+      return;
+    }
+    final hasHours = statusHasHours(_status);
+    final workHours = hasHours ? (double.tryParse(_hoursController.text.replaceAll(',', '.')) ?? 0) : 0.0;
+    final checkIn = hasHours ? _checkIn : '';
+    final checkOut = hasHours ? _checkOut : '';
+    final note = _noteController.text.trim();
     setState(() {
       _submitting = true;
       _error = null;
+      _done = 0;
     });
+    final repo = ref.read(attendanceRepositoryProvider);
     try {
-      final repo = ref.read(attendanceRepositoryProvider);
-      final workHours = double.tryParse(_hoursController.text.replaceAll(',', '.')) ?? 0;
       if (widget.isEdit) {
         await repo.update(
           widget.existing!.id,
-          checkIn: _checkInController.text.trim(),
-          checkOut: _checkOutController.text.trim(),
+          checkIn: checkIn,
+          checkOut: checkOut,
           workHours: workHours,
           status: _status,
-          note: _noteController.text.trim(),
+          note: note,
         );
-      } else {
-        await repo.create(
-          employeeId: employeeId!,
-          date: '${_date.year.toString().padLeft(4, '0')}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}',
-          checkIn: _checkInController.text.trim(),
-          checkOut: _checkOutController.text.trim(),
-          workHours: workHours,
-          status: _status,
-          note: _noteController.text.trim(),
-        );
+        widget.onSaved();
+        if (mounted) Navigator.of(context).pop();
+        return;
       }
-      widget.onSaved();
-      if (mounted) Navigator.of(context).pop();
+      if (!_bulk) {
+        await repo.create(
+          employeeId: ids.single,
+          date: isoDate(_date),
+          checkIn: checkIn,
+          checkOut: checkOut,
+          workHours: workHours,
+          status: _status,
+          note: note,
+        );
+        widget.onSaved();
+        if (mounted) Navigator.of(context).pop();
+        return;
+      }
+
+      var created = 0, skipped = 0;
+      String? stopError;
+      outer:
+      for (final id in ids) {
+        for (final d in days) {
+          try {
+            await repo.create(
+              employeeId: id,
+              date: isoDate(d),
+              checkIn: checkIn,
+              checkOut: checkOut,
+              workHours: workHours,
+              status: _status,
+              note: note,
+            );
+            created++;
+          } on ApiException catch (e) {
+            if (e.statusCode == 409) {
+              skipped++;
+            } else {
+              stopError = e.message;
+              break outer;
+            }
+          }
+          if (mounted) setState(() => _done = created + skipped);
+        }
+      }
+      final result = BulkEntryResult(created: created, skipped: skipped, error: stopError);
+      if (created > 0 || skipped > 0) widget.onSaved();
+      if (!mounted) return;
+      if (stopError == null) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result.summary)));
+      } else {
+        setState(() => _error = result.summary);
+      }
     } on ApiException catch (e) {
-      // Backend, AYNI personel + AYNI tarih için 409 + "bu personel için bu
-      // tarihte zaten mesai kaydı var" döner (DB UNIQUE(employee_id, date)
-      // -- bkz. Phase 1 doğrulaması) -- burada AYRI bir çakışma modeli İCAT
-      // EDİLMEZ, backend'in kendi mesajı olduğu gibi gösterilir.
+      // Backend'in Türkçe mesajı olduğu gibi (ör. aynı gün 409: "bu personel
+      // için bu tarihte zaten mesai kaydı var").
       setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+}
+
+class _TimeTile extends StatelessWidget {
+  const _TimeTile({required this.label, required this.value, required this.onTap});
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: InputDecorator(
+        decoration: InputDecoration(labelText: label, suffixIcon: const Icon(Icons.schedule, size: 18)),
+        child: Text(value, style: AppTypography.body),
+      ),
+    );
+  }
+}
+
+/// Toplu girişte kişi seçimi: çoklu seçim + "Tümü".
+class _BulkPeoplePicker extends StatelessWidget {
+  const _BulkPeoplePicker({required this.employees, required this.selected, required this.onChanged});
+  final List<Employee> employees;
+  final Set<String> selected;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = employees.where((e) => e.isActive).toList();
+    final all = active.isNotEmpty && active.every((e) => selected.contains(e.id));
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.xs,
+      children: [
+        FilterChip(
+          label: Text(all ? 'Hiçbiri' : 'Tümü (${active.length})'),
+          selected: false,
+          onSelected: (_) {
+            if (all) {
+              selected.clear();
+            } else {
+              selected.addAll(active.map((e) => e.id));
+            }
+            onChanged();
+          },
+        ),
+        for (final e in active)
+          FilterChip(
+            label: Text(e.fullName),
+            selected: selected.contains(e.id),
+            onSelected: (v) {
+              v ? selected.add(e.id) : selected.remove(e.id);
+              onChanged();
+            },
+          ),
+      ],
+    );
   }
 }
