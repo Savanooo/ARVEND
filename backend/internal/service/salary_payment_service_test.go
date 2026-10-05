@@ -274,6 +274,53 @@ func TestSalaryPayments(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("10_statement_only_this_employee_and_tenant", func(t *testing.T) {
+		emp := mustCreateEmployee(t, ctx, pool, orgA.ID, "Döküm Ustası", true)
+		other := mustCreateEmployee(t, ctx, pool, orgA.ID, "Başka Usta", true)
+		if _, err := pool.Exec(ctx, `UPDATE employees SET daily_wage = 2000 WHERE id = $1`, emp); err != nil {
+			t.Fatal(err)
+		}
+		mustAttendance(t, ctx, pool, orgA.ID, emp, "2026-11-02", "geldi", 9)
+		mustAttendance(t, ctx, pool, orgA.ID, emp, "2026-11-03", "yarım gün", 4)
+		mustAttendance(t, ctx, pool, orgA.ID, other, "2026-11-02", "geldi", 9)
+		for _, in := range []service.SalaryPaymentInput{
+			{EmployeeID: emp, Period: "2026-11", PaymentType: domain.PaymentTypeAvans, Amount: 1000, PaidDate: day(2026, 11, 5)},
+			{EmployeeID: other, Period: "2026-11", Amount: 777},
+		} {
+			if _, err := svc.Create(ctx, orgA.ID, in); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		st, err := svc.Statement(ctx, orgA.ID, emp, "2026-11")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.EmployeeName != "Döküm Ustası" || st.CompanyName == "" {
+			t.Errorf("başlık: %q / %q", st.EmployeeName, st.CompanyName)
+		}
+		if len(st.Attendance) != 2 || len(st.Payments) != 1 || st.Payments[0].Amount != 1000 {
+			t.Errorf("yalnızca bu personelin kayıtları: %d mesai, %d ödeme", len(st.Attendance), len(st.Payments))
+		}
+		if !st.HasRow || st.Row.Earned != 3000 || st.Row.Remaining != 2000 {
+			t.Errorf("hesap ekrandakiyle aynı olmalı: %+v", st.Row)
+		}
+		if !st.Attendance[0].Date.Before(st.Attendance[1].Date) {
+			t.Error("puantaj tarih sırasıyla")
+		}
+		if _, err := service.RenderPayrollStatementPDF(st); err != nil {
+			t.Fatalf("PDF: %v", err)
+		}
+
+		// B firması A'nın personelinin dökümünü alamaz (adı bile sızmaz).
+		if _, err := svc.Statement(ctx, orgB.ID, emp, "2026-11"); !errors.Is(err, service.ErrInvalidEmployee) {
+			t.Errorf("başka firma: ErrInvalidEmployee beklendi, %v geldi", err)
+		}
+		if _, err := svc.Statement(ctx, orgA.ID, emp, "2026-13"); !errors.Is(err, service.ErrInvalidPeriod) {
+			t.Errorf("geçersiz ay: %v", err)
+		}
+	})
 }
 
 func day(y int, m time.Month, d int) time.Time { return time.Date(y, m, d, 0, 0, 0, 0, time.UTC) }

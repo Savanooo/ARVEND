@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -165,6 +166,58 @@ func (h *SalaryPaymentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// Statement, bir personelin bir ayının maaş dökümünü PDF olarak döner
+// (GET /payroll/{id}/statement?month=YYYY-MM; ay verilmezse içinde
+// bulunulan ay). payroll.read ister -- ekrandaki rakamlarla aynı hesap.
+func (h *SalaryPaymentHandler) Statement(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	period := payrollPeriodParam(r)
+	st, err := h.svc.Statement(r.Context(), orgID, chi.URLParam(r, "id"), period)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidEmployee) {
+			httpjson.Error(w, http.StatusNotFound, "personel bulunamadı")
+			return
+		}
+		h.writeError(w, err)
+		return
+	}
+	pdf, err := service.RenderPayrollStatementPDF(st)
+	if err != nil {
+		httpjson.Error(w, http.StatusInternalServerError, "döküm oluşturulamadı")
+		return
+	}
+	name := "maas-dokumu-" + asciiSlug(st.EmployeeName) + "-" + period + ".pdf"
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(pdf)
+}
+
+// asciiSlug: "Batuhan İnci" -> "batuhan-inci" (dosya adı her istemcide
+// sorunsuz açılsın diye yalnızca ASCII).
+func asciiSlug(s string) string {
+	repl := strings.NewReplacer("ç", "c", "Ç", "c", "ğ", "g", "Ğ", "g", "ı", "i", "İ", "i", "ö", "o", "Ö", "o",
+		"ş", "s", "Ş", "s", "ü", "u", "Ü", "u")
+	s = strings.ToLower(repl.Replace(s))
+	var b strings.Builder
+	dash := false
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			dash = false
+		} else if !dash && b.Len() > 0 {
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+	out := strings.TrimSuffix(b.String(), "-")
+	if out == "" {
+		return "personel"
+	}
+	return out
 }
 
 func (h *SalaryPaymentHandler) writeError(w http.ResponseWriter, err error) {

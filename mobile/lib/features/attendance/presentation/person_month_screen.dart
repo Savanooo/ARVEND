@@ -1,8 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/auth/permissions.dart';
+import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -46,6 +51,32 @@ class PersonMonthScreen extends ConsumerStatefulWidget {
 
 class _PersonMonthScreenState extends ConsumerState<PersonMonthScreen> {
   late DateTime _month = widget.initialMonth;
+  bool _pdfLoading = false;
+
+  /// Maaş dökümü: sunucu PDF'i üretir, geçici dizine yazılır ve telefonun
+  /// kendi PDF görüntüleyicisiyle açılır (oradan paylaşılır/kaydedilir) --
+  /// proje dosyalarıyla aynı yol.
+  Future<void> _openStatement() async {
+    setState(() => _pdfLoading = true);
+    try {
+      final bytes = await ref.read(payrollRepositoryProvider).statementPdf(widget.employeeId, _key);
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/maas-dokumu-$_key-${widget.employeeId}.pdf');
+      await file.writeAsBytes(bytes, flush: true);
+      final result = await OpenFilex.open(file.path, type: 'application/pdf');
+      if (result.type != ResultType.done && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('PDF açılamadı: ${result.message}')));
+      }
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } on Exception catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF açılamadı.')));
+      }
+    } finally {
+      if (mounted) setState(() => _pdfLoading = false);
+    }
+  }
 
   String get _key => monthKeyOf(_month);
 
@@ -75,7 +106,22 @@ class _PersonMonthScreenState extends ConsumerState<PersonMonthScreen> {
     final payments = payroll?.payments.where((p) => p.employeeId == widget.employeeId).toList() ?? const [];
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.fullName)),
+      appBar: AppBar(
+        title: Text(widget.fullName),
+        actions: [
+          if (canSeePayroll)
+            _pdfLoading
+                ? const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                  )
+                : IconButton(
+                    tooltip: 'Maaş dökümü (PDF)',
+                    icon: const Icon(Icons.picture_as_pdf_outlined),
+                    onPressed: _openStatement,
+                  ),
+        ],
+      ),
       body: Column(
         children: [
           MonthSwitcher(month: _month, onChanged: (m) => setState(() => _month = m)),

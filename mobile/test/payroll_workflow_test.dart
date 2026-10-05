@@ -185,6 +185,40 @@ void main() {
     });
   });
 
+  group('maaş dökümü PDF', () {
+    testWidgets('kişi ekranındaki PDF düğmesi o kişinin o ayının dökümünü ister; maaş izni yoksa düğme yok',
+        (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(['attendance.read', 'payroll.read']))],
+        '/attendance': [
+          (status: 200, body: {'attendance': <Map<String, dynamic>>[]}),
+        ],
+        '/payroll': [(status: 200, body: _payrollJson())],
+        '/payroll/e1/statement': [(status: 200, body: '%PDF-1.3 test'.codeUnits)],
+      });
+      await _pump(tester, adapter);
+      await tester.tap(find.byKey(const ValueKey('kisi-e1')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Maaş dökümü (PDF)'));
+      // Yalnızca isteğe kadar: geçici dosyaya yazma ve açma platform
+      // kanalıdır, test motorunda tamamlanmaz (pumpAndSettle beklerdi).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      final i = adapter.calls.indexOf('/payroll/e1/statement');
+      expect(i, greaterThanOrEqualTo(0));
+      expect(adapter.requestQueries[i]['month'], isNotEmpty);
+    });
+
+    testWidgets('payroll.read yoksa PDF düğmesi yok', (tester) async {
+      final adapter = _adapter(permissions: ['attendance.read', 'employees.read']);
+      await _pump(tester, adapter);
+      await tester.tap(find.text('Ahmet Usta'));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Maaş dökümü (PDF)'), findsNothing);
+    });
+  });
+
   group('avans (sahada "avans verme yok" -- 2026-10)', () {
     Map<String, dynamic> monthStart() => {
           'period': '2026-09',

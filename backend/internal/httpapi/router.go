@@ -613,6 +613,7 @@ func NewRouter(d Deps) http.Handler {
 			// girebilen herkes personelin ne aldığını görmemeli (bkz.
 			// domain.PermPayrollRead, migration 0048).
 			r.With(perm(domain.PermPayrollRead)).Get("/", d.Payroll.List)
+			r.With(perm(domain.PermPayrollRead)).Get("/{id}/statement", d.Payroll.Statement)
 			r.Group(func(r chi.Router) {
 				r.Use(perm(domain.PermPayrollManage))
 				r.Post("/", d.Payroll.Create)

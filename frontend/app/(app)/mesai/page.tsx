@@ -252,15 +252,27 @@ export default async function MesaiPage({
                         <PayStatus r={r} />
                       </Td>
                       <Td className="text-right">
-                        {canPay && r.wage_basis !== "" && r.remaining > 0 && (
-                          <Link
-                            href={`/mesai?month=${month}&ode=${r.employee_id}#odeme`}
-                            scroll={false}
-                            className={buttonClass("primary", "sm")}
+                        <div className="flex items-center justify-end gap-2">
+                          {canPay && r.wage_basis !== "" && r.remaining > 0 && (
+                            <Link
+                              href={`/mesai?month=${month}&ode=${r.employee_id}#odeme`}
+                              scroll={false}
+                              className={buttonClass("primary", "sm")}
+                            >
+                              Öde
+                            </Link>
+                          )}
+                          {/* Maaş dökümü: sunucu üretir (telefondakiyle aynı belge). */}
+                          <a
+                            href={`/api/v1/payroll/${r.employee_id}/statement?month=${month}`}
+                            target="_blank"
+                            rel="noopener"
+                            className={buttonClass("secondary", "sm")}
+                            title={`${r.full_name} — ${month} maaş dökümü (PDF)`}
                           >
-                            Öde
-                          </Link>
-                        )}
+                            PDF
+                          </a>
+                        </div>
                       </Td>
                     </Tr>
                   ))}

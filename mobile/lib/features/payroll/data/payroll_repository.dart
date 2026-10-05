@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../../core/api/api_client.dart';
 import '../domain/payroll.dart';
 
@@ -34,4 +36,9 @@ class PayrollRepository {
   }
 
   Future<void> delete(String id) => _client.delete<dynamic>('/payroll/$id');
+
+  /// Bir personelin bir ayının maaş dökümü (PDF baytları) -- sunucu üretir,
+  /// web'deki "Döküm" ile aynı belge.
+  Future<Uint8List> statementPdf(String employeeId, String month) =>
+      _client.getBytes('/payroll/$employeeId/statement', queryParameters: {'month': month});
 }

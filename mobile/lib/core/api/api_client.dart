@@ -143,9 +143,13 @@ class ApiClient {
   /// KULLANILMAZ -- onlar bu uygulamanın httpOnly çerez kavanozuna
   /// erişemeyen AYRI bir HTTP istemcisidir, bu yüzden kimlik doğrulamalı
   /// uçlarda sessizce 401 alıp hata ikonuna düşerdi.
-  Future<Uint8List> getBytes(String path) async {
+  Future<Uint8List> getBytes(String path, {Map<String, dynamic>? queryParameters}) async {
     try {
-      final res = await _dio.get<List<int>>(path, options: Options(responseType: ResponseType.bytes));
+      final res = await _dio.get<List<int>>(
+        path,
+        queryParameters: queryParameters,
+        options: Options(responseType: ResponseType.bytes),
+      );
       return Uint8List.fromList(res.data ?? const []);
     } on DioException catch (e) {
       throw _mapDioException(e);
