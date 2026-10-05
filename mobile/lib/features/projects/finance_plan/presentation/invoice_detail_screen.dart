@@ -18,6 +18,7 @@ import '../../../../core/widgets/status_badge.dart';
 import '../../data/projects_providers.dart';
 import '../../domain/project.dart';
 import '../../presentation/destructive_action_button.dart';
+import '../../finance_ledger/data/finance_ledger_providers.dart';
 import '../data/finance_plan_providers.dart';
 import '../domain/project_invoice.dart';
 import '../finance_plan_paths.dart';
@@ -248,25 +249,69 @@ class _InvoiceDetailScreenState extends ConsumerState<InvoiceDetailScreen> {
 
   Future<void> _changeStatus(ProjectInvoice invoice, String status) async {
     final cancelling = status == kInvoiceCancelled;
-    final ok = await confirmFinanceAction(
-      context,
-      title: cancelling ? 'Faturayı İptal Et' : 'Fatura Durumu',
-      message: cancelling
-          ? '"${invoice.invoiceNo}" faturası iptal edilecek. İptal edilen fatura kesilen fatura toplamına dahil '
-              'edilmez.'
-          : '"${invoice.invoiceNo}" faturasının durumu "${invoiceStatusLabel(status)}" olarak değiştirilsin mi?',
-      confirmLabel: cancelling ? 'İptal Et' : 'Değiştir',
-      danger: cancelling,
-    );
-    if (!ok || !mounted) return;
+    final sales = invoice.invoiceType == kInvoiceTypeSales;
+    bool? recordCollection;
+    if (sales && status == kInvoicePaid) {
+      // Proje özetinin "tahsil edilen"i ve kârı tahsilatlardan hesaplanır;
+      // faturanın durumu para girişi sayılmaz (sahada 2026-10: "ödendi
+      // yaptım ama özette veri yok"). Tahsilat ayrıca girildiyse çift
+      // sayılmasın diye sorulur.
+      final choice = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Fatura ödendi'),
+          content: Text(
+            '"${invoice.invoiceNo}" ödendi olarak işaretlenecek. Proje özetindeki tahsilat ve kâr, tahsilat '
+            'kayıtlarından hesaplanır.\n\n${Formatters.money(invoice.amount, currency: invoice.currency)} '
+            'tahsilat olarak da kaydedilsin mi?',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Vazgeç')),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Tahsilatı zaten girdim'),
+            ),
+            FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Tahsilat da kaydet')),
+          ],
+        ),
+      );
+      if (choice == null || !mounted) return;
+      recordCollection = choice;
+    } else {
+      final unpaying = sales && invoice.status == kInvoicePaid;
+      final ok = await confirmFinanceAction(
+        context,
+        title: cancelling ? 'Faturayı İptal Et' : 'Fatura Durumu',
+        message: [
+          cancelling
+              ? '"${invoice.invoiceNo}" faturası iptal edilecek. İptal edilen fatura kesilen fatura toplamına dahil '
+                  'edilmez.'
+              : '"${invoice.invoiceNo}" faturasının durumu "${invoiceStatusLabel(status)}" olarak değiştirilsin mi?',
+          if (unpaying) 'Bu fatura ödendi işaretlenirken otomatik açılan tahsilat varsa iptal edilir.',
+        ].join('\n\n'),
+        confirmLabel: cancelling ? 'İptal Et' : 'Değiştir',
+        danger: cancelling,
+      );
+      if (!ok || !mounted) return;
+    }
     setState(() => _busy = true);
     final container = ProviderScope.containerOf(context, listen: false);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await container.read(financePlanRepositoryProvider).updateInvoiceStatus(widget.projectId, invoice.id, status);
+      await container
+          .read(financePlanRepositoryProvider)
+          .updateInvoiceStatus(widget.projectId, invoice.id, status, recordCollection: recordCollection);
       invalidateInvoices(container, widget.projectId);
+      // Tahsilat açılmış/iptal edilmiş olabilir: tahsilat listesi ve özet de tazelenir.
+      invalidateProjectLedger(container.invalidate, widget.projectId);
       messenger.showSnackBar(
-        SnackBar(content: Text('Fatura durumu "${invoiceStatusLabel(status)}" olarak güncellendi.')),
+        SnackBar(
+          content: Text(
+            recordCollection == true
+                ? 'Fatura ödendi; ${Formatters.money(invoice.amount, currency: invoice.currency)} tahsilat kaydedildi.'
+                : 'Fatura durumu "${invoiceStatusLabel(status)}" olarak güncellendi.',
+          ),
+        ),
       );
     } catch (e) {
       if (isFinanceConflict(e)) invalidateFinancePlanProject(container, widget.projectId);

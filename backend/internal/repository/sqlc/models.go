@@ -564,6 +564,7 @@ type ProjectCollection struct {
 	VoidedAt          pgtype.Timestamptz `json:"voided_at"`
 	VoidedBy          pgtype.UUID        `json:"voided_by"`
 	VoidReason        string             `json:"void_reason"`
+	InvoiceID         pgtype.UUID        `json:"invoice_id"`
 }
 
 type ProjectCommitment struct {

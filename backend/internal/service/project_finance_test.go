@@ -236,6 +236,83 @@ func TestProjectFinance(t *testing.T) {
 		}
 	})
 
+	t.Run("10c_paid_sales_invoice_records_a_linked_collection", func(t *testing.T) {
+		// Sahada (2026-10): "fatura kestim, ödendi yaptım ama özette veri yok".
+		p := newProject(t, orgA.ID, 100000)
+		inv, err := projectSvc.CreateInvoice(ctx, p.ID, orgA.ID, service.InvoiceInput{
+			InvoiceNo: "FTR-1", InvoiceType: domain.InvoiceTypeSales, InvoiceDate: today,
+			Amount: 10000, Currency: "TRY", Status: domain.InvoiceIssued, CustomerName: "Serkan Bey",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		collected := func() float64 {
+			s, err := projectSvc.FinancialSummary(ctx, p.ID, orgA.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return s.CollectedAmount
+		}
+		if _, err := projectSvc.UpdateInvoiceStatus(ctx, p.ID, inv.ID, orgA.ID, domain.InvoicePaid, "", true); err != nil {
+			t.Fatal(err)
+		}
+		if got := collected(); got != 10000 {
+			t.Fatalf("ödenen fatura tahsilat olarak özete girmeli: %v", got)
+		}
+		cols, _ := projectSvc.ListCollections(ctx, p.ID, orgA.ID)
+		if len(cols) != 1 || cols[0].InvoiceID == nil || *cols[0].InvoiceID != inv.ID || cols[0].ReferenceNo != "FTR-1" {
+			t.Fatalf("tahsilat faturaya bağlı olmalı: %+v", cols)
+		}
+		// Tekrar "ödendi": ikinci tahsilat açılmaz.
+		if _, err := projectSvc.UpdateInvoiceStatus(ctx, p.ID, inv.ID, orgA.ID, domain.InvoicePaid, "", true); err != nil {
+			t.Fatal(err)
+		}
+		if got := collected(); got != 10000 {
+			t.Errorf("aynı fatura iki kez sayılmamalı: %v", got)
+		}
+		// "Ödendi"den çıkınca bağlı tahsilat iptal edilir.
+		if _, err := projectSvc.UpdateInvoiceStatus(ctx, p.ID, inv.ID, orgA.ID, domain.InvoiceSent, "", true); err != nil {
+			t.Fatal(err)
+		}
+		if got := collected(); got != 0 {
+			t.Errorf("bağlı tahsilat iptal edilmeli: %v", got)
+		}
+		// Kullanıcı tahsilatı ayrıca girdiyse: yalnızca durum değişir.
+		if _, err := projectSvc.UpdateInvoiceStatus(ctx, p.ID, inv.ID, orgA.ID, domain.InvoicePaid, "", false); err != nil {
+			t.Fatal(err)
+		}
+		if got := collected(); got != 0 {
+			t.Errorf("record=false iken tahsilat açılmamalı: %v", got)
+		}
+		// Elle girilmiş (faturaya bağlı olmayan) tahsilata durum değişikliği dokunmaz.
+		if _, err := projectSvc.CreateCollection(ctx, p.ID, orgA.ID, service.CollectionInput{
+			Amount: 2500, Currency: "TRY", ReceivedDate: today,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.UpdateInvoiceStatus(ctx, p.ID, inv.ID, orgA.ID, domain.InvoiceCancelled, "", true); err != nil {
+			t.Fatal(err)
+		}
+		if got := collected(); got != 2500 {
+			t.Errorf("elle girilen tahsilat korunmalı: %v", got)
+		}
+
+		// Alış faturası ödenince tahsilat AÇILMAZ (para çıkışıdır).
+		buy, err := projectSvc.CreateInvoice(ctx, p.ID, orgA.ID, service.InvoiceInput{
+			InvoiceNo: "ALIS-1", InvoiceType: domain.InvoiceTypePurchase, InvoiceDate: today,
+			Amount: 4000, Currency: "TRY", Status: domain.InvoiceIssued,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.UpdateInvoiceStatus(ctx, p.ID, buy.ID, orgA.ID, domain.InvoicePaid, "", true); err != nil {
+			t.Fatal(err)
+		}
+		if got := collected(); got != 2500 {
+			t.Errorf("alış faturası tahsilat açmamalı: %v", got)
+		}
+	})
+
 	t.Run("10b_subcontractor_payments_cannot_exceed_contract", func(t *testing.T) {
 		// Sahada (2026-10): 1.000 TL'lik sözleşmeye 21.000 TL ödeme girilebilmişti.
 		p := newProject(t, orgA.ID, 100000)

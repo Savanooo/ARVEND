@@ -358,11 +358,24 @@ void main() {
       await pumpApp(tester, user: fpManagerUser, repo: repo, location: invoicePath(kProjectId, 'f3'));
       expect(find.text('Gönderildi Olarak İşaretle'), findsNothing);
       await tapVisible(tester, find.text('Ödendi Olarak İşaretle'));
-      expect(find.textContaining('"Ödendi" olarak değiştirilsin mi?'), findsOneWidget);
-      await tester.tap(find.text('Değiştir'));
+      // Satış faturası ödenirken tahsilat da sorulur (özetin tahsilatı/kârı
+      // tahsilatlardan hesaplanır; sahada 2026-10).
+      expect(find.textContaining('tahsilat olarak da kaydedilsin mi?'), findsOneWidget);
+      await tester.tap(find.text('Tahsilat da kaydet'));
       await tester.pumpAndSettle();
       expect(repo.statusChanges, [('f3', kInvoicePaid)]);
+      expect(repo.recordCollectionChoices, [true]);
       expect(find.textContaining('Olarak İşaretle'), findsNothing);
+    });
+
+    testWidgets('satış faturası ödendi: "Tahsilatı zaten girdim" yalnızca durumu değiştirir', (tester) async {
+      final repo = FakeFinancePlanRepository();
+      await pumpApp(tester, user: fpManagerUser, repo: repo, location: invoicePath(kProjectId, 'f3'));
+      await tapVisible(tester, find.text('Ödendi Olarak İşaretle'));
+      await tester.tap(find.text('Tahsilatı zaten girdim'));
+      await tester.pumpAndSettle();
+      expect(repo.statusChanges, [('f3', kInvoicePaid)]);
+      expect(repo.recordCollectionChoices, [false]);
     });
 
     testWidgets('alış faturası: "Gönderildi" adımı yok, Kesildi -> Ödendi; karşı taraf Tedarikçi', (tester) async {

@@ -74,6 +74,10 @@ func ToDomainCollection(c sqlc.ProjectCollection) domain.Collection {
 		s := c.PaymentPlanItemID.String()
 		col.PaymentPlanItemID = &s
 	}
+	if c.InvoiceID.Valid {
+		s := c.InvoiceID.String()
+		col.InvoiceID = &s
+	}
 	if c.CreatedBy.Valid {
 		s := c.CreatedBy.String()
 		col.CreatedBy = &s

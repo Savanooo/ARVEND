@@ -80,6 +80,31 @@ SET voided_at = now(), voided_by = $3, void_reason = $4
 WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL AND project_id = $5
 RETURNING *;
 
+-- name: CreateInvoiceCollection :one
+-- Satış faturası "ödendi" yapılınca oluşturulan, faturaya BAĞLI tahsilat
+-- (bkz. migration 0050). Fatura başına tek geçerli bağlı tahsilatı kısmi
+-- UNIQUE indeks zorlar.
+INSERT INTO project_collections (
+    organization_id, project_id, amount, currency, received_date,
+    payment_method, description, reference_no, created_by, invoice_id
+) VALUES (
+    sqlc.arg(organization_id), sqlc.arg(project_id), sqlc.arg(amount), sqlc.arg(currency), sqlc.arg(received_date),
+    '', sqlc.arg(description), sqlc.arg(reference_no), sqlc.narg(created_by), sqlc.arg(invoice_id)
+)
+RETURNING *;
+
+-- name: GetActiveInvoiceCollection :one
+SELECT * FROM project_collections
+WHERE invoice_id = $1 AND organization_id = $2 AND voided_at IS NULL;
+
+-- name: VoidInvoiceCollections :many
+-- Fatura "ödendi"den çıkınca bağlı tahsilat(lar) iptal edilir (silinmez,
+-- VoidCollection ile aynı iz).
+UPDATE project_collections
+SET voided_at = now(), voided_by = sqlc.narg(voided_by), void_reason = sqlc.arg(void_reason)
+WHERE invoice_id = sqlc.arg(invoice_id) AND organization_id = sqlc.arg(organization_id) AND voided_at IS NULL
+RETURNING id, amount;
+
 -- ============ Masraflar ============
 
 -- name: CreateExpense :one

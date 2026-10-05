@@ -259,6 +259,7 @@ class FakeFinancePlanRepository implements FinancePlanRepository {
   final List<(String, PaymentPlanItemInput)> updatedItems = [];
   final List<InvoiceInput> createdInvoices = [];
   final List<(String, String)> statusChanges = [];
+  final List<bool?> recordCollectionChoices = [];
   Object? planError;
   Object? invoicesError;
   Object? writeError;
@@ -373,9 +374,15 @@ class FakeFinancePlanRepository implements FinancePlanRepository {
   }
 
   @override
-  Future<ProjectInvoice> updateInvoiceStatus(String projectId, String invoiceId, String status) async {
+  Future<ProjectInvoice> updateInvoiceStatus(
+    String projectId,
+    String invoiceId,
+    String status, {
+    bool? recordCollection,
+  }) async {
     await _write('invoiceStatus:$invoiceId:$status');
     statusChanges.add((invoiceId, status));
+    recordCollectionChoices.add(recordCollection);
     final i = invoiceItems.indexWhere((f) => f.id == invoiceId);
     final o = invoiceItems[i];
     final updated = ProjectInvoice(

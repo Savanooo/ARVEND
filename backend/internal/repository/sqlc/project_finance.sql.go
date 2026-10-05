@@ -51,7 +51,7 @@ INSERT INTO project_collections (
     organization_id, project_id, payment_plan_item_id, amount, currency,
     received_date, payment_method, description, reference_no, idempotency_key, created_by
 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-RETURNING id, organization_id, project_id, payment_plan_item_id, amount, currency, received_date, payment_method, description, reference_no, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason
+RETURNING id, organization_id, project_id, payment_plan_item_id, amount, currency, received_date, payment_method, description, reference_no, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason, invoice_id
 `
 
 type CreateCollectionParams struct {
@@ -102,6 +102,7 @@ func (q *Queries) CreateCollection(ctx context.Context, arg CreateCollectionPara
 		&i.VoidedAt,
 		&i.VoidedBy,
 		&i.VoidReason,
+		&i.InvoiceID,
 	)
 	return i, err
 }
@@ -245,6 +246,68 @@ func (q *Queries) CreateInvoice(ctx context.Context, arg CreateInvoiceParams) (P
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createInvoiceCollection = `-- name: CreateInvoiceCollection :one
+INSERT INTO project_collections (
+    organization_id, project_id, amount, currency, received_date,
+    payment_method, description, reference_no, created_by, invoice_id
+) VALUES (
+    $1, $2, $3, $4, $5,
+    '', $6, $7, $8, $9
+)
+RETURNING id, organization_id, project_id, payment_plan_item_id, amount, currency, received_date, payment_method, description, reference_no, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason, invoice_id
+`
+
+type CreateInvoiceCollectionParams struct {
+	OrganizationID pgtype.UUID    `json:"organization_id"`
+	ProjectID      pgtype.UUID    `json:"project_id"`
+	Amount         pgtype.Numeric `json:"amount"`
+	Currency       string         `json:"currency"`
+	ReceivedDate   pgtype.Date    `json:"received_date"`
+	Description    string         `json:"description"`
+	ReferenceNo    string         `json:"reference_no"`
+	CreatedBy      pgtype.UUID    `json:"created_by"`
+	InvoiceID      pgtype.UUID    `json:"invoice_id"`
+}
+
+// Satış faturası "ödendi" yapılınca oluşturulan, faturaya BAĞLI tahsilat
+// (bkz. migration 0050). Fatura başına tek geçerli bağlı tahsilatı kısmi
+// UNIQUE indeks zorlar.
+func (q *Queries) CreateInvoiceCollection(ctx context.Context, arg CreateInvoiceCollectionParams) (ProjectCollection, error) {
+	row := q.db.QueryRow(ctx, createInvoiceCollection,
+		arg.OrganizationID,
+		arg.ProjectID,
+		arg.Amount,
+		arg.Currency,
+		arg.ReceivedDate,
+		arg.Description,
+		arg.ReferenceNo,
+		arg.CreatedBy,
+		arg.InvoiceID,
+	)
+	var i ProjectCollection
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ProjectID,
+		&i.PaymentPlanItemID,
+		&i.Amount,
+		&i.Currency,
+		&i.ReceivedDate,
+		&i.PaymentMethod,
+		&i.Description,
+		&i.ReferenceNo,
+		&i.IdempotencyKey,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VoidedAt,
+		&i.VoidedBy,
+		&i.VoidReason,
+		&i.InvoiceID,
 	)
 	return i, err
 }
@@ -472,8 +535,44 @@ func (q *Queries) CreateSubcontractorPayment(ctx context.Context, arg CreateSubc
 	return i, err
 }
 
+const getActiveInvoiceCollection = `-- name: GetActiveInvoiceCollection :one
+SELECT id, organization_id, project_id, payment_plan_item_id, amount, currency, received_date, payment_method, description, reference_no, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason, invoice_id FROM project_collections
+WHERE invoice_id = $1 AND organization_id = $2 AND voided_at IS NULL
+`
+
+type GetActiveInvoiceCollectionParams struct {
+	InvoiceID      pgtype.UUID `json:"invoice_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+func (q *Queries) GetActiveInvoiceCollection(ctx context.Context, arg GetActiveInvoiceCollectionParams) (ProjectCollection, error) {
+	row := q.db.QueryRow(ctx, getActiveInvoiceCollection, arg.InvoiceID, arg.OrganizationID)
+	var i ProjectCollection
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ProjectID,
+		&i.PaymentPlanItemID,
+		&i.Amount,
+		&i.Currency,
+		&i.ReceivedDate,
+		&i.PaymentMethod,
+		&i.Description,
+		&i.ReferenceNo,
+		&i.IdempotencyKey,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VoidedAt,
+		&i.VoidedBy,
+		&i.VoidReason,
+		&i.InvoiceID,
+	)
+	return i, err
+}
+
 const getCollection = `-- name: GetCollection :one
-SELECT id, organization_id, project_id, payment_plan_item_id, amount, currency, received_date, payment_method, description, reference_no, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason FROM project_collections WHERE id = $1 AND organization_id = $2 AND project_id = $3
+SELECT id, organization_id, project_id, payment_plan_item_id, amount, currency, received_date, payment_method, description, reference_no, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason, invoice_id FROM project_collections WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type GetCollectionParams struct {
@@ -507,12 +606,13 @@ func (q *Queries) GetCollection(ctx context.Context, arg GetCollectionParams) (P
 		&i.VoidedAt,
 		&i.VoidedBy,
 		&i.VoidReason,
+		&i.InvoiceID,
 	)
 	return i, err
 }
 
 const getCollectionByIdempotencyKey = `-- name: GetCollectionByIdempotencyKey :one
-SELECT id, organization_id, project_id, payment_plan_item_id, amount, currency, received_date, payment_method, description, reference_no, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason FROM project_collections
+SELECT id, organization_id, project_id, payment_plan_item_id, amount, currency, received_date, payment_method, description, reference_no, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason, invoice_id FROM project_collections
 WHERE project_id = $1 AND idempotency_key = $2
 `
 
@@ -542,6 +642,7 @@ func (q *Queries) GetCollectionByIdempotencyKey(ctx context.Context, arg GetColl
 		&i.VoidedAt,
 		&i.VoidedBy,
 		&i.VoidReason,
+		&i.InvoiceID,
 	)
 	return i, err
 }
@@ -1068,7 +1169,7 @@ func (q *Queries) GetSubcontractorPaymentByIdempotencyKey(ctx context.Context, a
 }
 
 const listCollections = `-- name: ListCollections :many
-SELECT id, organization_id, project_id, payment_plan_item_id, amount, currency, received_date, payment_method, description, reference_no, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason FROM project_collections
+SELECT id, organization_id, project_id, payment_plan_item_id, amount, currency, received_date, payment_method, description, reference_no, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason, invoice_id FROM project_collections
 WHERE project_id = $1 AND organization_id = $2
 ORDER BY received_date DESC, created_at DESC
 `
@@ -1105,6 +1206,7 @@ func (q *Queries) ListCollections(ctx context.Context, arg ListCollectionsParams
 			&i.VoidedAt,
 			&i.VoidedBy,
 			&i.VoidReason,
+			&i.InvoiceID,
 		); err != nil {
 			return nil, err
 		}
@@ -1717,7 +1819,7 @@ const voidCollection = `-- name: VoidCollection :one
 UPDATE project_collections
 SET voided_at = now(), voided_by = $3, void_reason = $4
 WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL AND project_id = $5
-RETURNING id, organization_id, project_id, payment_plan_item_id, amount, currency, received_date, payment_method, description, reference_no, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason
+RETURNING id, organization_id, project_id, payment_plan_item_id, amount, currency, received_date, payment_method, description, reference_no, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason, invoice_id
 `
 
 type VoidCollectionParams struct {
@@ -1756,6 +1858,7 @@ func (q *Queries) VoidCollection(ctx context.Context, arg VoidCollectionParams) 
 		&i.VoidedAt,
 		&i.VoidedBy,
 		&i.VoidReason,
+		&i.InvoiceID,
 	)
 	return i, err
 }
@@ -1809,6 +1912,52 @@ func (q *Queries) VoidExpense(ctx context.Context, arg VoidExpenseParams) (Proje
 		&i.BudgetLineID,
 	)
 	return i, err
+}
+
+const voidInvoiceCollections = `-- name: VoidInvoiceCollections :many
+UPDATE project_collections
+SET voided_at = now(), voided_by = $1, void_reason = $2
+WHERE invoice_id = $3 AND organization_id = $4 AND voided_at IS NULL
+RETURNING id, amount
+`
+
+type VoidInvoiceCollectionsParams struct {
+	VoidedBy       pgtype.UUID `json:"voided_by"`
+	VoidReason     string      `json:"void_reason"`
+	InvoiceID      pgtype.UUID `json:"invoice_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+type VoidInvoiceCollectionsRow struct {
+	ID     pgtype.UUID    `json:"id"`
+	Amount pgtype.Numeric `json:"amount"`
+}
+
+// Fatura "ödendi"den çıkınca bağlı tahsilat(lar) iptal edilir (silinmez,
+// VoidCollection ile aynı iz).
+func (q *Queries) VoidInvoiceCollections(ctx context.Context, arg VoidInvoiceCollectionsParams) ([]VoidInvoiceCollectionsRow, error) {
+	rows, err := q.db.Query(ctx, voidInvoiceCollections,
+		arg.VoidedBy,
+		arg.VoidReason,
+		arg.InvoiceID,
+		arg.OrganizationID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []VoidInvoiceCollectionsRow
+	for rows.Next() {
+		var i VoidInvoiceCollectionsRow
+		if err := rows.Scan(&i.ID, &i.Amount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const voidSubcontractorPayment = `-- name: VoidSubcontractorPayment :one

@@ -159,17 +159,20 @@ type Collection struct {
 	OrganizationID    string
 	ProjectID         string
 	PaymentPlanItemID *string
-	Amount            float64
-	Currency          string
-	ReceivedDate      time.Time
-	PaymentMethod     string
-	Description       string
-	ReferenceNo       string
-	CreatedBy         *string
-	CreatedAt         time.Time
-	VoidedAt          *time.Time
-	VoidedBy          *string
-	VoidReason        string
+	// InvoiceID: satış faturası "ödendi" yapılınca otomatik açılan tahsilatta
+	// fatura (bkz. migration 0050); elle girilende nil.
+	InvoiceID     *string
+	Amount        float64
+	Currency      string
+	ReceivedDate  time.Time
+	PaymentMethod string
+	Description   string
+	ReferenceNo   string
+	CreatedBy     *string
+	CreatedAt     time.Time
+	VoidedAt      *time.Time
+	VoidedBy      *string
+	VoidReason    string
 }
 
 type Expense struct {

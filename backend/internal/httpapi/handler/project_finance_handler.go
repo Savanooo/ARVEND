@@ -152,6 +152,7 @@ func (h *ProjectHandler) CancelPaymentPlanItem(w http.ResponseWriter, r *http.Re
 type collectionResponse struct {
 	ID                string  `json:"id"`
 	PaymentPlanItemID *string `json:"payment_plan_item_id"`
+	InvoiceID         *string `json:"invoice_id"`
 	Amount            float64 `json:"amount"`
 	Currency          string  `json:"currency"`
 	ReceivedDate      string  `json:"received_date"`
@@ -165,7 +166,7 @@ type collectionResponse struct {
 
 func toCollectionResponse(c domain.Collection) collectionResponse {
 	return collectionResponse{
-		ID: c.ID, PaymentPlanItemID: c.PaymentPlanItemID, Amount: c.Amount, Currency: c.Currency,
+		ID: c.ID, PaymentPlanItemID: c.PaymentPlanItemID, InvoiceID: c.InvoiceID, Amount: c.Amount, Currency: c.Currency,
 		ReceivedDate: c.ReceivedDate.Format(dateLayout), PaymentMethod: c.PaymentMethod,
 		Description: c.Description, ReferenceNo: c.ReferenceNo, VoidedAt: tsStrPtr(c.VoidedAt),
 		VoidReason: c.VoidReason, CreatedAt: c.CreatedAt.Format(rfc3339),
@@ -430,6 +431,9 @@ func (h *ProjectHandler) CreateInvoice(w http.ResponseWriter, r *http.Request) {
 
 type invoiceStatusRequest struct {
 	Status string `json:"status"`
+	// RecordCollection: satış faturası "ödendi" yapılırken tahsilat da
+	// açılsın mı (nil = evet). Bkz. ProjectService.UpdateInvoiceStatus.
+	RecordCollection *bool `json:"record_collection"`
 }
 
 func (h *ProjectHandler) UpdateInvoiceStatus(w http.ResponseWriter, r *http.Request) {
@@ -440,7 +444,14 @@ func (h *ProjectHandler) UpdateInvoiceStatus(w http.ResponseWriter, r *http.Requ
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	inv, err := h.svc.UpdateInvoiceStatus(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "invoiceId"), orgID, req.Status, userID)
+	// record_collection verilmezse varsayılan: satış faturası "ödendi"
+	// yapılınca tahsilat da açılır (eski istemciler gönderemez; özet boş
+	// kalmasın). Kullanıcı tahsilatı ayrıca girdiyse false gönderir.
+	record := true
+	if req.RecordCollection != nil {
+		record = *req.RecordCollection
+	}
+	inv, err := h.svc.UpdateInvoiceStatus(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "invoiceId"), orgID, req.Status, userID, record)
 	if err != nil {
 		h.writeError(w, err)
 		return

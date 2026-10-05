@@ -5,6 +5,7 @@ import { FormEvent, useRef, useState } from "react";
 
 import { Section } from "@/components/ui/Accordion";
 import { Button } from "@/components/ui/Button";
+import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DateInput } from "@/components/ui/DateInput";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -758,7 +759,34 @@ export function InvoicesSection({
   locked: boolean;
 }) {
   const { busy, error, run } = useFinanceAction(locked);
+  const { confirm, dialog } = useConfirmDialog();
   const [open, setOpen] = useState(false);
+
+  // Satış faturası "ödendi" yapılırken tahsilat da sorulur: proje özetinin
+  // tahsilatı ve kârı tahsilat kayıtlarından hesaplanır, faturanın durumu
+  // para girişi sayılmaz (sahada 2026-10). Tahsilat ayrıca girildiyse "hayır"
+  // -- para iki kez sayılmaz. Fatura "ödendi"den çıkarsa backend bağlı
+  // tahsilatı iptal eder.
+  async function changeStatus(inv: ProjectInvoice, status: string) {
+    let record: boolean | undefined;
+    if (status === "paid" && inv.invoice_type === "sales") {
+      record = await confirm({
+        title: "Fatura ödendi",
+        message: `${inv.invoice_no} ödendi olarak işaretlenecek. Proje özetindeki tahsilat ve kâr, tahsilat kayıtlarından hesaplanır. ${formatMoney(inv.amount, inv.currency)} tahsilat olarak da kaydedilsin mi?`,
+        confirmLabel: "Tahsilat da kaydet",
+        cancelLabel: "Hayır, tahsilatı zaten girdim",
+      });
+    }
+    await run(() =>
+      apiClient(`/api/v1/projects/${project.id}/invoices/${inv.id}/status`, {
+        method: "PUT",
+        body: JSON.stringify(
+          record === undefined ? { status } : { status, record_collection: record }
+        ),
+      })
+    );
+  }
+
   const [form, setForm] = useState({
     invoice_no: "",
     invoice_type: "sales",
@@ -789,6 +817,7 @@ export function InvoicesSection({
 
   return (
     <div className="flex flex-col gap-3">
+      {dialog}
       {invoices.length === 0 ? (
         <p className="text-text-muted">Henüz fatura kaydı yok.</p>
       ) : (
@@ -822,14 +851,7 @@ export function InvoicesSection({
                     <Select
                       value={inv.status}
                       disabled={busy}
-                      onChange={(e) =>
-                        run(() =>
-                          apiClient(`/api/v1/projects/${project.id}/invoices/${inv.id}/status`, {
-                            method: "PUT",
-                            body: JSON.stringify({ status: e.target.value }),
-                          })
-                        )
-                      }
+                      onChange={(e) => changeStatus(inv, e.target.value)}
                       aria-label="Fatura durumu"
                       className="py-1 text-xs"
                     >

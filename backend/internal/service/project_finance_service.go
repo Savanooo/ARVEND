@@ -879,7 +879,18 @@ func (s *ProjectService) ListInvoices(ctx context.Context, projectID, organizati
 // projectID, URL'deki proje kimliğidir -- invoiceID'nin GERÇEKTEN bu
 // projeye ait olduğunu sorgu seviyesinde doğrular (bkz. IDOR denetim
 // bulgusu).
-func (s *ProjectService) UpdateInvoiceStatus(ctx context.Context, projectID, invoiceID, organizationID, status, userID string) (*domain.ProjectInvoice, error) {
+// UpdateInvoiceStatus, faturanın durumunu değiştirir.
+//
+// Satış faturası "ödendi" yapılırken recordCollection true ise fatura
+// tutarında, faturaya BAĞLI bir tahsilat oluşturulur (bkz. migration 0050):
+// proje özetinin tahsil edilen ve kârı yalnızca tahsilatlardan hesaplanır
+// (sahada 2026-10: "ödendi yaptım ama özette veri yok"). Kullanıcı
+// tahsilatı ayrıca girdiyse recordCollection false gönderir -- para iki kez
+// sayılmaz. Zaten geçerli bir bağlı tahsilat varsa yenisi açılmaz.
+//
+// Fatura "ödendi"den başka bir duruma geçerse bağlı tahsilat iptal edilir
+// (silinmez); elle girilmiş, faturaya bağlı olmayan tahsilatlara dokunulmaz.
+func (s *ProjectService) UpdateInvoiceStatus(ctx context.Context, projectID, invoiceID, organizationID, status, userID string, recordCollection bool) (*domain.ProjectInvoice, error) {
 	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
 		return nil, err
@@ -899,6 +910,14 @@ func (s *ProjectService) UpdateInvoiceStatus(ctx context.Context, projectID, inv
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	before, err := txq.GetInvoice(ctx, sqlc.GetInvoiceParams{ID: iid, OrganizationID: orgID, ProjectID: pid})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+
 	row, err := txq.UpdateInvoiceStatus(ctx, sqlc.UpdateInvoiceStatusParams{
 		ID: iid, OrganizationID: orgID, Status: status, ProjectID: pid,
 	})
@@ -912,11 +931,76 @@ func (s *ProjectService) UpdateInvoiceStatus(ctx context.Context, projectID, inv
 		map[string]any{"invoice_id": invoiceID, "status": status}); err != nil {
 		return nil, err
 	}
+
+	switch {
+	case status == domain.InvoicePaid && row.InvoiceType == domain.InvoiceTypeSales && recordCollection:
+		if err := s.recordInvoiceCollection(ctx, txq, orgID, row, userID); err != nil {
+			return nil, err
+		}
+	case before.Status == domain.InvoicePaid && status != domain.InvoicePaid:
+		voided, err := txq.VoidInvoiceCollections(ctx, sqlc.VoidInvoiceCollectionsParams{
+			InvoiceID:      iid,
+			OrganizationID: orgID,
+			VoidedBy:       actorUUID(userID),
+			VoidReason:     "Fatura " + row.InvoiceNo + " artık ödendi değil (" + status + ")",
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, v := range voided {
+			if err := logProjectEvent(ctx, txq, orgID, row.ProjectID, domain.ProjectEventCollectionVoided, actorUUID(userID),
+				map[string]any{"collection_id": v.ID.String(), "invoice_id": invoiceID, "amount": repository.NumericToFloat64(v.Amount)}); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	out := repository.ToDomainProjectInvoice(row)
 	return &out, nil
+}
+
+// recordInvoiceCollection, ödenen satış faturası için bağlı tahsilatı açar
+// (yoksa). Tahsilatın kuralları CreateCollection ile aynı: kapalı projeye
+// para hareketi girilmez, para birimi proje para birimi.
+func (s *ProjectService) recordInvoiceCollection(ctx context.Context, txq *sqlc.Queries, orgID pgtype.UUID, inv sqlc.ProjectInvoice, userID string) error {
+	if _, err := txq.GetActiveInvoiceCollection(ctx, sqlc.GetActiveInvoiceCollectionParams{
+		InvoiceID: inv.ID, OrganizationID: orgID,
+	}); err == nil {
+		return nil // zaten tahsil edilmiş sayılıyor
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	project, err := s.requireOpenProject(ctx, txq, inv.ProjectID, orgID)
+	if err != nil {
+		return err
+	}
+	amount := repository.NumericToFloat64(inv.Amount)
+	if err := validateMoney(amount, inv.Currency, project); err != nil {
+		return err
+	}
+	desc := "Fatura " + inv.InvoiceNo + " ödendi"
+	if strings.TrimSpace(inv.CustomerName) != "" {
+		desc += " (" + strings.TrimSpace(inv.CustomerName) + ")"
+	}
+	col, err := txq.CreateInvoiceCollection(ctx, sqlc.CreateInvoiceCollectionParams{
+		OrganizationID: orgID,
+		ProjectID:      inv.ProjectID,
+		Amount:         inv.Amount,
+		Currency:       project.Currency,
+		ReceivedDate:   repository.TimeToDate(time.Now().In(istanbul())),
+		Description:    desc,
+		ReferenceNo:    inv.InvoiceNo,
+		CreatedBy:      actorUUID(userID),
+		InvoiceID:      inv.ID,
+	})
+	if err != nil {
+		return err
+	}
+	return logProjectEvent(ctx, txq, orgID, inv.ProjectID, domain.ProjectEventCollectionReceived, actorUUID(userID),
+		map[string]any{"collection_id": col.ID.String(), "amount": amount, "invoice_id": inv.ID.String()})
 }
 
 // ---------- Taşeronlar ----------

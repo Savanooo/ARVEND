@@ -62,10 +62,18 @@ class FinancePlanRepository {
     return ProjectInvoice.fromJson(json);
   }
 
-  Future<ProjectInvoice> updateInvoiceStatus(String projectId, String invoiceId, String status) async {
+  /// [recordCollection]: satış faturası "ödendi" yapılırken fatura
+  /// tutarında bağlı bir tahsilat da açılsın mı (null = sunucu varsayılanı:
+  /// evet). Bkz. backend ProjectService.UpdateInvoiceStatus.
+  Future<ProjectInvoice> updateInvoiceStatus(
+    String projectId,
+    String invoiceId,
+    String status, {
+    bool? recordCollection,
+  }) async {
     final json = await _client.put<Map<String, dynamic>>(
       '${_base(projectId)}/invoices/$invoiceId/status',
-      data: {'status': status},
+      data: {'status': status, 'record_collection': ?recordCollection},
     );
     return ProjectInvoice.fromJson(json);
   }
