@@ -11,6 +11,40 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const bumpGroupedNotification = `-- name: BumpGroupedNotification :one
+UPDATE notifications
+SET group_count = group_count + 1, title = $2, body = $3, created_at = now()
+WHERE id = $1
+RETURNING id, organization_id, user_id, type, title, body, entity_type, entity_id, project_id, action_target, read_at, created_at, group_count
+`
+
+type BumpGroupedNotificationParams struct {
+	ID    pgtype.UUID `json:"id"`
+	Title string      `json:"title"`
+	Body  string      `json:"body"`
+}
+
+func (q *Queries) BumpGroupedNotification(ctx context.Context, arg BumpGroupedNotificationParams) (Notification, error) {
+	row := q.db.QueryRow(ctx, bumpGroupedNotification, arg.ID, arg.Title, arg.Body)
+	var i Notification
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.UserID,
+		&i.Type,
+		&i.Title,
+		&i.Body,
+		&i.EntityType,
+		&i.EntityID,
+		&i.ProjectID,
+		&i.ActionTarget,
+		&i.ReadAt,
+		&i.CreatedAt,
+		&i.GroupCount,
+	)
+	return i, err
+}
+
 const countNotificationsForUser = `-- name: CountNotificationsForUser :one
 SELECT count(*) FROM notifications WHERE user_id = $1 AND organization_id = $2
 `
@@ -46,7 +80,7 @@ func (q *Queries) CountUnreadNotifications(ctx context.Context, arg CountUnreadN
 const createNotification = `-- name: CreateNotification :one
 INSERT INTO notifications (organization_id, user_id, type, title, body, entity_type, entity_id, project_id, action_target)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, organization_id, user_id, type, title, body, entity_type, entity_id, project_id, action_target, read_at, created_at
+RETURNING id, organization_id, user_id, type, title, body, entity_type, entity_id, project_id, action_target, read_at, created_at, group_count
 `
 
 type CreateNotificationParams struct {
@@ -87,12 +121,60 @@ func (q *Queries) CreateNotification(ctx context.Context, arg CreateNotification
 		&i.ActionTarget,
 		&i.ReadAt,
 		&i.CreatedAt,
+		&i.GroupCount,
+	)
+	return i, err
+}
+
+const findGroupableNotification = `-- name: FindGroupableNotification :one
+SELECT id, organization_id, user_id, type, title, body, entity_type, entity_id, project_id, action_target, read_at, created_at, group_count FROM notifications
+WHERE user_id = $1 AND organization_id = $2 AND type = $3 AND project_id = $4
+  AND read_at IS NULL AND created_at > $5::timestamptz
+ORDER BY created_at DESC
+LIMIT 1
+FOR UPDATE
+`
+
+type FindGroupableNotificationParams struct {
+	UserID         pgtype.UUID        `json:"user_id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	Type           string             `json:"type"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	Since          pgtype.Timestamptz `json:"since"`
+}
+
+// Gruplanabilir bildirim (bkz. migration 0052): aynı kişi, aynı proje,
+// aynı tür, henüz okunmamış ve `since`ten yeni. Satır kilitlenir ki iki
+// eşzamanlı yükleme aynı sayacı birlikte artırırken biri kaybolmasın.
+func (q *Queries) FindGroupableNotification(ctx context.Context, arg FindGroupableNotificationParams) (Notification, error) {
+	row := q.db.QueryRow(ctx, findGroupableNotification,
+		arg.UserID,
+		arg.OrganizationID,
+		arg.Type,
+		arg.ProjectID,
+		arg.Since,
+	)
+	var i Notification
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.UserID,
+		&i.Type,
+		&i.Title,
+		&i.Body,
+		&i.EntityType,
+		&i.EntityID,
+		&i.ProjectID,
+		&i.ActionTarget,
+		&i.ReadAt,
+		&i.CreatedAt,
+		&i.GroupCount,
 	)
 	return i, err
 }
 
 const listNotificationsForUser = `-- name: ListNotificationsForUser :many
-SELECT id, organization_id, user_id, type, title, body, entity_type, entity_id, project_id, action_target, read_at, created_at FROM notifications
+SELECT id, organization_id, user_id, type, title, body, entity_type, entity_id, project_id, action_target, read_at, created_at, group_count FROM notifications
 WHERE user_id = $1 AND organization_id = $2
 ORDER BY created_at DESC
 LIMIT $3 OFFSET $4
@@ -132,6 +214,7 @@ func (q *Queries) ListNotificationsForUser(ctx context.Context, arg ListNotifica
 			&i.ActionTarget,
 			&i.ReadAt,
 			&i.CreatedAt,
+			&i.GroupCount,
 		); err != nil {
 			return nil, err
 		}

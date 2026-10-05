@@ -133,6 +133,10 @@ class _ScheduleItemDetailScreenState extends ConsumerState<ScheduleItemDetailScr
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           // Durum başlıktaki rozette; burada tekrarlanmaz.
+                          AppDataRow(
+                            label: 'Sorumlu',
+                            value: current.assignedName.isNotEmpty ? current.assignedName : 'Atanmadı',
+                          ),
                           AppDataRow(label: 'Başlangıç', value: dayText(current.startDate)),
                           AppDataRow(label: 'Bitiş', value: dayText(current.endDate)),
                           AppDataRow(

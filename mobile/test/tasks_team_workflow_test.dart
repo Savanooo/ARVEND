@@ -240,12 +240,14 @@ void main() {
     testWidgets('Görev Ata\'dan açılan form kaydedince listeye geri döner', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
         '/auth/me': [(status: 200, body: _me(_managerPerms))],
-        '/employees': [
+        // Proje yöneticisinde employees.read yok: form /employees'i değil
+        // ücretsiz /projects/{id}/assignees'i kullanır.
+        '/projects/p1/assignees': [
           (
             status: 200,
             body: {
               'employees': [
-                {'id': 'e1', 'full_name': 'Mehmet Usta', 'position': 'Usta', 'is_active': true},
+                {'id': 'e1', 'full_name': 'Mehmet Usta', 'position': 'Usta', 'has_account': true},
               ],
             },
           ),
@@ -286,10 +288,18 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(find.widgetWithText(TextFormField, 'Başlık'), 'İskele kur');
+      await tester.tap(find.text('— Atanmadı —'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mehmet Usta · Usta').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Mehmet Usta bildirim alır.'), findsOneWidget);
+      await tester.ensureVisible(find.text('Görevi Oluştur'));
       await tester.tap(find.text('Görevi Oluştur'));
       await tester.pumpAndSettle();
 
-      expect(adapter.calls, contains('/projects/p1/tasks'));
+      expect(adapter.calls, isNot(contains('/employees')));
+      final post = adapter.calls.indexOf('/projects/p1/tasks');
+      expect((adapter.requestBodies[post] as Map)['assigned_employee_id'], 'e1');
       expect(find.text('liste'), findsOneWidget);
       expect(find.text('detay'), findsNothing);
       expect(find.text('Görev atandı: Mehmet Usta'), findsOneWidget);

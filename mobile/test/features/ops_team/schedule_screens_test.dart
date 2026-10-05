@@ -152,8 +152,43 @@ void main() {
           endDate: '2026-09-24',
           status: ScheduleStatus.completed,
           sortOrder: 2,
+          assignedEmployeeId: 'e1',
         ),
       );
+    });
+
+    testWidgets('sorumlu seçilir; uygulaması olmayan kişi için bildirim gitmeyeceği yazar', (tester) async {
+      final repo = await pump(tester, location: scheduleNewPath(kProjectId));
+      await tester.enterText(find.byKey(const ValueKey('schedule-name')), 'Çatı');
+      await tester.tap(find.text('— Atanmadı —'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Ali Kalfa · Demirci (uygulaması yok)').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Bu kişinin uygulama hesabı yok; bildirim gitmez.'), findsOneWidget);
+
+      await tester.tap(find.text('Ali Kalfa · Demirci (uygulaması yok)'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mehmet Usta · Kalıpçı').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Mehmet Usta bildirim alır.'), findsOneWidget);
+
+      await tester.ensureVisible(find.widgetWithText(ElevatedButton, 'Aşama Ekle'));
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Aşama Ekle'));
+      await tester.pumpAndSettle();
+      expect(repo.createdSchedule.single.assignedEmployeeId, 'e1');
+    });
+
+    testWidgets('düzenlemede sorumlu kaldırılabilir', (tester) async {
+      final repo = await pump(tester, location: scheduleItemEditPath(kProjectId, 's3'));
+      expect(find.text('Mehmet Usta · Kalıpçı'), findsOneWidget);
+      await tester.tap(find.text('Mehmet Usta · Kalıpçı'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('— Atanmadı —').last);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.widgetWithText(ElevatedButton, 'Kaydet'));
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Kaydet'));
+      await tester.pumpAndSettle();
+      expect(repo.updatedSchedule.single.$2.assignedEmployeeId, isNull);
     });
 
     testWidgets('yazma izni olmayan form açamaz', (tester) async {

@@ -821,6 +821,8 @@ export interface ScheduleItem {
   sort_order: number;
   task_count: number;
   completed_task_count: number;
+  assigned_employee_id: string | null;
+  assigned_name: string;
 }
 
 export type TaskStatus = "todo" | "in_progress" | "completed" | "cancelled";

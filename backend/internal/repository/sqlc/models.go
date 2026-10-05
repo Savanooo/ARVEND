@@ -121,6 +121,7 @@ type Notification struct {
 	ActionTarget   string             `json:"action_target"`
 	ReadAt         pgtype.Timestamptz `json:"read_at"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	GroupCount     int32              `json:"group_count"`
 }
 
 type Offer struct {
@@ -764,18 +765,20 @@ type ProjectPhoto struct {
 }
 
 type ProjectScheduleItem struct {
-	ID             pgtype.UUID        `json:"id"`
-	OrganizationID pgtype.UUID        `json:"organization_id"`
-	ProjectID      pgtype.UUID        `json:"project_id"`
-	Name           string             `json:"name"`
-	Description    string             `json:"description"`
-	StartDate      pgtype.Date        `json:"start_date"`
-	EndDate        pgtype.Date        `json:"end_date"`
-	Status         string             `json:"status"`
-	SortOrder      int32              `json:"sort_order"`
-	CreatedBy      pgtype.UUID        `json:"created_by"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	ID                 pgtype.UUID        `json:"id"`
+	OrganizationID     pgtype.UUID        `json:"organization_id"`
+	ProjectID          pgtype.UUID        `json:"project_id"`
+	Name               string             `json:"name"`
+	Description        string             `json:"description"`
+	StartDate          pgtype.Date        `json:"start_date"`
+	EndDate            pgtype.Date        `json:"end_date"`
+	Status             string             `json:"status"`
+	SortOrder          int32              `json:"sort_order"`
+	CreatedBy          pgtype.UUID        `json:"created_by"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	AssignedEmployeeID pgtype.UUID        `json:"assigned_employee_id"`
+	AssignedName       string             `json:"assigned_name"`
 }
 
 type ProjectSubcontract struct {

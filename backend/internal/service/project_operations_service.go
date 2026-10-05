@@ -247,6 +247,11 @@ type ScheduleItemInput struct {
 	Status      string
 	SortOrder   int
 	UserID      string
+	// AssigneeSet false = sorumluya dokunma (alanı göndermeyen eski
+	// istemciler güncellemede atamayı silmesin). true iken boş
+	// AssignedEmployeeID = sorumluyu kaldır.
+	AssigneeSet        bool
+	AssignedEmployeeID string
 }
 
 func (s *ProjectService) CreateScheduleItem(ctx context.Context, projectID, organizationID string, in ScheduleItemInput) (*domain.ScheduleItem, error) {
@@ -276,23 +281,35 @@ func (s *ProjectService) CreateScheduleItem(ctx context.Context, projectID, orga
 	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
 		return nil, err
 	}
+	var assigneeID, assigneeUser pgtype.UUID
+	var assigneeName string
+	if in.AssigneeSet {
+		if assigneeID, assigneeName, assigneeUser, err = resolveEmployeeAssignee(ctx, txq, orgID, in.AssignedEmployeeID); err != nil {
+			return nil, err
+		}
+	}
 
 	row, err := txq.CreateScheduleItem(ctx, sqlc.CreateScheduleItemParams{
-		OrganizationID: orgID,
-		ProjectID:      pid,
-		Name:           name,
-		Description:    strings.TrimSpace(in.Description),
-		StartDate:      repository.TimePtrToDate(in.StartDate),
-		EndDate:        repository.TimePtrToDate(in.EndDate),
-		Status:         status,
-		SortOrder:      int32(in.SortOrder),
-		CreatedBy:      actorUUID(in.UserID),
+		OrganizationID:     orgID,
+		ProjectID:          pid,
+		Name:               name,
+		Description:        strings.TrimSpace(in.Description),
+		StartDate:          repository.TimePtrToDate(in.StartDate),
+		EndDate:            repository.TimePtrToDate(in.EndDate),
+		Status:             status,
+		SortOrder:          int32(in.SortOrder),
+		CreatedBy:          actorUUID(in.UserID),
+		AssignedEmployeeID: assigneeID,
+		AssignedName:       assigneeName,
 	})
 	if err != nil {
 		return nil, err
 	}
 	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventScheduleCreated, actorUUID(in.UserID),
-		map[string]any{"schedule_item_id": row.ID.String(), "name": name}); err != nil {
+		map[string]any{"schedule_item_id": row.ID.String(), "name": name, "assigned_name": assigneeName}); err != nil {
+		return nil, err
+	}
+	if err := notifyScheduleAssigned(ctx, txq, row, assigneeUser, actorUUID(in.UserID)); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -352,22 +369,40 @@ func (s *ProjectService) UpdateScheduleItem(ctx context.Context, projectID, item
 		return nil, err
 	}
 
+	assigneeID, assigneeName := current.AssignedEmployeeID, current.AssignedName
+	var assigneeUser pgtype.UUID
+	if in.AssigneeSet {
+		if assigneeID, assigneeName, assigneeUser, err = resolveEmployeeAssignee(ctx, txq, orgID, in.AssignedEmployeeID); err != nil {
+			return nil, err
+		}
+	}
+	// Bildirim yalnızca sorumlu DEĞİŞTİYSE (aynı kişiyle kaydetmek yeniden
+	// bildirim atmaz).
+	assigneeChanged := assigneeID.Valid && assigneeID != current.AssignedEmployeeID
+
 	row, err := txq.UpdateScheduleItem(ctx, sqlc.UpdateScheduleItemParams{
-		ID:             iid,
-		OrganizationID: orgID,
-		Name:           name,
-		Description:    strings.TrimSpace(in.Description),
-		StartDate:      repository.TimePtrToDate(in.StartDate),
-		EndDate:        repository.TimePtrToDate(in.EndDate),
-		Status:         in.Status,
-		SortOrder:      int32(in.SortOrder),
-		ProjectID:      pid,
+		ID:                 iid,
+		OrganizationID:     orgID,
+		Name:               name,
+		Description:        strings.TrimSpace(in.Description),
+		StartDate:          repository.TimePtrToDate(in.StartDate),
+		EndDate:            repository.TimePtrToDate(in.EndDate),
+		Status:             in.Status,
+		SortOrder:          int32(in.SortOrder),
+		ProjectID:          pid,
+		AssignedEmployeeID: assigneeID,
+		AssignedName:       assigneeName,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
+	}
+	if assigneeChanged {
+		if err := notifyScheduleAssigned(ctx, txq, row, assigneeUser, actorUUID(in.UserID)); err != nil {
+			return nil, err
+		}
 	}
 
 	eventType := domain.ProjectEventScheduleUpdated
@@ -873,7 +908,8 @@ func (s *ProjectService) UploadFile(ctx context.Context, projectID, organization
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+	project, err := s.requireOpenProject(ctx, txq, pid, orgID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -915,6 +951,13 @@ func (s *ProjectService) UploadFile(ctx context.Context, projectID, organization
 
 	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventFileUploaded, actorUUID(in.UserID),
 		map[string]any{"file_id": row.ID.String(), "name": name, "category": category}); err != nil {
+		_ = s.store.Delete(ctx, key)
+		return nil, err
+	}
+	if err := notifyProjectManagersOfUpload(ctx, txq, orgID, project, actorUUID(in.UserID), uploadNotice{
+		Type: domain.NotificationFileUploaded, EntityType: domain.NotificationEntityProjectFile,
+		EntityID: row.ID, Title: fileUploadTitle,
+	}); err != nil {
 		_ = s.store.Delete(ctx, key)
 		return nil, err
 	}
@@ -1030,7 +1073,8 @@ func (s *ProjectService) UploadPhoto(ctx context.Context, projectID, organizatio
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+	project, err := s.requireOpenProject(ctx, txq, pid, orgID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -1071,6 +1115,13 @@ func (s *ProjectService) UploadPhoto(ctx context.Context, projectID, organizatio
 
 	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventPhotoUploaded, actorUUID(in.UserID),
 		map[string]any{"photo_id": row.ID.String(), "stage": stage}); err != nil {
+		_ = s.store.Delete(ctx, key)
+		return nil, err
+	}
+	if err := notifyProjectManagersOfUpload(ctx, txq, orgID, project, actorUUID(in.UserID), uploadNotice{
+		Type: domain.NotificationPhotoUploaded, EntityType: domain.NotificationEntityProjectPhoto,
+		EntityID: row.ID, Title: photoUploadTitle,
+	}); err != nil {
 		_ = s.store.Delete(ctx, key)
 		return nil, err
 	}

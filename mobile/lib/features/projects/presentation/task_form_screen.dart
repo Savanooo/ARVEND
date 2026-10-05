@@ -10,11 +10,10 @@ import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_form_section.dart';
 import '../../../core/widgets/app_page_scaffold.dart';
 import '../../../core/widgets/async_state_view.dart';
-import '../../attendance/data/attendance_providers.dart';
-import '../../attendance/domain/attendance.dart' show Employee;
 import '../../tasks/data/tasks_providers.dart';
 import '../data/projects_providers.dart';
 import '../domain/project.dart';
+import 'assignee_field.dart';
 
 String? _fmtDate(DateTime? d) {
   if (d == null) return null;
@@ -27,9 +26,9 @@ DateTime? _parseDate(String? s) {
 }
 
 /// Faz 7 — Görev Ekle/Düzenle. Create + Edit AYNI ekran. Atanacak kişi
-/// kataloğu P0'da zaten kurulmuş `employeesProvider`ı (Mesai modülünün
-/// organizasyon personel kataloğu) YENİDEN KULLANIR -- ikinci bir personel
-/// listesi İCAT EDİLMEZ. Durum bir dropdown'dur -- backend'de sabit bir
+/// `AssigneeField` ile GET /projects/{id}/assignees'ten gelir (ücretsiz
+/// personel listesi -- proje yöneticisinde employees.read yok, Mesai'nin
+/// /employees listesi onda 403 dönüyordu). Durum bir dropdown'dur -- backend'de sabit bir
 /// geçiş grafiği olmadığı için (bkz. domain/project.dart `ProjectTask`
 /// yorumu) mobil de kendi kısıtlamasını İCAT ETMEZ, dört durum da HER ZAMAN
 /// seçilebilir (yalnızca EDIT'te -- CREATE'te backend zaten 'tamamlandı'
@@ -57,6 +56,7 @@ class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
   String _priority = ProjectTask.priorityNormal;
   String _status = ProjectTask.statusTodo;
   String? _assignedEmployeeId;
+  String _assignedName = '';
   String? _scheduleItemId;
   DateTime? _dueDate;
   bool _loading = false;
@@ -95,6 +95,7 @@ class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
       _priority = task.priority;
       _status = task.status;
       _assignedEmployeeId = task.assignedEmployeeId;
+      _assignedName = task.assignedName;
       _scheduleItemId = task.scheduleItemId;
       _dueDate = _parseDate(task.dueDate);
       setState(() => _loading = false);
@@ -173,21 +174,13 @@ class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final employeesAsync = ref.watch(employeesProvider);
-
     return AppPageScaffold(
       title: Text(widget.isEdit ? 'Görevi Düzenle' : 'Yeni Görev'),
-      body: _loading
-          ? const LoadingState()
-          : AsyncStateView(
-              value: employeesAsync,
-              onRetry: () async => ref.invalidate(employeesProvider),
-              data: (context, employees) => _buildForm(context, employees),
-            ),
+      body: _loading ? const LoadingState() : _buildForm(context),
     );
   }
 
-  Widget _buildForm(BuildContext context, List<Employee> employees) {
+  Widget _buildForm(BuildContext context) {
     return Form(
       key: _formKey,
       child: ListView(
@@ -211,16 +204,11 @@ class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
           AppFormSection(
             title: 'Atama ve Zamanlama',
             children: [
-              DropdownButtonFormField<String>(
-                initialValue: _assignedEmployeeId != null && _assignedEmployeeId!.isNotEmpty ? _assignedEmployeeId : '',
-                decoration: const InputDecoration(labelText: 'Atanan Kişi (opsiyonel)'),
-                items: [
-                  const DropdownMenuItem(value: '', child: Text('— Atanmadı —')),
-                  ...employees
-                      .where((e) => e.isActive || e.id == _assignedEmployeeId)
-                      .map((e) => DropdownMenuItem(value: e.id, child: Text(e.fullName, overflow: TextOverflow.ellipsis))),
-                ],
-                onChanged: (v) => setState(() => _assignedEmployeeId = (v == null || v.isEmpty) ? null : v),
+              AssigneeField(
+                projectId: widget.projectId,
+                value: _assignedEmployeeId,
+                currentName: _assignedName,
+                onChanged: (v) => setState(() => _assignedEmployeeId = v),
               ),
               DropdownButtonFormField<String>(
                 initialValue: _priority,

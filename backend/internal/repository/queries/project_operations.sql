@@ -31,8 +31,9 @@ RETURNING *;
 
 -- name: CreateScheduleItem :one
 INSERT INTO project_schedule_items (
-    organization_id, project_id, name, description, start_date, end_date, status, sort_order, created_by
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    organization_id, project_id, name, description, start_date, end_date, status, sort_order, created_by,
+    assigned_employee_id, assigned_name
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 RETURNING *;
 
 -- ListScheduleItems, her aşamanın görev sayılarını da getirir (aşama
@@ -55,7 +56,8 @@ SELECT * FROM project_schedule_items WHERE id = $1 AND organization_id = $2 AND 
 
 -- name: UpdateScheduleItem :one
 UPDATE project_schedule_items
-SET name = $3, description = $4, start_date = $5, end_date = $6, status = $7, sort_order = $8
+SET name = $3, description = $4, start_date = $5, end_date = $6, status = $7, sort_order = $8,
+    assigned_employee_id = $10, assigned_name = $11
 WHERE id = $1 AND organization_id = $2 AND project_id = $9
 RETURNING *;
 

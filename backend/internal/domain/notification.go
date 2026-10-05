@@ -54,6 +54,12 @@ const (
 	NotificationRFQAwarded                      = "rfq_awarded"
 	NotificationPurchaseOrderApproved           = "purchase_order_approved"
 	NotificationPurchaseOrderCancelled          = "purchase_order_cancelled"
+	// Planlama aşamasına sorumlu atandı (migration 0052): o personele.
+	NotificationScheduleAssigned = "schedule_assigned"
+	// Projeye fotoğraf/dosya yüklendi: projenin yöneticilerine (yükleyen
+	// hariç). Gruplanır -- art arda yüklemeler tek bildirimde sayılır.
+	NotificationPhotoUploaded = "photo_uploaded"
+	NotificationFileUploaded  = "file_uploaded"
 )
 
 // Varlık türleri -- mobil/web istemcinin ActionTarget'ı yorumlamadan,
@@ -67,4 +73,7 @@ const (
 	NotificationEntityPurchaseRequest        = "purchase_request"
 	NotificationEntityRFQ                    = "rfq"
 	NotificationEntityPurchaseOrder          = "purchase_order"
+	NotificationEntityScheduleItem           = "schedule_item"
+	NotificationEntityProjectPhoto           = "project_photo"
+	NotificationEntityProjectFile            = "project_file"
 )

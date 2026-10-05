@@ -3,6 +3,23 @@ INSERT INTO notifications (organization_id, user_id, type, title, body, entity_t
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING *;
 
+-- name: FindGroupableNotification :one
+-- Gruplanabilir bildirim (bkz. migration 0052): aynı kişi, aynı proje,
+-- aynı tür, henüz okunmamış ve `since`ten yeni. Satır kilitlenir ki iki
+-- eşzamanlı yükleme aynı sayacı birlikte artırırken biri kaybolmasın.
+SELECT * FROM notifications
+WHERE user_id = $1 AND organization_id = $2 AND type = $3 AND project_id = $4
+  AND read_at IS NULL AND created_at > sqlc.arg(since)::timestamptz
+ORDER BY created_at DESC
+LIMIT 1
+FOR UPDATE;
+
+-- name: BumpGroupedNotification :one
+UPDATE notifications
+SET group_count = group_count + 1, title = $2, body = $3, created_at = now()
+WHERE id = $1
+RETURNING *;
+
 -- name: ListNotificationsForUser :many
 SELECT * FROM notifications
 WHERE user_id = $1 AND organization_id = $2

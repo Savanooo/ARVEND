@@ -150,6 +150,12 @@ class ProjectsRepository {
     ];
   }
 
+  /// GET /projects/{id}/assignees — görev/plan "kime" seçicisi.
+  Future<List<Assignee>> assignees(String projectId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/assignees');
+    return ((json['employees'] as List?) ?? const []).cast<Map<String, dynamic>>().map(Assignee.fromJson).toList();
+  }
+
   /// GET /projects/{id}/tasks/{taskId}/updates — görevin notları, en yeni önce.
   Future<List<TaskUpdate>> taskUpdates(String projectId, String taskId) async {
     final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/tasks/$taskId/updates');

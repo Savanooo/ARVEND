@@ -191,14 +191,36 @@ export function MembersSection({
 export function ScheduleSection({
   project,
   items,
+  members = [],
   locked,
 }: {
   project: Project;
   items: ScheduleItem[];
+  // Sorumlu seçicisi proje ekibinden (Görevler'deki "Atanan" ile aynı);
+  // seçilen kişiye "plan ataması" bildirimi gider.
+  members?: ProjectMember[];
   locked: boolean;
 }) {
   const { busy, error, run } = useAction(locked);
-  const [form, setForm] = useState({ name: "", start_date: "", end_date: "" });
+  const [form, setForm] = useState({ name: "", start_date: "", end_date: "", assigned_employee_id: "" });
+  const activeMembers = members.filter((m) => m.is_active);
+
+  function updateItem(it: ScheduleItem, patch: Partial<{ status: string; assigned_employee_id: string | null }>) {
+    return run(() =>
+      apiClient(`/api/v1/projects/${project.id}/schedule/${it.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: it.name,
+          description: it.description,
+          start_date: it.start_date,
+          end_date: it.end_date,
+          status: it.status,
+          sort_order: it.sort_order,
+          ...patch,
+        }),
+      })
+    );
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -210,10 +232,11 @@ export function ScheduleSection({
           start_date: form.start_date || null,
           end_date: form.end_date || null,
           sort_order: items.length,
+          assigned_employee_id: form.assigned_employee_id || null,
         }),
       })
     );
-    if (ok) setForm({ name: "", start_date: "", end_date: "" });
+    if (ok) setForm({ name: "", start_date: "", end_date: "", assigned_employee_id: "" });
   }
 
   return (
@@ -238,21 +261,7 @@ export function ScheduleSection({
                     <Select
                       value={it.status}
                       disabled={busy}
-                      onChange={(e) =>
-                        run(() =>
-                          apiClient(`/api/v1/projects/${project.id}/schedule/${it.id}`, {
-                            method: "PUT",
-                            body: JSON.stringify({
-                              name: it.name,
-                              description: it.description,
-                              start_date: it.start_date,
-                              end_date: it.end_date,
-                              status: e.target.value,
-                              sort_order: it.sort_order,
-                            }),
-                          })
-                        )
-                      }
+                      onChange={(e) => updateItem(it, { status: e.target.value })}
                       aria-label="Aşama durumu"
                       className="py-1 text-xs"
                     >
@@ -272,6 +281,31 @@ export function ScheduleSection({
                   {it.end_date ? new Date(it.end_date).toLocaleDateString("tr-TR") : "—"}
                 </div>
               )}
+              <div className="mt-1 flex items-center gap-2 text-xs text-text-muted">
+                <span>Sorumlu:</span>
+                {locked ? (
+                  <span>{it.assigned_name || "Atanmadı"}</span>
+                ) : (
+                  <Select
+                    value={it.assigned_employee_id ?? ""}
+                    disabled={busy}
+                    onChange={(e) => updateItem(it, { assigned_employee_id: e.target.value || null })}
+                    aria-label="Aşama sorumlusu"
+                    className="py-1 text-xs"
+                  >
+                    <option value="">Atanmadı</option>
+                    {it.assigned_employee_id &&
+                      !activeMembers.some((m) => m.employee_id === it.assigned_employee_id) && (
+                        <option value={it.assigned_employee_id}>{it.assigned_name}</option>
+                      )}
+                    {activeMembers.map((m) => (
+                      <option key={m.employee_id} value={m.employee_id}>
+                        {m.employee_name}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </div>
             </li>
           ))}
         </ol>
@@ -297,6 +331,19 @@ export function ScheduleSection({
             onChange={(e) => setForm({ ...form, end_date: e.target.value })}
             aria-label="Bitiş"
           />
+          <Select
+            value={form.assigned_employee_id}
+            onChange={(e) => setForm({ ...form, assigned_employee_id: e.target.value })}
+            aria-label="Sorumlu"
+            className="w-44"
+          >
+            <option value="">Sorumlu (opsiyonel)</option>
+            {activeMembers.map((m) => (
+              <option key={m.employee_id} value={m.employee_id}>
+                {m.employee_name}
+              </option>
+            ))}
+          </Select>
           <Button type="submit" loading={busy}>
             Aşama Ekle
           </Button>

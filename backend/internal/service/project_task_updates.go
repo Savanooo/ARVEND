@@ -128,8 +128,10 @@ func (s *ProjectService) AddTaskUpdate(ctx context.Context, projectID, taskID, o
 	return &up, &t, nil
 }
 
-// notifyTaskParties: görevi oluşturan + atanan kişinin bağlı kullanıcısı,
-// işlemi yapan hariç, tekilleştirilmiş.
+// notifyTaskParties: görevi oluşturan + atanan kişinin bağlı kullanıcısı +
+// projenin yöneticileri (projects.update; görevi bir ustabaşı vermiş olsa
+// da yönetici haberdar olsun -- sahada istenen buydu), işlemi yapan
+// hariç, tekilleştirilmiş.
 func notifyTaskParties(ctx context.Context, txq *sqlc.Queries, orgID pgtype.UUID, task sqlc.ProjectTask, actor pgtype.UUID, in CreateNotificationInput) error {
 	var recipients []pgtype.UUID
 	seen := map[pgtype.UUID]bool{}
@@ -145,6 +147,13 @@ func notifyTaskParties(ctx context.Context, txq *sqlc.Queries, orgID pgtype.UUID
 		if emp, err := txq.GetEmployeeByID(ctx, sqlc.GetEmployeeByIDParams{ID: task.AssignedEmployeeID, OrganizationID: orgID}); err == nil {
 			add(emp.UserID)
 		}
+	}
+	managers, err := resolveProjectApprovers(ctx, txq, orgID, task.ProjectID, domain.PermProjectsUpdate)
+	if err != nil {
+		return err
+	}
+	for _, m := range managers {
+		add(m)
 	}
 	return createNotificationsForUsers(ctx, txq, recipients, in)
 }

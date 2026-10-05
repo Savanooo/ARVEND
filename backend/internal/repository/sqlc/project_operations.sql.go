@@ -310,21 +310,24 @@ func (q *Queries) CreateProjectPhoto(ctx context.Context, arg CreateProjectPhoto
 const createScheduleItem = `-- name: CreateScheduleItem :one
 
 INSERT INTO project_schedule_items (
-    organization_id, project_id, name, description, start_date, end_date, status, sort_order, created_by
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-RETURNING id, organization_id, project_id, name, description, start_date, end_date, status, sort_order, created_by, created_at, updated_at
+    organization_id, project_id, name, description, start_date, end_date, status, sort_order, created_by,
+    assigned_employee_id, assigned_name
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+RETURNING id, organization_id, project_id, name, description, start_date, end_date, status, sort_order, created_by, created_at, updated_at, assigned_employee_id, assigned_name
 `
 
 type CreateScheduleItemParams struct {
-	OrganizationID pgtype.UUID `json:"organization_id"`
-	ProjectID      pgtype.UUID `json:"project_id"`
-	Name           string      `json:"name"`
-	Description    string      `json:"description"`
-	StartDate      pgtype.Date `json:"start_date"`
-	EndDate        pgtype.Date `json:"end_date"`
-	Status         string      `json:"status"`
-	SortOrder      int32       `json:"sort_order"`
-	CreatedBy      pgtype.UUID `json:"created_by"`
+	OrganizationID     pgtype.UUID `json:"organization_id"`
+	ProjectID          pgtype.UUID `json:"project_id"`
+	Name               string      `json:"name"`
+	Description        string      `json:"description"`
+	StartDate          pgtype.Date `json:"start_date"`
+	EndDate            pgtype.Date `json:"end_date"`
+	Status             string      `json:"status"`
+	SortOrder          int32       `json:"sort_order"`
+	CreatedBy          pgtype.UUID `json:"created_by"`
+	AssignedEmployeeID pgtype.UUID `json:"assigned_employee_id"`
+	AssignedName       string      `json:"assigned_name"`
 }
 
 // ============ Planlama ============
@@ -339,6 +342,8 @@ func (q *Queries) CreateScheduleItem(ctx context.Context, arg CreateScheduleItem
 		arg.Status,
 		arg.SortOrder,
 		arg.CreatedBy,
+		arg.AssignedEmployeeID,
+		arg.AssignedName,
 	)
 	var i ProjectScheduleItem
 	err := row.Scan(
@@ -354,6 +359,8 @@ func (q *Queries) CreateScheduleItem(ctx context.Context, arg CreateScheduleItem
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AssignedEmployeeID,
+		&i.AssignedName,
 	)
 	return i, err
 }
@@ -699,7 +706,7 @@ func (q *Queries) GetProjectPhotoBySHA(ctx context.Context, arg GetProjectPhotoB
 }
 
 const getScheduleItem = `-- name: GetScheduleItem :one
-SELECT id, organization_id, project_id, name, description, start_date, end_date, status, sort_order, created_by, created_at, updated_at FROM project_schedule_items WHERE id = $1 AND organization_id = $2 AND project_id = $3
+SELECT id, organization_id, project_id, name, description, start_date, end_date, status, sort_order, created_by, created_at, updated_at, assigned_employee_id, assigned_name FROM project_schedule_items WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type GetScheduleItemParams struct {
@@ -727,6 +734,8 @@ func (q *Queries) GetScheduleItem(ctx context.Context, arg GetScheduleItemParams
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AssignedEmployeeID,
+		&i.AssignedName,
 	)
 	return i, err
 }
@@ -1110,7 +1119,7 @@ func (q *Queries) ListProjectPhotos(ctx context.Context, arg ListProjectPhotosPa
 }
 
 const listScheduleItems = `-- name: ListScheduleItems :many
-SELECT s.id, s.organization_id, s.project_id, s.name, s.description, s.start_date, s.end_date, s.status, s.sort_order, s.created_by, s.created_at, s.updated_at,
+SELECT s.id, s.organization_id, s.project_id, s.name, s.description, s.start_date, s.end_date, s.status, s.sort_order, s.created_by, s.created_at, s.updated_at, s.assigned_employee_id, s.assigned_name,
        COALESCE((SELECT count(*) FROM project_tasks t
                  WHERE t.schedule_item_id = s.id AND t.status <> 'cancelled'), 0)::bigint AS task_count,
        COALESCE((SELECT count(*) FROM project_tasks t
@@ -1138,6 +1147,8 @@ type ListScheduleItemsRow struct {
 	CreatedBy          pgtype.UUID        `json:"created_by"`
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	AssignedEmployeeID pgtype.UUID        `json:"assigned_employee_id"`
+	AssignedName       string             `json:"assigned_name"`
 	TaskCount          int64              `json:"task_count"`
 	CompletedTaskCount int64              `json:"completed_task_count"`
 }
@@ -1166,6 +1177,8 @@ func (q *Queries) ListScheduleItems(ctx context.Context, arg ListScheduleItemsPa
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.AssignedEmployeeID,
+			&i.AssignedName,
 			&i.TaskCount,
 			&i.CompletedTaskCount,
 		); err != nil {
@@ -1541,21 +1554,24 @@ func (q *Queries) UpdateProjectNote(ctx context.Context, arg UpdateProjectNotePa
 
 const updateScheduleItem = `-- name: UpdateScheduleItem :one
 UPDATE project_schedule_items
-SET name = $3, description = $4, start_date = $5, end_date = $6, status = $7, sort_order = $8
+SET name = $3, description = $4, start_date = $5, end_date = $6, status = $7, sort_order = $8,
+    assigned_employee_id = $10, assigned_name = $11
 WHERE id = $1 AND organization_id = $2 AND project_id = $9
-RETURNING id, organization_id, project_id, name, description, start_date, end_date, status, sort_order, created_by, created_at, updated_at
+RETURNING id, organization_id, project_id, name, description, start_date, end_date, status, sort_order, created_by, created_at, updated_at, assigned_employee_id, assigned_name
 `
 
 type UpdateScheduleItemParams struct {
-	ID             pgtype.UUID `json:"id"`
-	OrganizationID pgtype.UUID `json:"organization_id"`
-	Name           string      `json:"name"`
-	Description    string      `json:"description"`
-	StartDate      pgtype.Date `json:"start_date"`
-	EndDate        pgtype.Date `json:"end_date"`
-	Status         string      `json:"status"`
-	SortOrder      int32       `json:"sort_order"`
-	ProjectID      pgtype.UUID `json:"project_id"`
+	ID                 pgtype.UUID `json:"id"`
+	OrganizationID     pgtype.UUID `json:"organization_id"`
+	Name               string      `json:"name"`
+	Description        string      `json:"description"`
+	StartDate          pgtype.Date `json:"start_date"`
+	EndDate            pgtype.Date `json:"end_date"`
+	Status             string      `json:"status"`
+	SortOrder          int32       `json:"sort_order"`
+	ProjectID          pgtype.UUID `json:"project_id"`
+	AssignedEmployeeID pgtype.UUID `json:"assigned_employee_id"`
+	AssignedName       string      `json:"assigned_name"`
 }
 
 func (q *Queries) UpdateScheduleItem(ctx context.Context, arg UpdateScheduleItemParams) (ProjectScheduleItem, error) {
@@ -1569,6 +1585,8 @@ func (q *Queries) UpdateScheduleItem(ctx context.Context, arg UpdateScheduleItem
 		arg.Status,
 		arg.SortOrder,
 		arg.ProjectID,
+		arg.AssignedEmployeeID,
+		arg.AssignedName,
 	)
 	var i ProjectScheduleItem
 	err := row.Scan(
@@ -1584,6 +1602,8 @@ func (q *Queries) UpdateScheduleItem(ctx context.Context, arg UpdateScheduleItem
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AssignedEmployeeID,
+		&i.AssignedName,
 	)
 	return i, err
 }

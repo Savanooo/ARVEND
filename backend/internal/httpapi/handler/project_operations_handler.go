@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -100,6 +101,8 @@ type scheduleItemResponse struct {
 	SortOrder          int     `json:"sort_order"`
 	TaskCount          int64   `json:"task_count"`
 	CompletedTaskCount int64   `json:"completed_task_count"`
+	AssignedEmployeeID *string `json:"assigned_employee_id"`
+	AssignedName       string  `json:"assigned_name"`
 }
 
 func toScheduleItemResponse(s domain.ScheduleItem) scheduleItemResponse {
@@ -108,6 +111,7 @@ func toScheduleItemResponse(s domain.ScheduleItem) scheduleItemResponse {
 		StartDate: dateStrPtr(s.StartDate), EndDate: dateStrPtr(s.EndDate),
 		Status: s.Status, SortOrder: s.SortOrder,
 		TaskCount: s.TaskCount, CompletedTaskCount: s.CompletedTaskCount,
+		AssignedEmployeeID: s.AssignedEmployeeID, AssignedName: s.AssignedName,
 	}
 }
 
@@ -118,14 +122,26 @@ type scheduleItemRequest struct {
 	EndDate     *string `json:"end_date"`
 	Status      string  `json:"status"`
 	SortOrder   int     `json:"sort_order"`
+	// Ham tutulur: alan HİÇ gönderilmediyse (eski istemci) sorumlu
+	// korunur; null/"" gönderildiyse kaldırılır.
+	AssignedEmployeeID json.RawMessage `json:"assigned_employee_id"`
 }
 
-func (r scheduleItemRequest) toInput(userID string) service.ScheduleItemInput {
-	return service.ScheduleItemInput{
+func (r scheduleItemRequest) toInput(userID string) (service.ScheduleItemInput, error) {
+	in := service.ScheduleItemInput{
 		Name: r.Name, Description: r.Description,
 		StartDate: parseDateParam(r.StartDate), EndDate: parseDateParam(r.EndDate),
 		Status: r.Status, SortOrder: r.SortOrder, UserID: userID,
 	}
+	if len(r.AssignedEmployeeID) > 0 {
+		in.AssigneeSet = true
+		if string(r.AssignedEmployeeID) != "null" {
+			if err := json.Unmarshal(r.AssignedEmployeeID, &in.AssignedEmployeeID); err != nil {
+				return in, err
+			}
+		}
+	}
+	return in, nil
 }
 
 func (h *ProjectHandler) ListScheduleItems(w http.ResponseWriter, r *http.Request) {
@@ -150,7 +166,12 @@ func (h *ProjectHandler) CreateScheduleItem(w http.ResponseWriter, r *http.Reque
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	s, err := h.svc.CreateScheduleItem(r.Context(), chi.URLParam(r, "id"), orgID, req.toInput(userID))
+	in, err := req.toInput(userID)
+	if err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz sorumlu personel")
+		return
+	}
+	s, err := h.svc.CreateScheduleItem(r.Context(), chi.URLParam(r, "id"), orgID, in)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -166,12 +187,39 @@ func (h *ProjectHandler) UpdateScheduleItem(w http.ResponseWriter, r *http.Reque
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	s, err := h.svc.UpdateScheduleItem(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "itemId"), orgID, req.toInput(userID))
+	in, err := req.toInput(userID)
+	if err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz sorumlu personel")
+		return
+	}
+	s, err := h.svc.UpdateScheduleItem(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "itemId"), orgID, in)
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
 	httpjson.Write(w, http.StatusOK, toScheduleItemResponse(*s))
+}
+
+// ListAssignees, GET /projects/{id}/assignees -- görev/plan formlarının
+// "kime" seçicisi (ücretsiz, bkz. service.Assignee).
+func (h *ProjectHandler) ListAssignees(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	rows, err := h.svc.ListAssignees(r.Context(), chi.URLParam(r, "id"), orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	type assignee struct {
+		ID         string `json:"id"`
+		FullName   string `json:"full_name"`
+		Position   string `json:"position"`
+		HasAccount bool   `json:"has_account"`
+	}
+	out := make([]assignee, len(rows))
+	for i, a := range rows {
+		out[i] = assignee{ID: a.ID, FullName: a.FullName, Position: a.Position, HasAccount: a.HasAccount}
+	}
+	httpjson.Write(w, http.StatusOK, map[string]any{"employees": out})
 }
 
 // ---------- Görevler ----------

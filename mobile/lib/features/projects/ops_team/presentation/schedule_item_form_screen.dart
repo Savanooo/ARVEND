@@ -14,6 +14,7 @@ import '../../../../core/widgets/app_page_scaffold.dart';
 import '../../../../core/widgets/async_state_view.dart';
 import '../../../../core/widgets/unsaved_changes_scope.dart';
 import '../../data/projects_providers.dart';
+import '../../presentation/assignee_field.dart';
 import '../data/ops_team_providers.dart';
 import '../domain/ops_dates.dart';
 import '../domain/ops_permissions.dart';
@@ -44,6 +45,7 @@ class _ScheduleItemFormScreenState extends ConsumerState<ScheduleItemFormScreen>
   DateTime? _start;
   DateTime? _end;
   String _status = ScheduleStatus.planned;
+  String? _assigneeId;
   ScheduleItem? _original;
   bool _initialized = false;
   bool _submitting = false;
@@ -82,6 +84,7 @@ class _ScheduleItemFormScreenState extends ConsumerState<ScheduleItemFormScreen>
         _start = parseDay(o.startDate);
         _end = parseDay(o.endDate);
         _status = o.status;
+        _assigneeId = o.assignedEmployeeId;
       }
     }
     _initialized = true;
@@ -155,6 +158,24 @@ class _ScheduleItemFormScreenState extends ConsumerState<ScheduleItemFormScreen>
                 maxLines: 4,
                 textCapitalization: TextCapitalization.sentences,
                 decoration: const InputDecoration(labelText: 'Açıklama', alignLabelWithHint: true),
+              ),
+            ],
+          ),
+          AppFormSection(
+            title: 'Sorumlu',
+            subtitle: 'Seçilen kişiye "plan ataması" bildirimi gider.',
+            children: [
+              AssigneeField(
+                key: const ValueKey('schedule-assignee'),
+                projectId: widget.projectId,
+                label: 'Sorumlu (opsiyonel)',
+                value: _assigneeId,
+                currentName: _original?.assignedName ?? '',
+                enabled: !_submitting,
+                onChanged: (v) => setState(() {
+                  _assigneeId = v;
+                  _dirty = true;
+                }),
               ),
             ],
           ),
@@ -240,6 +261,7 @@ class _ScheduleItemFormScreenState extends ConsumerState<ScheduleItemFormScreen>
       endDate: formatDay(end),
       status: widget.isEdit ? _status : ScheduleStatus.planned,
       sortOrder: original?.sortOrder ?? items.length,
+      assignedEmployeeId: _assigneeId,
     );
     setState(() {
       _submitting = true;

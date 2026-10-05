@@ -318,6 +318,25 @@ class ProjectTask {
   /// dört durum da HER ZAMAN seçilebilir.
 }
 
+/// Görev/plan formunun "kime" seçicisi (GET /projects/{id}/assignees):
+/// projenin firmasındaki aktif personel, ücretsiz. `hasAccount` false ise
+/// kişinin uygulama hesabı yoktur ve atama bildirimi kimseye ulaşmaz.
+class Assignee {
+  const Assignee({required this.id, required this.fullName, this.position = '', this.hasAccount = false});
+
+  final String id;
+  final String fullName;
+  final String position;
+  final bool hasAccount;
+
+  factory Assignee.fromJson(Map<String, dynamic> json) => Assignee(
+        id: json['id'] as String,
+        fullName: json['full_name'] as String? ?? '',
+        position: json['position'] as String? ?? '',
+        hasAccount: json['has_account'] as bool? ?? false,
+      );
+}
+
 /// Göreve yazılan bilgi notu (GET/POST /projects/{id}/tasks/{taskId}/updates).
 /// `authorName` yazıldığı anki addır; durum değişikliği yoksa
 /// `statusFrom`/`statusTo` boş.

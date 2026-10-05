@@ -102,6 +102,8 @@ const kScheduleFixtures = <ScheduleItem>[
     sortOrder: 2,
     taskCount: 8,
     completedTaskCount: 3,
+    assignedEmployeeId: 'e1',
+    assignedName: 'Mehmet Usta',
   ),
   ScheduleItem(
     id: 's4',
@@ -122,6 +124,12 @@ const kScheduleFixtures = <ScheduleItem>[
     taskCount: 2,
   ),
   ScheduleItem(id: 's6', name: 'Peyzaj', status: ScheduleStatus.cancelled, sortOrder: 5),
+];
+
+/// Görev/plan "kime" seçicisi (GET /projects/{id}/assignees).
+const kAssigneeFixtures = <Assignee>[
+  Assignee(id: 'e1', fullName: 'Mehmet Usta', position: 'Kalıpçı', hasAccount: true),
+  Assignee(id: 'e2', fullName: 'Ali Kalfa', position: 'Demirci'),
 ];
 
 const kMemberFixtures = <ProjectTeamMember>[
@@ -491,6 +499,7 @@ Widget buildOpsApp({
       opsTeamRepositoryProvider.overrideWithValue(repo),
       opsTodayProvider.overrideWithValue(kToday),
       projectDetailProvider.overrideWith((ref, id) async => sampleOpsProject(status: projectStatus)),
+      projectAssigneesProvider.overrideWith((ref, id) async => kAssigneeFixtures),
     ],
     child: MaterialApp.router(
       debugShowCheckedModeBanner: false,

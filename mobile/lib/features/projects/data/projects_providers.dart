@@ -16,6 +16,12 @@ final projectsListProvider =
   (ref, status) => ref.watch(projectsRepositoryProvider).list(status: status),
 );
 
+/// Görev/plan formunun "kime" seçicisi (ücretsiz personel listesi; proje
+/// yöneticisinde employees.read olmadığı için ayrı uç).
+final projectAssigneesProvider = FutureProvider.autoDispose.family<List<Assignee>, String>(
+  (ref, projectId) => ref.watch(projectsRepositoryProvider).assignees(projectId),
+);
+
 final projectDetailProvider = FutureProvider.autoDispose.family<Project, String>(
   (ref, id) => ref.watch(projectsRepositoryProvider).get(id),
 );

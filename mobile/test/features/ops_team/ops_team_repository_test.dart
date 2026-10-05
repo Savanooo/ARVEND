@@ -29,6 +29,8 @@ void main() {
     'sort_order': 2,
     'task_count': 8,
     'completed_task_count': 3,
+    'assigned_employee_id': 'e1',
+    'assigned_name': 'Mehmet Usta',
   };
 
   group('OpsTeamRepository', () {
@@ -45,6 +47,8 @@ void main() {
       expect(items.single.taskCount, 8);
       expect(items.single.completedTaskCount, 3);
       expect(items.single.sortOrder, 2);
+      expect(items.single.assignedEmployeeId, 'e1');
+      expect(items.single.assignedName, 'Mehmet Usta');
 
       await repo.createScheduleItem('p1', const ScheduleItemInput(name: 'Temel', startDate: '2026-10-01', sortOrder: 3));
       expect(adapter.requestBodies[1], {
@@ -54,6 +58,8 @@ void main() {
         'end_date': null,
         'status': 'planned',
         'sort_order': 3,
+        // Her zaman gönderilir: sunucu alanı hiç görmezse "dokunma" sayar.
+        'assigned_employee_id': null,
       });
 
       await repo.updateScheduleItem('p1', 's1', items.single.toInput(status: ScheduleStatus.completed));
@@ -65,6 +71,8 @@ void main() {
         'end_date': '2026-09-24',
         'status': 'completed',
         'sort_order': 2,
+        // Durum değiştirmek sorumluyu düşürmez.
+        'assigned_employee_id': 'e1',
       });
     });
 

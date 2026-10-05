@@ -1,0 +1,215 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/Savanooo/ARVEND/backend/internal/domain"
+	"github.com/Savanooo/ARVEND/backend/internal/repository"
+	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
+)
+
+// Sahada 2026-10: "plan vb. kişiye direkt bildirim gitsin", "bir resim
+// vb. yüklediğimde yöneticilere bildirim gitsin".
+
+// notificationGroupWindow: bu süre içinde aynı kişiye aynı projede aynı
+// türden okunmamış bir bildirim varsa yenisi açılmaz, o güncellenir.
+const notificationGroupWindow = 30 * time.Minute
+
+// resolveEmployeeAssignee: personel kimliği -> (kimlik, ad, bağlı kullanıcı
+// hesabı). Boş kimlik = atama yok (sıfır değerler). Başka firmanın
+// personeli ErrInvalidEmployee.
+func resolveEmployeeAssignee(ctx context.Context, txq *sqlc.Queries, orgID pgtype.UUID, employeeID string) (pgtype.UUID, string, pgtype.UUID, error) {
+	employeeID = strings.TrimSpace(employeeID)
+	if employeeID == "" {
+		return pgtype.UUID{}, "", pgtype.UUID{}, nil
+	}
+	eid, err := repository.StringToUUID(employeeID)
+	if err != nil {
+		return pgtype.UUID{}, "", pgtype.UUID{}, ErrInvalidEmployee
+	}
+	emp, err := txq.GetEmployeeByID(ctx, sqlc.GetEmployeeByIDParams{ID: eid, OrganizationID: orgID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pgtype.UUID{}, "", pgtype.UUID{}, ErrInvalidEmployee
+		}
+		return pgtype.UUID{}, "", pgtype.UUID{}, err
+	}
+	return eid, emp.FullName, emp.UserID, nil
+}
+
+// notifyScheduleAssigned: aşamanın sorumlusuna "plan ataması" bildirimi.
+// Kendini atayan kendine bildirim almaz; personelin uygulama hesabı yoksa
+// createNotification sessizce atlar.
+func notifyScheduleAssigned(ctx context.Context, txq *sqlc.Queries, item sqlc.ProjectScheduleItem, assigneeUser, actor pgtype.UUID) error {
+	if !assigneeUser.Valid || (actor.Valid && assigneeUser == actor) {
+		return nil
+	}
+	body := projectNameFor(ctx, txq, item.OrganizationID, item.ProjectID)
+	if span := dateSpan(item.StartDate, item.EndDate); span != "" {
+		body = joinNonEmpty(" · ", body, span)
+	}
+	return createNotification(ctx, txq, CreateNotificationInput{
+		OrganizationID: item.OrganizationID, UserID: assigneeUser, Type: domain.NotificationScheduleAssigned,
+		Title:      truncateRunes("Plan ataması: "+item.Name, 200),
+		Body:       truncateRunes(body, 500),
+		EntityType: domain.NotificationEntityScheduleItem, EntityID: item.ID, ProjectID: item.ProjectID,
+		ActionTarget: "/projeler/" + item.ProjectID.String() + "/planlama/" + item.ID.String(),
+	})
+}
+
+// uploadNotice: projeye yüklenen bir fotoğraf/dosya için yöneticilere
+// gidecek bildirimin türü ve metni.
+type uploadNotice struct {
+	Type       string
+	EntityType string
+	EntityID   pgtype.UUID
+	// Title, gruptaki toplam sayıyla metni üretir ("3 yeni fotoğraf yüklendi").
+	Title func(n int) string
+}
+
+// notifyProjectManagersOfUpload: projede yönetici yetkisi (projects.update)
+// olanlara -- yükleyen hariç -- gruplu bildirim. Aynı kişiye son
+// notificationGroupWindow içinde okunmamış aynı tür bildirim varsa o
+// güncellenir (sayaç +1, en üste çıkar).
+func notifyProjectManagersOfUpload(ctx context.Context, txq *sqlc.Queries, orgID pgtype.UUID, project sqlc.Project, actor pgtype.UUID, n uploadNotice) error {
+	managers, err := resolveProjectApprovers(ctx, txq, orgID, project.ID, domain.PermProjectsUpdate)
+	if err != nil {
+		return err
+	}
+	if len(managers) == 0 {
+		return nil
+	}
+	uploader := ""
+	if actor.Valid {
+		if u, err := txq.GetUserByID(ctx, actor); err == nil {
+			uploader = u.FullName
+		}
+	}
+	body := truncateRunes(joinNonEmpty(" · ", project.Name, uploader), 500)
+	target := "/projeler/" + project.ID.String() + "?grup=dokumanlar&alt=dosyalar"
+	since := pgtype.Timestamptz{Time: time.Now().Add(-notificationGroupWindow), Valid: true}
+
+	for _, uid := range managers {
+		if actor.Valid && uid == actor {
+			continue
+		}
+		existing, err := txq.FindGroupableNotification(ctx, sqlc.FindGroupableNotificationParams{
+			UserID: uid, OrganizationID: orgID, Type: n.Type, ProjectID: project.ID, Since: since,
+		})
+		switch {
+		case err == nil:
+			if _, err := txq.BumpGroupedNotification(ctx, sqlc.BumpGroupedNotificationParams{
+				ID: existing.ID, Title: truncateRunes(n.Title(int(existing.GroupCount)+1), 200), Body: body,
+			}); err != nil {
+				return err
+			}
+		case errors.Is(err, pgx.ErrNoRows):
+			if err := createNotification(ctx, txq, CreateNotificationInput{
+				OrganizationID: orgID, UserID: uid, Type: n.Type,
+				Title: truncateRunes(n.Title(1), 200), Body: body,
+				EntityType: n.EntityType, EntityID: n.EntityID, ProjectID: project.ID,
+				ActionTarget: target,
+			}); err != nil {
+				return err
+			}
+		default:
+			return err
+		}
+	}
+	return nil
+}
+
+func photoUploadTitle(n int) string {
+	if n <= 1 {
+		return "Yeni fotoğraf yüklendi"
+	}
+	return fmt.Sprintf("%d yeni fotoğraf yüklendi", n)
+}
+
+func fileUploadTitle(n int) string {
+	if n <= 1 {
+		return "Yeni dosya yüklendi"
+	}
+	return fmt.Sprintf("%d yeni dosya yüklendi", n)
+}
+
+func projectNameFor(ctx context.Context, txq *sqlc.Queries, orgID, projectID pgtype.UUID) string {
+	p, err := txq.GetProjectByID(ctx, sqlc.GetProjectByIDParams{ID: projectID, OrganizationID: orgID})
+	if err != nil {
+		return ""
+	}
+	return p.Name
+}
+
+// dateSpan: "12.10.2026 – 20.10.2026", tek uç varsa yalnızca o.
+func dateSpan(start, end pgtype.Date) string {
+	f := func(d pgtype.Date) string {
+		if !d.Valid {
+			return ""
+		}
+		return d.Time.Format("02.01.2006")
+	}
+	a, b := f(start), f(end)
+	switch {
+	case a != "" && b != "" && a != b:
+		return a + " – " + b
+	case a != "":
+		return a
+	default:
+		return b
+	}
+}
+
+func joinNonEmpty(sep string, parts ...string) string {
+	out := parts[:0:0]
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, sep)
+}
+
+// Assignee, görev/plan formundaki "kime" seçicisinin satırı. Ücret yok:
+// projeyi görebilen herkes (proje yöneticisi dahil -- onda employees.read
+// yok) seçiciyi doldurabilsin, ama personel listesi maaş göstermesin.
+type Assignee struct {
+	ID       string
+	FullName string
+	Position string
+	// HasAccount: personelin uygulama hesabı var mı -- yoksa atama
+	// bildirimi kimseye ulaşmaz; form bunu söyler.
+	HasAccount bool
+}
+
+// ListAssignees: projenin firmasındaki aktif personel (projeyi
+// doğrulayarak; başka firmanın projesi ErrNotFound).
+func (s *ProjectService) ListAssignees(ctx context.Context, projectID, organizationID string) ([]Assignee, error) {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.q.GetProjectByID(ctx, sqlc.GetProjectByIDParams{ID: pid, OrganizationID: orgID}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	active := true
+	rows, err := s.q.ListEmployees(ctx, sqlc.ListEmployeesParams{OrganizationID: orgID, IsActive: &active})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Assignee, len(rows))
+	for i, e := range rows {
+		out[i] = Assignee{ID: e.ID.String(), FullName: e.FullName, Position: e.Position, HasAccount: e.UserID.Valid}
+	}
+	return out, nil
+}

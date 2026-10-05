@@ -560,7 +560,12 @@ export default async function ProjeDetayPage({
                 birlikte gelir ama ayrı ayrı kontrol edilir. */}
             {schedule && (
               <Section title="Planlama" defaultOpen>
-                <ScheduleSection project={project} items={schedule.items} locked={locked} />
+                <ScheduleSection
+                  project={project}
+                  items={schedule.items}
+                  members={members?.members}
+                  locked={locked}
+                />
               </Section>
             )}
 

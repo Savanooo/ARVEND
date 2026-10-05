@@ -122,6 +122,9 @@ type ScheduleItem struct {
 	CreatedAt          time.Time
 	TaskCount          int64
 	CompletedTaskCount int64
+	// Sorumlu personel (migration 0052); ad atandığı anki kopyadır.
+	AssignedEmployeeID *string
+	AssignedName       string
 }
 
 type ProjectTask struct {

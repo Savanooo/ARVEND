@@ -11,8 +11,10 @@ package service_test
 // değil, hepsi `package service_test`).
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -246,6 +248,19 @@ func TestNotifications(t *testing.T) {
 		updates, err := projectSvc.ListTaskUpdates(ctx, p.ID, task.ID, orgA.ID)
 		if err != nil || len(updates) != 3 || updates[0].AuthorName == "" || updates[0].Body != "Yarısı bitti, tuğla az kaldı" {
 			t.Fatalf("notlar eskiden yeniye, yazan adıyla: %+v %v", updates, err)
+		}
+
+		// Görevi bir ustabaşı (proje yöneticisi rolü) verse de diğer
+		// yöneticiler haberdar olur; yazan yine hariç.
+		pm := mustRoleUser(t, orgA.ID, "notif_pm1b", domain.OrgRoleProjectManager)
+		if _, err := authzSvc.AddProjectUser(ctx, p.ID, orgA.ID, service.ProjectUserInput{UserID: pm.ID, ProjectRole: "member", CreatedBy: owner.ID}); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := projectSvc.AddTaskUpdate(ctx, p.ID, task.ID, orgA.ID, assignee.ID, "Ek not", ""); err != nil {
+			t.Fatal(err)
+		}
+		if count(pm.ID, domain.NotificationTaskUpdated) != 1 {
+			t.Errorf("proje yöneticisi görev notundan haberdar olmalı")
 		}
 
 		// "Tamamla" düğmesi de yöneticiye bildirir.
@@ -723,6 +738,177 @@ func TestNotifications(t *testing.T) {
 		}
 		if creatorAfterCancel != creatorBeforeCancel+1 {
 			t.Errorf("hazırlayan (poCreator) +1 iptal bildirimi almalıydı: önce=%d sonra=%d", creatorBeforeCancel, creatorAfterCancel)
+		}
+	})
+
+	t.Run("13_schedule_assignee_and_grouped_upload_notifications", func(t *testing.T) {
+		// Sahada (2026-10): "plan vb. kişiye direkt bildirim gitsin",
+		// "resim vb. yüklediğimde yöneticilere bildirim gitsin".
+		owner := mustRoleUser(t, orgA.ID, "notif_owner13", domain.OrgRoleOwner)
+		pm := mustRoleUser(t, orgA.ID, "notif_pm13", domain.OrgRoleProjectManager)
+		field := mustRoleUser(t, orgA.ID, "notif_field13", domain.OrgRoleField)
+		finance := mustRoleUser(t, orgA.ID, "notif_fin13", domain.OrgRoleFinance)
+		worker := mustRoleUser(t, orgA.ID, "notif_worker13", domain.OrgRoleField)
+		workerEmp := mustLinkedEmployee(t, orgA.ID, "Plan Sorumlusu 13", worker.ID)
+		p := newProject(t, orgA.ID, owner.ID)
+		for _, u := range []*domain.User{pm, field, finance, worker} {
+			if _, err := authzSvc.AddProjectUser(ctx, p.ID, orgA.ID, service.ProjectUserInput{UserID: u.ID, ProjectRole: "member", CreatedBy: owner.ID}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		list := func(userID, typ string) []domain.Notification {
+			res, err := notifSvc.List(ctx, userID, orgA.ID, 1, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var out []domain.Notification
+			for _, n := range res.Notifications {
+				if n.Type == typ && n.ProjectID != nil && *n.ProjectID == p.ID {
+					out = append(out, n)
+				}
+			}
+			return out
+		}
+
+		// --- Plan ataması ---
+		item, err := projectSvc.CreateScheduleItem(ctx, p.ID, orgA.ID, service.ScheduleItemInput{
+			Name: "Kaba inşaat", Status: domain.ScheduleStatusPlanned, UserID: owner.ID,
+			AssigneeSet: true, AssignedEmployeeID: workerEmp.ID,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if item.AssignedEmployeeID == nil || *item.AssignedEmployeeID != workerEmp.ID || item.AssignedName != "Plan Sorumlusu 13" {
+			t.Fatalf("sorumlu kaydedilmeli: %+v", item)
+		}
+		got := list(worker.ID, domain.NotificationScheduleAssigned)
+		if len(got) != 1 || got[0].ActionTarget != "/projeler/"+p.ID+"/planlama/"+item.ID || got[0].Title != "Plan ataması: Kaba inşaat" {
+			t.Fatalf("sorumluya plan bildirimi gitmeli: %+v", got)
+		}
+		// Alanı göndermeyen (eski) istemci: sorumlu korunur, yeni bildirim yok.
+		upd, err := projectSvc.UpdateScheduleItem(ctx, p.ID, item.ID, orgA.ID, service.ScheduleItemInput{
+			Name: "Kaba inşaat", Status: domain.ScheduleStatusActive, UserID: owner.ID,
+		})
+		if err != nil || upd.AssignedEmployeeID == nil || *upd.AssignedEmployeeID != workerEmp.ID {
+			t.Fatalf("sorumlu korunmalı: %+v %v", upd, err)
+		}
+		// Aynı kişiyle kaydetmek de yeniden bildirmez.
+		if _, err := projectSvc.UpdateScheduleItem(ctx, p.ID, item.ID, orgA.ID, service.ScheduleItemInput{
+			Name: "Kaba inşaat", Status: domain.ScheduleStatusActive, UserID: owner.ID,
+			AssigneeSet: true, AssignedEmployeeID: workerEmp.ID,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if n := len(list(worker.ID, domain.NotificationScheduleAssigned)); n != 1 {
+			t.Errorf("değişmeyen sorumlu yeniden bildirilmemeli: %d", n)
+		}
+		// Kaldır, sonra tekrar ata: ikinci bildirim.
+		cleared, err := projectSvc.UpdateScheduleItem(ctx, p.ID, item.ID, orgA.ID, service.ScheduleItemInput{
+			Name: "Kaba inşaat", Status: domain.ScheduleStatusActive, UserID: owner.ID, AssigneeSet: true,
+		})
+		if err != nil || cleared.AssignedEmployeeID != nil || cleared.AssignedName != "" {
+			t.Fatalf("sorumlu kaldırılmalı: %+v %v", cleared, err)
+		}
+		if _, err := projectSvc.UpdateScheduleItem(ctx, p.ID, item.ID, orgA.ID, service.ScheduleItemInput{
+			Name: "Kaba inşaat", Status: domain.ScheduleStatusActive, UserID: owner.ID,
+			AssigneeSet: true, AssignedEmployeeID: workerEmp.ID,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if n := len(list(worker.ID, domain.NotificationScheduleAssigned)); n != 2 {
+			t.Errorf("yeniden atama bildirilmeli: %d", n)
+		}
+		// Başka firmanın personeli atanamaz.
+		otherEmp, err := employeeSvc.Create(ctx, orgB.ID, service.EmployeeInput{FullName: "B Personeli", IsActive: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.CreateScheduleItem(ctx, p.ID, orgA.ID, service.ScheduleItemInput{
+			Name: "X", AssigneeSet: true, AssignedEmployeeID: otherEmp.ID, UserID: owner.ID,
+		}); !errors.Is(err, service.ErrInvalidEmployee) {
+			t.Errorf("başka firmanın personeli reddedilmeli: %v", err)
+		}
+
+		// Seçici: aktif personel, hesabı olup olmadığıyla; başka firma göremez.
+		as, err := projectSvc.ListAssignees(ctx, p.ID, orgA.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		foundWorker := false
+		for _, a := range as {
+			if a.ID == workerEmp.ID {
+				foundWorker = a.HasAccount && a.FullName == "Plan Sorumlusu 13"
+			}
+			if a.ID == otherEmp.ID {
+				t.Errorf("başka firmanın personeli listelenmemeli")
+			}
+		}
+		if !foundWorker {
+			t.Errorf("hesabı olan personel listede olmalı: %+v", as)
+		}
+		if _, err := projectSvc.ListAssignees(ctx, p.ID, orgB.ID); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("başka firmanın projesi: %v", err)
+		}
+
+		// --- Fotoğraf/dosya yükleme: yöneticilere, gruplu ---
+		photo := func(i byte) {
+			t.Helper()
+			png := append([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}, append(make([]byte, 64), i)...)
+			if _, err := projectSvc.UploadPhoto(ctx, p.ID, orgA.ID, service.UploadInput{
+				OriginalName: "santiye.png", Reader: bytes.NewReader(png), Stage: domain.PhotoStageProgress, UserID: field.ID,
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		photo(1)
+		photo(2)
+		for _, mgr := range []*domain.User{owner, pm} {
+			got := list(mgr.ID, domain.NotificationPhotoUploaded)
+			if len(got) != 1 || got[0].Title != "2 yeni fotoğraf yüklendi" {
+				t.Fatalf("yönetici tek, gruplu bildirim almalı: %+v", got)
+			}
+			if got[0].ActionTarget != "/projeler/"+p.ID+"?grup=dokumanlar&alt=dosyalar" || !strings.Contains(got[0].Body, "notif_field13") {
+				t.Errorf("hedef/gövde: %+v", got[0])
+			}
+		}
+		for _, other := range []*domain.User{field, finance, worker} {
+			if n := len(list(other.ID, domain.NotificationPhotoUploaded)); n != 0 {
+				t.Errorf("%s yönetici değil / yükleyen: bildirim almamalı (%d)", other.Username, n)
+			}
+		}
+		// Dosya ayrı tür.
+		if _, err := projectSvc.UploadFile(ctx, p.ID, orgA.ID, service.UploadInput{
+			OriginalName: "kesif.pdf", Reader: strings.NewReader("%PDF-1.4\nkeşif 13\n"), UserID: field.ID,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if got := list(owner.ID, domain.NotificationFileUploaded); len(got) != 1 || got[0].Title != "Yeni dosya yüklendi" {
+			t.Errorf("dosya bildirimi: %+v", got)
+		}
+		// Okunduktan sonraki yükleme yeni bildirim açar.
+		ph := list(owner.ID, domain.NotificationPhotoUploaded)[0]
+		if err := notifSvc.MarkRead(ctx, ph.ID, owner.ID, orgA.ID); err != nil {
+			t.Fatal(err)
+		}
+		photo(3)
+		got = list(owner.ID, domain.NotificationPhotoUploaded)
+		if len(got) != 2 || got[0].Title != "Yeni fotoğraf yüklendi" || got[0].ReadAt != nil {
+			t.Errorf("okunmuş bildirim büyütülmez, yenisi açılır: %+v", got)
+		}
+		// Yöneticinin kendi yüklemesi kendisine bildirilmez, diğer yöneticiye gider.
+		pmBefore := len(list(pm.ID, domain.NotificationPhotoUploaded))
+		ownerUnread, _ := notifSvc.UnreadCount(ctx, owner.ID, orgA.ID)
+		if _, err := projectSvc.UploadPhoto(ctx, p.ID, orgA.ID, service.UploadInput{
+			OriginalName: "o.png", Reader: bytes.NewReader(append([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}, make([]byte, 80)...)),
+			Stage: domain.PhotoStageProgress, UserID: owner.ID,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if after, _ := notifSvc.UnreadCount(ctx, owner.ID, orgA.ID); after != ownerUnread {
+			t.Errorf("yükleyen yönetici kendine bildirim almamalı")
+		}
+		if got := list(pm.ID, domain.NotificationPhotoUploaded); len(got) != pmBefore || !strings.HasPrefix(got[0].Title, "4 yeni") {
+			t.Errorf("diğer yöneticinin okunmamış grubu büyümeli: %+v", got)
 		}
 	})
 }

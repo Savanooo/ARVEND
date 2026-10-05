@@ -37,11 +37,17 @@ class ScheduleItem {
     this.sortOrder = 0,
     this.taskCount = 0,
     this.completedTaskCount = 0,
+    this.assignedEmployeeId,
+    this.assignedName = '',
   });
 
   final String id;
   final String name;
   final String description;
+
+  /// Sorumlu personel (backend migration 0052); ad atandığı anki kopya.
+  final String? assignedEmployeeId;
+  final String assignedName;
 
   /// "YYYY-MM-DD" ya da null.
   final String? startDate;
@@ -63,6 +69,8 @@ class ScheduleItem {
         sortOrder: (json['sort_order'] as num?)?.toInt() ?? 0,
         taskCount: (json['task_count'] as num?)?.toInt() ?? 0,
         completedTaskCount: (json['completed_task_count'] as num?)?.toInt() ?? 0,
+        assignedEmployeeId: json['assigned_employee_id'] as String?,
+        assignedName: json['assigned_name'] as String? ?? '',
       );
 
   /// Henüz kapanmamış (planlandı / devam ediyor) aşama.
@@ -106,12 +114,15 @@ class ScheduleItem {
         endDate: endDate,
         status: status ?? this.status,
         sortOrder: sortOrder,
+        assignedEmployeeId: assignedEmployeeId,
       );
 }
 
 /// `POST/PUT /projects/{id}/schedule[/{itemId}]` gövdesi (backend
 /// `scheduleItemRequest`). `PUT` TÜM alanları yazar -- eksik alan boşa
 /// düşer; bu yüzden güncellemede her zaman tam gövde gönderilir.
+/// Tek istisna sorumlu: sunucu alanı HİÇ görmezse korur (eski sürümler
+/// silmesin diye); bu sürüm onu her zaman gönderir, null = sorumlu yok.
 class ScheduleItemInput {
   const ScheduleItemInput({
     required this.name,
@@ -120,6 +131,7 @@ class ScheduleItemInput {
     this.endDate,
     this.status = ScheduleStatus.planned,
     this.sortOrder = 0,
+    this.assignedEmployeeId,
   });
 
   final String name;
@@ -128,6 +140,7 @@ class ScheduleItemInput {
   final String? endDate;
   final String status;
   final int sortOrder;
+  final String? assignedEmployeeId;
 
   Map<String, dynamic> toJson() => {
         'name': name,
@@ -136,6 +149,7 @@ class ScheduleItemInput {
         'end_date': endDate,
         'status': status,
         'sort_order': sortOrder,
+        'assigned_employee_id': assignedEmployeeId,
       };
 
   @override
@@ -146,10 +160,11 @@ class ScheduleItemInput {
       other.startDate == startDate &&
       other.endDate == endDate &&
       other.status == status &&
-      other.sortOrder == sortOrder;
+      other.sortOrder == sortOrder &&
+      other.assignedEmployeeId == assignedEmployeeId;
 
   @override
-  int get hashCode => Object.hash(name, description, startDate, endDate, status, sortOrder);
+  int get hashCode => Object.hash(name, description, startDate, endDate, status, sortOrder, assignedEmployeeId);
 }
 
 /// Planlama özetinin sayıları (liste üstündeki kart).

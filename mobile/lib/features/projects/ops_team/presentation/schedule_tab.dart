@@ -266,6 +266,23 @@ class ScheduleTimelineTile extends StatelessWidget {
                         if (duration != null) Text(' · $duration gün', style: AppTypography.metadata),
                       ],
                     ),
+                    if (item.assignedName.isNotEmpty) ...[
+                      const SizedBox(height: AppSpacing.xs),
+                      Row(
+                        children: [
+                          const Icon(Icons.person_outline, size: 14, color: AppColors.textMuted),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              item.assignedName,
+                              style: AppTypography.metadata,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                     if (overdue) ...[
                       const SizedBox(height: AppSpacing.xs),
                       Row(

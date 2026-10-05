@@ -37,6 +37,11 @@ func ToDomainScheduleItemRow(s sqlc.ProjectScheduleItem) domain.ScheduleItem {
 		Status:         s.Status,
 		SortOrder:      int(s.SortOrder),
 		CreatedAt:      s.CreatedAt.Time,
+		AssignedName:   s.AssignedName,
+	}
+	if s.AssignedEmployeeID.Valid {
+		id := s.AssignedEmployeeID.String()
+		ds.AssignedEmployeeID = &id
 	}
 	if s.StartDate.Valid {
 		t := s.StartDate.Time
@@ -55,6 +60,7 @@ func ToDomainScheduleItem(r sqlc.ListScheduleItemsRow) domain.ScheduleItem {
 		Name: r.Name, Description: r.Description, StartDate: r.StartDate, EndDate: r.EndDate,
 		Status: r.Status, SortOrder: r.SortOrder, CreatedBy: r.CreatedBy,
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+		AssignedEmployeeID: r.AssignedEmployeeID, AssignedName: r.AssignedName,
 	})
 	ds.TaskCount = r.TaskCount
 	ds.CompletedTaskCount = r.CompletedTaskCount

@@ -507,6 +507,10 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/notes", d.Projects.CreateNote)
 			})
 
+			// Görev/plan formlarının "kime" seçicisi: ücretsiz personel
+			// listesi (proje yöneticisinde employees.read yok).
+			r.With(projPerm(domain.PermProjectsRead)).Get("/{id}/assignees", d.Projects.ListAssignees)
+
 			// --- Görevler ---
 			r.With(projPerm(domain.PermProjectsTasksRead)).Get("/{id}/tasks", d.Projects.ListTasks)
 			// Görev notları (migration 0051): okumak görevi görebilen herkes,
