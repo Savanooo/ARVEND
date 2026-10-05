@@ -318,6 +318,38 @@ class ProjectTask {
   /// dört durum da HER ZAMAN seçilebilir.
 }
 
+/// Göreve yazılan bilgi notu (GET/POST /projects/{id}/tasks/{taskId}/updates).
+/// `authorName` yazıldığı anki addır; durum değişikliği yoksa
+/// `statusFrom`/`statusTo` boş.
+class TaskUpdate {
+  const TaskUpdate({
+    required this.id,
+    required this.authorName,
+    required this.body,
+    required this.statusFrom,
+    required this.statusTo,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String authorName;
+  final String body;
+  final String statusFrom;
+  final String statusTo;
+  final String createdAt;
+
+  bool get changesStatus => statusTo.isNotEmpty;
+
+  factory TaskUpdate.fromJson(Map<String, dynamic> json) => TaskUpdate(
+        id: json['id'] as String,
+        authorName: json['author_name'] as String? ?? '',
+        body: json['body'] as String? ?? '',
+        statusFrom: json['status_from'] as String? ?? '',
+        statusTo: json['status_to'] as String? ?? '',
+        createdAt: json['created_at'] as String? ?? '',
+      );
+}
+
 class ProjectPhoto {
   final String id;
   final String originalName;

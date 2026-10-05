@@ -205,7 +205,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                     ...projectActivityRoutes, // aktivite (web Aktivite sekmesi)
                     GoRoute(
                       path: 'gorevler/yeni',
-                      builder: (context, state) => TaskFormScreen(projectId: state.pathParameters['id']!),
+                      builder: (context, state) => TaskFormScreen(
+                        projectId: state.pathParameters['id']!,
+                        returnToList: state.uri.queryParameters['donus'] == 'liste',
+                      ),
                     ),
                     GoRoute(
                       path: 'gorevler/:taskId/duzenle',

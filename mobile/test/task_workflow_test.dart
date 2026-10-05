@@ -363,13 +363,13 @@ void main() {
       addTearDown(container.dispose);
 
       final before = await container.read(myTasksProvider('open').future);
-      expect(before, isEmpty);
+      expect(before.items, isEmpty);
 
       container.invalidate(myTasksProvider('open'));
       final after = await container.read(myTasksProvider('open').future);
 
-      expect(after, hasLength(1));
-      expect(after.single.$3, 'Villa Projesi');
+      expect(after.items, hasLength(1));
+      expect(after.items.single.$3, 'Villa Projesi');
     });
 
     test('bare-family invalidate(myTasksProvider) refreshes every status-mode instance at once', () async {
@@ -403,8 +403,8 @@ void main() {
 
       final openAfter = await container.read(myTasksProvider('open').future);
       final allAfter = await container.read(myTasksProvider('all').future);
-      expect(openAfter, hasLength(1));
-      expect(allAfter, hasLength(1));
+      expect(openAfter.items, hasLength(1));
+      expect(allAfter.items, hasLength(1));
       expect(adapter.calls.where((p) => p == '/tasks/mine').length, 4);
     });
 

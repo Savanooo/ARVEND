@@ -15,6 +15,7 @@ import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../tasks/data/tasks_providers.dart';
+import '../../tasks/presentation/task_update_sheet.dart';
 import '../data/projects_providers.dart';
 import '../domain/project.dart';
 
@@ -86,7 +87,8 @@ class _TaskDetailBody extends ConsumerWidget {
 
     void refreshAll() {
       ref.invalidate(projectTasksProvider(projectId));
-      ref.invalidate(myTasksProvider);
+      invalidateTaskLists(ref);
+      ref.invalidate(taskUpdatesProvider((projectId: projectId, taskId: task.id)));
       ref.invalidate(projectOperationsSummaryProvider(projectId));
     }
 
@@ -170,6 +172,99 @@ class _TaskDetailBody extends ConsumerWidget {
               ],
             ),
           ),
+          const SizedBox(height: AppSpacing.lg),
+          _TaskUpdatesSection(projectId: projectId, taskId: task.id),
+        ],
+      ),
+    );
+  }
+}
+
+/// Göreve yazılan notlar (en yeni önce): kim, ne zaman, ne yazdı, durumu
+/// neyden neye çevirdi. Yönetici görevi buradan takip eder.
+class _TaskUpdatesSection extends ConsumerWidget {
+  const _TaskUpdatesSection({required this.projectId, required this.taskId});
+  final String projectId;
+  final String taskId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final key = (projectId: projectId, taskId: taskId);
+    final updatesAsync = ref.watch(taskUpdatesProvider(key));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const AppSectionHeader(title: 'Notlar'),
+        const SizedBox(height: AppSpacing.sm),
+        AsyncStateView<List<TaskUpdate>>(
+          value: updatesAsync,
+          onRetry: () async => ref.invalidate(taskUpdatesProvider(key)),
+          data: (context, updates) {
+            if (updates.isEmpty) {
+              return AppCard(
+                child: Text(
+                  'Henüz not yok. Görevi alan kişi "Bilgi Ver" ile ne yaptığını yazar.',
+                  style: AppTypography.body.copyWith(color: AppColors.textMuted),
+                ),
+              );
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [for (final u in updates) _TaskUpdateTile(update: u)],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _TaskUpdateTile extends StatelessWidget {
+  const _TaskUpdateTile({required this.update});
+  final TaskUpdate update;
+
+  String _label(String status) => StatusRegistry.task[status]?.$1 ?? status;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      key: Key('gorev-notu-${update.id}'),
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  update.authorName.isNotEmpty ? update.authorName : 'Kullanıcı',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.body.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              Text(Formatters.dateTime(update.createdAt), style: AppTypography.helper),
+            ],
+          ),
+          if (update.changesStatus) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Row(
+              children: [
+                const Icon(Icons.swap_horiz, size: 16, color: AppColors.textMuted),
+                const SizedBox(width: AppSpacing.xs),
+                Flexible(
+                  child: Text(
+                    '${_label(update.statusFrom)} → ${_label(update.statusTo)}',
+                    style: AppTypography.metadata.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (update.body.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Text(update.body, style: AppTypography.body),
+          ],
         ],
       ),
     );
@@ -217,13 +312,48 @@ class _TaskActionsBarState extends ConsumerState<_TaskActionsBar> {
     }
   }
 
+  Future<void> _giveInfo() async {
+    final result = await showTaskUpdateSheet(context, projectId: widget.projectId, task: widget.task);
+    if (result == null || !mounted) return;
+    widget.onChanged();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Bilgi gönderildi.')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!widget.canUpdate) return const SizedBox.shrink();
-    return Wrap(
-      spacing: AppSpacing.sm,
-      runSpacing: AppSpacing.sm,
+    final open = widget.task.status != ProjectTask.statusCompleted;
+    // Düğmeler Size.fromHeight(48) ile tam genişlik ister: yan yana
+    // olanlar Expanded içinde.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        Row(
+          children: [
+            Expanded(
+              child: PrimaryButton(
+                key: const Key('gorev-bilgi-ver'),
+                icon: Icons.chat_bubble_outline,
+                label: 'Bilgi Ver',
+                onPressed: _busy ? null : _giveInfo,
+              ),
+            ),
+            if (open) ...[
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: SecondaryButton(
+                  icon: Icons.check_circle_outline,
+                  label: 'Tamamla',
+                  loading: _busy,
+                  onPressed: _complete,
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
         SecondaryButton(
           icon: Icons.edit_outlined,
           label: 'Düzenle',
@@ -233,13 +363,6 @@ class _TaskActionsBarState extends ConsumerState<_TaskActionsBar> {
                   '/projeler/${widget.projectId}/gorevler/${widget.task.id}/duzenle',
                 ),
         ),
-        if (widget.task.status != ProjectTask.statusCompleted)
-          PrimaryButton(
-            icon: Icons.check_circle_outline,
-            label: 'Tamamla',
-            loading: _busy,
-            onPressed: _complete,
-          ),
       ],
     );
   }

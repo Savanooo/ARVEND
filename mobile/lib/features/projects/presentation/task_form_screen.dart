@@ -35,10 +35,14 @@ DateTime? _parseDate(String? s) {
 /// seçilebilir (yalnızca EDIT'te -- CREATE'te backend zaten 'tamamlandı'
 /// olarak açmayı reddeder, bu yüzden create formu durumu hiç sormaz).
 class TaskFormScreen extends ConsumerStatefulWidget {
-  const TaskFormScreen({super.key, required this.projectId, this.taskId});
+  const TaskFormScreen({super.key, required this.projectId, this.taskId, this.returnToList = false});
 
   final String projectId;
   final String? taskId;
+
+  /// Görevler sekmesindeki "Görev Ata"dan açıldı: kaydedince görev
+  /// detayına değil, listeye geri dön (yönetici art arda görev atar).
+  final bool returnToList;
 
   bool get isEdit => taskId != null;
 
@@ -144,9 +148,22 @@ class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
         );
       }
       ref.invalidate(projectTasksProvider(widget.projectId));
-      ref.invalidate(myTasksProvider);
+      invalidateTaskLists(ref);
       ref.invalidate(projectOperationsSummaryProvider(widget.projectId));
-      if (mounted) context.go('/projeler/${widget.projectId}/gorevler/${task.id}');
+      if (!mounted) return;
+      if (widget.returnToList && !widget.isEdit && context.canPop()) {
+        final messenger = ScaffoldMessenger.of(context);
+        context.pop(task);
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              task.assignedName.isNotEmpty ? 'Görev atandı: ${task.assignedName}' : 'Görev eklendi.',
+            ),
+          ),
+        );
+        return;
+      }
+      context.go('/projeler/${widget.projectId}/gorevler/${task.id}');
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } finally {

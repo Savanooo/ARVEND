@@ -3,24 +3,29 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/app_shell.dart';
+import '../../../core/auth/auth_controller.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_filter_bar.dart';
 import '../../../core/widgets/app_list_card.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
+import '../../dashboard/presentation/widgets/project_picker_sheet.dart';
 import '../../projects/data/projects_providers.dart';
 import '../../projects/domain/project.dart';
 import '../data/tasks_providers.dart';
 import '../domain/task_filters.dart';
 
-/// Global görevler — GET /tasks/mine (tek sorgu, proje döngüsü YOK). Durum
-/// filtresi backend'e GİDER (`status` query param, sunucu tarafında
-/// filtrelenir); gecikme/öncelik/proje/arama filtreleri ZATEN çekilmiş TEK
-/// listenin üzerinde istemci tarafında uygulanır -- her ikisi de YENİ bir
-/// ağ isteği İCAT ETMEZ.
+/// Global görevler. İki görünüm:
+/// - "Benim": GET /tasks/mine -- bana atananlar.
+/// - "Ekip": GET /tasks/team -- erişilebilir projelerdeki tüm görevler;
+///   yönetici buradan atar ("Görev Ata") ve takip eder (sahada 2026-10).
+/// Durum filtresi backend'e GİDER (`status` query param); gecikme/öncelik/
+/// proje/kişi/arama filtreleri çekilmiş TEK listenin üzerinde istemci
+/// tarafında uygulanır.
 class TasksScreen extends ConsumerStatefulWidget {
   const TasksScreen({super.key});
 
@@ -33,6 +38,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
   bool _overdueOnly = false;
   String? _priorityFilter;
   String? _projectFilter;
+  String? _assigneeFilter;
   final _searchController = TextEditingController();
 
   @override
@@ -41,17 +47,64 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
     super.dispose();
   }
 
+  Future<void> _assign() async {
+    final project = await showProjectPickerSheet(context);
+    if (project == null || !mounted) return;
+    await context.push('/projeler/${project.id}/gorevler/yeni?donus=liste');
+    if (!mounted) return;
+    invalidateTaskLists(ref);
+  }
+
+  void _setScope(String scope) {
+    ref.read(tasksScopeProvider.notifier).state = scope;
+    setState(() {
+      _projectFilter = null;
+      _assigneeFilter = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final tasksAsync = ref.watch(myTasksProvider(_statusMode));
+    final auth = ref.watch(authControllerProvider);
+    // Varsayılan görünüm izne bağlı: kullanıcı yüklenmeden karar verilirse
+    // önce yanlış liste çekilir, sonra doğrusu.
+    if (auth.isLoading && !auth.hasValue) {
+      return Scaffold(appBar: buildAppBar('Görevler'), body: const LoadingState());
+    }
+    final user = auth.valueOrNull;
+    final canAssign =
+        user == null || user.permissions.isEmpty || user.hasPermission('projects.tasks.create');
+    // Görev atayabilen (yönetici) Ekip ile, diğerleri kendi görevleriyle açar.
+    final scope = ref.watch(tasksScopeProvider) ?? (canAssign ? 'team' : 'mine');
+    final isTeam = scope == 'team';
+    final provider = isTeam ? teamTasksProvider(_statusMode) : myTasksProvider(_statusMode);
+    final tasksAsync = ref.watch(provider);
 
     return Scaffold(
-      appBar: buildAppBar('Görevlerim'),
+      appBar: buildAppBar('Görevler'),
+      floatingActionButton: canAssign
+          ? FloatingActionButton.extended(
+              key: const Key('gorev-ata'),
+              onPressed: _assign,
+              icon: const Icon(Icons.add_task),
+              label: const Text('Görev Ata'),
+            )
+          : null,
       body: RefreshIndicator(
-        onRefresh: () async => ref.invalidate(myTasksProvider(_statusMode)),
+        onRefresh: () async => ref.invalidate(provider),
         child: ListView(
-          padding: kScreenPadding,
+          padding: kScreenPadding.copyWith(bottom: canAssign ? 96 : null),
           children: [
+            SegmentedButton<String>(
+              key: const Key('gorev-gorunum'),
+              segments: const [
+                ButtonSegment(value: 'mine', icon: Icon(Icons.person_outline), label: Text('Benim')),
+                ButtonSegment(value: 'team', icon: Icon(Icons.groups_outlined), label: Text('Ekip')),
+              ],
+              selected: {scope},
+              onSelectionChanged: (s) => _setScope(s.first),
+            ),
+            const SizedBox(height: AppSpacing.sm),
             SegmentedButton<String>(
               segments: const [
                 ButtonSegment(value: 'open', label: Text('Açık')),
@@ -67,10 +120,10 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
             const SizedBox(height: AppSpacing.sm),
             TextField(
               controller: _searchController,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 isDense: true,
-                prefixIcon: Icon(Icons.search, size: 20),
-                hintText: 'Başlık veya proje ara',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                hintText: isTeam ? 'Başlık, proje veya kişi ara' : 'Başlık veya proje ara',
               ),
               onChanged: (_) => setState(() {}),
             ),
@@ -101,13 +154,38 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
               ],
             ),
             const SizedBox(height: AppSpacing.md),
-            AsyncStateView(
+            AsyncStateView<TaskListPage>(
               value: tasksAsync,
-              onRetry: () async => ref.invalidate(myTasksProvider(_statusMode)),
-              data: (context, allItems) {
+              onRetry: () async => ref.invalidate(provider),
+              data: (context, page) {
+                final allItems = page.items;
+                if (allItems.isEmpty) {
+                  if (!isTeam && page.linkedEmployee == false) {
+                    return _NotLinkedNotice(
+                      onShowTeam: canAssign ? () => _setScope('team') : null,
+                    );
+                  }
+                  return EmptyStateView(
+                    message: isTeam
+                        ? (canAssign
+                            ? 'Görev yok. "Görev Ata" ile projeye görev verebilirsin.'
+                            : 'Görev yok.')
+                        : 'Sana atanmış görev yok.',
+                    icon: Icons.checklist_outlined,
+                  );
+                }
+
                 final projects = <String, String>{};
-                for (final item in allItems) {
-                  projects[item.$2] = item.$3;
+                final people = <String, String>{};
+                var hasUnassigned = false;
+                for (final (task, projectId, projectName) in allItems) {
+                  projects[projectId] = projectName;
+                  final id = task.assignedEmployeeId ?? '';
+                  if (id.isEmpty) {
+                    hasUnassigned = true;
+                  } else {
+                    people[id] = task.assignedName.isEmpty ? 'İsimsiz' : task.assignedName;
+                  }
                 }
                 final items = allItems
                     .where(
@@ -118,23 +196,13 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                         overdueOnly: _overdueOnly,
                         priority: _priorityFilter,
                         projectFilter: _projectFilter,
+                        assigneeFilter: isTeam ? _assigneeFilter : null,
                         searchQuery: _searchController.text,
                       ),
                     )
                     .toList();
+                final showPeople = isTeam && (people.length + (hasUnassigned ? 1 : 0)) > 1;
 
-                if (allItems.isEmpty) {
-                  return const EmptyStateView(
-                    message: 'Görev yok.',
-                    icon: Icons.checklist_outlined,
-                  );
-                }
-                if (items.isEmpty) {
-                  return const EmptyStateView(
-                    message: 'Bu filtreye uyan görev yok.',
-                    icon: Icons.checklist_outlined,
-                  );
-                }
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -142,7 +210,9 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                       Padding(
                         padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                         child: DropdownButtonFormField<String>(
+                          key: ValueKey('proje-$scope'),
                           initialValue: _projectFilter ?? '',
+                          isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Proje',
                             isDense: true,
@@ -155,7 +225,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                             ...projects.entries.map(
                               (e) => DropdownMenuItem(
                                 value: e.key,
-                                child: Text(e.value),
+                                child: Text(e.value, overflow: TextOverflow.ellipsis),
                               ),
                             ),
                           ],
@@ -166,8 +236,43 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                           ),
                         ),
                       ),
-                    for (final item in items)
-                      _TaskRow(item: item, statusMode: _statusMode),
+                    if (showPeople)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                        child: DropdownButtonFormField<String>(
+                          key: const Key('gorev-kisi'),
+                          initialValue: _assigneeFilter ?? '',
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Kişi',
+                            isDense: true,
+                          ),
+                          items: [
+                            const DropdownMenuItem(value: '', child: Text('Herkes')),
+                            ...(people.entries.toList()
+                                  ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase())))
+                                .map(
+                              (e) => DropdownMenuItem(
+                                value: e.key,
+                                child: Text(e.value, overflow: TextOverflow.ellipsis),
+                              ),
+                            ),
+                            if (hasUnassigned)
+                              const DropdownMenuItem(value: kUnassignedFilter, child: Text('Atanmamış')),
+                          ],
+                          onChanged: (v) => setState(
+                            () => _assigneeFilter = (v == null || v.isEmpty) ? null : v,
+                          ),
+                        ),
+                      ),
+                    if (items.isEmpty)
+                      const EmptyStateView(
+                        message: 'Bu filtreye uyan görev yok.',
+                        icon: Icons.checklist_outlined,
+                      )
+                    else
+                      for (final item in items)
+                        _TaskRow(item: item, showAssignee: isTeam),
                   ],
                 );
               },
@@ -179,30 +284,91 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
   }
 }
 
+/// "Benim" boş ve hesap bir personel kaydına bağlı değil: görev personele
+/// atanır, kişiye değil -- bu hesaba hiçbir zaman görev düşmez. Sessiz bir
+/// "Görev yok" bunu saklardı.
+class _NotLinkedNotice extends StatelessWidget {
+  const _NotLinkedNotice({this.onShowTeam});
+  final VoidCallback? onShowTeam;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      key: const Key('gorev-bagli-degil'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.link_off, size: 20, color: AppColors.warning),
+              SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  'Hesabın bir personel kaydına bağlı değil',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Görevler personele atanır; bu yüzden sana görev düşmüyor. '
+            'Personel ekranında kişiye giriş hesabı açılınca görevleri burada görünür.',
+            style: AppTypography.body.copyWith(color: AppColors.textMuted),
+          ),
+          if (onShowTeam != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            TextButton.icon(
+              onPressed: onShowTeam,
+              icon: const Icon(Icons.groups_outlined),
+              label: const Text('Ekibin görevlerini göster'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _TaskRow extends ConsumerWidget {
-  const _TaskRow({required this.item, required this.statusMode});
+  const _TaskRow({required this.item, required this.showAssignee});
   final ProjectTaskWithProject item;
-  final String statusMode;
+
+  /// "Ekip" görünümü: kime atandığı yazılır; başkasının görevi listeden
+  /// tek dokunuşla tamamlanmasın diye onay kutusu yerine durum ikonu.
+  final bool showAssignee;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final (task, projectId, projectName) = item;
+    final done = task.status == ProjectTask.statusCompleted;
     return AppListCard(
       margin: const EdgeInsets.only(bottom: AppSpacing.sm),
       onTap: () => context.push('/projeler/$projectId/gorevler/${task.id}'),
-      leading: Checkbox(
-        value: task.status == ProjectTask.statusCompleted,
-        onChanged: task.status == ProjectTask.statusCompleted
-            ? null
-            : (_) async {
-                await ref
-                    .read(projectsRepositoryProvider)
-                    .completeTask(projectId, task.id);
-                ref.invalidate(myTasksProvider(statusMode));
-              },
-      ),
+      leading: showAssignee
+          ? Icon(
+              done
+                  ? Icons.check_circle
+                  : task.status == ProjectTask.statusInProgress
+                      ? Icons.timelapse
+                      : Icons.radio_button_unchecked,
+              color: done ? AppColors.success : AppColors.textMuted,
+            )
+          : Checkbox(
+              value: done,
+              onChanged: done
+                  ? null
+                  : (_) async {
+                      await ref
+                          .read(projectsRepositoryProvider)
+                          .completeTask(projectId, task.id);
+                      invalidateTaskLists(ref);
+                    },
+            ),
       title: task.title,
-      subtitle: projectName,
+      subtitle: showAssignee
+          ? '$projectName · ${task.assignedName.isNotEmpty ? task.assignedName : 'Atanmamış'}'
+          : projectName,
       trailing: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.end,

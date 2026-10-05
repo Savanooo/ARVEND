@@ -117,13 +117,29 @@ class ProjectsRepository {
     return (json['tasks'] as List).cast<Map<String, dynamic>>().map(ProjectTask.fromJson).toList();
   }
 
-  /// GET /tasks/mine — org+proje erişimindeki görevler (tek sorgu; O(N) döngü yok).
-  Future<List<(ProjectTask, String, String)>> myTasks({String status = 'open'}) async {
+  /// GET /tasks/mine — bana atanan görevler (tek sorgu; O(N) döngü yok).
+  /// `linkedEmployee`: hesap bir personel kaydına bağlı mı (liste boşsa
+  /// nedenini söylemek için; eski sunucu göndermez -> null).
+  Future<({List<(ProjectTask, String, String)> tasks, bool? linkedEmployee})> myTasks({String status = 'open'}) async {
     final json = await _client.get<Map<String, dynamic>>(
       '/tasks/mine',
       query: {'status': status},
     );
-    final list = (json['tasks'] as List).cast<Map<String, dynamic>>();
+    return (tasks: _taskRows(json), linkedEmployee: json['linked_employee'] as bool?);
+  }
+
+  /// GET /tasks/team — erişilebilir projelerdeki TÜM görevler (yönetici
+  /// buradan takip eder).
+  Future<List<(ProjectTask, String, String)>> teamTasks({String status = 'open'}) async {
+    final json = await _client.get<Map<String, dynamic>>(
+      '/tasks/team',
+      query: {'status': status},
+    );
+    return _taskRows(json);
+  }
+
+  static List<(ProjectTask, String, String)> _taskRows(Map<String, dynamic> json) {
+    final list = ((json['tasks'] as List?) ?? const []).cast<Map<String, dynamic>>();
     return [
       for (final m in list)
         (
@@ -132,6 +148,31 @@ class ProjectsRepository {
           m['project_name'] as String? ?? '',
         ),
     ];
+  }
+
+  /// GET /projects/{id}/tasks/{taskId}/updates — görevin notları, en yeni önce.
+  Future<List<TaskUpdate>> taskUpdates(String projectId, String taskId) async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/tasks/$taskId/updates');
+    return ((json['updates'] as List?) ?? const []).cast<Map<String, dynamic>>().map(TaskUpdate.fromJson).toList();
+  }
+
+  /// POST /projects/{id}/tasks/{taskId}/updates — göreve bilgi notu
+  /// (isteğe bağlı durum değişikliğiyle). Sunucu görevi verene/yöneticiye
+  /// bildirim düşer.
+  Future<(TaskUpdate, ProjectTask)> addTaskUpdate(
+    String projectId,
+    String taskId, {
+    required String body,
+    String? status,
+  }) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/tasks/$taskId/updates',
+      data: {'body': body, if (status != null && status.isNotEmpty) 'status': status},
+    );
+    return (
+      TaskUpdate.fromJson(json['update'] as Map<String, dynamic>),
+      ProjectTask.fromJson(json['task'] as Map<String, dynamic>),
+    );
   }
 
   Future<ProjectTask> completeTask(String projectId, String taskId) async {

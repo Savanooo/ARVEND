@@ -29,9 +29,13 @@ bool taskMatchesCommonFilters(
   return true;
 }
 
-/// `TasksScreen` (global "Görevlerim") için ayrıca proje + serbest metin
-/// arama filtresi -- başlık VEYA proje adında (büyük/küçük harf duyarsız)
-/// alt dize eşleşmesi.
+/// "Ekip" görünümünde kişi filtresinin "Atanmamış" değeri.
+const kUnassignedFilter = '-';
+
+/// `TasksScreen` (global "Görevler") için ayrıca proje, kişi ("Ekip"
+/// görünümü; [kUnassignedFilter] = kimseye atanmamış) + serbest metin
+/// arama filtresi -- başlık, proje adı VEYA atanan kişide (büyük/küçük harf
+/// duyarsız) alt dize eşleşmesi.
 bool myTaskMatchesFilters(
   ProjectTask task,
   String projectId,
@@ -39,12 +43,20 @@ bool myTaskMatchesFilters(
   required bool overdueOnly,
   String? priority,
   String? projectFilter,
+  String? assigneeFilter,
   String searchQuery = '',
 }) {
   if (!taskMatchesCommonFilters(task, overdueOnly: overdueOnly, priority: priority)) return false;
   if (projectFilter != null && projectId != projectFilter) return false;
+  if (assigneeFilter != null) {
+    final id = task.assignedEmployeeId ?? '';
+    if (assigneeFilter == kUnassignedFilter ? id.isNotEmpty : id != assigneeFilter) return false;
+  }
   final q = searchQuery.trim().toLowerCase();
-  if (q.isNotEmpty && !task.title.toLowerCase().contains(q) && !projectName.toLowerCase().contains(q)) {
+  if (q.isNotEmpty &&
+      !task.title.toLowerCase().contains(q) &&
+      !projectName.toLowerCase().contains(q) &&
+      !task.assignedName.toLowerCase().contains(q)) {
     return false;
   }
   return true;

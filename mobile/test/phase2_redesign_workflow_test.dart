@@ -351,7 +351,7 @@ void main() {
   group('TasksScreen — öncelik/gecikme filtreleri (AppFilterBar wrap)', () {
     testWidgets('öncelik çipi yalnızca o önceliğe uyan görevleri bırakır', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
-        '/auth/me': [(status: 200, body: _meJson())],
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['projects.tasks.read']))],
         '/tasks/mine': [
           (
             status: 200,
@@ -379,7 +379,7 @@ void main() {
 
     testWidgets('yalnızca gecikmiş çipi gecikmemiş görevleri gizler', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
-        '/auth/me': [(status: 200, body: _meJson())],
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['projects.tasks.read']))],
         '/tasks/mine': [
           (
             status: 200,
@@ -407,6 +407,7 @@ void main() {
       final adapter = FakeHttpClientAdapter(script: {
         '/auth/me': [(status: 200, body: _meJson(permissions: ['projects.tasks.update']))],
         '/projects/p1/tasks': [(status: 200, body: {'tasks': [_taskJson()]})],
+        '/projects/p1/tasks/t1/updates': [(status: 200, body: {'updates': <dynamic>[]})],
         '/projects/p1': [(status: 200, body: _projectJson(name: 'Merkez Ofis İnşaatı'))],
       });
       await _pump(tester, adapter, const TaskDetailScreen(projectId: 'p1', taskId: 't1'));
@@ -419,12 +420,14 @@ void main() {
       final adapter = FakeHttpClientAdapter(script: {
         '/auth/me': [(status: 200, body: _meJson(permissions: ['projects.tasks.read']))],
         '/projects/p1/tasks': [(status: 200, body: {'tasks': [_taskJson()]})],
+        '/projects/p1/tasks/t1/updates': [(status: 200, body: {'updates': <dynamic>[]})],
         '/projects/p1': [(status: 200, body: _projectJson())],
       });
       await _pump(tester, adapter, const TaskDetailScreen(projectId: 'p1', taskId: 't1'));
 
       expect(find.text('Düzenle'), findsNothing);
       expect(find.text('Tamamla'), findsNothing);
+      expect(find.text('Bilgi Ver'), findsNothing);
     });
   });
 
