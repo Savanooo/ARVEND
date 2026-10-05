@@ -5,6 +5,7 @@ import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:arvend/core/api/api_providers.dart';
 import 'package:arvend/core/theme/app_theme.dart';
+import 'package:arvend/features/attendance/domain/attendance.dart';
 import 'package:arvend/features/attendance/presentation/attendance_screen.dart';
 import 'package:arvend/features/payroll/data/payroll_repository.dart';
 import 'package:arvend/features/payroll/domain/payroll.dart';
@@ -117,13 +118,18 @@ void main() {
     });
   });
 
-  group('visibility on the Mesai screen', () {
-    testWidgets('without payroll.read: no Maaş tab and /payroll is NEVER called', (tester) async {
+  group('Mesai & Maaş: tek liste, kişiye dokununca o kişinin ayı', () {
+    testWidgets('without payroll.read: no salary anywhere and /payroll is NEVER called', (tester) async {
       final adapter = _adapter(permissions: ['attendance.read', 'attendance.manage', 'employees.read']);
       await _pump(tester, adapter);
 
-      expect(find.text('Maaş'), findsNothing);
-      expect(find.text('Mesai'), findsOneWidget, reason: 'başlık eskisi gibi kalmalı');
+      expect(find.text('Mesai'), findsOneWidget, reason: 'başlık');
+      expect(find.text('Ahmet Usta'), findsOneWidget, reason: 'aktif personel listede');
+      expect(find.textContaining('Ödenecek'), findsNothing);
+      await tester.tap(find.text('Ahmet Usta'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('kisi-maas-ozet')), findsNothing);
+      expect(find.text('Avans Ver'), findsNothing);
       expect(adapter.calls, isNot(contains('/payroll')));
     });
 
@@ -132,63 +138,50 @@ void main() {
       final adapter = _adapter(permissions: const []);
       await _pump(tester, adapter);
 
-      expect(find.text('Maaş'), findsNothing);
+      expect(find.textContaining('Ödenecek'), findsNothing);
       expect(adapter.calls, isNot(contains('/payroll')));
     });
 
-    testWidgets('payroll.read: tab shows the month, but no "Ödeme Ekle" without manage', (tester) async {
+    testWidgets('payroll.read: list shows status + remaining; person screen shows the summary but no pay actions',
+        (tester) async {
       final adapter = _adapter(permissions: ['attendance.read', 'payroll.read'], withPayroll: true);
       await _pump(tester, adapter);
 
       expect(find.text('Mesai & Maaş'), findsOneWidget);
-      await tester.tap(find.text('Maaş'));
-      await tester.pumpAndSettle();
-
-      expect(adapter.calls, contains('/payroll'));
-      expect(find.text('Ahmet Usta'), findsWidgets);
-      expect(find.text('Ödeme Ekle'), findsNothing);
-      expect(find.text('Öde'), findsNothing, reason: 'manage yoksa kartta Öde yok');
+      expect(find.textContaining('Ödenecek'), findsOneWidget);
+      // Tek liste: aktif + o ay verisi olan pasif + ücreti tanımsız kişi.
+      expect(find.byKey(const ValueKey('kisi-e1')), findsOneWidget);
+      expect(find.byKey(const ValueKey('kisi-e2')), findsOneWidget);
+      expect(find.text('Ayrılan Kalfa (pasif)'), findsOneWidget);
       expect(find.text('Bekliyor'), findsOneWidget);
-      expect(find.text('Ödendi'), findsOneWidget);
-      expect(find.text('Ücret tanımsız'), findsOneWidget);
-      // Sekme değişince Puantaj'ın "+" düğmesi kaybolmalı (zaten manage yok).
-      expect(find.byType(FloatingActionButton), findsNothing);
+      expect(find.byType(FloatingActionButton), findsNothing, reason: 'attendance.manage yok');
+
+      await tester.tap(find.byKey(const ValueKey('kisi-e1')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('kisi-maas-ozet')), findsOneWidget);
+      expect(find.text('Ödemeler (2)'), findsOneWidget, reason: 'yalnızca bu kişinin ödemeleri');
+      expect(find.text('Öde'), findsNothing);
+      expect(find.text('Avans Ver'), findsNothing);
+      expect(find.text('Mesai Ekle'), findsNothing);
     });
 
-    testWidgets('payroll.manage: "Ödeme Ekle" is offered and the Puantaj FAB hides on the Maaş tab',
-        (tester) async {
+    testWidgets('payroll.manage: "Öde" on the person screen opens the form with the remaining amount', (tester) async {
       final adapter = _adapter(
         permissions: ['attendance.read', 'attendance.manage', 'employees.read', 'payroll.read', 'payroll.manage'],
         withPayroll: true,
       );
       await _pump(tester, adapter);
+      expect(find.byType(FloatingActionButton), findsOneWidget, reason: 'listede Mesai Ekle');
 
-      expect(find.byType(FloatingActionButton), findsOneWidget, reason: 'Puantaj sekmesinde FAB var');
-      await tester.tap(find.text('Maaş'));
+      await tester.tap(find.byKey(const ValueKey('kisi-e1')));
       await tester.pumpAndSettle();
-
-      expect(find.text('Ödeme Ekle'), findsOneWidget);
-      expect(find.byType(FloatingActionButton), findsNothing, reason: 'Maaş sekmesinde Puantaj FAB\'ı karışıklık yaratır');
-    });
-
-    testWidgets('"Öde" opens the form with the employee selected and the remaining amount filled in',
-        (tester) async {
-      final adapter = _adapter(
-        permissions: ['attendance.read', 'payroll.read', 'payroll.manage'],
-        withPayroll: true,
-      );
-      await _pump(tester, adapter);
-      await tester.tap(find.text('Maaş'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Öde'), findsOneWidget, reason: 'yalnızca kalanı olan satırda');
+      expect(find.text('Mesai Ekle'), findsOneWidget);
       await tester.tap(find.text('Öde'));
       await tester.pumpAndSettle();
 
       final amount = tester.widget<TextField>(find.byKey(const Key('payment-amount')));
       expect(amount.controller!.text, '2249,5');
       expect(find.textContaining('Kalan:'), findsOneWidget);
-      expect(find.text('Ahmet Usta'), findsWidgets);
     });
   });
 
@@ -218,59 +211,48 @@ void main() {
           'payments': <dynamic>[],
         };
 
-    FakeHttpClientAdapter adapter() => FakeHttpClientAdapter(script: {
-          '/auth/me': [(status: 200, body: _meJson(['attendance.read', 'payroll.read', 'payroll.manage']))],
-          '/attendance': [
-            (status: 200, body: {'attendance': <Map<String, dynamic>>[]}),
-          ],
-          '/payroll': [
-            (status: 200, body: monthStart()),
-            (status: 201, body: _paymentJson(id: 'p9', type: 'avans', amount: 5000)),
-            (status: 200, body: monthStart()),
-          ],
-        });
-
-    testWidgets('ay başında (hakediş 0) kart "Çalışma yok" der, "Ödendi" DEĞİL; yine de Avans verilebilir',
+    testWidgets('ay başında (hakediş 0) "Çalışma yok" der, "Ödendi" DEĞİL; kişi ekranından Avans verilir',
         (tester) async {
-      final a = adapter();
+      final a = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(['attendance.read', 'payroll.read', 'payroll.manage']))],
+        '/attendance': [
+          (status: 200, body: {'attendance': <Map<String, dynamic>>[]}),
+        ],
+        '/payroll': [
+          (status: 200, body: monthStart()),
+          (status: 201, body: _paymentJson(id: 'p9', type: 'avans', amount: 5000)),
+          (status: 200, body: monthStart()),
+        ],
+      });
       await _pump(tester, a);
-      await tester.tap(find.text('Maaş'));
-      await tester.pumpAndSettle();
 
       expect(find.text('Çalışma yok'), findsOneWidget);
       expect(find.text('Ödendi'), findsNothing);
-      expect(find.text('Öde'), findsNothing, reason: 'kalan yok');
-      expect(find.text('Avans'), findsOneWidget, reason: 'avans kalandan bağımsız');
+      await tester.tap(find.byKey(const ValueKey('kisi-e1')));
+      await tester.pumpAndSettle();
+      expect(find.text('Ödeme Ekle'), findsOneWidget, reason: 'kalan yok: "Öde" değil genel ödeme');
 
-      await tester.tap(find.text('Avans'));
+      await tester.tap(find.text('Avans Ver'));
       await tester.pumpAndSettle();
       expect(find.text('Avans Ver'), findsWidgets, reason: 'form başlığı');
       final amount = tester.widget<TextField>(find.byKey(const Key('payment-amount')));
       expect(amount.controller!.text, isEmpty, reason: 'avansta kalan önerilmez');
+      expect(find.textContaining('Avans bu ayın maaşından düşülür'), findsOneWidget);
 
       await tester.enterText(find.byKey(const Key('payment-amount')), '5.000');
       await tester.tap(find.text('Kaydet'));
       await tester.pumpAndSettle();
 
-      final body = a.requestBodies[a.calls.lastIndexOf('/payroll') - 1] as Map;
+      // İkinci /payroll çağrısı POST (ilki ayın özeti; sonrası tazeleme).
+      final body = a.requestBodies[a.calls.indexOf('/payroll', a.calls.indexOf('/payroll') + 1)] as Map;
       expect(body['payment_type'], 'avans');
       expect(body['employee_id'], 'e1');
       expect(body['amount'], 5000);
     });
-
-    testWidgets('üstteki "Avans Ver" formu avans türüyle açar', (tester) async {
-      await _pump(tester, adapter());
-      await tester.tap(find.text('Maaş'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Avans Ver'));
-      await tester.pumpAndSettle();
-      expect(find.text('Avans'), findsWidgets, reason: 'Tür kutusunda Avans seçili');
-      expect(find.textContaining('Avans bu ayın maaşından düşülür'), findsOneWidget);
-    });
   });
 
-  group('attendance delete (web "Sil" parity)', () {
-    testWidgets('editing a record offers "Kaydı Sil"; DELETE only after confirmation, list refreshes', (tester) async {
+  group('mesai kaydı kişinin ekranında: ekle / düzenle / sil', () {
+    testWidgets('kayda dokununca "Kaydı Sil"; DELETE yalnızca onaydan sonra, liste tazelenir', (tester) async {
       final record = {
         'id': 'a1',
         'employee_id': 'e1',
@@ -302,7 +284,10 @@ void main() {
       });
       await _pump(tester, adapter);
 
-      await tester.tap(find.textContaining('2026-09-15').first);
+      await tester.tap(find.byKey(const ValueKey('kisi-e1')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('15.09.2026'), findsOneWidget, reason: 'kişinin günü');
+      await tester.tap(find.byKey(const ValueKey('mesai-a1')));
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Kaydı Sil'));
       await tester.tap(find.text('Kaydı Sil'));
@@ -315,6 +300,45 @@ void main() {
 
       expect(adapter.calls, contains('/attendance/a1'));
       expect(adapter.calls.where((c) => c == '/attendance').length, 2, reason: 'silince liste tazelenir');
+      expect(find.text('Bu ay mesai kaydı yok.'), findsOneWidget);
+    });
+
+    testWidgets('kişinin ekranından "Mesai Ekle": personel sabit, seçici yok, doğru kişiye yazar', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(['attendance.read', 'attendance.manage', 'employees.read']))],
+        '/attendance': [
+          (status: 200, body: {'attendance': <Map<String, dynamic>>[]}),
+          (
+            status: 201,
+            body: {
+              'id': 'a9', 'employee_id': 'e1', 'employee_name': 'Ahmet Usta', 'date': '2026-09-01',
+              'check_in': '08:00', 'check_out': '17:00', 'work_hours': 8, 'status': 'geldi', 'note': '',
+            },
+          ),
+          (status: 200, body: {'attendance': <Map<String, dynamic>>[]}),
+        ],
+        '/employees': [
+          (
+            status: 200,
+            body: {
+              'employees': [
+                {'id': 'e1', 'full_name': 'Ahmet Usta', 'position': 'Usta', 'is_active': true},
+              ],
+            },
+          ),
+        ],
+      });
+      await _pump(tester, adapter);
+      await tester.tap(find.byKey(const ValueKey('kisi-e1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mesai Ekle'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DropdownButtonFormField<Employee>), findsNothing, reason: 'personel sabit');
+      await tester.tap(find.text('Kaydet'));
+      await tester.pumpAndSettle();
+      final body = adapter.requestBodies[adapter.calls.indexOf('/attendance', 1)] as Map;
+      expect(body['employee_id'], 'e1');
     });
   });
 }

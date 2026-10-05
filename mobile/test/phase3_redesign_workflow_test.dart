@@ -449,7 +449,7 @@ void main() {
     });
   });
 
-  group('AttendanceScreen — izin/aksiyon görünürlüğü ve Eksik Kayıtlar ayrımı', () {
+  group('AttendanceScreen — izin/aksiyon görünürlüğü ve bugünün eksik kayıtları', () {
     testWidgets('attendance.manage izni olmayan kullanıcı için satıra dokunma ve ekleme FAB\'ı yok', (tester) async {
       final today = DateTime.now();
       final todayIso = '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
@@ -483,20 +483,22 @@ void main() {
       await _pump(tester, adapter, const AttendanceScreen(), size: const Size(400, 1800));
 
       expect(find.byType(FloatingActionButton), findsNothing);
-      expect(find.text('Bugün'), findsOneWidget);
-      // Mehmet Usta'nın bugünkü kaydı var, Ali Kaya'nınki yok -> yalnızca
-      // Ali Kaya "Eksik Kayıtlar" altında, Mehmet Usta'nın "Bugün" satırından
-      // AÇIKÇA ayrı bir bölümde.
-      expect(find.text('Eksik Kayıtlar'), findsOneWidget);
+      // Tek liste (2026-10): bugünün durumu kişinin satırında. Mehmet
+      // Usta'nın bugünkü kaydı var, Ali Kaya'nınki yok -> Ali Kaya satırı
+      // "Kayıt Yok" ile AÇIKÇA ayrışır, üstte özet satırı.
+      expect(find.text('Bugün 1/2 kişinin kaydı girildi.'), findsOneWidget);
       expect(find.text('Ali Kaya'), findsOneWidget);
       expect(find.text('Kayıt Yok'), findsOneWidget);
+      expect(find.textContaining('bugün: Geldi'), findsOneWidget);
 
-      // Aylık/Geçmiş listesindeki hiçbir satır düzenlemeye açılmamalı --
-      // "Bugün" satırları zaten hiçbir zaman tıklanabilir değildir (yalnızca
-      // Aylık/Geçmiş `canManage`'e göre onTap alır).
-      final monthlyCards = tester.widgetList<AppListCard>(find.byType(AppListCard));
-      expect(monthlyCards, isNotEmpty);
-      expect(monthlyCards.every((c) => c.onTap == null), isTrue);
+      // Kişiye dokununca yalnızca GÖRÜNTÜLEME: attendance.manage yokken
+      // ekleme düğmesi yok, günlere dokunmak düzenleme açmaz.
+      await tester.tap(find.text('Mehmet Usta'));
+      await tester.pumpAndSettle();
+      expect(find.text('Mesai Ekle'), findsNothing);
+      final dayCards = tester.widgetList<AppListCard>(find.byType(AppListCard));
+      expect(dayCards, isNotEmpty);
+      expect(dayCards.every((c) => c.onTap == null), isTrue);
     });
   });
 }

@@ -11,13 +11,16 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_data_row.dart';
-import '../../../core/widgets/app_filter_bar.dart';
 import '../../../core/widgets/app_list_card.dart';
 import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
+import '../../../core/widgets/money_text.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../payroll/data/payroll_providers.dart';
+import '../../payroll/domain/payroll.dart';
 import '../../payroll/presentation/payroll_tab.dart';
+import '../domain/attendance_people.dart';
+import 'person_month_screen.dart';
 import '../data/attendance_providers.dart';
 import '../domain/attendance.dart';
 
@@ -26,9 +29,8 @@ String _todayIso() {
   return '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
 }
 
-/// Check-in/check-out yoksa gösterilecek metin -- Bugün/Aylık listelerinde
-/// ORTAK kullanılır (bkz. Faz 3 modül talimatı: "'-' if absent").
-String _timeRange(AttendanceRecord r) =>
+/// Check-in/check-out yoksa gösterilecek metin ("'-' if absent").
+String attendanceTimeRange(AttendanceRecord r) =>
     (r.checkIn.isNotEmpty || r.checkOut.isNotEmpty) ? '${r.checkIn}${r.checkOut.isNotEmpty ? '-${r.checkOut}' : ''}' : '-';
 
 /// Faz "Mesai/Puantaj" — backend'de SAF elle giriş (bkz. domain notu:
@@ -37,6 +39,12 @@ String _timeRange(AttendanceRecord r) =>
 /// kolonu HİÇ yok -- bkz. Phase 1 doğrulaması). Bu yüzden bu ekranda proje
 /// bazlı bir görünüm YOKTUR ve saat hesaplaması/fazla mesai kuralı İCAT
 /// EDİLMEZ -- yalnızca backend'in KENDİ döndürdüğü `work_hours` gösterilir.
+///
+/// Düzen (2026-10, sahadan): TEK liste -- her personel bir satır (o ayın
+/// günü/saati, bugünün kaydı, maaş izni varsa kalan). Kişiye basınca o
+/// kişinin ayı ayrı ekranda (PersonMonthScreen): maaş özeti, Öde/Avans,
+/// gün gün mesai, ödemeler. Eskiden Puantaj/Maaş sekmeleri gün gün kayıtları
+/// ve ödemeleri alt alta diziyordu, liste ekranlarca uzuyordu.
 class AttendanceScreen extends ConsumerStatefulWidget {
   const AttendanceScreen({super.key});
 
@@ -44,279 +52,290 @@ class AttendanceScreen extends ConsumerStatefulWidget {
   ConsumerState<AttendanceScreen> createState() => _AttendanceScreenState();
 }
 
-class _AttendanceScreenState extends ConsumerState<AttendanceScreen> with SingleTickerProviderStateMixin {
-  // Puantaj | Maaş. Maaş sekmesi yalnızca payroll.read varken görünür; yoksa
-  // controller hiç kullanılmaz ve ekran eskisi gibi tek listedir.
-  //
-  // initState'te OLUŞTURULUR, `late final ... = ` ile tembel değil: maaş izni
-  // olmayan kullanıcıda build hiç dokunmadığı için tembel alan ilk kez
-  // dispose()'ta oluşuyor, ticker devre dışı bir elemana bakıp çöküyordu
-  // (payroll_workflow_test bunu yakaladı).
-  late final TabController _tabs;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabs = TabController(length: 2, vsync: this)..addListener(_onTabChanged);
-  }
-
-  void _onTabChanged() {
-    // FAB yalnızca Puantaj sekmesinde -- sekme değişince yeniden çiz.
-    if (!_tabs.indexIsChanging) setState(() {});
-  }
+class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
   DateTime _month = DateTime.now();
-  String? _employeeFilter;
-  String? _statusFilter;
 
-  String get _monthKey => '${_month.year}-${_month.month.toString().padLeft(2, '0')}';
+  String get _monthKey => monthKeyOf(_month);
   bool get _isCurrentMonth {
     final now = DateTime.now();
     return _month.year == now.year && _month.month == now.month;
   }
 
-  // Maaş sekmesinin "hesaplanan"ı puantajdan gelir: mesai eklenince,
-  // düzeltilince ya da silinince o ayın maaş tablosu da tazelenir.
+  // Maaşın "hesaplanan"ı puantajdan gelir: mesai eklenince, düzeltilince
+  // ya da silinince o ayın maaş tablosu da tazelenir.
   void _refresh() {
     ref.invalidate(attendanceListProvider(_monthKey));
     ref.invalidate(payrollMonthProvider(_monthKey));
   }
 
   @override
-  void dispose() {
-    _tabs.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final recordsAsync = ref.watch(attendanceListProvider(_monthKey));
-    final employeesAsync = ref.watch(employeesProvider);
+    final employees = ref.watch(employeesProvider).valueOrNull;
     final user = ref.watch(authControllerProvider).valueOrNull;
     final canManage = user == null || user.permissions.isEmpty || user.hasPermission('attendance.manage');
     // Maaş tutarı hassas: mesainin yukarıdaki "izin listesi boşsa her şey
     // görünür" (fail-open) kuralı burada KULLANILMAZ -- canAccess fail-CLOSED'dır
-    // (kullanıcı yüklenmemişse ya da izni yoksa sekme hiç yok, /payroll hiç
-    // çağrılmaz). Web'deki "Mesai & Maaş" sayfasıyla aynı karar.
+    // (kullanıcı yüklenmemişse ya da izni yoksa maaş hiç görünmez, /payroll
+    // hiç çağrılmaz). Web'deki "Mesai & Maaş" sayfasıyla aynı karar.
     final canSeePayroll = user.canAccess('payroll.read');
-    final canPay = canSeePayroll && user.canAccess('payroll.manage');
-    final onPuantaj = !canSeePayroll || _tabs.index == 0;
-
-    final attendanceBody = RefreshIndicator(
-      onRefresh: () async => _refresh(),
-      child: AsyncStateView(
-        value: recordsAsync,
-        onRetry: () async => _refresh(),
-        data: (context, records) => employeesAsync.when(
-          loading: () => _buildList(context, records, const [], canManage),
-          error: (_, _) => _buildList(context, records, const [], canManage),
-          data: (employees) => _buildList(context, records, employees, canManage),
-        ),
-      ),
-    );
+    final payroll = canSeePayroll ? ref.watch(payrollMonthProvider(_monthKey)).valueOrNull : null;
 
     return Scaffold(
       appBar: buildAppBar(canSeePayroll ? 'Mesai & Maaş' : 'Mesai'),
-      floatingActionButton: canManage && onPuantaj
+      floatingActionButton: canManage
           ? FloatingActionButton(
-              onPressed: () => _showFormSheet(context),
+              tooltip: 'Mesai Ekle',
+              onPressed: () => showAttendanceForm(context, onSaved: _refresh),
               child: const Icon(Icons.add),
             )
           : null,
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.sm),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.chevron_left),
-                  onPressed: () => setState(() => _month = DateTime(_month.year, _month.month - 1)),
-                ),
-                Text('${_month.year} / ${_month.month.toString().padLeft(2, '0')}', style: AppTypography.sectionTitle),
-                IconButton(
-                  icon: const Icon(Icons.chevron_right),
-                  onPressed: () => setState(() => _month = DateTime(_month.year, _month.month + 1)),
-                ),
-                if (!_isCurrentMonth)
-                  TextButton(
-                    onPressed: () => setState(() => _month = DateTime.now()),
-                    child: const Text('Bugün'),
-                  ),
-              ],
-            ),
-          ),
-          if (canSeePayroll)
-            TabBar(
-              controller: _tabs,
-              tabs: const [Tab(text: 'Puantaj'), Tab(text: 'Maaş')],
-            ),
+          MonthSwitcher(month: _month, onChanged: (m) => setState(() => _month = m)),
           Expanded(
-            child: canSeePayroll
-                ? TabBarView(
-                    controller: _tabs,
-                    children: [
-                      attendanceBody,
-                      PayrollTab(month: _monthKey, canManage: canPay),
-                    ],
-                  )
-                : attendanceBody,
+            child: RefreshIndicator(
+              onRefresh: () async => _refresh(),
+              child: AsyncStateView(
+                value: recordsAsync,
+                onRetry: () async => _refresh(),
+                data: (context, records) {
+                  final people = peopleForMonth(
+                    employees: employees,
+                    records: records,
+                    payroll: payroll,
+                    todayIso: _isCurrentMonth ? _todayIso() : null,
+                  );
+                  return _PeopleList(
+                    people: people,
+                    payroll: payroll,
+                    showToday: _isCurrentMonth,
+                    // Kişi ekranı AYNI sağlayıcıları (ay anahtarıyla) tazeler;
+                    // dönüşte liste zaten güncel, yeniden istek gerekmez.
+                    onOpen: (p) => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => PersonMonthScreen(
+                          employeeId: p.employeeId,
+                          fullName: p.fullName,
+                          initialMonth: _month,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildList(BuildContext context, List<AttendanceRecord> records, List<Employee> employees, bool canManage) {
-    final filtered = records
-        .where((r) => attendanceMatchesFilters(r, employeeFilter: _employeeFilter, statusFilter: _statusFilter))
-        .toList();
+String monthKeyOf(DateTime m) => '${m.year}-${m.month.toString().padLeft(2, '0')}';
 
-    final todaysRecords = records.where((r) => r.date == _todayIso()).toList();
-    final missingToday = _isCurrentMonth ? missingAttendanceFor(employees, todaysRecords) : const <Employee>[];
+/// Ay seçici (‹ 2026 / 10 › ve geçmiş/gelecek aydayken "Bugün").
+class MonthSwitcher extends StatelessWidget {
+  const MonthSwitcher({super.key, required this.month, required this.onChanged});
 
+  final DateTime month;
+  final ValueChanged<DateTime> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final isCurrent = month.year == now.year && month.month == now.month;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.sm),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          IconButton(
+            tooltip: 'Önceki ay',
+            icon: const Icon(Icons.chevron_left),
+            onPressed: () => onChanged(DateTime(month.year, month.month - 1)),
+          ),
+          Text('${month.year} / ${month.month.toString().padLeft(2, '0')}', style: AppTypography.sectionTitle),
+          IconButton(
+            tooltip: 'Sonraki ay',
+            icon: const Icon(Icons.chevron_right),
+            onPressed: () => onChanged(DateTime(month.year, month.month + 1)),
+          ),
+          if (!isCurrent) TextButton(onPressed: () => onChanged(DateTime.now()), child: const Text('Bugün')),
+        ],
+      ),
+    );
+  }
+}
+
+class _PeopleList extends StatelessWidget {
+  const _PeopleList({required this.people, required this.payroll, required this.showToday, required this.onOpen});
+
+  final List<PersonMonth> people;
+  final PayrollMonth? payroll;
+  final bool showToday;
+  final ValueChanged<PersonMonth> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = people.where((p) => p.isActive).toList();
+    final missingToday = showToday ? active.where((p) => p.today == null).length : 0;
+    final pay = payroll;
     return ListView(
       padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.xs, AppSpacing.lg, 88),
       children: [
-        if (_isCurrentMonth) ...[
-          const AppSectionHeader(title: 'Bugün'),
-          if (todaysRecords.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-              child: Text('Bugün için kayıt girilmedi.', style: AppTypography.metadata),
-            )
-          else
-            ...todaysRecords.map((r) => AppListCard(
-                  title: r.employeeName.isEmpty ? r.employeeId : r.employeeName,
-                  subtitle: _timeRange(r),
-                  trailing: _AttendanceTrailing(record: r),
-                )),
-          if (missingToday.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.md),
-            const AppSectionHeader(title: 'Eksik Kayıtlar'),
-            ...missingToday.map((e) => _MissingEmployeeRow(employee: e)),
-          ],
-          const SizedBox(height: AppSpacing.lg),
-        ],
-        const AppSectionHeader(title: 'Aylık / Geçmiş'),
-        const SizedBox(height: AppSpacing.xs),
-        SizedBox(
-          width: 200,
-          child: DropdownButtonFormField<String>(
-            initialValue: _employeeFilter ?? '',
-            decoration: const InputDecoration(labelText: 'Personel', isDense: true),
-            items: [
-              const DropdownMenuItem(value: '', child: Text('Tüm personel')),
-              ...employees.map((e) => DropdownMenuItem(value: e.id, child: Text(e.fullName, overflow: TextOverflow.ellipsis))),
-            ],
-            onChanged: (v) => setState(() => _employeeFilter = (v == null || v.isEmpty) ? null : v),
+        if (pay != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: Row(
+              children: [
+                Text('Ödenecek ', style: AppTypography.metadata),
+                MoneyText(
+                  pay.toPay,
+                  style: AppTypography.body.copyWith(fontWeight: FontWeight.w700),
+                  color: pay.toPay > 0 ? AppColors.danger : null,
+                ),
+                Expanded(
+                  child: Text(
+                    '  ·  ${pay.waitingCount > 0 ? '${pay.waitingCount} kişi bekliyor' : 'bekleyen yok'}',
+                    style: AppTypography.metadata,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        AppFilterBar(
-          wrap: true,
-          chips: [
-            for (final s in kAttendanceStatuses)
-              AppFilterChipData(
-                label: StatusRegistry.attendance[s]!.$1,
-                selected: _statusFilter == s,
-                onTap: () => setState(() => _statusFilter = _statusFilter == s ? null : s),
-              ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.md),
-        if (filtered.isEmpty)
+        if (showToday && active.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: Text(
+              missingToday == 0
+                  ? 'Bugün herkesin kaydı girildi.'
+                  : 'Bugün ${active.length - missingToday}/${active.length} kişinin kaydı girildi.',
+              style: AppTypography.metadata.copyWith(color: missingToday == 0 ? null : AppColors.warning),
+            ),
+          ),
+        AppSectionHeader(title: 'Personel (${people.length})'),
+        if (people.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
-            child: EmptyStateView(message: 'Bu filtreye uyan kayıt yok.', icon: Icons.event_note_outlined),
+            child: EmptyStateView(message: 'Bu ay için personel yok.', icon: Icons.people_outline),
           )
         else
-          ...filtered.map((r) => AppListCard(
-                onTap: canManage ? () => _showFormSheet(context, existing: r) : null,
-                title: r.employeeName.isEmpty ? r.employeeId : r.employeeName,
-                subtitle: [
-                  r.date,
-                  _timeRange(r),
-                  if (r.note.isNotEmpty) r.note,
-                ].join('  ·  '),
-                trailing: _AttendanceTrailing(record: r),
-              )),
-      ],
-    );
-  }
-
-  void _showFormSheet(BuildContext context, {AttendanceRecord? existing}) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (sheetContext) => _AttendanceFormSheet(existing: existing, onSaved: _refresh),
-    );
-  }
-}
-
-/// Bugün/Aylık listelerinde ORTAK trailing: durum rozeti + çalışma saati
-/// (saat PARA DEĞİL -- bu yüzden MoneyText değil düz Text kullanılır).
-class _AttendanceTrailing extends StatelessWidget {
-  const _AttendanceTrailing({required this.record});
-  final AttendanceRecord record;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        StatusRegistry.build(record.status, StatusRegistry.attendance),
-        const SizedBox(height: AppSpacing.xs),
-        Text(
-          '${record.workHours.toStringAsFixed(record.workHours.truncateToDouble() == record.workHours ? 0 : 1)} sa',
-          style: AppTypography.metadata,
+          for (final p in people) _PersonRow(person: p, showToday: showToday, onTap: () => onOpen(p)),
+        Padding(
+          padding: const EdgeInsets.only(top: AppSpacing.xs),
+          child: Text('Kişiye dokun: o ayın mesaisi, maaşı ve ödemeleri.', style: AppTypography.helper),
         ),
       ],
     );
   }
 }
 
-/// "Eksik Kayıtlar" -- `missingAttendanceFor` sonucunu "Bugün" kayıt
-/// listesinden AÇIKÇA ayırt edilebilir şekilde gösterir (bkz. Faz 3 modül
-/// talimatı). Bu sert bir hata değil, "aksiyon gerekir" durumudur -- bu
-/// yüzden danger değil warning tonu kullanılır (bkz. StatusTone doc-comment).
-class _MissingEmployeeRow extends StatelessWidget {
-  const _MissingEmployeeRow({required this.employee});
-  final Employee employee;
+class _PersonRow extends StatelessWidget {
+  const _PersonRow({required this.person, required this.showToday, required this.onTap});
+
+  final PersonMonth person;
+  final bool showToday;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return AppListCard(
-      leading: const Icon(Icons.warning_amber_rounded, color: AppColors.warning, size: 20),
-      title: employee.fullName,
-      subtitle: employee.position.isEmpty ? null : employee.position,
-      trailing: Text(
+    final p = person;
+    final pay = p.payroll;
+    final subtitle = [
+      '${Formatters.decimal(p.workedDays)} gün · ${Formatters.decimal(p.workHours)} sa',
+      if (showToday && p.isActive)
+        p.today == null ? 'bugün kayıt yok' : 'bugün: ${StatusRegistry.attendance[p.today!.status]?.$1 ?? p.today!.status}',
+    ].join('  ·  ');
+    final Widget trailing;
+    if (pay != null) {
+      final status = payrollStatus(pay);
+      trailing = Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          StatusBadge(label: status.$1, tone: status.$2),
+          if (pay.isWaiting) ...[
+            const SizedBox(height: AppSpacing.xs),
+            MoneyText(pay.remaining, style: AppTypography.body.copyWith(fontWeight: FontWeight.w700)),
+          ],
+        ],
+      );
+    } else if (showToday && p.isActive && p.today == null) {
+      trailing = Text(
         'Kayıt Yok',
         style: AppTypography.helper.copyWith(color: AppColors.warning, fontWeight: FontWeight.w700),
-      ),
+      );
+    } else if (p.today != null) {
+      trailing = StatusRegistry.build(p.today!.status, StatusRegistry.attendance);
+    } else {
+      trailing = const Icon(Icons.chevron_right, color: AppColors.textMuted);
+    }
+    return AppListCard(
+      key: ValueKey('kisi-${p.employeeId}'),
+      onTap: onTap,
+      title: p.isActive ? p.fullName : '${p.fullName} (pasif)',
+      subtitle: subtitle,
+      trailing: trailing,
     );
   }
+}
+
+/// Mesai kaydı formunu açar. [existing] verilirse düzenleme; [employeeId]
+/// verilirse (kişinin ekranından) personel sabit gelir.
+Future<void> showAttendanceForm(
+  BuildContext context, {
+  required VoidCallback onSaved,
+  AttendanceRecord? existing,
+  String? employeeId,
+  String? employeeName,
+  DateTime? initialDate,
+}) {
+  return showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (_) => AttendanceFormSheet(
+      existing: existing,
+      onSaved: onSaved,
+      employeeId: employeeId,
+      employeeName: employeeName,
+      initialDate: initialDate,
+    ),
+  );
 }
 
 /// Create + Edit AYNI form. Edit'te personel/tarih backend'de zaten
 /// DEĞİŞTİRİLEMEZ (bkz. dosya başı yorumu) -- bu yüzden salt-okunur
 /// gösterilir, yalnızca giriş/çıkış/saat/durum/not düzenlenebilir.
-class _AttendanceFormSheet extends ConsumerStatefulWidget {
-  const _AttendanceFormSheet({required this.existing, required this.onSaved});
+class AttendanceFormSheet extends ConsumerStatefulWidget {
+  const AttendanceFormSheet({
+    super.key,
+    required this.existing,
+    required this.onSaved,
+    this.employeeId,
+    this.employeeName,
+    this.initialDate,
+  });
   final AttendanceRecord? existing;
   final VoidCallback onSaved;
+
+  /// Kişinin ekranından eklerken personel sabittir (seçici yok) -- personel
+  /// listesini okuma izni (employees.read) olmasa da kayıt girilebilir.
+  final String? employeeId;
+  final String? employeeName;
+  final DateTime? initialDate;
 
   bool get isEdit => existing != null;
 
   @override
-  ConsumerState<_AttendanceFormSheet> createState() => _AttendanceFormSheetState();
+  ConsumerState<AttendanceFormSheet> createState() => _AttendanceFormSheetState();
 }
 
-class _AttendanceFormSheetState extends ConsumerState<_AttendanceFormSheet> {
+class _AttendanceFormSheetState extends ConsumerState<AttendanceFormSheet> {
   Employee? _employee;
-  DateTime _date = DateTime.now();
+  late DateTime _date = widget.initialDate ?? DateTime.now();
   late String _status;
   late final TextEditingController _checkInController;
   late final TextEditingController _checkOutController;
@@ -353,7 +372,9 @@ class _AttendanceFormSheetState extends ConsumerState<_AttendanceFormSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final employeesAsync = ref.watch(employeesProvider);
+    // Personel seçici yalnızca serbest eklemede: düzenlemede ve kişinin
+    // ekranından eklerken personel sabit, liste hiç istenmez.
+    final employeesAsync = widget.isEdit || widget.employeeId != null ? null : ref.watch(employeesProvider);
 
     return Padding(
       padding: EdgeInsets.only(left: AppSpacing.xl, right: AppSpacing.xl, top: AppSpacing.xl, bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.xl),
@@ -373,8 +394,10 @@ class _AttendanceFormSheetState extends ConsumerState<_AttendanceFormSheet> {
               AppDataRow(label: 'Tarih', value: widget.existing!.date),
               const SizedBox(height: AppSpacing.xs),
               Text('Personel ve tarih düzenlenemez.', style: AppTypography.helper),
-            ] else
-              employeesAsync.when(
+            ] else if (widget.employeeId != null)
+              AppDataRow(label: 'Personel', value: widget.employeeName ?? widget.employeeId!)
+            else
+              employeesAsync!.when(
                 data: (employees) => DropdownButtonFormField<Employee>(
                   initialValue: _employee,
                   decoration: const InputDecoration(labelText: 'Personel'),
@@ -495,7 +518,8 @@ class _AttendanceFormSheetState extends ConsumerState<_AttendanceFormSheet> {
   }
 
   Future<void> _submit() async {
-    if (!widget.isEdit && _employee == null) {
+    final employeeId = widget.employeeId ?? _employee?.id;
+    if (!widget.isEdit && employeeId == null) {
       setState(() => _error = 'Personel seçin');
       return;
     }
@@ -517,7 +541,7 @@ class _AttendanceFormSheetState extends ConsumerState<_AttendanceFormSheet> {
         );
       } else {
         await repo.create(
-          employeeId: _employee!.id,
+          employeeId: employeeId!,
           date: '${_date.year.toString().padLeft(4, '0')}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}',
           checkIn: _checkInController.text.trim(),
           checkOut: _checkOutController.text.trim(),
