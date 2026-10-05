@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -232,6 +233,56 @@ func TestProjectFinance(t *testing.T) {
 		s, _ = projectSvc.FinancialSummary(ctx, p.ID, orgA.ID)
 		if s.TotalExpenses != 1500 {
 			t.Errorf("iptal edilen masraf toplamdan düşmedi: %v want 1500", s.TotalExpenses)
+		}
+	})
+
+	t.Run("10b_subcontractor_payments_cannot_exceed_contract", func(t *testing.T) {
+		// Sahada (2026-10): 1.000 TL'lik sözleşmeye 21.000 TL ödeme girilebilmişti.
+		p := newProject(t, orgA.ID, 100000)
+		sub, err := projectSvc.CreateSubcontractor(ctx, p.ID, orgA.ID, service.SubcontractorInput{
+			Name: "Sınır Usta", ContractAmount: 1000, Currency: "TRY",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		pay := func(amount float64, key string) error {
+			_, err := projectSvc.CreateSubcontractorPayment(ctx, p.ID, sub.ID, orgA.ID, service.SubcontractorPaymentInput{
+				Amount: amount, Currency: "TRY", PaidDate: today, IdempotencyKey: key,
+			})
+			return err
+		}
+		err = pay(21000, "")
+		var over *service.PaymentExceedsContractError
+		if !errors.As(err, &over) || !errors.Is(err, service.ErrPaymentExceedsContract) {
+			t.Fatalf("sözleşmeyi aşan ödeme reddedilmeli, geldi %v", err)
+		}
+		if !strings.Contains(err.Error(), "En fazla 1.000,00 TL ödenebilir") {
+			t.Errorf("mesaj ne kadar ödenebileceğini söylemeli: %q", err.Error())
+		}
+		if err := pay(600, "k1"); err != nil {
+			t.Fatalf("sınır içindeki ödeme: %v", err)
+		}
+		if err := pay(400.01, ""); !errors.Is(err, service.ErrPaymentExceedsContract) {
+			t.Errorf("1 kuruş bile aşamaz: %v", err)
+		}
+		if err := pay(400, "k2"); err != nil {
+			t.Fatalf("tam sınıra kadar ödenebilir: %v", err)
+		}
+		// Ağ tekrarı (aynı anahtar) sınıra dayanmışken de hata vermez, aynı kaydı döner.
+		if err := pay(400, "k2"); err != nil {
+			t.Errorf("aynı anahtarlı tekrar reddedilmemeli: %v", err)
+		}
+		// İptal edilen ödeme toplamdan düşer, yeri açılır.
+		pays, _ := projectSvc.ListSubcontractorPayments(ctx, p.ID, orgA.ID)
+		for _, pp := range pays {
+			if pp.SubcontractorID == sub.ID && pp.Amount == 600 {
+				if _, err := projectSvc.VoidSubcontractorPayment(ctx, p.ID, pp.ID, orgA.ID, "", "yanlış girildi"); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if err := pay(600, ""); err != nil {
+			t.Errorf("iptalden sonra yer açılmalı: %v", err)
 		}
 	})
 

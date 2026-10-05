@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -444,7 +445,7 @@ class _PaymentSheetState extends ConsumerState<_PaymentSheet> {
   final _formKey = GlobalKey<FormState>();
   final _amount = TextEditingController();
   final _description = TextEditingController();
-  DateTime _date = DateTime.now();
+  DateTime _date = clock.now();
   bool _busy = false;
   String? _error;
   late final _idempotencyKey = 'subpay-${widget.subcontractor.id}-${DateTime.now().microsecondsSinceEpoch}';
@@ -500,10 +501,24 @@ class _PaymentSheetState extends ConsumerState<_PaymentSheet> {
             TextFormField(
               controller: _amount,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(labelText: 'Tutar (${s.currency})'),
+              decoration: InputDecoration(
+                labelText: 'Tutar (${s.currency})',
+                // Sunucu da zorlar (toplam ödeme sözleşme bedelini aşamaz);
+                // burada girmeden önce görünsün.
+                helperText: 'Sözleşme ${Formatters.money(s.contractAmount, currency: s.currency)} · '
+                    'ödenen ${Formatters.money(s.paidAmount, currency: s.currency)} · '
+                    'en fazla ${Formatters.money(s.remainingAmount > 0 ? s.remainingAmount : 0, currency: s.currency)}',
+                helperMaxLines: 2,
+              ),
               validator: (v) {
                 final parsed = _parseAmount(v);
-                return (parsed == null || parsed <= 0) ? 'Geçerli bir tutar gir' : null;
+                if (parsed == null || parsed <= 0) return 'Geçerli bir tutar gir';
+                // Kuruş yuvarlamasıyla sınırda yanlış ret olmasın diye 0,005 pay.
+                if (parsed > s.remainingAmount + 0.005) {
+                  return 'Sözleşme bedeli aşılamaz: en fazla '
+                      '${Formatters.money(s.remainingAmount > 0 ? s.remainingAmount : 0, currency: s.currency)} ödenebilir.';
+                }
+                return null;
               },
             ),
             ListTile(

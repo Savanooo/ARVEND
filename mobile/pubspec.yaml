@@ -57,6 +57,10 @@ dependencies:
   # zaten dolaylı bağımlılıktı). bkz. lib/core/update/.
   crypto: ^3.0.7
 
+  # Formlardaki "bugün" (ödeme tarihi vb.) clock.now() ile okunur: golden
+  # testleri sabit bir tarih verebilsin (yoksa görüntü her gün değişiyordu).
+  clock: ^1.1.1
+
   # ApiClient.test factory'sindeki @visibleForTesting için (transitive olarak
   # zaten mevcut, doğrudan bağımlılık olarak da bildiriliyor).
   meta: ^1.16.0

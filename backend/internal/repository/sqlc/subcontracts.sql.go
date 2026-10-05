@@ -2003,6 +2003,40 @@ func (q *Queries) ListSubcontractsDetailed(ctx context.Context, arg ListSubcontr
 	return items, nil
 }
 
+const lockSubcontractForPayment = `-- name: LockSubcontractForPayment :one
+SELECT (sc.original_amount
+        + COALESCE((SELECT sum(CASE co.change_type WHEN 'addition' THEN co.amount ELSE -co.amount END)
+                    FROM subcontract_change_orders co
+                    WHERE co.subcontract_id = sc.id AND co.status = 'approved'), 0))::numeric(18,2) AS current_value,
+       COALESCE((SELECT sum(p.amount) FROM subcontract_payments p
+                 WHERE p.subcontract_id = sc.id AND p.voided_at IS NULL), 0)::numeric(18,2) AS paid_amount
+FROM project_subcontracts sc
+WHERE sc.id = $1 AND sc.organization_id = $2 AND sc.project_id = $3
+FOR UPDATE OF sc
+`
+
+type LockSubcontractForPaymentParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+}
+
+type LockSubcontractForPaymentRow struct {
+	CurrentValue pgtype.Numeric `json:"current_value"`
+	PaidAmount   pgtype.Numeric `json:"paid_amount"`
+}
+
+// Taşeron sözleşmesine ödemede sözleşme satırı KİLİTLENİR; güncel bedel
+// (asıl bedel + onaylı ek - onaylı eksiltme) ve geçerli ödeme toplamı
+// okunur: toplam ödeme güncel bedeli aşamaz (bkz.
+// LockSubcontractorForPayment).
+func (q *Queries) LockSubcontractForPayment(ctx context.Context, arg LockSubcontractForPaymentParams) (LockSubcontractForPaymentRow, error) {
+	row := q.db.QueryRow(ctx, lockSubcontractForPayment, arg.ID, arg.OrganizationID, arg.ProjectID)
+	var i LockSubcontractForPaymentRow
+	err := row.Scan(&i.CurrentValue, &i.PaidAmount)
+	return i, err
+}
+
 const nextSubcontractChangeOrderSeq = `-- name: NextSubcontractChangeOrderSeq :one
 INSERT INTO subcontract_change_order_counters (organization_id, year, seq) VALUES ($1, $2, 1)
 ON CONFLICT (organization_id, year) DO UPDATE SET seq = subcontract_change_order_counters.seq + 1

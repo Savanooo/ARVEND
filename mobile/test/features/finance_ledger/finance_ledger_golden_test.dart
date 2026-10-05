@@ -1,6 +1,7 @@
 @Tags(['golden'])
 library;
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -119,9 +120,12 @@ void main() {
     });
 
     testWidgets('ödeme ekle formu', (tester) async {
-      await pumpAt(tester, user: ledgerOwner, home: tab(cc.sampleProject()));
-      await tester.tap(find.text('Ödeme Ekle').first);
-      await tester.pumpAndSettle();
+      // Formun tarihi "bugün": sabit saat verilmezse görüntü her gün değişirdi.
+      await withClock(Clock.fixed(DateTime(2026, 9, 28)), () async {
+        await pumpAt(tester, user: ledgerOwner, home: tab(cc.sampleProject()));
+        await tester.tap(find.text('Ödeme Ekle').first);
+        await tester.pumpAndSettle();
+      });
       await expectGolden(tester, 'subcontractor_payment_sheet_360x800');
     });
 

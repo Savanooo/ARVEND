@@ -404,3 +404,16 @@ RETURNING *;
 SELECT * FROM project_events
 WHERE project_id = $1 AND organization_id = $2
 ORDER BY created_at ASC;
+
+-- name: LockSubcontractorForPayment :one
+-- Ödeme girişinde taşeron satırı KİLİTLENİR ve sözleşme bedeli ile geçerli
+-- (iptal edilmemiş) ödeme toplamı okunur: toplam ödeme sözleşme bedelini
+-- aşamaz (sahada 2026-10: 1.000 TL'lik sözleşmeye 21.000 TL ödeme
+-- girilebilmişti). Kilit, aynı anda girilen iki ödemenin sınırı birlikte
+-- delmesini önler.
+SELECT s.contract_amount,
+       COALESCE((SELECT sum(p.amount) FROM project_subcontractor_payments p
+                 WHERE p.subcontractor_id = s.id AND p.voided_at IS NULL), 0)::numeric(18,2) AS paid_amount
+FROM project_subcontractors s
+WHERE s.id = $1 AND s.organization_id = $2 AND s.project_id = $3
+FOR UPDATE OF s;

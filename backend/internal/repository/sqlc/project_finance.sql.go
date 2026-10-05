@@ -1452,6 +1452,38 @@ func (q *Queries) ListSubcontractors(ctx context.Context, arg ListSubcontractors
 	return items, nil
 }
 
+const lockSubcontractorForPayment = `-- name: LockSubcontractorForPayment :one
+SELECT s.contract_amount,
+       COALESCE((SELECT sum(p.amount) FROM project_subcontractor_payments p
+                 WHERE p.subcontractor_id = s.id AND p.voided_at IS NULL), 0)::numeric(18,2) AS paid_amount
+FROM project_subcontractors s
+WHERE s.id = $1 AND s.organization_id = $2 AND s.project_id = $3
+FOR UPDATE OF s
+`
+
+type LockSubcontractorForPaymentParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+}
+
+type LockSubcontractorForPaymentRow struct {
+	ContractAmount pgtype.Numeric `json:"contract_amount"`
+	PaidAmount     pgtype.Numeric `json:"paid_amount"`
+}
+
+// Ödeme girişinde taşeron satırı KİLİTLENİR ve sözleşme bedeli ile geçerli
+// (iptal edilmemiş) ödeme toplamı okunur: toplam ödeme sözleşme bedelini
+// aşamaz (sahada 2026-10: 1.000 TL'lik sözleşmeye 21.000 TL ödeme
+// girilebilmişti). Kilit, aynı anda girilen iki ödemenin sınırı birlikte
+// delmesini önler.
+func (q *Queries) LockSubcontractorForPayment(ctx context.Context, arg LockSubcontractorForPaymentParams) (LockSubcontractorForPaymentRow, error) {
+	row := q.db.QueryRow(ctx, lockSubcontractorForPayment, arg.ID, arg.OrganizationID, arg.ProjectID)
+	var i LockSubcontractorForPaymentRow
+	err := row.Scan(&i.ContractAmount, &i.PaidAmount)
+	return i, err
+}
+
 const updateExpense = `-- name: UpdateExpense :one
 UPDATE project_expenses
 SET category = $3, description = $4, amount = $5, expense_date = $6,

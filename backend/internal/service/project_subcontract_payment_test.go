@@ -8,6 +8,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -296,6 +297,45 @@ func TestSubcontractPayments(t *testing.T) {
 		in2.ProgressClaimID = otherClaim.ID
 		if _, err := projectSvc.CreateSubcontractPayment(ctx, p.ID, sc.ID, orgA.ID, in2); !errors.Is(err, service.ErrSubcontractPaymentClaimInvalid) {
 			t.Fatalf("BAŞKA bir sözleşmenin hakedişine bağlı ödeme REDDEDİLMELİ, geldi: %v", err)
+		}
+	})
+
+	t.Run("9_total_payments_cannot_exceed_current_contract_value", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 100000)
+		cc := newCostCode(t, orgA.ID, "P9-CC")
+		s := newSupplier(t, orgA.ID, "P9-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 1000)
+
+		_, err := projectSvc.CreateSubcontractPayment(ctx, p.ID, sc.ID, orgA.ID, basicPayment(orgA.ID, p.ID, sc.ID, 21000))
+		if !errors.Is(err, service.ErrPaymentExceedsContract) {
+			t.Fatalf("sözleşme bedelini aşan ödeme reddedilmeli, geldi %v", err)
+		}
+		if !strings.Contains(err.Error(), "taşeron değişikliği") {
+			t.Errorf("mesaj fazlası için ne yapılacağını söylemeli: %q", err.Error())
+		}
+		if _, err := projectSvc.CreateSubcontractPayment(ctx, p.ID, sc.ID, orgA.ID, basicPayment(orgA.ID, p.ID, sc.ID, 1000)); err != nil {
+			t.Fatalf("tam bedel ödenebilir: %v", err)
+		}
+
+		// Onaylı ek (değişiklik emri) sınırı yükseltir.
+		co, err := projectSvc.CreateSubcontractChangeOrder(ctx, p.ID, sc.ID, orgA.ID, service.SubcontractChangeOrderInput{
+			Title: "Ek iş", ChangeType: "addition", Reason: "Ek kat",
+			Items: []service.SubcontractChangeOrderItemInput{{CostCodeID: cc.ID, Description: "Ek", Amount: 500}},
+		})
+		if err != nil {
+			t.Fatalf("değişiklik oluşturulamadı: %v", err)
+		}
+		if _, err := projectSvc.SubmitSubcontractChangeOrder(ctx, p.ID, co.ID, orgA.ID, ""); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.CreateSubcontractPayment(ctx, p.ID, sc.ID, orgA.ID, basicPayment(orgA.ID, p.ID, sc.ID, 500)); !errors.Is(err, service.ErrPaymentExceedsContract) {
+			t.Errorf("onaylanmamış ek sınırı yükseltmez: %v", err)
+		}
+		if _, err := projectSvc.ApproveSubcontractChangeOrder(ctx, p.ID, co.ID, orgA.ID, ""); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.CreateSubcontractPayment(ctx, p.ID, sc.ID, orgA.ID, basicPayment(orgA.ID, p.ID, sc.ID, 500)); err != nil {
+			t.Errorf("onaylı ekten sonra ödenebilir: %v", err)
 		}
 	})
 

@@ -1172,6 +1172,19 @@ func (s *ProjectService) CreateSubcontractorPayment(ctx context.Context, project
 		}
 	}
 
+	// Toplam ödeme sözleşme bedelini aşamaz. Tekrar gönderilen (aynı
+	// anahtarlı) ödeme yukarıda döndüğü için bu kontrolden ÖNCE çıkar.
+	capRow, err := txq.LockSubcontractorForPayment(ctx, sqlc.LockSubcontractorForPaymentParams{
+		ID: sid, OrganizationID: orgID, ProjectID: pid,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := checkWithinContract(repository.NumericToDecimal(capRow.ContractAmount), repository.NumericToDecimal(capRow.PaidAmount),
+		in.Amount, project.Currency, "önce taşeronun sözleşme bedelini güncelleyin"); err != nil {
+		return nil, err
+	}
+
 	var keyPtr *string
 	if key != "" {
 		keyPtr = &key

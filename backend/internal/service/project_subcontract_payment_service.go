@@ -122,6 +122,19 @@ func (s *ProjectService) CreateSubcontractPayment(ctx context.Context, projectID
 		}
 	}
 
+	// Toplam ödeme güncel sözleşme bedelini (asıl + onaylı ek - onaylı
+	// eksiltme) aşamaz; aynı anahtarlı tekrar yukarıda döndü.
+	capRow, err := txq.LockSubcontractForPayment(ctx, sqlc.LockSubcontractForPaymentParams{
+		ID: scID, OrganizationID: orgID, ProjectID: pid,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := checkWithinContract(repository.NumericToDecimal(capRow.CurrentValue), repository.NumericToDecimal(capRow.PaidAmount),
+		in.Amount, project.Currency, "önce bir taşeron değişikliği (ek iş) girip onaylayın"); err != nil {
+		return nil, err
+	}
+
 	var keyPtr *string
 	if key != "" {
 		keyPtr = &key
