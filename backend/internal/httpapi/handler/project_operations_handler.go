@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -305,11 +306,103 @@ func (h *ProjectHandler) ListMyTasks(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	// Liste boşsa nedeni: hesap bir personel kaydına bağlı değil mi?
+	linked, err := h.svc.IsEmployeeLinked(r.Context(), orgID, callerUserID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	out := make([]myTaskResponse, len(rows))
+	for i, t := range rows {
+		out[i] = toMyTaskResponse(t)
+	}
+	httpjson.Write(w, http.StatusOK, map[string]any{"tasks": out, "linked_employee": linked})
+}
+
+// ListTeamTasks, GET /api/v1/tasks/team?status=open|all|...&assignee=<personel>
+// -- Görevler sekmesinin "Ekip" görünümü: erişilebilir projelerdeki tüm
+// görevler (ListMyTasks ile aynı üyelik kuralı).
+func (h *ProjectHandler) ListTeamTasks(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	var restrictToUserID string
+	if authz, ok := middleware.AuthzContextFromRequest(r.Context()); ok && !authz.BypassesProjectMembership() {
+		restrictToUserID = authz.UserID
+	}
+	rows, err := h.svc.ListTeamTasks(r.Context(), orgID, r.URL.Query().Get("status"), restrictToUserID, r.URL.Query().Get("assignee"))
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidEmployee) {
+			httpjson.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		h.writeError(w, err)
+		return
+	}
 	out := make([]myTaskResponse, len(rows))
 	for i, t := range rows {
 		out[i] = toMyTaskResponse(t)
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"tasks": out})
+}
+
+type taskUpdateResponse struct {
+	ID         string  `json:"id"`
+	UserID     *string `json:"user_id"`
+	AuthorName string  `json:"author_name"`
+	Body       string  `json:"body"`
+	StatusFrom string  `json:"status_from"`
+	StatusTo   string  `json:"status_to"`
+	CreatedAt  string  `json:"created_at"`
+}
+
+func toTaskUpdateResponse(u domain.TaskUpdate) taskUpdateResponse {
+	return taskUpdateResponse{
+		ID: u.ID, UserID: u.UserID, AuthorName: u.AuthorName, Body: u.Body,
+		StatusFrom: u.StatusFrom, StatusTo: u.StatusTo, CreatedAt: u.CreatedAt.Format(rfc3339),
+	}
+}
+
+// ListTaskUpdates, GET /projects/{id}/tasks/{taskId}/updates.
+func (h *ProjectHandler) ListTaskUpdates(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	rows, err := h.svc.ListTaskUpdates(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "taskId"), orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	out := make([]taskUpdateResponse, len(rows))
+	for i, u := range rows {
+		out[i] = toTaskUpdateResponse(u)
+	}
+	httpjson.Write(w, http.StatusOK, map[string]any{"updates": out})
+}
+
+type createTaskUpdateRequest struct {
+	Body   string `json:"body"`
+	Status string `json:"status"`
+}
+
+// CreateTaskUpdate, POST /projects/{id}/tasks/{taskId}/updates -- göreve
+// not (isteğe bağlı durum değişikliğiyle). Yanıt: not + görevin son hali.
+func (h *ProjectHandler) CreateTaskUpdate(w http.ResponseWriter, r *http.Request) {
+	var req createTaskUpdateRequest
+	if err := httpjson.Decode(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	up, task, err := h.svc.AddTaskUpdate(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "taskId"), orgID, userID, req.Body, req.Status)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrTaskUpdateEmpty), errors.Is(err, service.ErrTaskUpdateTooLong),
+			errors.Is(err, service.ErrTaskStatusInvalid):
+			httpjson.Error(w, http.StatusBadRequest, err.Error())
+		default:
+			h.writeError(w, err)
+		}
+		return
+	}
+	httpjson.Write(w, http.StatusCreated, map[string]any{"update": toTaskUpdateResponse(*up), "task": toTaskResponse(*task)})
 }
 
 // ---------- Dosyalar ----------

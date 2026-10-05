@@ -417,6 +417,56 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Project
 	return i, err
 }
 
+const createTaskUpdate = `-- name: CreateTaskUpdate :one
+
+INSERT INTO project_task_updates (
+    organization_id, project_id, task_id, user_id, author_name, body, status_from, status_to
+) VALUES (
+    $1, $2, $3, $4,
+    $5, $6, $7, $8
+)
+RETURNING id, organization_id, project_id, task_id, user_id, author_name, body, status_from, status_to, created_at
+`
+
+type CreateTaskUpdateParams struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+	TaskID         pgtype.UUID `json:"task_id"`
+	UserID         pgtype.UUID `json:"user_id"`
+	AuthorName     string      `json:"author_name"`
+	Body           string      `json:"body"`
+	StatusFrom     *string     `json:"status_from"`
+	StatusTo       *string     `json:"status_to"`
+}
+
+// ============ Görev notları (migration 0051) ============
+func (q *Queries) CreateTaskUpdate(ctx context.Context, arg CreateTaskUpdateParams) (ProjectTaskUpdate, error) {
+	row := q.db.QueryRow(ctx, createTaskUpdate,
+		arg.OrganizationID,
+		arg.ProjectID,
+		arg.TaskID,
+		arg.UserID,
+		arg.AuthorName,
+		arg.Body,
+		arg.StatusFrom,
+		arg.StatusTo,
+	)
+	var i ProjectTaskUpdate
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ProjectID,
+		&i.TaskID,
+		&i.UserID,
+		&i.AuthorName,
+		&i.Body,
+		&i.StatusFrom,
+		&i.StatusTo,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const deleteProjectNote = `-- name: DeleteProjectNote :execrows
 DELETE FROM project_notes WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
@@ -1129,6 +1179,49 @@ func (q *Queries) ListScheduleItems(ctx context.Context, arg ListScheduleItemsPa
 	return items, nil
 }
 
+const listTaskUpdates = `-- name: ListTaskUpdates :many
+SELECT id, organization_id, project_id, task_id, user_id, author_name, body, status_from, status_to, created_at FROM project_task_updates
+WHERE task_id = $1 AND organization_id = $2 AND project_id = $3
+ORDER BY created_at ASC, id ASC
+`
+
+type ListTaskUpdatesParams struct {
+	TaskID         pgtype.UUID `json:"task_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+}
+
+func (q *Queries) ListTaskUpdates(ctx context.Context, arg ListTaskUpdatesParams) ([]ProjectTaskUpdate, error) {
+	rows, err := q.db.Query(ctx, listTaskUpdates, arg.TaskID, arg.OrganizationID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProjectTaskUpdate
+	for rows.Next() {
+		var i ProjectTaskUpdate
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.ProjectID,
+			&i.TaskID,
+			&i.UserID,
+			&i.AuthorName,
+			&i.Body,
+			&i.StatusFrom,
+			&i.StatusTo,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTasks = `-- name: ListTasks :many
 SELECT id, organization_id, project_id, schedule_item_id, title, description, assigned_employee_id, assigned_name, priority, status, due_date, completed_at, created_by, created_at, updated_at FROM project_tasks
 WHERE project_id = $1 AND organization_id = $2
@@ -1175,6 +1268,157 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]Project
 		return nil, err
 	}
 	return items, nil
+}
+
+const listTeamTasks = `-- name: ListTeamTasks :many
+SELECT t.id, t.organization_id, t.project_id, t.schedule_item_id, t.title, t.description, t.assigned_employee_id, t.assigned_name, t.priority, t.status, t.due_date, t.completed_at, t.created_by, t.created_at, t.updated_at, p.name AS project_name
+FROM project_tasks t
+INNER JOIN projects p ON p.id = t.project_id AND p.organization_id = t.organization_id
+WHERE t.organization_id = $1::uuid
+  AND ($2::uuid IS NULL OR t.assigned_employee_id = $2::uuid)
+  AND (
+    CASE
+      WHEN $3::text = 'open' THEN t.status IN ('todo', 'in_progress')
+      WHEN $3::text = 'all' THEN TRUE
+      ELSE t.status = $3::text
+    END
+  )
+  AND (
+    $4::uuid IS NULL
+    OR EXISTS (
+      SELECT 1 FROM project_users pu
+      WHERE pu.project_id = t.project_id
+        AND pu.user_id = $4::uuid
+    )
+  )
+ORDER BY
+  CASE
+    WHEN t.status IN ('todo', 'in_progress')
+         AND t.due_date IS NOT NULL
+         AND t.due_date < CURRENT_DATE THEN 0
+    ELSE 1
+  END,
+  t.due_date ASC NULLS LAST,
+  t.created_at DESC
+LIMIT 500
+`
+
+type ListTeamTasksParams struct {
+	OrganizationID     pgtype.UUID `json:"organization_id"`
+	AssignedEmployeeID pgtype.UUID `json:"assigned_employee_id"`
+	StatusMode         string      `json:"status_mode"`
+	RestrictToUserID   pgtype.UUID `json:"restrict_to_user_id"`
+}
+
+type ListTeamTasksRow struct {
+	ID                 pgtype.UUID        `json:"id"`
+	OrganizationID     pgtype.UUID        `json:"organization_id"`
+	ProjectID          pgtype.UUID        `json:"project_id"`
+	ScheduleItemID     pgtype.UUID        `json:"schedule_item_id"`
+	Title              string             `json:"title"`
+	Description        string             `json:"description"`
+	AssignedEmployeeID pgtype.UUID        `json:"assigned_employee_id"`
+	AssignedName       string             `json:"assigned_name"`
+	Priority           string             `json:"priority"`
+	Status             string             `json:"status"`
+	DueDate            pgtype.Date        `json:"due_date"`
+	CompletedAt        pgtype.Timestamptz `json:"completed_at"`
+	CreatedBy          pgtype.UUID        `json:"created_by"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	ProjectName        string             `json:"project_name"`
+}
+
+// Görevler sekmesinin "Ekip" görünümü: erişilebilir projelerdeki TÜM
+// görevler (yönetici buradan takip eder). ListMyTasks ile aynı durum ve
+// üyelik kuralları; assigned_employee_id verilirse o kişinin görevleri.
+func (q *Queries) ListTeamTasks(ctx context.Context, arg ListTeamTasksParams) ([]ListTeamTasksRow, error) {
+	rows, err := q.db.Query(ctx, listTeamTasks,
+		arg.OrganizationID,
+		arg.AssignedEmployeeID,
+		arg.StatusMode,
+		arg.RestrictToUserID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTeamTasksRow
+	for rows.Next() {
+		var i ListTeamTasksRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.ProjectID,
+			&i.ScheduleItemID,
+			&i.Title,
+			&i.Description,
+			&i.AssignedEmployeeID,
+			&i.AssignedName,
+			&i.Priority,
+			&i.Status,
+			&i.DueDate,
+			&i.CompletedAt,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ProjectName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setTaskStatus = `-- name: SetTaskStatus :one
+UPDATE project_tasks
+SET status = $1,
+    completed_at = CASE WHEN $1::varchar = 'completed'
+                        THEN COALESCE(completed_at, now())
+                        ELSE NULL END
+WHERE id = $2 AND organization_id = $3 AND project_id = $4
+RETURNING id, organization_id, project_id, schedule_item_id, title, description, assigned_employee_id, assigned_name, priority, status, due_date, completed_at, created_by, created_at, updated_at
+`
+
+type SetTaskStatusParams struct {
+	Status         string      `json:"status"`
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+}
+
+// Yalnızca durum (not ile birlikte değiştirildiğinde). completed_at durumla
+// tutarlı (UpdateTask ile aynı kural; CHECK kısıtı da zorlar).
+func (q *Queries) SetTaskStatus(ctx context.Context, arg SetTaskStatusParams) (ProjectTask, error) {
+	row := q.db.QueryRow(ctx, setTaskStatus,
+		arg.Status,
+		arg.ID,
+		arg.OrganizationID,
+		arg.ProjectID,
+	)
+	var i ProjectTask
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ProjectID,
+		&i.ScheduleItemID,
+		&i.Title,
+		&i.Description,
+		&i.AssignedEmployeeID,
+		&i.AssignedName,
+		&i.Priority,
+		&i.Status,
+		&i.DueDate,
+		&i.CompletedAt,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const softDeleteProjectFile = `-- name: SoftDeleteProjectFile :one

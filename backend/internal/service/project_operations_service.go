@@ -776,6 +776,14 @@ func (s *ProjectService) CompleteTask(ctx context.Context, projectID, taskID, or
 		map[string]any{"task_id": taskID, "title": row.Title}); err != nil {
 		return nil, err
 	}
+	// Görevi atayan (ve atanan, tamamlayan değilse) haberdar olur.
+	if err := notifyTaskParties(ctx, txq, orgID, row, actorUUID(userID), CreateNotificationInput{
+		OrganizationID: orgID, Type: domain.NotificationTaskCompleted, Title: "Görev tamamlandı", Body: row.Title,
+		EntityType: domain.NotificationEntityTask, EntityID: row.ID, ProjectID: row.ProjectID,
+		ActionTarget: "/projeler/" + row.ProjectID.String() + "/gorevler/" + taskID,
+	}); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}

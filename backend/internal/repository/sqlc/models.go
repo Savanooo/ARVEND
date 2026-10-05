@@ -869,6 +869,19 @@ type ProjectTask struct {
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ProjectTaskUpdate struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	TaskID         pgtype.UUID        `json:"task_id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	AuthorName     string             `json:"author_name"`
+	Body           string             `json:"body"`
+	StatusFrom     *string            `json:"status_from"`
+	StatusTo       *string            `json:"status_to"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type ProjectUser struct {
 	ID             pgtype.UUID        `json:"id"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`

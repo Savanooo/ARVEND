@@ -12,6 +12,7 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -182,6 +183,107 @@ func TestNotifications(t *testing.T) {
 		}
 		if !found {
 			t.Fatal("task_assigned bildirimi bulunamadı")
+		}
+	})
+
+	t.Run("1b_task_updates_notify_the_other_party_and_team_list", func(t *testing.T) {
+		// Sahada (2026-10): "kişi görevi görsün, hakkında bilgi versin,
+		// yöneticiye bildirim gitsin; yönetici Görevler'den takip etsin".
+		owner := mustRoleUser(t, orgA.ID, "notif_owner1b", domain.OrgRoleOwner)
+		assignee := mustRoleUser(t, orgA.ID, "notif_assignee1b", domain.OrgRoleField)
+		emp := mustLinkedEmployee(t, orgA.ID, "Atanan Personel 1b", assignee.ID)
+		p := newProject(t, orgA.ID, owner.ID)
+		task, err := projectSvc.CreateTask(ctx, p.ID, orgA.ID, service.TaskInput{
+			Title: "Duvar örümü", Priority: domain.TaskPriorityNormal, Status: domain.TaskStatusTodo,
+			AssignedEmployeeID: &emp.ID, UserID: owner.ID,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		count := func(userID, typ string) int {
+			res, err := notifSvc.List(ctx, userID, orgA.ID, 1, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			n := 0
+			for _, x := range res.Notifications {
+				if x.Type == typ && x.EntityID != nil && *x.EntityID == task.ID {
+					n++
+				}
+			}
+			return n
+		}
+
+		// Atanan kişi bilgi verir + "devam ediyor": görevi atayan haberdar olur, kendisi değil.
+		up, tk, err := projectSvc.AddTaskUpdate(ctx, p.ID, task.ID, orgA.ID, assignee.ID, "Yarısı bitti, tuğla az kaldı", domain.TaskStatusInProgress)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tk.Status != domain.TaskStatusInProgress || up.StatusFrom != domain.TaskStatusTodo || up.StatusTo != domain.TaskStatusInProgress {
+			t.Errorf("durum değişikliği kaydedilmeli: %+v / %s", up, tk.Status)
+		}
+		if count(owner.ID, domain.NotificationTaskUpdated) != 1 || count(assignee.ID, domain.NotificationTaskUpdated) != 0 {
+			t.Errorf("yönetici bilgilendirilmeli, yazan değil")
+		}
+		// Yönetici yazar: atanan kişi haberdar olur.
+		if _, _, err := projectSvc.AddTaskUpdate(ctx, p.ID, task.ID, orgA.ID, owner.ID, "Tuğla yarın geliyor", ""); err != nil {
+			t.Fatal(err)
+		}
+		if count(assignee.ID, domain.NotificationTaskUpdated) != 1 {
+			t.Errorf("atanan kişi yöneticinin notundan haberdar olmalı")
+		}
+		// Boş not / aynı durum = boş.
+		if _, _, err := projectSvc.AddTaskUpdate(ctx, p.ID, task.ID, orgA.ID, assignee.ID, "  ", domain.TaskStatusInProgress); !errors.Is(err, service.ErrTaskUpdateEmpty) {
+			t.Errorf("boş not reddedilmeli: %v", err)
+		}
+		// Tamamlandı: "Görev tamamlandı" bildirimi.
+		if _, tk, err := projectSvc.AddTaskUpdate(ctx, p.ID, task.ID, orgA.ID, assignee.ID, "Bitti", domain.TaskStatusCompleted); err != nil || tk.CompletedAt == nil {
+			t.Fatalf("tamamlama: %v", err)
+		}
+		if count(owner.ID, domain.NotificationTaskCompleted) != 1 {
+			t.Errorf("tamamlanma yöneticiye bildirilmeli")
+		}
+		updates, err := projectSvc.ListTaskUpdates(ctx, p.ID, task.ID, orgA.ID)
+		if err != nil || len(updates) != 3 || updates[0].AuthorName == "" || updates[0].Body != "Yarısı bitti, tuğla az kaldı" {
+			t.Fatalf("notlar eskiden yeniye, yazan adıyla: %+v %v", updates, err)
+		}
+
+		// "Tamamla" düğmesi de yöneticiye bildirir.
+		task2, err := projectSvc.CreateTask(ctx, p.ID, orgA.ID, service.TaskInput{
+			Title: "Sıva", Priority: domain.TaskPriorityNormal, Status: domain.TaskStatusTodo,
+			AssignedEmployeeID: &emp.ID, UserID: owner.ID,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.CompleteTask(ctx, p.ID, task2.ID, orgA.ID, assignee.ID); err != nil {
+			t.Fatal(err)
+		}
+		res, _ := notifSvc.List(ctx, owner.ID, orgA.ID, 1, 100)
+		found := false
+		for _, x := range res.Notifications {
+			if x.Type == domain.NotificationTaskCompleted && x.EntityID != nil && *x.EntityID == task2.ID {
+				found = true
+			}
+		}
+		if !found {
+			t.Error("Tamamla düğmesi de bildirmeli")
+		}
+
+		// Ekip görünümü: yönetici (üyelik engeli yok) iki görevi de görür; kişi filtresi.
+		team, err := projectSvc.ListTeamTasks(ctx, orgA.ID, "all", "", emp.ID)
+		if err != nil || len(team) != 2 {
+			t.Fatalf("ekip listesi (kişi filtreli) 2 görev: %d %v", len(team), err)
+		}
+		open, _ := projectSvc.ListTeamTasks(ctx, orgA.ID, "open", "", emp.ID)
+		if len(open) != 0 {
+			t.Errorf("ikisi de tamamlandı, açık görev olmamalı: %d", len(open))
+		}
+		if linked, err := projectSvc.IsEmployeeLinked(ctx, orgA.ID, assignee.ID); err != nil || !linked {
+			t.Errorf("atanan kişi personel kaydına bağlı: %v %v", linked, err)
+		}
+		if linked, _ := projectSvc.IsEmployeeLinked(ctx, orgA.ID, owner.ID); linked {
+			t.Error("sahip bağlı değil")
 		}
 	})
 

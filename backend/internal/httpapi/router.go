@@ -509,6 +509,10 @@ func NewRouter(d Deps) http.Handler {
 
 			// --- Görevler ---
 			r.With(projPerm(domain.PermProjectsTasksRead)).Get("/{id}/tasks", d.Projects.ListTasks)
+			// Görev notları (migration 0051): okumak görevi görebilen herkes,
+			// yazmak görev güncelleme izni (Saha rolünde de var).
+			r.With(projPerm(domain.PermProjectsTasksRead)).Get("/{id}/tasks/{taskId}/updates", d.Projects.ListTaskUpdates)
+			r.With(projPerm(domain.PermProjectsTasksUpdate)).Post("/{id}/tasks/{taskId}/updates", d.Projects.CreateTaskUpdate)
 			r.With(projPerm(domain.PermProjectsTasksCreate)).Post("/{id}/tasks", d.Projects.CreateTask)
 			r.Group(func(r chi.Router) {
 				r.Use(projPerm(domain.PermProjectsTasksUpdate))
@@ -532,6 +536,8 @@ func NewRouter(d Deps) http.Handler {
 		// Org-seviyesinde projects.tasks.read; proje uyelik filtresi handler icinde.
 		r.With(requireAuth, requireTenant, requireOnboarded, loadAuthorization, perm(domain.PermProjectsTasksRead)).
 			Get("/tasks/mine", d.Projects.ListMyTasks)
+		r.With(requireAuth, requireTenant, requireOnboarded, loadAuthorization, perm(domain.PermProjectsTasksRead)).
+			Get("/tasks/team", d.Projects.ListTeamTasks)
 
 		// Ana sayfa özeti -- perm() YOK: her bölüm kendi iznini serviste
 		// değerlendirir, yetkisiz bölüm yanıtta hiç görünmez (bkz.

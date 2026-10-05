@@ -263,3 +263,64 @@ ORDER BY
   END,
   t.due_date ASC NULLS LAST,
   t.created_at ASC;
+-- ============ Görev notları (migration 0051) ============
+
+-- name: CreateTaskUpdate :one
+INSERT INTO project_task_updates (
+    organization_id, project_id, task_id, user_id, author_name, body, status_from, status_to
+) VALUES (
+    sqlc.arg(organization_id), sqlc.arg(project_id), sqlc.arg(task_id), sqlc.narg(user_id),
+    sqlc.arg(author_name), sqlc.arg(body), sqlc.narg(status_from), sqlc.narg(status_to)
+)
+RETURNING *;
+
+-- name: ListTaskUpdates :many
+SELECT * FROM project_task_updates
+WHERE task_id = $1 AND organization_id = $2 AND project_id = $3
+ORDER BY created_at ASC, id ASC;
+
+-- name: SetTaskStatus :one
+-- Yalnızca durum (not ile birlikte değiştirildiğinde). completed_at durumla
+-- tutarlı (UpdateTask ile aynı kural; CHECK kısıtı da zorlar).
+UPDATE project_tasks
+SET status = sqlc.arg(status),
+    completed_at = CASE WHEN sqlc.arg(status)::varchar = 'completed'
+                        THEN COALESCE(completed_at, now())
+                        ELSE NULL END
+WHERE id = sqlc.arg(id) AND organization_id = sqlc.arg(organization_id) AND project_id = sqlc.arg(project_id)
+RETURNING *;
+
+-- name: ListTeamTasks :many
+-- Görevler sekmesinin "Ekip" görünümü: erişilebilir projelerdeki TÜM
+-- görevler (yönetici buradan takip eder). ListMyTasks ile aynı durum ve
+-- üyelik kuralları; assigned_employee_id verilirse o kişinin görevleri.
+SELECT t.*, p.name AS project_name
+FROM project_tasks t
+INNER JOIN projects p ON p.id = t.project_id AND p.organization_id = t.organization_id
+WHERE t.organization_id = sqlc.arg(organization_id)::uuid
+  AND (sqlc.narg(assigned_employee_id)::uuid IS NULL OR t.assigned_employee_id = sqlc.narg(assigned_employee_id)::uuid)
+  AND (
+    CASE
+      WHEN sqlc.arg(status_mode)::text = 'open' THEN t.status IN ('todo', 'in_progress')
+      WHEN sqlc.arg(status_mode)::text = 'all' THEN TRUE
+      ELSE t.status = sqlc.arg(status_mode)::text
+    END
+  )
+  AND (
+    sqlc.narg(restrict_to_user_id)::uuid IS NULL
+    OR EXISTS (
+      SELECT 1 FROM project_users pu
+      WHERE pu.project_id = t.project_id
+        AND pu.user_id = sqlc.narg(restrict_to_user_id)::uuid
+    )
+  )
+ORDER BY
+  CASE
+    WHEN t.status IN ('todo', 'in_progress')
+         AND t.due_date IS NOT NULL
+         AND t.due_date < CURRENT_DATE THEN 0
+    ELSE 1
+  END,
+  t.due_date ASC NULLS LAST,
+  t.created_at DESC
+LIMIT 500;

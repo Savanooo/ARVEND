@@ -140,6 +140,20 @@ type ProjectTask struct {
 	CreatedAt          time.Time
 }
 
+// TaskUpdate, göreve yazılan bir not (isteğe bağlı durum değişikliğiyle).
+// AuthorName yazıldığı anki addır (bkz. migration 0051).
+type TaskUpdate struct {
+	ID         string
+	TaskID     string
+	ProjectID  string
+	UserID     *string
+	AuthorName string
+	Body       string
+	StatusFrom string
+	StatusTo   string
+	CreatedAt  time.Time
+}
+
 // IsOverdue, görevin vadesi geçmiş ve hâlâ açık olup olmadığını söyler.
 // Karşılaştırma takvim günü bazındadır (bkz. domain.IsPastDue) -- vade
 // GÜNÜNÜN kendisi henüz gecikmiş sayılmaz, ve SQL tarafındaki

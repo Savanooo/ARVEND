@@ -34,7 +34,11 @@ type Notification struct {
 // kararı", ya da "eylem gerektiren" olaylar; her CRUD olayı DEĞİL (spam'den
 // kaçınma ilkesi).
 const (
-	NotificationTaskAssigned                    = "task_assigned"
+	NotificationTaskAssigned = "task_assigned"
+	// Göreve not yazıldı / durum değişti / tamamlandı (migration 0051):
+	// görevi atayana ve atanan kişiye -- yazan hariç.
+	NotificationTaskUpdated                     = "task_updated"
+	NotificationTaskCompleted                   = "task_completed"
 	NotificationOfferAccepted                   = "offer_accepted"
 	NotificationOfferRejected                   = "offer_rejected"
 	NotificationSubcontractActivated            = "subcontract_activated"
