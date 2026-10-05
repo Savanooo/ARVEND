@@ -14,12 +14,20 @@ import '../budget/domain/budget.dart' show kBudgetReadPermission, kCostCodesRead
 import '../data/projects_providers.dart';
 import '../domain/project.dart';
 import '../finance_plan/domain/finance_dates.dart' show parseAmountInput;
+import 'form_project_banner.dart';
 
 /// "Masraf Ekle" (web ExpensesSection formu). Kategori/açıklama/tutar/tarih/
 /// tedarikçi/fatura no'nun yanında web'deki opsiyonel bağlar: Ek İş, Bütçe
 /// Kalemi (seçilince maliyet kodu ondan gelir) ve Maliyet Kodu + Not.
 /// Taşeron ödemeleri buraya girilmez (çift sayım) -- Taşeron Ödemeleri'nden.
-Future<Expense?> showExpenseFormSheet(BuildContext context, String projectId, {required String currency}) {
+/// [projectLabel]: formun başında hangi projeye girildiği (bkz.
+/// FormProjectBanner).
+Future<Expense?> showExpenseFormSheet(
+  BuildContext context,
+  String projectId, {
+  required String currency,
+  String? projectLabel,
+}) {
   return showModalBottomSheet<Expense>(
     context: context,
     isScrollControlled: true,
@@ -28,14 +36,15 @@ Future<Expense?> showExpenseFormSheet(BuildContext context, String projectId, {r
     // kapalı; sürükleyerek kapatma PopScope'u atlar): kapanırsa kayıt oluşur
     // ama çağıran sonucu alamaz, liste tazelenmezdi.
     enableDrag: false,
-    builder: (context) => _ExpenseFormSheet(projectId: projectId, currency: currency),
+    builder: (context) => _ExpenseFormSheet(projectId: projectId, currency: currency, projectLabel: projectLabel),
   );
 }
 
 class _ExpenseFormSheet extends ConsumerStatefulWidget {
-  const _ExpenseFormSheet({required this.projectId, required this.currency});
+  const _ExpenseFormSheet({required this.projectId, required this.currency, this.projectLabel});
   final String projectId;
   final String currency;
+  final String? projectLabel;
 
   @override
   ConsumerState<_ExpenseFormSheet> createState() => _ExpenseFormSheetState();
@@ -142,6 +151,10 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text('Masraf Ekle', style: AppTypography.pageTitle.copyWith(fontSize: 17)),
+                if (widget.projectLabel case final label?) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  FormProjectBanner(label: label),
+                ],
                 const SizedBox(height: AppSpacing.lg),
                 AppFormSection(
                   title: 'Masraf Bilgileri',
@@ -169,6 +182,16 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
                         return null;
                       },
                     ),
+                    // "Tedarikçi" adıyla en altta duruyordu; usta/işçi
+                    // ödemesinde anlamsız kaçtığı için sahada bulunamadı.
+                    // Backend alanı aynı (supplier_name, serbest metin).
+                    TextFormField(
+                      controller: _supplierController,
+                      decoration: const InputDecoration(
+                        labelText: 'Kime ödendi (opsiyonel)',
+                        hintText: 'Tedarikçi, usta ya da kişi adı',
+                      ),
+                    ),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Tarih'),
@@ -185,10 +208,6 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
                         );
                         if (picked != null) setState(() => _date = picked);
                       },
-                    ),
-                    TextFormField(
-                      controller: _supplierController,
-                      decoration: const InputDecoration(labelText: 'Tedarikçi (opsiyonel)'),
                     ),
                     TextFormField(
                       controller: _invoiceController,

@@ -21,6 +21,7 @@ import '../../presentation/expense_form_sheet.dart';
 import '../data/finance_ledger_providers.dart';
 import 'ledger_entry_sheet.dart';
 import 'ledger_ui.dart';
+import '../../presentation/form_project_banner.dart';
 
 /// "Masraf Ekle" formunu açar; kayıt oluşursa etkilenen TÜM okumaları
 /// (liste, finans özeti, maliyet kontrolü, ödeme planı, aktivite) tazeler.
@@ -29,7 +30,12 @@ import 'ledger_ui.dart';
 /// widget ağaçtan kalksa da tazeleme yapılır.
 Future<bool> addProjectExpense(BuildContext context, Project project) async {
   final container = ProviderScope.containerOf(context, listen: false);
-  final created = await showExpenseFormSheet(context, project.id, currency: project.currency);
+  final created = await showExpenseFormSheet(
+    context,
+    project.id,
+    currency: project.currency,
+    projectLabel: formProjectLabel(project.projectNo, project.name),
+  );
   if (created == null) return false;
   invalidateProjectLedger(container.invalidate, project.id);
   return true;
@@ -46,6 +52,7 @@ Future<bool> addProjectCollection(BuildContext context, Project project, {String
     project.id,
     currency: project.currency,
     initialPlanItemId: initialPlanItemId,
+    projectLabel: formProjectLabel(project.projectNo, project.name),
   );
   if (created == null) return false;
   invalidateProjectLedger(container.invalidate, project.id);

@@ -14,6 +14,7 @@ import '../data/projects_providers.dart';
 import '../domain/project.dart';
 import '../finance_plan/domain/finance_dates.dart' show parseAmountInput;
 import '../finance_plan/data/finance_plan_providers.dart';
+import 'form_project_banner.dart';
 
 /// "Tahsilat Ekle" (web CollectionsSection formu). [initialPlanItemId]
 /// verilirse tahsilat o ödeme planı kalemine bağlı başlar.
@@ -22,6 +23,7 @@ Future<Collection?> showCollectionFormSheet(
   String projectId, {
   required String currency,
   String? initialPlanItemId,
+  String? projectLabel,
 }) {
   return showModalBottomSheet<Collection>(
     context: context,
@@ -32,15 +34,26 @@ Future<Collection?> showCollectionFormSheet(
     // ama çağıran sonucu alamaz, liste tazelenmezdi.
     enableDrag: false,
     builder: (context) =>
-        _CollectionFormSheet(projectId: projectId, currency: currency, initialPlanItemId: initialPlanItemId),
+        _CollectionFormSheet(
+          projectId: projectId,
+          currency: currency,
+          initialPlanItemId: initialPlanItemId,
+          projectLabel: projectLabel,
+        ),
   );
 }
 
 class _CollectionFormSheet extends ConsumerStatefulWidget {
-  const _CollectionFormSheet({required this.projectId, required this.currency, this.initialPlanItemId});
+  const _CollectionFormSheet({
+    required this.projectId,
+    required this.currency,
+    this.initialPlanItemId,
+    this.projectLabel,
+  });
   final String projectId;
   final String currency;
   final String? initialPlanItemId;
+  final String? projectLabel;
 
   @override
   ConsumerState<_CollectionFormSheet> createState() => _CollectionFormSheetState();
@@ -131,6 +144,10 @@ class _CollectionFormSheetState extends ConsumerState<_CollectionFormSheet> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text('Tahsilat Ekle', style: AppTypography.pageTitle.copyWith(fontSize: 17)),
+                if (widget.projectLabel case final label?) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  FormProjectBanner(label: label),
+                ],
                 const SizedBox(height: AppSpacing.lg),
                 AppFormSection(
                   title: 'Tahsilat Bilgileri',

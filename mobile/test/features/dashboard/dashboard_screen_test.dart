@@ -654,6 +654,37 @@ void main() {
       expect(_count(adapter.calls, '/dashboard'), 2);
       expect(adapter.calls, isNot(contains('/projects')));
     });
+
+    testWidgets('tek projede "Masraf Gir" formu doğrudan açılır ve HANGİ PROJEYE girildiğini gösterir', (tester) async {
+      final owner = fixtureJson('owner');
+      await _pump(
+        tester,
+        user: ownerUser,
+        script: {
+          '/dashboard': [_ok(owner)],
+          '/notifications/unread-count': [
+            _ok({'unread_count': 4}),
+          ],
+          '/dashboard/project-options': [
+            _ok({
+              'projects': [option('p1', 'Alfa Konut')],
+            }),
+          ],
+        },
+      );
+      final action = find.widgetWithText(QuickActionButton, 'Masraf Gir');
+      await tester.ensureVisible(action);
+      await tester.pumpAndSettle();
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Proje seç'), findsNothing, reason: 'tek proje: seçici atlanır');
+      expect(find.text('Masraf Ekle'), findsOneWidget);
+      final banner = find.byKey(const ValueKey('form-proje'));
+      expect(banner, findsOneWidget, reason: 'sahada "nereye giriyorum" sorusu');
+      expect(find.descendant(of: banner, matching: find.textContaining('Alfa Konut')), findsOneWidget);
+      expect(find.text('Kime ödendi (opsiyonel)'), findsOneWidget);
+    });
   });
 
   group('uygulamaya dönüş', () {

@@ -12,6 +12,7 @@ import '../../../projects/presentation/note_form_sheet.dart';
 import '../../data/dashboard_providers.dart';
 import '../../domain/dashboard_registry.dart';
 import 'project_picker_sheet.dart';
+import '../../../projects/presentation/form_project_banner.dart';
 
 /// Şu an çalışan hızlı işlem (yoksa null) ve proje listesinin yüklenip
 /// yüklenmediği. Aynı anda tek işlem: proje listesi yavaş gelirken ikinci
@@ -131,9 +132,15 @@ Future<void> _runQuickAction(
   if (project == null || !context.mounted) return;
   switch (action) {
     case QuickActionKey.collection:
-      if (await showCollectionFormSheet(context, project.id, currency: project.currency) != null) invalidate();
+      final label = formProjectLabel(project.projectNo, project.name);
+      if (await showCollectionFormSheet(context, project.id, currency: project.currency, projectLabel: label) != null) {
+        invalidate();
+      }
     case QuickActionKey.expense:
-      if (await showExpenseFormSheet(context, project.id, currency: project.currency) != null) invalidate();
+      final label = formProjectLabel(project.projectNo, project.name);
+      if (await showExpenseFormSheet(context, project.id, currency: project.currency, projectLabel: label) != null) {
+        invalidate();
+      }
     case QuickActionKey.note:
       if (await showNoteFormSheet(context, project.id) != null) invalidate();
     case QuickActionKey.purchaseRequest:
