@@ -43,7 +43,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         setState(() => _errorMessage = 'Hesabınıza erişiminiz kapatılmıştır. Bilgi için yöneticinizle görüşün.');
       }
       ref.read(accountAccessIssueProvider.notifier).state = null;
+      _showSessionCheckError(ref.read(authControllerProvider));
     });
+  }
+
+  /// Açılışta oturum ağ yüzünden doğrulanamadıysa (ve bilinen kullanıcı da
+  /// yoksa) sebebi söyle -- yoksa kullanıcı neden giriş ekranında olduğunu
+  /// anlamaz ("Bağlantı kurulamadı..."). Çerezler silinmedi; bağlantı
+  /// gelince giriş yapmak yeterli.
+  void _showSessionCheckError(AsyncValue<Object?> auth) {
+    final error = auth.hasError ? auth.error : null;
+    if (_errorMessage == null && error is ApiException) setState(() => _errorMessage = error.message);
   }
 
   @override
@@ -73,6 +83,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Soğuk açılışta bu ekran /auth/me sonuçlanmadan ÖNCE kurulur (ilk rota
+    // /giris); denetimin sonucu ancak sonra gelir.
+    ref.listen(authControllerProvider, (_, next) => _showSessionCheckError(next));
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
