@@ -20,19 +20,43 @@ SELECT * FROM offers WHERE id = $1 AND organization_id = $2;
 -- IS NULL => filtresiz). offers tablosunun kendisinde customer_id YOK
 -- (0018 migration'da kaldırıldı) -- canlı değer yalnızca current_revision
 -- üzerinden erişilebilir, bu yüzden r.customer_id üzerinden filtrelenir.
+-- status/search/date_from/date_to: liste ekranlarının durum sekmesi, arama
+-- ve tarih filtresi SUNUCUDA uygulanır (eskiden yalnızca ilk 50 satır
+-- çekilip tarayıcıda/mobilde süzülüyordu -- 51. ve sonraki teklifler hiçbir
+-- filtrede görünmüyordu). search, teklif no veya müşteri adında geçer;
+-- '%'/'_' joker karakterleri çağıran tarafta kaçırılır (bkz.
+-- escapeLikePattern). Sıralama tie-breaker'lı (id) -- sayfalar arası kayma
+-- olmasın.
 SELECT o.*, r.customer_id, r.customer_name, r.grand_total, r.revision_no
 FROM offers o
 JOIN offer_revisions r ON r.id = o.current_revision_id
-WHERE o.organization_id = $1 AND o.is_passive = $2
+WHERE o.organization_id = sqlc.arg(organization_id) AND o.is_passive = sqlc.arg(is_passive)
   AND (sqlc.narg('customer_id')::uuid IS NULL OR r.customer_id = sqlc.narg('customer_id')::uuid)
-ORDER BY o.created_at DESC
-LIMIT $3 OFFSET $4;
+  AND (sqlc.narg('status')::varchar IS NULL OR o.status = sqlc.narg('status')::varchar)
+  AND (sqlc.narg('date_from')::date IS NULL OR o.offer_date >= sqlc.narg('date_from')::date)
+  AND (sqlc.narg('date_to')::date IS NULL OR o.offer_date <= sqlc.narg('date_to')::date)
+  AND (sqlc.narg('search')::varchar IS NULL
+       OR o.offer_no ILIKE '%' || sqlc.narg('search')::varchar || '%'
+       OR r.customer_name ILIKE '%' || sqlc.narg('search')::varchar || '%')
+ORDER BY o.created_at DESC, o.id DESC
+LIMIT sqlc.arg(row_limit) OFFSET sqlc.arg(row_offset);
 
--- name: CountOffers :one
-SELECT count(*) FROM offers o
+-- name: CountOffersByStatus :many
+-- ListOffers'ın AYNI filtreleri (durum HARİÇ), duruma göre gruplanmış --
+-- hem sayfalamanın gerçek toplamı hem de durum sekmelerinin sayaçları bu
+-- TEK sorgudan türetilir (sekmeler artık yalnızca yüklenen satırları
+-- saymıyor).
+SELECT o.status, count(*) AS count
+FROM offers o
 JOIN offer_revisions r ON r.id = o.current_revision_id
-WHERE o.organization_id = $1 AND o.is_passive = $2
-  AND (sqlc.narg('customer_id')::uuid IS NULL OR r.customer_id = sqlc.narg('customer_id')::uuid);
+WHERE o.organization_id = sqlc.arg(organization_id) AND o.is_passive = sqlc.arg(is_passive)
+  AND (sqlc.narg('customer_id')::uuid IS NULL OR r.customer_id = sqlc.narg('customer_id')::uuid)
+  AND (sqlc.narg('date_from')::date IS NULL OR o.offer_date >= sqlc.narg('date_from')::date)
+  AND (sqlc.narg('date_to')::date IS NULL OR o.offer_date <= sqlc.narg('date_to')::date)
+  AND (sqlc.narg('search')::varchar IS NULL
+       OR o.offer_no ILIKE '%' || sqlc.narg('search')::varchar || '%'
+       OR r.customer_name ILIKE '%' || sqlc.narg('search')::varchar || '%')
+GROUP BY o.status;
 
 -- name: SetOfferPassive :exec
 UPDATE offers SET is_passive = $3 WHERE id = $1 AND organization_id = $2;

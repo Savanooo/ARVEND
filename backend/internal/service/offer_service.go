@@ -523,45 +523,107 @@ func (s *OfferService) generateOfferNo(ctx context.Context, orgID pgtype.UUID) (
 
 type OfferListResult struct {
 	Offers []domain.Offer
-	Total  int64
+	// Total: filtrelerin (durum dahil) eşleştiği TÜM tekliflerin sayısı --
+	// sayfadaki satır sayısı değil.
+	Total int64
+	// StatusCounts: aynı filtrelerle (durum HARİÇ) her durumdaki teklif
+	// sayısı -- durum sekmelerinin sayaçları. Hiç teklifi olmayan durumlar
+	// 0 ile yer alır.
+	StatusCounts map[string]int64
+	Page         int
+	Limit        int
 }
 
-func (s *OfferService) List(ctx context.Context, organizationID string, isPassive bool, page, limit int, customerID string) (*OfferListResult, error) {
+// OfferListFilter, teklif listesinin sunucu tarafı filtreleridir; boş
+// alanlar filtresizdir.
+type OfferListFilter struct {
+	IsPassive  bool
+	CustomerID string
+	Status     string
+	Search     string
+	DateFrom   *time.Time
+	DateTo     *time.Time
+	Page       int
+	Limit      int
+}
+
+// escapeLikePattern, kullanıcı aramasındaki LIKE joker karakterlerini
+// (%, _ ve kaçış karakteri \) düz metne çevirir -- "%" araması her teklifi
+// eşleştirmesin.
+func escapeLikePattern(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
+
+func (s *OfferService) List(ctx context.Context, organizationID string, f OfferListFilter) (*OfferListResult, error) {
 	orgID, err := repository.StringToUUID(organizationID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	if limit <= 0 || limit > 200 {
-		limit = 50
+	if f.Limit <= 0 || f.Limit > 200 {
+		f.Limit = 50
 	}
-	if page <= 0 {
-		page = 1
+	if f.Page <= 0 {
+		f.Page = 1
 	}
 	var custID pgtype.UUID
-	if customerID != "" {
-		if cid, err := repository.StringToUUID(customerID); err == nil {
+	if f.CustomerID != "" {
+		if cid, err := repository.StringToUUID(f.CustomerID); err == nil {
 			custID = cid
 		}
 	}
+	var status *string
+	if f.Status != "" {
+		if !domain.ValidOfferStatus(f.Status) {
+			return nil, errors.New("geçersiz durum filtresi")
+		}
+		status = &f.Status
+	}
+	var search *string
+	if q := strings.TrimSpace(f.Search); q != "" {
+		escaped := escapeLikePattern(q)
+		search = &escaped
+	}
+	dateFrom, dateTo := repository.TimePtrToDate(f.DateFrom), repository.TimePtrToDate(f.DateTo)
+
 	rows, err := s.q.ListOffers(ctx, sqlc.ListOffersParams{
 		OrganizationID: orgID,
-		IsPassive:      isPassive,
-		Limit:          int32(limit),
-		Offset:         int32((page - 1) * limit),
+		IsPassive:      f.IsPassive,
 		CustomerID:     custID,
+		Status:         status,
+		DateFrom:       dateFrom,
+		DateTo:         dateTo,
+		Search:         search,
+		RowLimit:       int32(f.Limit),
+		RowOffset:      int32((f.Page - 1) * f.Limit),
 	})
 	if err != nil {
 		return nil, err
 	}
-	total, err := s.q.CountOffers(ctx, sqlc.CountOffersParams{OrganizationID: orgID, IsPassive: isPassive, CustomerID: custID})
+	countRows, err := s.q.CountOffersByStatus(ctx, sqlc.CountOffersByStatusParams{
+		OrganizationID: orgID, IsPassive: f.IsPassive, CustomerID: custID,
+		DateFrom: dateFrom, DateTo: dateTo, Search: search,
+	})
 	if err != nil {
 		return nil, err
+	}
+	counts := map[string]int64{
+		domain.OfferStatusTaslak: 0, domain.OfferStatusGonderildi: 0,
+		domain.OfferStatusKabulEdildi: 0, domain.OfferStatusReddedildi: 0,
+	}
+	var all int64
+	for _, c := range countRows {
+		counts[c.Status] = c.Count
+		all += c.Count
+	}
+	total := all
+	if status != nil {
+		total = counts[*status]
 	}
 	offers := make([]domain.Offer, len(rows))
 	for i, r := range rows {
 		offers[i] = repository.ToDomainOfferListItem(r)
 	}
-	return &OfferListResult{Offers: offers, Total: total}, nil
+	return &OfferListResult{Offers: offers, Total: total, StatusCounts: counts, Page: f.Page, Limit: f.Limit}, nil
 }
 
 func (s *OfferService) Get(ctx context.Context, id, organizationID string) (*domain.Offer, error) {

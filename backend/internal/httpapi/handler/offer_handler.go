@@ -177,15 +177,44 @@ func toOfferResponse(o domain.Offer) offerResponse {
 	return resp
 }
 
+// List: ?filter=pasif, ?status=, ?q= (teklif no / müşteri adı), ?date_from=
+// ve ?date_to= (YYYY-AA-GG, teklif tarihi, ikisi de dahil), ?page=, ?limit=
+// (en çok 200). Filtrelerin hepsi SUNUCUDA uygulanır; total filtrelenmiş
+// gerçek toplamdır, status_counts durum sekmelerinin sayaçlarıdır.
 func (h *OfferHandler) List(w http.ResponseWriter, r *http.Request) {
-	isPassive := r.URL.Query().Get("filter") == "pasif"
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	customerID := r.URL.Query().Get("customer_id")
+	q := r.URL.Query()
+	page, _ := strconv.Atoi(q.Get("page"))
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	var dates [2]*time.Time
+	for i, key := range []string{"date_from", "date_to"} {
+		raw := q.Get(key)
+		if raw == "" {
+			continue
+		}
+		t, err := time.Parse(dateLayout, raw)
+		if err != nil {
+			httpjson.Error(w, http.StatusBadRequest, "geçersiz tarih filtresi (YYYY-AA-GG bekleniyor)")
+			return
+		}
+		dates[i] = &t
+	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	result, err := h.svc.List(r.Context(), orgID, isPassive, page, limit, customerID)
+	result, err := h.svc.List(r.Context(), orgID, service.OfferListFilter{
+		IsPassive:  q.Get("filter") == "pasif",
+		CustomerID: q.Get("customer_id"),
+		Status:     q.Get("status"),
+		Search:     q.Get("q"),
+		DateFrom:   dates[0],
+		DateTo:     dates[1],
+		Page:       page,
+		Limit:      limit,
+	})
 	if err != nil {
-		httpjson.Error(w, http.StatusInternalServerError, "teklifler alınamadı")
+		if isInternalError(err) {
+			writeInternalError(w, err)
+			return
+		}
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	seeInternal := canSeeOfferInternalPricing(r)
@@ -197,7 +226,10 @@ func (h *OfferHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		offers[i] = resp
 	}
-	httpjson.Write(w, http.StatusOK, map[string]any{"offers": offers, "total": result.Total})
+	httpjson.Write(w, http.StatusOK, map[string]any{
+		"offers": offers, "total": result.Total, "status_counts": result.StatusCounts,
+		"page": result.Page, "limit": result.Limit,
+	})
 }
 
 func (h *OfferHandler) Get(w http.ResponseWriter, r *http.Request) {
