@@ -107,6 +107,19 @@ func TestSubcontracts(t *testing.T) {
 		return active
 	}
 
+	// submitAndCertify, bir hakedişi gönderip sertifikalar.
+	submitAndCertify := func(t *testing.T, projectID, claimID, orgID string) *domain.SubcontractProgressClaim {
+		t.Helper()
+		if _, err := projectSvc.SubmitProgressClaim(ctx, projectID, claimID, orgID, ""); err != nil {
+			t.Fatalf("hakediş gönderilemedi: %v", err)
+		}
+		c, err := projectSvc.CertifyProgressClaim(ctx, projectID, claimID, orgID, "")
+		if err != nil {
+			t.Fatalf("hakediş sertifika edilemedi: %v", err)
+		}
+		return c
+	}
+
 	// ---------- VENDOR ----------
 
 	t.Run("1_supplier_used_as_subcontractor_no_duplicate_master", func(t *testing.T) {
@@ -1091,6 +1104,54 @@ func TestSubcontracts(t *testing.T) {
 		}
 	})
 
+	t.Run("37_finance_summary_terminated_remaining_is_certified_minus_paid", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 900000)
+		cc := newCostCode(t, orgA.ID, "S37-CC")
+		s := newSupplier(t, orgA.ID, "S37-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 500000)
+		items, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc.ID, orgA.ID)
+		claim, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 200000}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		submitAndCertify(t, p.ID, claim.ID, orgA.ID)
+		if _, err := projectSvc.CreateSubcontractPayment(ctx, p.ID, sc.ID, orgA.ID, service.SubcontractPaymentInput{
+			Amount: 50000, Currency: "TRY", PaidDate: time.Now(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		before, err := projectSvc.FinancialSummary(ctx, p.ID, orgA.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if before.NewSubcontractRemaining != 450000 {
+			t.Fatalf("fesih ÖNCESİ kalan taahhüt 500000-50000=450000 olmalı, geldi %v", before.NewSubcontractRemaining)
+		}
+		if _, err := projectSvc.TerminateSubcontract(ctx, p.ID, sc.ID, orgA.ID, "", "fesih"); err != nil {
+			t.Fatal(err)
+		}
+		after, err := projectSvc.FinancialSummary(ctx, p.ID, orgA.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after.NewSubcontractRemaining != 150000 {
+			t.Fatalf("fesih SONRASI kalan taahhüt sertifikalı-ödenen = 150000 olmalı, geldi %v", after.NewSubcontractRemaining)
+		}
+		if after.CommittedCost != 200000 {
+			t.Fatalf("fesih SONRASI tahmini maliyet ödenen+kalan = 200000 olmalı, geldi %v", after.CommittedCost)
+		}
+		cost, err := projectSvc.CostControlSummary(ctx, p.ID, orgA.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cost.CommittedCost != after.NewSubcontractPaid+after.NewSubcontractRemaining {
+			t.Fatalf("Finans (%v) ile Maliyet Kontrolü (%v) fesih taahhüdünde ayrışmamalı",
+				after.NewSubcontractPaid+after.NewSubcontractRemaining, cost.CommittedCost)
+		}
+	})
+
 	t.Run("36_claim_cannot_be_certified_after_termination", func(t *testing.T) {
 		p := newProject(t, orgA.ID, 100000)
 		cc := newCostCode(t, orgA.ID, "S36-CC")
@@ -1141,21 +1202,6 @@ func TestSubcontracts(t *testing.T) {
 			t.Fatalf("tamamlanmış sözleşmenin kesin hakedişi sertifikalanabilmeli: %v", err)
 		}
 	})
-
-	// ---------- 2026-10 denetim düzeltmeleri ----------
-
-	// submitAndCertify, bir hakedişi gönderip sertifikalar.
-	submitAndCertify := func(t *testing.T, projectID, claimID, orgID string) *domain.SubcontractProgressClaim {
-		t.Helper()
-		if _, err := projectSvc.SubmitProgressClaim(ctx, projectID, claimID, orgID, ""); err != nil {
-			t.Fatalf("hakediş gönderilemedi: %v", err)
-		}
-		c, err := projectSvc.CertifyProgressClaim(ctx, projectID, claimID, orgID, "")
-		if err != nil {
-			t.Fatalf("hakediş sertifika edilemedi: %v", err)
-		}
-		return c
-	}
 
 	t.Run("33_duplicate_sov_item_in_one_claim_rejected", func(t *testing.T) {
 		p := newProject(t, orgA.ID, 200000)

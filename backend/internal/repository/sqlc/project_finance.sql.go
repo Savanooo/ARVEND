@@ -864,14 +864,39 @@ inv AS (
         COALESCE(sum(amount) FILTER (WHERE status = 'paid'), 0)::numeric(18,2) AS paid_total
     FROM project_invoices WHERE project_id = $1 AND invoice_type = 'sales'
 ),
+certified_by_sc AS (
+    -- Sözleşme başına sertifikalı tutar: SOV kalemi başına en son
+    -- sertifikalı kümülatifin toplamı (tanım subcontracts.sql
+    -- GetSubcontractCertifiedToDate İLE BİREBİR AYNI).
+    SELECT lc.subcontract_id, sum(lc.cumulative)::numeric(18,2) AS total
+    FROM (
+        SELECT DISTINCT ON (cl.subcontract_item_id) cl.subcontract_id, cl.cumulative
+        FROM (
+            SELECT pc.subcontract_id, pci.subcontract_item_id, pc.id AS claim_id, pc.certified_at,
+                (max(pci.previous_progress_amount) + sum(pci.current_progress_amount))::numeric(18,2) AS cumulative
+            FROM subcontract_progress_claim_items pci
+            JOIN subcontract_progress_claims pc ON pc.id = pci.progress_claim_id
+            WHERE pc.project_id = $1 AND pc.organization_id = $2 AND pc.status = 'certified'
+            GROUP BY pc.subcontract_id, pci.subcontract_item_id, pc.id, pc.certified_at
+        ) cl
+        ORDER BY cl.subcontract_item_id, cl.certified_at DESC, cl.claim_id DESC
+    ) lc
+    GROUP BY lc.subcontract_id
+),
 new_sc_value AS (
-    -- Sprint 5 sözleşmelerinin güncel değeri (GetSubcontractCurrentValue
-    -- İLE AYNI formül: original + onaylı ekler - onaylı eksiltmeler),
-    -- proje İÇİNDEKİ TÜM sözleşmeler için TEK sorguda.
+    -- Sprint 5 sözleşmelerinin TAAHHÜT tabanı, proje İÇİNDEKİ TÜM
+    -- sözleşmeler için TEK sorguda: güncel değer (GetSubcontractCurrentValue
+    -- İLE AYNI formül: original + onaylı ekler - onaylı eksiltmeler).
+    -- FESHEDİLMİŞ sözleşmede ise yalnızca sertifikalı tutar -- fesih kalan
+    -- (yapılmamış) işi serbest bırakır; Cost Control'ün fesih taahhüdü
+    -- (GetSubcontractTerminationTargets) İLE AYNI. Aksi halde Finans
+    -- sekmesi serbest bırakılan kısmı hâlâ "kalan taahhüt" sayıyordu.
     SELECT sc.id,
-        (sc.original_amount + COALESCE(coe.approved_additions, 0) - COALESCE(coe.approved_deductions, 0))::numeric(18,2)
-            AS current_value
+        (CASE WHEN sc.status = 'terminated' THEN COALESCE(cert.total, 0)
+              ELSE sc.original_amount + COALESCE(coe.approved_additions, 0) - COALESCE(coe.approved_deductions, 0)
+         END)::numeric(18,2) AS current_value
     FROM project_subcontracts sc
+    LEFT JOIN certified_by_sc cert ON cert.subcontract_id = sc.id
     LEFT JOIN (
         SELECT subcontract_id,
             COALESCE(sum(amount) FILTER (WHERE change_type = 'addition' AND status = 'approved'), 0)::numeric(18,2)
