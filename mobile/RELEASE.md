@@ -275,31 +275,20 @@ iOS (App Store Connect):
 
 ---
 
-## 9. Yasal / Gizlilik — YAYIN ENGELİ
+## 9. Yasal / Gizlilik
 
-**Repoda şu an Gizlilik Politikası / KVKK Aydınlatma Metni / Kullanım
-Koşulları YOK.** Bu görev bu metinleri UYDURMADI — hukuki bağlayıcılığı
-olan içerik bu ajan tarafından yazılamaz.
+**Durum (2026-10-06): yayında.** Gizlilik Politikası + KVKK aydınlatma metni
+`https://app.arvendyapi.com.tr/gizlilik` (kaynak:
+`frontend/app/gizlilik/page.tsx`, giriş istemez -- `proxy.ts` matcher'ında
+yok). Hesap silme bölümü `#hesap-silme` (Play'in "hesap silme URL'si").
+Yayınlayan: ARVEND Yapı, iletişim info@arvendyapi.com.tr.
 
-**Bu, hem Google Play hem App Store için SERT BİR YAYIN ENGELİDİR:**
-her iki mağaza da gönderim formunda geçerli bir Gizlilik Politikası
-URL'i ZORUNLU kılar; ARVEND kişisel veri işlediği (kullanıcı kimliği,
-müşteri verisi, fotoğraflar — bkz. §10) için KVKK kapsamında da bir
-aydınlatma metni gereklidir.
-
-Yapılması gerekenler (kullanıcı/hukuk ekibi tarafından):
-1. Gerçek bir Gizlilik Politikası + KVKK Aydınlatma Metni yazdırılmalı
-   (avukat/hukuk danışmanı önerilir).
-2. Bu metin backend'in web sitesinde (`app.arvendyapi.com.tr` altında
-   veya ayrı bir statik sayfada) yayınlanıp KALICI bir URL almalı.
-3. O URL, Play Console'un "App content → Privacy policy" alanına ve App
-   Store Connect'in "App Privacy → Privacy Policy URL" alanına girilir.
-4. **Mobil uygulama içi bağlantı**: gerçek URL netleşene kadar mobile
-   HİÇBİR link EKLENMEDİ (talimat gereği — yanlışlıkla üretime çıkabilecek
-   sahte/placeholder bir link riske girilmedi). URL netleştiğinde,
-   "Diğer > Hakkında" ekranına (`lib/features/profile/presentation/about_screen.dart`)
-   tek bir `url_launcher` linki eklemek yeterli olur (paket zaten
-   bağımlılıklarda mevcut).
+- İçerik §10'daki veri envanterine dayanır. Yeni bir veri türü eklenince
+  (ör. push bildirimi cihaz kimliği) sayfa, §10 ve Play "Veri güvenliği"
+  formu BİRLİKTE güncellenir.
+- Uygulama içi bağlantı (mağazalar ister): giriş ekranının altı ve
+  Diğer > Hakkında; adres `AppConfig.privacyPolicyUrl` (1.5.5+11).
+- Metin bir hukuk danışmanına gösterilmedi; avukat kontrolü önerilir.
 
 ---
 
@@ -402,7 +391,7 @@ kapsamında hiçbir telemetri paketi EKLENMEDİ.
 - [ ] `android/key.properties` yerel/CI'da mevcut (repoda DEĞİL).
 - [ ] Play Console'da uygulama kaydı + `com.arvendyapi.arvend` bundle.
 - [ ] `flutter build appbundle --release` gerçek imzayla üretildi.
-- [ ] Gizlilik Politikası URL'i Play Console'a girildi (§9).
+- [x] Gizlilik Politikası URL'i hazır (§9); Play Console'a girildi.
 - [ ] Data Safety formu dolduruldu (§10 envanterini kullanın).
 - [ ] Store varlıkları (feature graphic, ekran görüntüleri, açıklamalar) hazır (§8).
 

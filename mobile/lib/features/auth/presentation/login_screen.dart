@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/auth/auth_controller.dart';
+import '../../../core/config/app_config.dart';
 import '../../../core/errors/api_exception.dart' show AccountAccessIssue, ApiException;
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
@@ -89,7 +91,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     Text(
                       'Yönetim Sistemine Giriş',
                       style: AppTypography.metadata,
-                      semanticsLabel: 'ArvenYapı yönetim sistemine giriş ekranı',
+                      semanticsLabel: 'ARVEND Yapı yönetim sistemine giriş ekranı',
                     ),
                     const SizedBox(height: AppSpacing.xxl + AppSpacing.md),
                     TextFormField(
@@ -130,6 +132,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       label: 'Giriş Yap',
                       loading: _submitting,
                       onPressed: _submitting ? null : _submit,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Center(
+                      child: TextButton(
+                        onPressed: () => launchUrl(
+                          Uri.parse(AppConfig.privacyPolicyUrl),
+                          mode: LaunchMode.externalApplication,
+                        ),
+                        child: const Text('Gizlilik Politikası'),
+                      ),
                     ),
                   ],
                 ),

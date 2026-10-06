@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/app_shell.dart';
+import '../../../core/config/app_config.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -42,7 +44,7 @@ class AboutScreen extends ConsumerWidget {
             ),
             const SizedBox(height: AppSpacing.md),
             const Center(
-              child: Text('ArvenYapı', style: AppTypography.pageTitle),
+              child: Text('ARVEND Yapı', style: AppTypography.pageTitle),
             ),
             const SizedBox(height: 4),
             Center(
@@ -57,8 +59,22 @@ class AboutScreen extends ConsumerWidget {
             const UpdateCheckTile(),
             const AppCard(
               child: Text(
-                'ArvenYapı, saha ekipleri için proje, teklif ve metraj yönetimi uygulamasıdır.',
+                'ARVEND Yapı; proje, teklif, şantiye, görev ve personel yönetimi uygulamasıdır.',
                 style: AppTypography.body,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            AppCard(
+              padding: EdgeInsets.zero,
+              child: ListTile(
+                leading: const Icon(Icons.privacy_tip_outlined),
+                title: const Text('Gizlilik Politikası ve KVKK'),
+                subtitle: const Text('Verilerin nasıl işlendiği, hesap silme'),
+                trailing: const Icon(Icons.open_in_new, size: 18),
+                onTap: () => launchUrl(
+                  Uri.parse(AppConfig.privacyPolicyUrl),
+                  mode: LaunchMode.externalApplication,
+                ),
               ),
             ),
           ],

@@ -31,6 +31,11 @@ class AppConfig {
 
   static String api(String path) => '$apiBaseUrl$apiPrefix$path';
 
+  /// Gizlilik politikası + KVKK metni + hesap silme (web
+  /// frontend/app/gizlilik). Mağazalar uygulama içinde de bağlantı ister.
+  /// API adresinden türetilmez: yerel geliştirme yapısı da gerçek metni açsın.
+  static const String privacyPolicyUrl = 'https://app.arvendyapi.com.tr/gizlilik';
+
   /// 25 MiB - backend'in project_operations_handler.go'daki
   /// service.MaxUploadBytes ile birebir aynı sınır (bkz. mobile/API_CONTRACT.md).
   static const int maxUploadBytes = 25 * 1024 * 1024;

@@ -174,14 +174,16 @@ void main() {
       );
     });
 
-    testWidgets('uygulama adı ve sürüm/derleme numarası package_info\'dan okunup gösterilir', (tester) async {
+    testWidgets('marka adı, package_info\'dan sürüm/derleme ve gizlilik bağlantısı gösterilir', (tester) async {
       await tester.pumpWidget(
         const ProviderScope(child: MaterialApp(home: AboutScreen())),
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('ArvenYapı'), findsOneWidget);
+      expect(find.text('ARVEND Yapı'), findsOneWidget);
       expect(find.text('Sürüm 1.0.0 (1)'), findsOneWidget);
+      // Play ve App Store gizlilik politikasına uygulama içinden de bağlantı ister.
+      expect(find.text('Gizlilik Politikası ve KVKK'), findsOneWidget);
     });
   });
 
