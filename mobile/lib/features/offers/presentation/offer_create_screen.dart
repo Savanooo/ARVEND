@@ -9,6 +9,7 @@ import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_shadows.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_page_scaffold.dart';
@@ -16,9 +17,41 @@ import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/money_text.dart';
 import '../../calculations/presentation/metraj_screen.dart';
+import '../../projects/budget/domain/budget.dart' show formatTrDecimalInput, kMaxBudgetAmount, parseTrDecimal;
+import '../../projects/finance_plan/domain/finance_dates.dart' show parsePercentInput;
 import '../data/offers_providers.dart';
 import '../domain/offer.dart';
 import 'customer_picker_sheet.dart';
+
+/// Teklif kalemlerinin sayı alanları -- bütçe/masraf/ek iş formlarıyla AYNI
+/// Türkçe kural ([parseTrDecimal]): "12.500" = on iki bin beş yüz,
+/// "1.250,50" = bin iki yüz elli virgül elli. Eskiden `double.tryParse(x.
+/// replaceAll(',', '.'))` "12.500"ü 12,50 kaydediyor, "1.250,50"yi okuyamayıp
+/// satırı sessizce atlıyordu. Sütun sınırları: miktar ve iç maliyet
+/// numeric(12,2), birim fiyat numeric(18,2), marj numeric(6,2).
+const _kMaxQuantity = 9999999999.99;
+const _kMaxMarkup = 9999.99;
+
+double? _num(String raw, {double max = kMaxBudgetAmount, bool allowNegative = false}) =>
+    parseTrDecimal(raw, max: max, allowNegative: allowNegative).value;
+
+/// Sayı alanı hatası (null = geçerli). [allowZero]: 0 kabul (birim fiyat).
+String? _numError(
+  String? raw, {
+  double max = kMaxBudgetAmount,
+  bool allowZero = false,
+  bool allowNegative = false,
+  bool required = true,
+}) {
+  final parsed = parseTrDecimal(raw ?? '', max: max, allowNegative: allowNegative);
+  if (parsed.error != null) return parsed.error;
+  final v = parsed.value;
+  if (v == null) return required ? 'Zorunlu' : null;
+  if (!allowNegative && !allowZero && v <= 0) return 'Sıfırdan büyük olmalı';
+  return null;
+}
+
+double _round2(double v) => (v * 100).roundToDouble() / 100;
 
 class _DraftItem {
   _DraftItem();
@@ -41,8 +74,8 @@ class _DraftItem {
   factory _DraftItem.fromOfferItem(OfferItem item) {
     final d = _DraftItem()
       ..productName = item.productName
-      ..quantity = _numStr(item.quantity)
-      ..unitPrice = _numStr(item.unitPrice)
+      ..quantity = formatTrDecimalInput(item.quantity)
+      ..unitPrice = formatTrDecimalInput(item.unitPrice)
       ..unit = item.unit
       ..productId = item.productId
       ..sectionLabel = item.sectionLabel
@@ -51,23 +84,42 @@ class _DraftItem {
       ..fromCalc = item.calcSnapshot != null || (item.calcCategoryId != null && item.calcCategoryId!.isNotEmpty);
     if (item.hasInternalPricing) {
       d.pricingMode = item.pricingMode ?? '';
-      d.internalCost = item.internalSubcontractCost != null ? _numStr(item.internalSubcontractCost!) : '';
-      d.markupPercent = item.markupPercent != null ? _numStr(item.markupPercent!) : '';
+      d.internalCost = formatTrDecimalInput(item.internalSubcontractCost);
+      d.markupPercent = formatTrDecimalInput(item.markupPercent);
     }
     return d;
   }
 
-  static String _numStr(double v) {
-    if (v == v.truncateToDouble()) return v.toInt().toString();
-    return v.toString();
-  }
+  /// Hiç dokunulmamış satır gönderilmez; yarım ya da geçersiz bir satır ise
+  /// kendi alanında hata gösterir ve kaydı durdurur (eskiden sessizce
+  /// atlanıyordu -- kullanıcı kalemin kaybolduğunu fark etmezdi).
+  bool get isBlank =>
+      productName.trim().isEmpty &&
+      quantity.trim().isEmpty &&
+      unitPrice.trim().isEmpty &&
+      internalCost.trim().isEmpty &&
+      markupPercent.trim().isEmpty;
 
   double? get previewSellPrice {
     if (pricingMode != OfferItem.pricingModeMarkup) return null;
-    final cost = double.tryParse(internalCost.replaceAll(',', '.'));
-    final markup = double.tryParse(markupPercent.replaceAll(',', '.'));
+    final cost = _num(internalCost, max: _kMaxQuantity);
+    final markup = _num(markupPercent, max: _kMaxMarkup, allowNegative: true);
     if (cost == null || markup == null) return null;
     return previewMarkupUnitPrice(cost, markup);
+  }
+
+  /// Sunucunun kullanacağı birim fiyat: markup modunda maliyet × (1 + marj),
+  /// değilse girilen fiyat. [showInternal] yoksa iç fiyatlama yok sayılır
+  /// (sunucu da yetkisiz kullanıcıda iç alanları temizler).
+  double? effectiveUnitPrice({required bool showInternal}) =>
+      showInternal && pricingMode == OfferItem.pricingModeMarkup ? previewSellPrice : _num(unitPrice);
+
+  /// Satır toplamı önizlemesi (sunucu `round(q*p, 2)`); geçersizse `null`.
+  double? lineTotal({required bool showInternal}) {
+    final q = _num(quantity, max: _kMaxQuantity);
+    final p = effectiveUnitPrice(showInternal: showInternal);
+    if (q == null || q <= 0 || p == null || p < 0) return null;
+    return _round2(q * p);
   }
 }
 
@@ -114,10 +166,13 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
   final _vatRateController = TextEditingController(text: '20');
   final List<_DraftItem> _items = [];
   String? _customerId;
+
+  /// Formda geçerlilik tarihi alanı yok; mevcut teklifin tarihi düzenlemede
+  /// KORUNUR (PUT null gönderilirse sunucu tarihi silerdi).
+  String? _validUntil;
   bool _loading = false;
   bool _submitting = false;
   String? _error;
-  bool _prefilled = false;
 
   bool get _canManageInternal {
     final user = ref.watch(authControllerProvider).valueOrNull;
@@ -155,22 +210,20 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
         return;
       }
       _customerId = offer.customerId;
+      _validUntil = offer.validUntil;
       _customerNameController.text = offer.customerName;
       _customerPhoneController.text = offer.customerPhone;
       _customerEmailController.text = offer.customerEmail;
       _customerAddressController.text = offer.customerAddress;
       _notesController.text = offer.notes;
-      _vatRateController.text = offer.vatRate == offer.vatRate.truncateToDouble()
-          ? offer.vatRate.toInt().toString()
-          : offer.vatRate.toString();
+      _vatRateController.text = formatTrDecimalInput(offer.vatRate);
       _items
         ..clear()
         ..addAll(offer.items.map(_DraftItem.fromOfferItem));
       if (_items.isEmpty) _items.add(_DraftItem());
-      setState(() {
-        _loading = false;
-        _prefilled = true;
-      });
+      // Yeni kalem nesneleri yeni ObjectKey'ler demektir: satırlar yüklenen
+      // değerlerle yeniden kurulur.
+      setState(() => _loading = false);
     } on ApiException catch (e) {
       if (mounted) {
         setState(() {
@@ -207,6 +260,12 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
     });
   }
 
+  /// Kayıtlı müşteri bağını kaldırır: alanlar düzenlenebilir olur ve
+  /// teklif serbest metin müşteriyle kaydedilir. Bağlıyken sunucu ad/
+  /// telefon/e-posta/adresi müşteri kartından alır ve formda yazılanı YOK
+  /// SAYAR -- bu yüzden bağlıyken alanlar salt okunurdur (web ile aynı).
+  void _unlinkCustomer() => setState(() => _customerId = null);
+
   /// Metraj ekranını "seçici" modda açar ve seçilen kalemleri BU teklif
   /// taslağına ekler -- web'in aynı modalı teklif formunun İÇİNDE tuttuğu
   /// ve birden çok bölüm (Salon/Oda 1/Koridor...) hesaplayıp AYNI teklife
@@ -231,28 +290,25 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
     });
   }
 
+  /// Form doğrulandıktan SONRA çağrılır: boş olmayan her satır geçerlidir.
   List<OfferItem> _buildItems() {
+    final canManageInternal = _canManageInternal;
     final out = <OfferItem>[];
     for (final i in _items) {
-      final qty = double.tryParse(i.quantity.replaceAll(',', '.'));
-      var price = double.tryParse(i.unitPrice.replaceAll(',', '.'));
-      if (i.productName.trim().isEmpty || qty == null || qty <= 0) continue;
+      if (i.isBlank) continue;
+      final qty = _num(i.quantity, max: _kMaxQuantity)!;
+      final price = i.effectiveUnitPrice(showInternal: canManageInternal)!;
 
       double? internalCost;
       double? markup;
       String? mode;
-      if (_canManageInternal && i.pricingMode.isNotEmpty) {
+      if (canManageInternal && i.pricingMode.isNotEmpty) {
         mode = i.pricingMode;
-        internalCost = double.tryParse(i.internalCost.replaceAll(',', '.'));
+        internalCost = _num(i.internalCost, max: _kMaxQuantity);
         if (mode == OfferItem.pricingModeMarkup) {
-          markup = double.tryParse(i.markupPercent.replaceAll(',', '.'));
-          final preview = (internalCost != null && markup != null)
-              ? previewMarkupUnitPrice(internalCost, markup)
-              : null;
-          if (preview != null) price = preview;
+          markup = _num(i.markupPercent, max: _kMaxMarkup, allowNegative: true);
         }
       }
-      if (price == null || price < 0) continue;
 
       out.add(OfferItem(
         id: '',
@@ -280,7 +336,7 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
       setState(() => _error = 'En az bir geçerli kalem girin (ürün adı, miktar > 0, birim fiyat >= 0).');
       return;
     }
-    final vat = double.tryParse(_vatRateController.text.replaceAll(',', '.'));
+    final vat = parsePercentInput(_vatRateController.text);
 
     setState(() {
       _submitting = true;
@@ -297,6 +353,7 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
           customerPhone: _customerPhoneController.text.trim(),
           customerEmail: _customerEmailController.text.trim(),
           customerAddress: _customerAddressController.text.trim(),
+          validUntil: _validUntil,
           notes: _notesController.text.trim(),
           vatRate: vat,
           items: items,
@@ -329,6 +386,7 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
   @override
   Widget build(BuildContext context) {
     final canManageInternal = _canManageInternal;
+    final linked = _customerId != null;
     return AppPageScaffold(
       title: Text(widget.isEdit ? 'Teklifi Düzenle' : 'Yeni Teklif'),
       body: _loading
@@ -349,13 +407,23 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
                             onPressed: _pickCustomer,
                           ),
                         ),
-                        if (_customerId != null) ...[
+                        if (linked) ...[
                           const SizedBox(height: 2),
                           Row(
                             children: [
                               const Icon(Icons.link, size: 14, color: AppColors.success),
                               const SizedBox(width: 4),
-                              Text('Kayıtlı müşteriye bağlı', style: AppTypography.helper.copyWith(color: AppColors.success)),
+                              Expanded(
+                                child: Text(
+                                  'Kayıtlı müşteriye bağlı -- bilgiler müşteri kartından alınır',
+                                  style: AppTypography.helper.copyWith(color: AppColors.success),
+                                ),
+                              ),
+                              TextButton(
+                                key: const ValueKey('offer-customer-unlink'),
+                                onPressed: _unlinkCustomer,
+                                child: const Text('Bağlantıyı kaldır'),
+                              ),
                             ],
                           ),
                         ],
@@ -365,24 +433,28 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
                             children: [
                               TextFormField(
                                 controller: _customerNameController,
+                                enabled: !linked,
                                 decoration: const InputDecoration(labelText: 'Müşteri Adı'),
                                 validator: (v) => (v == null || v.trim().isEmpty) ? 'Müşteri adı gerekli' : null,
                               ),
                               const SizedBox(height: AppSpacing.md),
                               TextFormField(
                                 controller: _customerPhoneController,
+                                enabled: !linked,
                                 decoration: const InputDecoration(labelText: 'Telefon (opsiyonel)'),
                                 keyboardType: TextInputType.phone,
                               ),
                               const SizedBox(height: AppSpacing.md),
                               TextFormField(
                                 controller: _customerEmailController,
+                                enabled: !linked,
                                 decoration: const InputDecoration(labelText: 'E-posta (opsiyonel)'),
                                 keyboardType: TextInputType.emailAddress,
                               ),
                               const SizedBox(height: AppSpacing.md),
                               TextFormField(
                                 controller: _customerAddressController,
+                                enabled: !linked,
                                 decoration: const InputDecoration(labelText: 'Adres (opsiyonel)'),
                               ),
                             ],
@@ -393,6 +465,17 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
                           controller: _vatRateController,
                           decoration: const InputDecoration(labelText: 'KDV Oranı (%)'),
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          // Boş bırakılınca sunucu sessizce %20 uygulardı; nokta ve
+                          // virgül ikisi de ondalık, binlik gruplama yok ("18.5").
+                          validator: (v) {
+                            final s = (v ?? '').trim();
+                            if (s.isEmpty) return 'KDV oranı zorunludur';
+                            final n = parsePercentInput(s);
+                            if (n == null) return 'Geçerli bir oran gir (ör. 20 veya 2,5).';
+                            if (n > 100) return 'KDV oranı en fazla %100 olabilir';
+                            return null;
+                          },
+                          onChanged: (_) => setState(() {}),
                         ),
                         const SizedBox(height: AppSpacing.xl),
                         const AppSectionHeader(title: 'Kalemler'),
@@ -414,12 +497,19 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
                           ],
                         ),
                         ..._items.asMap().entries.map((entry) => _ItemRow(
-                              key: ValueKey('item-${entry.key}-$_prefilled'),
+                              // Nesne anahtarı: ortadaki bir satır silinince yazılan
+                              // değerler bir alttaki satıra kaymasın.
+                              key: ObjectKey(entry.value),
                               item: entry.value,
                               showInternal: canManageInternal,
                               onChanged: () => setState(() {}),
                               onRemove: _items.length > 1 ? () => setState(() => _items.removeAt(entry.key)) : null,
                             )),
+                        _TotalsPreview(
+                          items: _items,
+                          vatRateText: _vatRateController.text,
+                          showInternal: canManageInternal,
+                        ),
                         const SizedBox(height: AppSpacing.md),
                         TextFormField(
                           controller: _notesController,
@@ -493,6 +583,8 @@ class _ItemRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final preview = item.previewSellPrice;
+    final markupMode = showInternal && item.pricingMode == OfferItem.pricingModeMarkup;
+    final lineTotal = item.lineTotal(showInternal: showInternal);
     return AppCard(
       margin: const EdgeInsets.only(top: AppSpacing.sm),
       child: Column(
@@ -507,6 +599,7 @@ class _ItemRow extends StatelessWidget {
                     labelText: item.fromCalc ? 'Ürün / Hizmet (metraj)' : 'Ürün / Hizmet Adı',
                     isDense: true,
                   ),
+                  validator: (v) => item.isBlank || (v ?? '').trim().isNotEmpty ? null : 'Ürün / hizmet adı gerekli',
                   onChanged: (v) {
                     item.productName = v;
                     onChanged();
@@ -532,8 +625,9 @@ class _ItemRow extends StatelessWidget {
               Expanded(
                 child: TextFormField(
                   initialValue: item.quantity,
-                  decoration: const InputDecoration(labelText: 'Miktar', isDense: true),
+                  decoration: const InputDecoration(labelText: 'Miktar', isDense: true, errorMaxLines: 3),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (v) => item.isBlank ? null : _numError(v, max: _kMaxQuantity),
                   onChanged: (v) {
                     item.quantity = v;
                     onChanged();
@@ -558,9 +652,13 @@ class _ItemRow extends StatelessWidget {
                   decoration: InputDecoration(
                     labelText: item.pricingMode == OfferItem.pricingModeMarkup ? 'Satış (önizleme)' : 'Birim Fiyat',
                     isDense: true,
+                    errorMaxLines: 3,
                   ),
                   enabled: item.pricingMode != OfferItem.pricingModeMarkup,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  // Markup modunda fiyatı sunucu maliyet × (1 + marj) olarak
+                  // hesaplar; alan kilitli, doğrulama maliyet/marj alanlarında.
+                  validator: (v) => item.isBlank || markupMode ? null : _numError(v, allowZero: true),
                   onChanged: (v) {
                     item.unitPrice = v;
                     onChanged();
@@ -569,6 +667,15 @@ class _ItemRow extends StatelessWidget {
               ),
             ],
           ),
+          // Satır toplamı önizlemesi: "12.500" -> 12.500,00 TL mi yoksa
+          // 12,50 TL mi, kayıttan önce görünsün.
+          if (lineTotal != null) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text('Satır toplamı: ${Formatters.money(lineTotal)}', style: AppTypography.helper),
+            ),
+          ],
           if (showInternal) ...[
             const SizedBox(height: AppSpacing.md),
             _InternalPricingBox(item: item, preview: preview, onChanged: onChanged),
@@ -633,8 +740,17 @@ class _InternalPricingBox extends StatelessWidget {
             const SizedBox(height: AppSpacing.sm),
             TextFormField(
               initialValue: item.internalCost,
-              decoration: const InputDecoration(labelText: 'İç taşeron maliyeti', isDense: true),
+              decoration: const InputDecoration(labelText: 'İç taşeron maliyeti', isDense: true, errorMaxLines: 3),
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              // Markup modunda satış fiyatı bu maliyetten hesaplanır: zorunlu.
+              validator: (v) => item.isBlank
+                  ? null
+                  : _numError(
+                      v,
+                      max: _kMaxQuantity,
+                      allowZero: true,
+                      required: item.pricingMode == OfferItem.pricingModeMarkup,
+                    ),
               onChanged: (v) {
                 item.internalCost = v;
                 onChanged();
@@ -645,8 +761,16 @@ class _InternalPricingBox extends StatelessWidget {
             const SizedBox(height: AppSpacing.sm),
             TextFormField(
               initialValue: item.markupPercent,
-              decoration: const InputDecoration(labelText: 'Markup %', isDense: true),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Markup %', isDense: true, errorMaxLines: 3),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+              validator: (v) {
+                if (item.isBlank) return null;
+                final error = _numError(v, max: _kMaxMarkup, allowNegative: true);
+                if (error != null) return error;
+                // Negatif satış fiyatlı kalemi sunucu sessizce atlardı.
+                final sell = item.previewSellPrice;
+                return sell != null && sell < 0 ? 'Satış fiyatı negatif olamaz (marj en az -%100).' : null;
+              },
               onChanged: (v) {
                 item.markupPercent = v;
                 onChanged();
@@ -663,6 +787,52 @@ class _InternalPricingBox extends StatelessWidget {
               ),
             ],
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Kalemlerin altındaki Ara Toplam / KDV / Toplam önizlemesi -- sunucu
+/// formülüyle aynı yuvarlama (satır `round(q*p, 2)`, KDV `round(ara*oran/
+/// 100, 2)`). Yanlış büyüklük (ör. 12.500 yerine 12,50) kayıttan ÖNCE
+/// görünsün diye; kesin toplamı kayıtta sunucu hesaplar. Geçerli satır
+/// yoksa çizilmez.
+class _TotalsPreview extends StatelessWidget {
+  const _TotalsPreview({required this.items, required this.vatRateText, required this.showInternal});
+
+  final List<_DraftItem> items;
+  final String vatRateText;
+  final bool showInternal;
+
+  @override
+  Widget build(BuildContext context) {
+    final totals = [
+      for (final i in items)
+        if (!i.isBlank) i.lineTotal(showInternal: showInternal),
+    ].whereType<double>().toList();
+    if (totals.isEmpty) return const SizedBox.shrink();
+    final subtotal = _round2(totals.fold<double>(0, (a, b) => a + b));
+    final rate = parsePercentInput(vatRateText) ?? 0;
+    final vat = _round2(subtotal * rate / 100);
+    Widget row(String label, double value, {bool bold = false}) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            children: [
+              Expanded(child: Text(label, style: bold ? AppTypography.cardTitle : AppTypography.metadata)),
+              MoneyText(value, style: bold ? AppTypography.cardTitle : AppTypography.body),
+            ],
+          ),
+        );
+    return AppCard(
+      key: const ValueKey('offer-totals-preview'),
+      margin: const EdgeInsets.only(top: AppSpacing.sm),
+      child: Column(
+        children: [
+          row('Ara Toplam', subtotal),
+          row('KDV (${Formatters.percent(rate)})', vat),
+          const Divider(),
+          row('Genel Toplam', _round2(subtotal + vat), bold: true),
         ],
       ),
     );
