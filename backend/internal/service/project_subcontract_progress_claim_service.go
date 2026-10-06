@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/repository"
@@ -63,42 +64,41 @@ func (s *ProjectService) generateSubcontractProgressClaimNo(ctx context.Context,
 
 // insertProgressClaimItems, HER kalem için previous_progress_amount'ı bu
 // SOV kaleminin en son SERTİFİKALI kümülatif tutarından OTOMATİK doldurur
-// (spec §17), scheduled_value'yu O ANKİ SOV kalemi tutarının SNAPSHOT'ı
+// (spec §17), scheduled_value'yu O ANKİ kalem sınırının (SOV tutarı +
+// grubun onaylı net eki, bkz. subcontractClaimCaps.itemCap) SNAPSHOT'ı
 // olarak alır (retention_percent_snapshot İLE AYNI "geçmiş sessizce
-// mutate olmaz" ilkesi) ve %100 üstü aşımı Go seviyesinde de doğrular
-// (DB CHECK'i savunma derinliği olarak zaten var).
-func insertProgressClaimItems(ctx context.Context, txq *sqlc.Queries, orgID, pid, claimID pgtype.UUID, subcontractItems map[string]sqlc.SubcontractItem, items []ProgressClaimItemInput) error {
+// mutate olmaz" ilkesi) ve kalem/grup/sözleşme sınırlarını Go seviyesinde
+// doğrular (kalem sınırı için DB CHECK'i savunma derinliği olarak zaten
+// var).
+func insertProgressClaimItems(ctx context.Context, txq *sqlc.Queries, orgID, pid, claimID pgtype.UUID, caps *subcontractClaimCaps, items []ProgressClaimItemInput) error {
 	if err := txq.DeleteSubcontractProgressClaimItems(ctx, sqlc.DeleteSubcontractProgressClaimItemsParams{ProgressClaimID: claimID, OrganizationID: orgID, ProjectID: pid}); err != nil {
 		return err
 	}
-	seen := make(map[string]bool, len(items))
+	cumulative := make(map[string]decimal.Decimal, len(items))
 	for i, it := range items {
-		sovItem, ok := subcontractItems[it.SubcontractItemID]
+		sovItem, ok := caps.items[it.SubcontractItemID]
 		if !ok {
 			return domain.ErrNotFound
 		}
+		id := sovItem.ID.String()
 		// Aynı SOV kalemi bir hakedişte iki kez yer alamaz: her satır aynı
 		// "previous"tan hesaplandığı için kümülatif kontrolü satır başına
 		// geçiyor, toplamda ise kalem %100'ün üzerinde sertifikalanıyordu
 		// (60.000'lik kaleme 2 x 40.000).
-		if seen[sovItem.ID.String()] {
+		if _, dup := cumulative[id]; dup {
 			return ErrProgressClaimDuplicateItem
 		}
-		seen[sovItem.ID.String()] = true
 		if it.CurrentProgressAmount < 0 {
 			return ErrInvalidAmount
-		}
-		prevNumeric, err := txq.GetLatestCertifiedCumulativeForSubcontractItem(ctx, sovItem.ID)
-		if err != nil {
-			return err
 		}
 		// Kuruş karşılaştırması decimal'dir: float64 toplama (ör. 50,10 +
 		// 50,20 = 100,30000000000001) tam %100'e çıkan son hakedişi
 		// "aşım" diye reddediyordu.
-		previous := repository.NumericToDecimal(prevNumeric)
-		scheduled := repository.NumericToDecimal(sovItem.OriginalAmount)
+		previous := caps.certified[id]
+		scheduled := caps.itemCap(id)
 		current := money2(it.CurrentProgressAmount)
-		if previous.Add(current).Cmp(scheduled) > 0 {
+		cumulative[id] = previous.Add(current)
+		if cumulative[id].Cmp(scheduled) > 0 {
 			return ErrProgressClaimOverrun
 		}
 		if _, err := txq.CreateSubcontractProgressClaimItem(ctx, sqlc.CreateSubcontractProgressClaimItemParams{
@@ -109,19 +109,7 @@ func insertProgressClaimItems(ctx context.Context, txq *sqlc.Queries, orgID, pid
 			return err
 		}
 	}
-	return nil
-}
-
-func (s *ProjectService) loadSubcontractItemsByID(ctx context.Context, txq *sqlc.Queries, subcontractID pgtype.UUID) (map[string]sqlc.SubcontractItem, error) {
-	rows, err := txq.ListSubcontractItems(ctx, subcontractID)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string]sqlc.SubcontractItem, len(rows))
-	for _, r := range rows {
-		out[r.ID.String()] = r
-	}
-	return out, nil
+	return caps.checkClaim(cumulative)
 }
 
 func (s *ProjectService) CreateProgressClaim(ctx context.Context, projectID, subcontractID, organizationID string, in ProgressClaimInput) (*domain.SubcontractProgressClaim, error) {
@@ -176,11 +164,11 @@ func (s *ProjectService) CreateProgressClaim(ctx context.Context, projectID, sub
 		return nil, err
 	}
 
-	sovItems, err := s.loadSubcontractItemsByID(ctx, txq, scID)
+	caps, err := loadSubcontractClaimCaps(ctx, txq, orgID, pid, sc)
 	if err != nil {
 		return nil, err
 	}
-	if err := insertProgressClaimItems(ctx, txq, orgID, pid, row.ID, sovItems, in.Items); err != nil {
+	if err := insertProgressClaimItems(ctx, txq, orgID, pid, row.ID, caps, in.Items); err != nil {
 		return nil, err
 	}
 	row, err = txq.RecomputeSubcontractProgressClaimTotals(ctx, sqlc.RecomputeSubcontractProgressClaimTotalsParams{ID: row.ID, OrganizationID: orgID, ProjectID: pid})
@@ -301,11 +289,15 @@ func (s *ProjectService) UpdateProgressClaimDraft(ctx context.Context, projectID
 		return nil, err
 	}
 
-	sovItems, err := s.loadSubcontractItemsByID(ctx, txq, current.SubcontractID)
+	sc, err := txq.GetSubcontract(ctx, sqlc.GetSubcontractParams{ID: current.SubcontractID, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		return nil, err
 	}
-	if err := insertProgressClaimItems(ctx, txq, orgID, pid, id, sovItems, in.Items); err != nil {
+	caps, err := loadSubcontractClaimCaps(ctx, txq, orgID, pid, sc)
+	if err != nil {
+		return nil, err
+	}
+	if err := insertProgressClaimItems(ctx, txq, orgID, pid, id, caps, in.Items); err != nil {
 		return nil, err
 	}
 	row, err = txq.RecomputeSubcontractProgressClaimTotals(ctx, sqlc.RecomputeSubcontractProgressClaimTotalsParams{ID: id, OrganizationID: orgID, ProjectID: pid})
@@ -449,14 +441,28 @@ func (s *ProjectService) CertifyProgressClaim(ctx context.Context, projectID, cl
 	if err != nil {
 		return nil, err
 	}
+	caps, err := loadSubcontractClaimCaps(ctx, txq, orgID, pid, sc)
+	if err != nil {
+		return nil, err
+	}
+	claimCurrent := make(map[string]decimal.Decimal, len(items))
 	for _, it := range items {
-		freshPrev, err := txq.GetLatestCertifiedCumulativeForSubcontractItem(ctx, it.SubcontractItemID)
-		if err != nil {
-			return nil, err
-		}
-		if repository.NumericToDecimal(freshPrev).Cmp(repository.NumericToDecimal(it.PreviousProgressAmount)) != 0 {
+		itemID := it.SubcontractItemID.String()
+		if caps.certified[itemID].Cmp(repository.NumericToDecimal(it.PreviousProgressAmount)) != 0 {
 			return nil, ErrProgressClaimStale
 		}
+		claimCurrent[itemID] = claimCurrent[itemID].Add(repository.NumericToDecimal(it.CurrentProgressAmount))
+	}
+	// Hakediş oluşturulduktan SONRA onaylanmış bir eksiltme sınırı
+	// düşürmüş olabilir: sertifika anında güncel sınırlar (sözleşme satırı
+	// kilitliyken -- değişiklik onayı da aynı satırı kilitler) yeniden
+	// kontrol edilir.
+	cumulative := make(map[string]decimal.Decimal, len(claimCurrent))
+	for itemID, cur := range claimCurrent {
+		cumulative[itemID] = caps.certified[itemID].Add(cur)
+	}
+	if err := caps.checkClaim(cumulative); err != nil {
+		return nil, err
 	}
 
 	row, err := txq.CertifySubcontractProgressClaim(ctx, sqlc.CertifySubcontractProgressClaimParams{ID: id, OrganizationID: orgID, ProjectID: pid, CertifiedBy: actorUUID(userID)})

@@ -872,34 +872,6 @@ func (q *Queries) DeleteSubcontractProgressClaimItems(ctx context.Context, arg D
 	return err
 }
 
-const getLatestCertifiedCumulativeForSubcontractItem = `-- name: GetLatestCertifiedCumulativeForSubcontractItem :one
-SELECT COALESCE(
-    (SELECT (max(pci.previous_progress_amount) + sum(pci.current_progress_amount))
-     FROM subcontract_progress_claim_items pci
-     WHERE pci.subcontract_item_id = $1
-       AND pci.progress_claim_id = (
-           SELECT pc.id
-           FROM subcontract_progress_claims pc
-           JOIN subcontract_progress_claim_items x ON x.progress_claim_id = pc.id
-           WHERE x.subcontract_item_id = $1 AND pc.status = 'certified'
-           ORDER BY pc.certified_at DESC, pc.id DESC LIMIT 1)),
-    0
-)::numeric(18,2) AS cumulative
-`
-
-// Yeni bir hakediş kalemi oluşturulurken previous_progress_amount'ı
-// OTOMATİK doldurmak için -- yalnızca SERTİFİKALI hakedişler sayılır
-// (draft/submitted/rejected/cancelled bir hakedişin rakamları "önceki"
-// zincire ASLA sızmaz). Tanım GetSubcontractCertifiedToDate İLE AYNI:
-// en son sertifikalı hakediş (certified_at DESC, eşitlikte id DESC --
-// deterministik), o hakedişteki satırlarından previous + Σ current.
-func (q *Queries) GetLatestCertifiedCumulativeForSubcontractItem(ctx context.Context, subcontractItemID pgtype.UUID) (pgtype.Numeric, error) {
-	row := q.db.QueryRow(ctx, getLatestCertifiedCumulativeForSubcontractItem, subcontractItemID)
-	var cumulative pgtype.Numeric
-	err := row.Scan(&cumulative)
-	return cumulative, err
-}
-
 const getSubcontract = `-- name: GetSubcontract :one
 SELECT id, organization_id, project_id, subcontract_no, supplier_id, title, scope_summary, original_amount, currency, status, effective_date, start_date, planned_completion_date, retention_percent, advance_amount, payment_terms, notes, created_by, created_at, updated_at, activated_at, activated_by, completed_at, completed_by, cancelled_at, cancelled_by, cancel_reason, terminated_at, terminated_by, termination_reason FROM project_subcontracts WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
@@ -979,9 +951,9 @@ type GetSubcontractCertifiedToDateParams struct {
 // (savunma derinliği -- çağıran zaten subcontract_id'yi doğrulamış olsa
 // bile, bkz. VoidCommitmentsBySourcePOItems İLE AYNI ilke).
 //
-// "En son sertifikalı kümülatif" tanımı bu dosyadaki DÖRT sorguda
-// (bu, GetSubcontractTerminationTargets, ListLatestCertifiedCumulative-
-// BySubcontractItem, GetLatestCertifiedCumulativeForSubcontractItem) ve
+// "En son sertifikalı kümülatif" tanımı bu dosyadaki ÜÇ sorguda (bu,
+// GetSubcontractTerminationTargets, ListLatestCertifiedCumulativeBy-
+// SubcontractItem -- hakediş kalemlerinin "previous"ı da buradan dolar) ve
 // project_finance.sql'deki certified_by_sc CTE'sinde BİREBİR AYNIDIR:
 //   - kalem, hakediş başına previous + Σ current olarak toplanır -- düzeltme
 //     ÖNCESİ bir hakedişte aynı SOV kalemi iki satırda yer almışsa (artık

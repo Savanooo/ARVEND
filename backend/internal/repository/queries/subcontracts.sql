@@ -110,9 +110,9 @@ WHERE sc.id = $1 AND sc.organization_id = $2 AND sc.project_id = $3;
 -- (savunma derinliği -- çağıran zaten subcontract_id'yi doğrulamış olsa
 -- bile, bkz. VoidCommitmentsBySourcePOItems İLE AYNI ilke).
 --
--- "En son sertifikalı kümülatif" tanımı bu dosyadaki DÖRT sorguda
--- (bu, GetSubcontractTerminationTargets, ListLatestCertifiedCumulative-
--- BySubcontractItem, GetLatestCertifiedCumulativeForSubcontractItem) ve
+-- "En son sertifikalı kümülatif" tanımı bu dosyadaki ÜÇ sorguda (bu,
+-- GetSubcontractTerminationTargets, ListLatestCertifiedCumulativeBy-
+-- SubcontractItem -- hakediş kalemlerinin "previous"ı da buradan dolar) ve
 -- project_finance.sql'deki certified_by_sc CTE'sinde BİREBİR AYNIDIR:
 --   * kalem, hakediş başına previous + Σ current olarak toplanır -- düzeltme
 --     ÖNCESİ bir hakedişte aynı SOV kalemi iki satırda yer almışsa (artık
@@ -433,25 +433,6 @@ FROM subcontract_payments
 WHERE project_id = $1 AND organization_id = $2 AND voided_at IS NULL
 GROUP BY subcontract_id;
 
--- name: GetLatestCertifiedCumulativeForSubcontractItem :one
--- Yeni bir hakediş kalemi oluşturulurken previous_progress_amount'ı
--- OTOMATİK doldurmak için -- yalnızca SERTİFİKALI hakedişler sayılır
--- (draft/submitted/rejected/cancelled bir hakedişin rakamları "önceki"
--- zincire ASLA sızmaz). Tanım GetSubcontractCertifiedToDate İLE AYNI:
--- en son sertifikalı hakediş (certified_at DESC, eşitlikte id DESC --
--- deterministik), o hakedişteki satırlarından previous + Σ current.
-SELECT COALESCE(
-    (SELECT (max(pci.previous_progress_amount) + sum(pci.current_progress_amount))
-     FROM subcontract_progress_claim_items pci
-     WHERE pci.subcontract_item_id = $1
-       AND pci.progress_claim_id = (
-           SELECT pc.id
-           FROM subcontract_progress_claims pc
-           JOIN subcontract_progress_claim_items x ON x.progress_claim_id = pc.id
-           WHERE x.subcontract_item_id = $1 AND pc.status = 'certified'
-           ORDER BY pc.certified_at DESC, pc.id DESC LIMIT 1)),
-    0
-)::numeric(18,2) AS cumulative;
 
 -- name: LockSubcontractForPayment :one
 -- Taşeron sözleşmesine ödemede sözleşme satırı KİLİTLENİR; güncel bedel

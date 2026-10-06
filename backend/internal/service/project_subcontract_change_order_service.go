@@ -376,6 +376,34 @@ func (s *ProjectService) ApproveSubcontractChangeOrder(ctx context.Context, proj
 		return nil, err
 	}
 
+	// Eksiltme, sözleşmeyi (ve dokunduğu maliyet kodu grubunu) şimdiye
+	// kadar sertifikalanmış ya da ödenmiş tutarın altına indiremez -- aksi
+	// halde güncel bedel yapılmış/ödenmiş işin altında kalıyor, taahhüt
+	// senkronu negatif grubu sessizce düşürüyordu. Kontrol, bu onay
+	// UYGULANMIŞ haliyle (aynı transaction'da, sözleşme satırı kilitliyken)
+	// yapılır; ihlalde transaction geri alınır.
+	if row.ChangeType == domain.SubcontractChangeTypeDeduction {
+		caps, err := loadSubcontractClaimCaps(ctx, txq, orgID, pid, sc)
+		if err != nil {
+			return nil, err
+		}
+		paid, err := txq.GetSubcontractPaidToDate(ctx, sqlc.GetSubcontractPaidToDateParams{SubcontractID: sc.ID, OrganizationID: orgID, ProjectID: pid})
+		if err != nil {
+			return nil, err
+		}
+		coItems, err := txq.ListSubcontractChangeOrderItems(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		touched := make(map[string]bool, len(coItems))
+		for _, it := range coItems {
+			touched[capGroupKey(it.CostCodeID, it.BudgetLineID)] = true
+		}
+		if err := caps.checkDeductionApproval(repository.NumericToDecimal(paid), touched); err != nil {
+			return nil, err
+		}
+	}
+
 	targets, err := s.currentSubcontractTargets(ctx, txq, orgID, pid, sc.ID)
 	if err != nil {
 		return nil, err
