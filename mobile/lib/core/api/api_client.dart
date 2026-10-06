@@ -67,6 +67,12 @@ class ApiClient {
   /// AuthController.login) tekrar açılır.
   bool _accountBlockNotified = false;
 
+  /// Oturum açıkken bir uç "önce şifrenizi değiştirin" / "önce firma
+  /// kurulumunu tamamlayın" (403, `isAccountSetupGate`) döndü. Oturum
+  /// DÜŞÜRÜLMEZ; AuthController kullanıcıyı tazeler ve router zorunlu
+  /// ekrana yönlendirir (bkz. main.dart).
+  void Function()? onAccountSetupRequired;
+
   void resetAccountAccessGuard() => _accountBlockNotified = false;
 
   Future<void> _notifyAccountAccessBlocked(AccountAccessIssue issue) async {
@@ -306,6 +312,13 @@ class ApiClient {
         );
         if (issue != null) {
           await _notifyAccountAccessBlocked(issue);
+          return handler.next(error);
+        }
+        if (isAccountSetupGate(
+          statusCode: error.response?.statusCode,
+          rawMessage: _extractError(error.response?.data),
+        )) {
+          onAccountSetupRequired?.call();
           return handler.next(error);
         }
 

@@ -111,3 +111,15 @@ AccountAccessIssue? classifyAccountAccessIssue({
   if (rawMessage == _kUserBlockedMessage) return AccountAccessIssue.userBlocked;
   return null;
 }
+
+const _kPasswordChangeRequiredMessage = 'devam etmeden önce şifrenizi değiştirmeniz gerekiyor';
+const _kOnboardingRequiredMessage = 'devam etmeden önce firma kurulumunu tamamlamanız gerekiyor';
+
+/// Backend `RequireOnboarded` kapısının iki sabit 403'ü (bkz.
+/// backend/internal/httpapi/middleware/require_onboarded.go): oturum açıkken
+/// geçici şifre zorunlu kılındı ya da firma kurulumu bitmedi. Hesap engeli
+/// DEĞİLDİR (oturum düşürülmez) -- istemci kullanıcıyı tazeleyip router'ın
+/// zorunlu ekranına (şifre belirleme / kurulum) gitmelidir. Yalnızca TAM
+/// eşleşen sabit mesajlar tanınır.
+bool isAccountSetupGate({required int? statusCode, required String? rawMessage}) =>
+    statusCode == 403 && (rawMessage == _kPasswordChangeRequiredMessage || rawMessage == _kOnboardingRequiredMessage);

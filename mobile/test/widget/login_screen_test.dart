@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:arvend/core/api/api_providers.dart';
+import 'package:arvend/core/auth/auth_controller.dart';
+import 'package:arvend/core/errors/api_exception.dart';
 import 'package:arvend/features/auth/presentation/login_screen.dart';
 
 import '../test_utils/fake_api_client.dart';
@@ -75,6 +77,18 @@ void main() {
     await tester.pump();
 
     expect(tester.widget<TextField>(passwordTextField).obscureText, isFalse);
+  });
+
+  testWidgets('kullanıcı pasif sebebi ekran AÇILDIKTAN sonra gelirse de gösterilir (soğuk açılış)', (tester) async {
+    final container = await _pumpLogin(tester, _signedOut());
+    expect(find.textContaining('erişiminiz kapatılmıştır'), findsNothing);
+
+    // main.dart onAccountAccessBlocked: /auth/me -> refresh 403 "kullanıcı
+    // pasif durumda" sonuçlandığında giriş ekranı zaten açıktır.
+    container.read(accountAccessIssueProvider.notifier).state = AccountAccessIssue.userBlocked;
+    await tester.pumpAndSettle();
+
+    expect(find.text('Hesabınıza erişiminiz kapatılmıştır. Bilgi için yöneticinizle görüşün.'), findsOneWidget);
   });
 
   testWidgets('açılışta oturum ağ yüzünden doğrulanamadıysa sebep gösterilir', (tester) async {

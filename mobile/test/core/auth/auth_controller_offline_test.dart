@@ -126,4 +126,31 @@ void main() {
     expect(push.deletes, 1);
     expect(await LastUserStore().read(), isNull);
   });
+
+  test('"önce şifrenizi değiştirin" 403: oturum düşürülmez, kurulum yeniden denetimi istenir', () async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/projects': [
+        (status: 403, body: {'error': 'devam etmeden önce şifrenizi değiştirmeniz gerekiyor'}),
+      ],
+    });
+    final client = await buildFakeApiClient(adapter);
+    var setupRequired = 0;
+    var blocked = 0;
+    var expired = 0;
+    client.onAccountSetupRequired = () => setupRequired++;
+    client.onAccountAccessBlocked = (_) => blocked++;
+    client.onSessionExpired = () => expired++;
+
+    await expectLater(client.get<Map<String, dynamic>>('/projects'), throwsA(isA<ApiException>()));
+
+    expect(setupRequired, 1);
+    expect(blocked, 0);
+    expect(expired, 0);
+    // Sıradan bir 403 (tek işlem için yetki yok) bu sinyali tetiklemez.
+    expect(isAccountSetupGate(statusCode: 403, rawMessage: 'bu işlem için yetkiniz yok'), isFalse);
+    expect(
+      isAccountSetupGate(statusCode: 403, rawMessage: 'devam etmeden önce firma kurulumunu tamamlamanız gerekiyor'),
+      isTrue,
+    );
+  });
 }

@@ -29,6 +29,7 @@ class AuthController extends AsyncNotifier<User?> {
   static const revalidateInterval = Duration(seconds: 30);
 
   Timer? _revalidateTimer;
+  Future<void>? _setupRecheck;
 
   @override
   Future<User?> build() async {
@@ -149,6 +150,12 @@ class AuthController extends AsyncNotifier<User?> {
       // Anahtar silinemese de oturum kapanır.
     }
   }
+
+  /// Oturum açıkken bir iş ucu "önce şifrenizi değiştirin" / "önce firma
+  /// kurulumunu tamamlayın" (403) dediyse: kullanıcı bilgisi tazelenir,
+  /// router ilgili zorunlu ekrana (şifre belirleme / kurulum) yönlendirir.
+  /// Paralel 403'ler tek bir /auth/me paylaşır.
+  Future<void> recheckAccountSetup() => _setupRecheck ??= refresh().whenComplete(() => _setupRecheck = null);
 
   /// setInitialPassword/onboarding adımları User döndürmez (yalnızca
   /// `{ok:true}` ya da onboarding state) -- bu yüzden bu akışlar

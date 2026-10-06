@@ -42,6 +42,12 @@ Future<void> main() async {
     container.read(authControllerProvider.notifier).sessionExpired();
   };
 
+  // Oturum sürerken geçici şifre zorunlu kılındı / firma kurulumu bitmedi
+  // (403): kullanıcı tazelenir, router zorunlu ekrana götürür.
+  apiClient.onAccountSetupRequired = () {
+    container.read(authControllerProvider.notifier).recheckAccountSetup();
+  };
+
   runApp(
     UncontrolledProviderScope(
       container: container,
