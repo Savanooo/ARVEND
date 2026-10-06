@@ -53,9 +53,12 @@ RETURNING *;
 
 -- name: SetPasswordAndClearMustChange :execrows
 -- İlk giriş "şifre belirle" akışı: parolayı değiştirir VE
--- must_change_password bayrağını temizler, tek sorguda.
+-- must_change_password bayrağını temizler, tek sorguda. YALNIZCA bayrak
+-- açıkken: bu uç mevcut şifreyi sormaz -- bayrak koşulu olmasaydı açık
+-- oturumu olan herkes (ör. kilitlenmemiş bir telefon) şifreyi bilmeden
+-- değiştirebilirdi. 0 satır = bayrak kapalı (ya da kullanıcı yok).
 UPDATE users SET password_hash = $3, must_change_password = false
-WHERE id = $1 AND organization_id = $2;
+WHERE id = $1 AND organization_id = $2 AND must_change_password = true;
 
 -- name: ListUsersWithOrganizationRole :many
 -- "Kullanıcılar" ekranının RBAC/Project Membership sprint'iyle

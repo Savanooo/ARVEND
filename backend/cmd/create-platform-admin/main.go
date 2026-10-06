@@ -59,7 +59,7 @@ func main() {
 	defer pool.Close()
 
 	q := sqlc.New(pool)
-	userSvc := service.NewUserService(q)
+	userSvc := service.NewUserService(pool, q)
 	calcSvc := service.NewCalcService(q)
 	productSvc := service.NewProductService(q)
 	platformSvc := service.NewPlatformService(pool, q, userSvc, calcSvc, productSvc)

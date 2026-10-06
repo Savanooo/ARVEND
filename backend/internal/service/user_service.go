@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Savanooo/ARVEND/backend/internal/auth"
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
@@ -16,11 +17,14 @@ import (
 )
 
 type UserService struct {
-	q *sqlc.Queries
+	pool *pgxpool.Pool
+	q    *sqlc.Queries
 }
 
-func NewUserService(q *sqlc.Queries) *UserService {
-	return &UserService{q: q}
+// pool: pasifleştirme/şifre sıfırlama gibi birden çok yazımın (ve son-Sahip
+// kilidinin, bkz. guardLastActiveOwner) tek transaction'da yapılması için.
+func NewUserService(pool *pgxpool.Pool, q *sqlc.Queries) *UserService {
+	return &UserService{pool: pool, q: q}
 }
 
 type ListResult struct {
@@ -102,6 +106,11 @@ func (s *UserService) Create(ctx context.Context, organizationID, username, pass
 	if username == "" || password == "" || strings.TrimSpace(fullName) == "" {
 		return nil, errors.New("kullanıcı adı, şifre ve ad soyad zorunludur")
 	}
+	// Sıfırlama/değiştirme 8 karakter isterken oluşturma hiçbir alt sınır
+	// koymuyordu -- "1" şifreli hesap açılabiliyordu.
+	if !domain.ValidPasswordLength(password) {
+		return nil, domain.ErrPasswordTooShort
+	}
 
 	var orgRole sqlc.OrganizationRole
 	if organizationRoleCode != "" {
@@ -181,6 +190,21 @@ func (s *UserService) Create(ctx context.Context, organizationID, username, pass
 	return &u, nil
 }
 
+// CreateMember, tenant "Yeni Kullanıcı" ucunun yoludur (bkz. Create):
+// Sahip rolüyle kullanıcı açmak yalnızca bir Sahip'in işidir -- aksi hâlde
+// bir Yönetici kendine ikinci bir Sahip hesabı açıp asıl Sahibi
+// düşürebilirdi (bkz. domain.ErrOwnerOnlyAction).
+func (s *UserService) CreateMember(ctx context.Context, organizationID, actorUserID, username, password, fullName, organizationRoleCode string) (*domain.User, error) {
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	if err := guardOwnerOnlyAction(ctx, s.q, actorUserID, pgtype.UUID{}, orgID, organizationRoleCode); err != nil {
+		return nil, err
+	}
+	return s.Create(ctx, organizationID, username, password, fullName, "", organizationRoleCode)
+}
+
 // Update, kullanıcının profilini (ad soyad + aktiflik) değiştirir. Kaba
 // users.role BİLEREK burada bir parametre DEĞİLDİR: "admin"/"kullanici"
 // artık bağımsız düzenlenebilir bir kavram değil, organizasyon rolünden
@@ -191,7 +215,10 @@ func (s *UserService) Create(ctx context.Context, organizationID, username, pass
 // tarafından bu sapmayı GÖREMEZDİ. Rol değişikliği yalnızca
 // SetOrganizationRole ile yapılır (o hem senkronu hem son-Sahip korumasını
 // uygular).
-func (s *UserService) Update(ctx context.Context, id, organizationID, fullName string, isActive bool) (*domain.User, error) {
+//
+// Aktif bir Sahip'i pasifleştirmek yalnızca bir Sahip'in işidir
+// (guardOwnerOnlyAction); kontrol, kilit ve değişiklik tek transaction'da.
+func (s *UserService) Update(ctx context.Context, id, organizationID, actorUserID, fullName string, isActive bool) (*domain.User, error) {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
 		return nil, domain.ErrNotFound
@@ -200,26 +227,38 @@ func (s *UserService) Update(ctx context.Context, id, organizationID, fullName s
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	current, err := txq.GetUserByIDInOrg(ctx, sqlc.GetUserByIDInOrgParams{ID: uid, OrganizationID: orgID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
 	if !isActive {
-		if err := guardLastActiveOwner(ctx, s.q, uid, orgID); err != nil {
+		// Zaten pasif bir Sahip'in adını düzeltmek pasifleştirme değildir.
+		if current.IsActive {
+			if err := guardOwnerOnlyAction(ctx, txq, actorUserID, uid, orgID, ""); err != nil {
+				return nil, err
+			}
+		}
+		if err := guardLastActiveOwner(ctx, txq, uid, orgID); err != nil {
 			return nil, err
 		}
-	} else {
+	} else if current.DeletedAt.Valid {
 		// Silinmiş bir kullanıcı bu yoldan doğrudan aktifleştirilemez --
 		// önce restore edilmeli (bkz. user_lifecycle.go reactivateUser'daki
 		// AYNI kural; bu, tenant tarafının reaktivasyon yoludur).
-		current, cerr := s.q.GetUserByIDInOrg(ctx, sqlc.GetUserByIDInOrgParams{ID: uid, OrganizationID: orgID})
-		if cerr != nil {
-			if errors.Is(cerr, pgx.ErrNoRows) {
-				return nil, domain.ErrNotFound
-			}
-			return nil, cerr
-		}
-		if current.DeletedAt.Valid {
-			return nil, domain.ErrUserDeleted
-		}
+		return nil, domain.ErrUserDeleted
 	}
-	row, err := s.q.UpdateUserProfile(ctx, sqlc.UpdateUserProfileParams{
+	row, err := txq.UpdateUserProfile(ctx, sqlc.UpdateUserProfileParams{
 		ID:             uid,
 		OrganizationID: orgID,
 		FullName:       strings.TrimSpace(fullName),
@@ -232,17 +271,24 @@ func (s *UserService) Update(ctx context.Context, id, organizationID, fullName s
 		return nil, err
 	}
 	if !isActive {
-		if err := s.q.RevokeAllUserRefreshTokens(ctx, uid); err != nil {
+		if err := endUserAccess(ctx, txq, uid); err != nil {
 			return nil, err
 		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
 	}
 	u := repository.ToDomainUser(row)
 	return &u, nil
 }
 
 // ChangeOwnPassword, kullanıcının kendi şifresini değiştirmesi için mevcut
-// şifreyi doğrular (admin resetinden farkı budur).
-func (s *UserService) ChangeOwnPassword(ctx context.Context, id, organizationID, currentPassword, newPassword string) error {
+// şifreyi doğrular (admin resetinden farkı budur). Şifre değişince
+// kullanıcının DİĞER oturumları kapanır (çalınmış bir oturum, şifre
+// değiştirilerek kesilebilmeli); keepRefreshToken -- isteği yapan cihazın
+// refresh token'ı -- açık kalır, kullanıcı kendi oturumundan atılmaz. Boşsa
+// tüm oturumlar kapanır.
+func (s *UserService) ChangeOwnPassword(ctx context.Context, id, organizationID, currentPassword, newPassword, keepRefreshToken string) error {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
 		return domain.ErrNotFound
@@ -257,26 +303,46 @@ func (s *UserService) ChangeOwnPassword(ctx context.Context, id, organizationID,
 	if !auth.CheckPassword(row.PasswordHash, currentPassword) {
 		return domain.ErrInvalidCredentials
 	}
-	return s.setPassword(ctx, uid, organizationID, newPassword)
-}
-
-// AdminResetPassword, mevcut şifre istemeden bir kullanıcının şifresini
-// değiştirir — yalnız RequireRole("admin") arkasında çağrılmalıdır.
-func (s *UserService) AdminResetPassword(ctx context.Context, id, organizationID, newPassword string) error {
-	uid, err := repository.StringToUUID(id)
+	orgID, err := repository.StringToUUID(organizationID)
 	if err != nil {
 		return domain.ErrNotFound
 	}
-	return s.setPassword(ctx, uid, organizationID, newPassword)
+	if !domain.ValidPasswordLength(newPassword) {
+		return domain.ErrPasswordTooShort
+	}
+	hash, err := auth.HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+	rows, err := txq.UpdateUserPassword(ctx, sqlc.UpdateUserPasswordParams{ID: uid, OrganizationID: orgID, PasswordHash: hash})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	if err := revokeOtherSessions(ctx, txq, uid, keepRefreshToken); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
-// SetInitialPassword, Super Admin'in provision ettiği bir Owner'ın (veya
-// başka bir must_change_password=true kullanıcının) ilk girişte YENİ bir
-// şifre belirlemesi içindir -- ChangeOwnPassword'ün aksine mevcut şifreyi
-// DOĞRULAMAZ (kullanıcı zaten geçici şifreyle kimlik doğrulamış durumda,
-// bu uç yalnızca requireAuth arkasındadır). must_change_password bayrağını
-// AYNI sorguda temizler (bkz. SetPasswordAndClearMustChange).
-func (s *UserService) SetInitialPassword(ctx context.Context, id, organizationID, newPassword string) error {
+// AdminResetPassword, mevcut şifre istemeden bir kullanıcının şifresini
+// değiştirir — yalnız RequireRole("admin") arkasında çağrılmalıdır. Süper
+// Admin'in sıfırlamasıyla (PlatformService.ResetOrganizationUserPassword)
+// AYNI sonuç: verilen şifre geçicidir (must_change_password=true, kullanıcı
+// ilk girişte kendi şifresini belirler) ve hedefin açık oturumları kapanır
+// -- şifresi sıfırlanan hesapta eski oturumlar çalışmaya devam ediyordu.
+// Sahip'in şifresini yalnızca bir Sahip sıfırlayabilir (aksi hâlde bir
+// Yönetici yeni şifreyle Sahip olarak giriş yapabilirdi).
+func (s *UserService) AdminResetPassword(ctx context.Context, id, organizationID, actorUserID, newPassword string) error {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
 		return domain.ErrNotFound
@@ -285,50 +351,123 @@ func (s *UserService) SetInitialPassword(ctx context.Context, id, organizationID
 	if err != nil {
 		return domain.ErrNotFound
 	}
-	if len(newPassword) < 8 {
-		return errors.New("yeni şifre en az 8 karakter olmalı")
+	if !domain.ValidPasswordLength(newPassword) {
+		return domain.ErrPasswordTooShort
 	}
 	hash, err := auth.HashPassword(newPassword)
 	if err != nil {
 		return err
 	}
-	rows, err := s.q.SetPasswordAndClearMustChange(ctx, sqlc.SetPasswordAndClearMustChangeParams{
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+	if err := guardOwnerOnlyAction(ctx, txq, actorUserID, uid, orgID, ""); err != nil {
+		return err
+	}
+	rows, err := txq.ResetPasswordRequireChange(ctx, sqlc.ResetPasswordRequireChangeParams{ID: uid, OrganizationID: orgID, PasswordHash: hash})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
+	}
+	if err := txq.RevokeAllUserRefreshTokens(ctx, uid); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// SetInitialPassword, Super Admin'in provision ettiği bir Owner'ın (veya
+// başka bir must_change_password=true kullanıcının) ilk girişte YENİ bir
+// şifre belirlemesi içindir -- ChangeOwnPassword'ün aksine mevcut şifreyi
+// DOĞRULAMAZ (kullanıcı zaten geçici şifreyle kimlik doğrulamış durumda).
+// Bu yüzden YALNIZCA must_change_password açıkken çalışır; değilse
+// domain.ErrInitialPasswordAlreadySet. Bayrağı AYNI sorguda temizler (bkz.
+// SetPasswordAndClearMustChange). Geçici şifreyle açılmış DİĞER oturumlar
+// kapanır, isteği yapan cihazınki (keepRefreshToken) açık kalır.
+func (s *UserService) SetInitialPassword(ctx context.Context, id, organizationID, newPassword, keepRefreshToken string) error {
+	uid, err := repository.StringToUUID(id)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	if !domain.ValidPasswordLength(newPassword) {
+		return domain.ErrPasswordTooShort
+	}
+	hash, err := auth.HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+	rows, err := txq.SetPasswordAndClearMustChange(ctx, sqlc.SetPasswordAndClearMustChangeParams{
 		ID: uid, OrganizationID: orgID, PasswordHash: hash,
 	})
 	if err != nil {
 		return err
 	}
 	if rows == 0 {
-		return domain.ErrNotFound
+		if _, gerr := txq.GetUserByIDInOrg(ctx, sqlc.GetUserByIDInOrgParams{ID: uid, OrganizationID: orgID}); gerr != nil {
+			if errors.Is(gerr, pgx.ErrNoRows) {
+				return domain.ErrNotFound
+			}
+			return gerr
+		}
+		return domain.ErrInitialPasswordAlreadySet
 	}
-	return nil
+	if err := revokeOtherSessions(ctx, txq, uid, keepRefreshToken); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
-func (s *UserService) setPassword(ctx context.Context, uid pgtype.UUID, organizationID, newPassword string) error {
+// revokeOtherSessions, kullanıcının keepRefreshToken DIŞINDAKİ tüm açık
+// oturumlarını kapatır; keepRefreshToken boşsa hepsini.
+func revokeOtherSessions(ctx context.Context, q *sqlc.Queries, uid pgtype.UUID, keepRefreshToken string) error {
+	if keepRefreshToken == "" {
+		return q.RevokeAllUserRefreshTokens(ctx, uid)
+	}
+	return q.RevokeUserRefreshTokensExcept(ctx, sqlc.RevokeUserRefreshTokensExceptParams{
+		UserID: uid, TokenHash: auth.HashRefreshToken(keepRefreshToken),
+	})
+}
+
+// Deactivate, kullanıcıyı pasifleştirir -- satır silinmez, son aktif Owner
+// korunur, açık oturumları iptal edilir (bkz. user_lifecycle.go). Bir
+// Sahip'i yalnızca bir Sahip pasifleştirebilir. Kontrol, firma kilidi ve
+// değişiklik tek transaction'da (bkz. guardLastActiveOwner).
+func (s *UserService) Deactivate(ctx context.Context, id, organizationID, actorUserID string) error {
+	uid, err := repository.StringToUUID(id)
+	if err != nil {
+		return domain.ErrNotFound
+	}
 	orgID, err := repository.StringToUUID(organizationID)
 	if err != nil {
 		return domain.ErrNotFound
 	}
-	if len(newPassword) < 8 {
-		return errors.New("yeni şifre en az 8 karakter olmalı")
-	}
-	hash, err := auth.HashPassword(newPassword)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	rows, err := s.q.UpdateUserPassword(ctx, sqlc.UpdateUserPasswordParams{ID: uid, OrganizationID: orgID, PasswordHash: hash})
-	if err != nil {
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+	if err := guardOwnerOnlyAction(ctx, txq, actorUserID, uid, orgID, ""); err != nil {
 		return err
 	}
-	if rows == 0 {
-		return domain.ErrNotFound
+	if _, err := deactivateUser(ctx, txq, id, organizationID); err != nil {
+		return err
 	}
-	return nil
-}
-
-// Deactivate, kullanıcıyı pasifleştirir -- satır silinmez, son aktif Owner
-// korunur, açık oturumları iptal edilir (bkz. user_lifecycle.go).
-func (s *UserService) Deactivate(ctx context.Context, id, organizationID string) error {
-	_, err := deactivateUser(ctx, s.q, id, organizationID)
-	return err
+	return tx.Commit(ctx)
 }

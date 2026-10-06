@@ -30,8 +30,8 @@ func TestUserPermissionOverrides(t *testing.T) {
 
 	q := sqlc.New(pool)
 	orgSvc := service.NewOrganizationService(q)
-	userSvc := service.NewUserService(q)
-	authzSvc := service.NewAuthorizationService(q)
+	userSvc := service.NewUserService(pool, q)
+	authzSvc := service.NewAuthorizationService(pool, q)
 
 	seededOrg := func(name, slug string) domain.Organization {
 		org := mustCreateOrg(t, ctx, orgSvc, pool, name, slug)
@@ -170,13 +170,13 @@ func TestUserPermissionOverrides(t *testing.T) {
 		if _, err := authzSvc.SetUserPermissions(ctx, field.ID, orgA.ID, owner.ID, append(slices.Clone(base.RolePermissions), "offers.read")); err != nil {
 			t.Fatalf("kaydedilemedi: %v", err)
 		}
-		if _, err := authzSvc.SetUserOrganizationRole(ctx, field.ID, orgA.ID, domain.OrgRoleField); err != nil {
+		if _, err := authzSvc.SetUserOrganizationRole(ctx, field.ID, orgA.ID, "", domain.OrgRoleField); err != nil {
 			t.Fatalf("aynı rol: %v", err)
 		}
 		if !has(field.ID, orgA.ID, "offers.read") {
 			t.Fatal("aynı rol yeniden seçilince ayarlar korunmalı")
 		}
-		if _, err := authzSvc.SetUserOrganizationRole(ctx, field.ID, orgA.ID, domain.OrgRoleFinance); err != nil {
+		if _, err := authzSvc.SetUserOrganizationRole(ctx, field.ID, orgA.ID, "", domain.OrgRoleFinance); err != nil {
 			t.Fatalf("rol değişimi: %v", err)
 		}
 		d, err := authzSvc.GetUserPermissionDetail(ctx, field.ID, orgA.ID)

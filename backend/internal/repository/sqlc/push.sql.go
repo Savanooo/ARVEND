@@ -66,6 +66,17 @@ func (q *Queries) ClaimPendingPushNotifications(ctx context.Context, arg ClaimPe
 	return items, nil
 }
 
+const deleteAllUserPushDevices = `-- name: DeleteAllUserPushDevices :exec
+DELETE FROM push_devices WHERE user_id = $1
+`
+
+// Pasifleştirilen/silinen kullanıcının telefonları silinir: bildirim
+// almaya devam etmesin (bkz. user_lifecycle.go deactivateUser/deleteUser).
+func (q *Queries) DeleteAllUserPushDevices(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteAllUserPushDevices, userID)
+	return err
+}
+
 const deletePushDeviceByToken = `-- name: DeletePushDeviceByToken :execrows
 DELETE FROM push_devices WHERE token = $1
 `
@@ -96,9 +107,16 @@ func (q *Queries) DeleteUserPushDevice(ctx context.Context, arg DeleteUserPushDe
 }
 
 const listPushTokensForUser = `-- name: ListPushTokensForUser :many
-SELECT token FROM push_devices WHERE user_id = $1 ORDER BY last_seen_at DESC
+SELECT d.token
+FROM push_devices d
+JOIN users u ON u.id = d.user_id
+WHERE d.user_id = $1 AND u.is_active AND u.deleted_at IS NULL
+ORDER BY d.last_seen_at DESC
 `
 
+// Yalnızca aktif, silinmemiş kullanıcının cihazları: pasifleştirme cihaz
+// kayıtlarını da siler, ama ondan önce yazılmış bir bildirim ya da başka
+// bir yoldan kalmış bir kayıt engellenen kişinin telefonuna gitmesin.
 func (q *Queries) ListPushTokensForUser(ctx context.Context, userID pgtype.UUID) ([]string, error) {
 	rows, err := q.db.Query(ctx, listPushTokensForUser, userID)
 	if err != nil {

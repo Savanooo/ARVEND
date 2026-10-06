@@ -637,6 +637,22 @@ func (q *Queries) ListUserPermissionOverrides(ctx context.Context, arg ListUserP
 	return items, nil
 }
 
+const lockOrganizationForOwnerChange = `-- name: LockOrganizationForOwnerChange :exec
+SELECT id FROM organizations WHERE id = $1 FOR NO KEY UPDATE
+`
+
+// Son-Owner korumasının kilidi: "başka aktif Owner var mı" sayımı ile
+// ardından gelen pasifleştirme/rol düşürme arasında başka bir transaction
+// aynı firmada aynı şeyi yapamasın. İki Sahip AYNI ANDA birbirini
+// pasifleştirince ikisi de "diğeri hâlâ aktif" görüp firma Sahipsiz
+// kalabiliyordu. Firma satırına NO KEY UPDATE: sahiplik değişikliklerini
+// firma başına sıraya sokar ama firmaya FK ile bağlanan satırların
+// eklenmesini (KEY SHARE) BEKLETMEZ. Transaction içinde çağrılmalıdır.
+func (q *Queries) LockOrganizationForOwnerChange(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, lockOrganizationForOwnerChange, id)
+	return err
+}
+
 const projectUserExists = `-- name: ProjectUserExists :one
 SELECT EXISTS (
     SELECT 1 FROM project_users WHERE project_id = $1 AND user_id = $2 AND organization_id = $3

@@ -17,7 +17,19 @@ DELETE FROM push_devices WHERE token = $1 AND user_id = $2;
 DELETE FROM push_devices WHERE token = $1;
 
 -- name: ListPushTokensForUser :many
-SELECT token FROM push_devices WHERE user_id = $1 ORDER BY last_seen_at DESC;
+-- Yalnızca aktif, silinmemiş kullanıcının cihazları: pasifleştirme cihaz
+-- kayıtlarını da siler, ama ondan önce yazılmış bir bildirim ya da başka
+-- bir yoldan kalmış bir kayıt engellenen kişinin telefonuna gitmesin.
+SELECT d.token
+FROM push_devices d
+JOIN users u ON u.id = d.user_id
+WHERE d.user_id = $1 AND u.is_active AND u.deleted_at IS NULL
+ORDER BY d.last_seen_at DESC;
+
+-- name: DeleteAllUserPushDevices :exec
+-- Pasifleştirilen/silinen kullanıcının telefonları silinir: bildirim
+-- almaya devam etmesin (bkz. user_lifecycle.go deactivateUser/deleteUser).
+DELETE FROM push_devices WHERE user_id = $1;
 
 -- name: ClaimPendingPushNotifications :many
 -- Gönderilecek bildirimleri alır ve aynı anda işaretler (iki gönderici

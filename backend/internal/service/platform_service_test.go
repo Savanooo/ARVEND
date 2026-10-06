@@ -22,7 +22,7 @@ import (
 )
 
 func newPlatformTestServices(q *sqlc.Queries, pool *pgxpool.Pool) (*service.PlatformService, *service.UserService) {
-	userSvc := service.NewUserService(q)
+	userSvc := service.NewUserService(pool, q)
 	calcSvc := service.NewCalcService(q)
 	productSvc := service.NewProductService(q)
 	return service.NewPlatformService(pool, q, userSvc, calcSvc, productSvc), userSvc

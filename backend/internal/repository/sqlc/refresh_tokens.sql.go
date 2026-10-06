@@ -77,3 +77,20 @@ func (q *Queries) RevokeRefreshToken(ctx context.Context, tokenHash string) erro
 	_, err := q.db.Exec(ctx, revokeRefreshToken, tokenHash)
 	return err
 }
+
+const revokeUserRefreshTokensExcept = `-- name: RevokeUserRefreshTokensExcept :exec
+UPDATE refresh_tokens SET revoked_at = now()
+WHERE user_id = $1 AND revoked_at IS NULL AND token_hash <> $2
+`
+
+type RevokeUserRefreshTokensExceptParams struct {
+	UserID    pgtype.UUID `json:"user_id"`
+	TokenHash string      `json:"token_hash"`
+}
+
+// Şifre değişince kullanıcının DİĞER oturumları kapanır; şifreyi değiştiren
+// cihazın kendi oturumu (token_hash) açık kalır.
+func (q *Queries) RevokeUserRefreshTokensExcept(ctx context.Context, arg RevokeUserRefreshTokensExceptParams) error {
+	_, err := q.db.Exec(ctx, revokeUserRefreshTokensExcept, arg.UserID, arg.TokenHash)
+	return err
+}

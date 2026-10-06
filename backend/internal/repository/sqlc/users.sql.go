@@ -577,7 +577,7 @@ func (q *Queries) RestoreUser(ctx context.Context, arg RestoreUserParams) (int64
 
 const setPasswordAndClearMustChange = `-- name: SetPasswordAndClearMustChange :execrows
 UPDATE users SET password_hash = $3, must_change_password = false
-WHERE id = $1 AND organization_id = $2
+WHERE id = $1 AND organization_id = $2 AND must_change_password = true
 `
 
 type SetPasswordAndClearMustChangeParams struct {
@@ -587,7 +587,10 @@ type SetPasswordAndClearMustChangeParams struct {
 }
 
 // İlk giriş "şifre belirle" akışı: parolayı değiştirir VE
-// must_change_password bayrağını temizler, tek sorguda.
+// must_change_password bayrağını temizler, tek sorguda. YALNIZCA bayrak
+// açıkken: bu uç mevcut şifreyi sormaz -- bayrak koşulu olmasaydı açık
+// oturumu olan herkes (ör. kilitlenmemiş bir telefon) şifreyi bilmeden
+// değiştirebilirdi. 0 satır = bayrak kapalı (ya da kullanıcı yok).
 func (q *Queries) SetPasswordAndClearMustChange(ctx context.Context, arg SetPasswordAndClearMustChangeParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setPasswordAndClearMustChange, arg.ID, arg.OrganizationID, arg.PasswordHash)
 	if err != nil {

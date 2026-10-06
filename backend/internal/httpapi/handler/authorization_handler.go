@@ -35,6 +35,11 @@ func (h *AuthorizationHandler) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, domain.ErrOwnerPermissionsFixed), errors.Is(err, domain.ErrOwnerRoleLocked),
 		errors.Is(err, domain.ErrUserDeleted):
 		httpjson.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, domain.ErrOwnerOnlyAction):
+		httpjson.Error(w, http.StatusForbidden, err.Error())
+	case isInternalError(err):
+		// Ham veritabanı metni (tablo/kısıt adları) kullanıcıya gitmesin.
+		writeInternalError(w, err)
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}

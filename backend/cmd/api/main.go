@@ -57,7 +57,7 @@ func main() {
 	}
 
 	q := sqlc.New(pool)
-	userSvc := service.NewUserService(q)
+	userSvc := service.NewUserService(pool, q)
 	seedAdmin(ctx, userSvc, q, cfg)
 	productSvc := service.NewProductService(q)
 	settingsSvc := service.NewSettingsService(q, secretBox)
@@ -70,7 +70,7 @@ func main() {
 	calcSvc := service.NewCalcService(q)
 	platformSvc := service.NewPlatformService(pool, q, userSvc, calcSvc, productSvc)
 	onboardingSvc := service.NewOnboardingService(q, secretBox)
-	authzSvc := service.NewAuthorizationService(q)
+	authzSvc := service.NewAuthorizationService(pool, q)
 	costCodeSvc := service.NewCostCodeService(pool, q)
 	supplierSvc := service.NewSupplierService(pool, q, secretBox)
 	notificationSvc := service.NewNotificationService(q)

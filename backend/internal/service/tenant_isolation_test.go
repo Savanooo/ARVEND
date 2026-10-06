@@ -243,7 +243,7 @@ func TestTenantIsolation(t *testing.T) {
 	attendanceSvc := service.NewAttendanceService(q)
 	settingsSvc := service.NewSettingsService(q, box)
 	offerSvc := service.NewOfferService(pool, q, settingsSvc, "http://localhost:3000")
-	userSvc := service.NewUserService(q)
+	userSvc := service.NewUserService(pool, q)
 	customerSvc := service.NewCustomerService(q)
 
 	orgA := mustCreateOrg(t, ctx, orgSvc, pool, "İzolasyon Test Firma A", "izolasyon-test-firma-a")
@@ -411,10 +411,10 @@ func TestTenantIsolation(t *testing.T) {
 		if _, err := userSvc.Get(ctx, testUser.ID, orgB.ID); !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("Firma B, Firma A'nın kullanıcısını görebildi: err=%v", err)
 		}
-		if _, err := userSvc.Update(ctx, testUser.ID, orgB.ID, "HACKED", true); !errors.Is(err, domain.ErrNotFound) {
+		if _, err := userSvc.Update(ctx, testUser.ID, orgB.ID, "", "HACKED", true); !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("Firma B, Firma A'nın kullanıcısını güncelleyebildi: err=%v", err)
 		}
-		if err := userSvc.Deactivate(ctx, testUser.ID, orgB.ID); !errors.Is(err, domain.ErrNotFound) {
+		if err := userSvc.Deactivate(ctx, testUser.ID, orgB.ID, ""); !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("Firma B, Firma A'nın kullanıcısını pasifleştirebildi: err=%v", err)
 		}
 		list, err := userSvc.List(ctx, orgB.ID, 1, 200)

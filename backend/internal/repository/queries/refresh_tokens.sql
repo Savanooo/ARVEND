@@ -16,3 +16,9 @@ WHERE token_hash = $1;
 -- name: RevokeAllUserRefreshTokens :exec
 UPDATE refresh_tokens SET revoked_at = now()
 WHERE user_id = $1 AND revoked_at IS NULL;
+
+-- name: RevokeUserRefreshTokensExcept :exec
+-- Şifre değişince kullanıcının DİĞER oturumları kapanır; şifreyi değiştiren
+-- cihazın kendi oturumu (token_hash) açık kalır.
+UPDATE refresh_tokens SET revoked_at = now()
+WHERE user_id = $1 AND revoked_at IS NULL AND token_hash <> $2;

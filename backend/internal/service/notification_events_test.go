@@ -36,9 +36,9 @@ func TestNotifications(t *testing.T) {
 	t.Cleanup(func() { pool.Close() })
 
 	q := sqlc.New(pool)
-	userSvc := service.NewUserService(q)
+	userSvc := service.NewUserService(pool, q)
 	employeeSvc := service.NewEmployeeService(pool, q)
-	authzSvc := service.NewAuthorizationService(q)
+	authzSvc := service.NewAuthorizationService(pool, q)
 	settingsSvc := service.NewSettingsService(q, box)
 	offerSvc := service.NewOfferService(pool, q, settingsSvc, "http://localhost:3000")
 	projectSvc := service.NewProjectService(pool, q, mustTestStore(t), settingsSvc, "http://localhost:3000")
@@ -87,7 +87,7 @@ func TestNotifications(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s oluşturulamadı: %v", username, err)
 		}
-		if _, err := authzSvc.SetUserOrganizationRole(ctx, u.ID, orgID, roleCode); err != nil {
+		if _, err := authzSvc.SetUserOrganizationRole(ctx, u.ID, orgID, "", roleCode); err != nil {
 			t.Fatalf("%s için rol (%s) atanamadı: %v", username, roleCode, err)
 		}
 		return u

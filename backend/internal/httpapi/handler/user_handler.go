@@ -70,7 +70,8 @@ func (h *UserHandler) SetOrganizationRole(w http.ResponseWriter, r *http.Request
 		return
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	role, err := h.authzSvc.SetUserOrganizationRole(r.Context(), chi.URLParam(r, "id"), orgID, req.RoleCode)
+	actorID, _ := middleware.UserIDFromContext(r.Context())
+	role, err := h.authzSvc.SetUserOrganizationRole(r.Context(), chi.URLParam(r, "id"), orgID, actorID, req.RoleCode)
 	if err != nil {
 		h.writeUserError(w, err)
 		return
@@ -104,7 +105,8 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	user, err := h.svc.Create(r.Context(), orgID, req.Username, req.Password, req.FullName, "", req.OrganizationRoleCode)
+	actorID, _ := middleware.UserIDFromContext(r.Context())
+	user, err := h.svc.CreateMember(r.Context(), orgID, actorID, req.Username, req.Password, req.FullName, req.OrganizationRoleCode)
 	if err != nil {
 		h.writeUserError(w, err)
 		return
@@ -128,7 +130,8 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	user, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), orgID, req.FullName, req.IsActive)
+	actorID, _ := middleware.UserIDFromContext(r.Context())
+	user, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), orgID, actorID, req.FullName, req.IsActive)
 	if err != nil {
 		h.writeUserError(w, err)
 		return
@@ -138,7 +141,8 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 func (h *UserHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	if err := h.svc.Deactivate(r.Context(), chi.URLParam(r, "id"), orgID); err != nil {
+	actorID, _ := middleware.UserIDFromContext(r.Context())
+	if err := h.svc.Deactivate(r.Context(), chi.URLParam(r, "id"), orgID, actorID); err != nil {
 		h.writeUserError(w, err)
 		return
 	}
@@ -162,7 +166,10 @@ func (h *UserHandler) ChangeOwnPassword(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	if err := h.svc.ChangeOwnPassword(r.Context(), userID, orgID, req.CurrentPassword, req.NewPassword); err != nil {
+	// Şifre değişince diğer oturumlar kapanır; bu cihazınki açık kalsın diye
+	// onun refresh token'ı (HttpOnly cookie, web ve mobil ikisi de taşır)
+	// servise verilir.
+	if err := h.svc.ChangeOwnPassword(r.Context(), userID, orgID, req.CurrentPassword, req.NewPassword, currentRefreshToken(r)); err != nil {
 		h.writeUserError(w, err)
 		return
 	}
@@ -189,7 +196,7 @@ func (h *UserHandler) SetInitialPassword(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	if err := h.svc.SetInitialPassword(r.Context(), userID, orgID, req.NewPassword); err != nil {
+	if err := h.svc.SetInitialPassword(r.Context(), userID, orgID, req.NewPassword, currentRefreshToken(r)); err != nil {
 		h.writeUserError(w, err)
 		return
 	}
@@ -207,11 +214,20 @@ func (h *UserHandler) AdminResetPassword(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	if err := h.svc.AdminResetPassword(r.Context(), chi.URLParam(r, "id"), orgID, req.NewPassword); err != nil {
+	actorID, _ := middleware.UserIDFromContext(r.Context())
+	if err := h.svc.AdminResetPassword(r.Context(), chi.URLParam(r, "id"), orgID, actorID, req.NewPassword); err != nil {
 		h.writeUserError(w, err)
 		return
 	}
 	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// currentRefreshToken, isteği yapan cihazın refresh token'ı (yoksa "").
+func currentRefreshToken(r *http.Request) string {
+	if c, err := r.Cookie("refresh_token"); err == nil {
+		return c.Value
+	}
+	return ""
 }
 
 func (h *UserHandler) writeUserError(w http.ResponseWriter, err error) {
@@ -222,10 +238,16 @@ func (h *UserHandler) writeUserError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusConflict, "bu kullanıcı adı zaten kullanılıyor")
 	case errors.Is(err, domain.ErrInvalidCredentials):
 		httpjson.Error(w, http.StatusBadRequest, "mevcut şifre hatalı")
-	case errors.Is(err, domain.ErrLastOwner):
+	case errors.Is(err, domain.ErrLastOwner), errors.Is(err, domain.ErrInitialPasswordAlreadySet):
 		httpjson.Error(w, http.StatusConflict, err.Error())
-	case errors.Is(err, domain.ErrCannotAssignSuperAdmin), errors.Is(err, domain.ErrCrossOrgMembership):
+	case errors.Is(err, domain.ErrOwnerOnlyAction):
+		httpjson.Error(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, domain.ErrCannotAssignSuperAdmin), errors.Is(err, domain.ErrCrossOrgMembership),
+		errors.Is(err, domain.ErrPasswordTooShort):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
+	case isInternalError(err):
+		// Ham veritabanı metni kullanıcıya gitmesin.
+		writeInternalError(w, err)
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}

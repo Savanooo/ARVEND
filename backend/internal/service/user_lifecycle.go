@@ -42,11 +42,56 @@ func isReservedUsername(username string) bool {
 	return strings.EqualFold(strings.TrimSpace(username), "admin")
 }
 
+// guardOwnerOnlyAction, Sahip'e dokunan ya da Sahip yaratan bir işlemi
+// yalnızca bir Sahip'in yapmasına izin verir (domain.ErrOwnerOnlyAction).
+// Kısıt yalnızca hedef Sahip ise ya da newRoleCode Sahip ise devreye girer;
+// diğer işlemler (Yönetici'nin bir Saha kullanıcısını pasifleştirmesi gibi)
+// etkilenmez. targetUID boş olabilir (henüz var olmayan kullanıcıya rol
+// verme). actorUserID boşsa/geçersizse aktör Sahip sayılmaz. Platform
+// (Süper Admin) yolu bu kontrolden geçmez -- o, firmalar üstü bir yetkidir.
+func guardOwnerOnlyAction(ctx context.Context, q *sqlc.Queries, actorUserID string, targetUID, orgID pgtype.UUID, newRoleCode string) error {
+	touchesOwner := newRoleCode == domain.OrgRoleOwner
+	if !touchesOwner && targetUID.Valid {
+		role, err := q.GetUserRoleCode(ctx, sqlc.GetUserRoleCodeParams{ID: targetUID, OrganizationID: orgID})
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		touchesOwner = err == nil && role.Code == domain.OrgRoleOwner
+	}
+	if !touchesOwner {
+		return nil
+	}
+	actor, err := repository.StringToUUID(actorUserID)
+	if err != nil {
+		return domain.ErrOwnerOnlyAction
+	}
+	actorRole, err := q.GetUserRoleCode(ctx, sqlc.GetUserRoleCodeParams{ID: actor, OrganizationID: orgID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrOwnerOnlyAction
+		}
+		return err
+	}
+	if actorRole.Code != domain.OrgRoleOwner {
+		return domain.ErrOwnerOnlyAction
+	}
+	return nil
+}
+
 // guardLastActiveOwner, hedef kullanıcı organizasyonun SON AKTİF Owner'ı ise
 // domain.ErrLastOwner döner. Owner olmayan ya da zaten pasif bir hedef için
 // kısıt yoktur (pasif bir Owner zaten sayılmaz; başka aktif Owner varsa
 // düşürülebilir). Kullanıcı bu organizasyonda yoksa ErrNotFound.
+//
+// Önce firma satırını kilitler (LockOrganizationForOwnerChange): sayım ile
+// ardından gelen pasifleştirme/rol değişikliği arasında aynı firmada başka
+// bir sahiplik değişikliği araya giremez. Bu yüzden q bir transaction'a
+// bağlı OLMALI ve değişiklik AYNI transaction'da yapılmalıdır -- kilit
+// commit'e kadar tutulur.
 func guardLastActiveOwner(ctx context.Context, q *sqlc.Queries, uid, orgID pgtype.UUID) error {
+	if err := q.LockOrganizationForOwnerChange(ctx, orgID); err != nil {
+		return err
+	}
 	role, err := q.GetUserRoleCode(ctx, sqlc.GetUserRoleCodeParams{ID: uid, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -156,10 +201,20 @@ func deactivateUser(ctx context.Context, q *sqlc.Queries, userID, organizationID
 	if rows == 0 {
 		return pgtype.UUID{}, domain.ErrNotFound
 	}
-	if err := q.RevokeAllUserRefreshTokens(ctx, uid); err != nil {
+	if err := endUserAccess(ctx, q, uid); err != nil {
 		return pgtype.UUID{}, err
 	}
 	return uid, nil
+}
+
+// endUserAccess, erişimi kesilen kullanıcının açık oturumlarını (refresh
+// token) iptal eder ve telefon kayıtlarını siler -- pasif/silinmiş biri ne
+// oturumunu yenileyebilir ne de bildirim almaya devam eder.
+func endUserAccess(ctx context.Context, q *sqlc.Queries, uid pgtype.UUID) error {
+	if err := q.RevokeAllUserRefreshTokens(ctx, uid); err != nil {
+		return err
+	}
+	return q.DeleteAllUserPushDevices(ctx, uid)
 }
 
 // reactivateUser, silinmiş bir kullanıcıda REDDEDİLİR -- "silinmiş ama
@@ -238,7 +293,7 @@ func deleteUser(ctx context.Context, q *sqlc.Queries, userID, organizationID, ac
 	if rows == 0 {
 		return pgtype.UUID{}, domain.ErrAlreadyDeleted
 	}
-	if err := q.RevokeAllUserRefreshTokens(ctx, uid); err != nil {
+	if err := endUserAccess(ctx, q, uid); err != nil {
 		return pgtype.UUID{}, err
 	}
 	return uid, nil

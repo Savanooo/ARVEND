@@ -169,7 +169,7 @@ func TestRequireAuth_SuspendBlocksMidSessionAccess(t *testing.T) {
 	q := sqlc.New(pool)
 
 	orgSvc := service.NewOrganizationService(q)
-	userSvc := service.NewUserService(q)
+	userSvc := service.NewUserService(pool, q)
 	calcSvc := service.NewCalcService(q)
 	productSvc := service.NewProductService(q)
 	platformSvc := service.NewPlatformService(pool, q, userSvc, calcSvc, productSvc)

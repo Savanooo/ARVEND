@@ -197,6 +197,16 @@ FROM users u
 JOIN organization_roles orole ON orole.id = u.organization_role_id
 WHERE u.organization_id = $1 AND orole.code = 'owner' AND u.is_active = true;
 
+-- name: LockOrganizationForOwnerChange :exec
+-- Son-Owner korumasının kilidi: "başka aktif Owner var mı" sayımı ile
+-- ardından gelen pasifleştirme/rol düşürme arasında başka bir transaction
+-- aynı firmada aynı şeyi yapamasın. İki Sahip AYNI ANDA birbirini
+-- pasifleştirince ikisi de "diğeri hâlâ aktif" görüp firma Sahipsiz
+-- kalabiliyordu. Firma satırına NO KEY UPDATE: sahiplik değişikliklerini
+-- firma başına sıraya sokar ama firmaya FK ile bağlanan satırların
+-- eklenmesini (KEY SHARE) BEKLETMEZ. Transaction içinde çağrılmalıdır.
+SELECT id FROM organizations WHERE id = $1 FOR NO KEY UPDATE;
+
 -- name: CountActiveOwnersExcludingUser :one
 -- Son-Owner koruması (deaktivasyon/rol düşürme): HEDEF kullanıcı DIŞINDAKİ
 -- aktif Owner sayısı -- 0 ise hedef son aktif Owner'dır, işlem reddedilir.
