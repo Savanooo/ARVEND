@@ -440,6 +440,29 @@ func (q *Queries) CloseRFQ(ctx context.Context, arg CloseRFQParams) (Rfq, error)
 	return i, err
 }
 
+const countOpenPurchaseOrdersForQuotation = `-- name: CountOpenPurchaseOrdersForQuotation :one
+SELECT count(*)::int AS open_count FROM purchase_orders
+WHERE source_quotation_id = $1 AND organization_id = $2 AND project_id = $3 AND status <> 'cancelled'
+`
+
+type CountOpenPurchaseOrdersForQuotationParams struct {
+	SourceQuotationID pgtype.UUID `json:"source_quotation_id"`
+	OrganizationID    pgtype.UUID `json:"organization_id"`
+	ProjectID         pgtype.UUID `json:"project_id"`
+}
+
+// Bir tekliften açılmış, iptal edilmemiş sipariş sayısı -- teklif başına
+// tek sipariş (bkz. CreatePurchaseOrder; çağıran teklif satırını kilitli
+// tutar). Bunu bir UNIQUE index ile değil kodla sağlıyoruz: mevcut veride
+// aynı tekliften açılmış birden fazla sipariş olabilir ve index migration'ı
+// düşürürdü.
+func (q *Queries) CountOpenPurchaseOrdersForQuotation(ctx context.Context, arg CountOpenPurchaseOrdersForQuotationParams) (int32, error) {
+	row := q.db.QueryRow(ctx, countOpenPurchaseOrdersForQuotation, arg.SourceQuotationID, arg.OrganizationID, arg.ProjectID)
+	var open_count int32
+	err := row.Scan(&open_count)
+	return open_count, err
+}
+
 const createPurchaseOrder = `-- name: CreatePurchaseOrder :one
 
 INSERT INTO purchase_orders (

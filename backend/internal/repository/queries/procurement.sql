@@ -302,6 +302,15 @@ SELECT * FROM purchase_orders WHERE id = $1 AND organization_id = $2 AND project
 -- name: GetPurchaseOrderForUpdate :one
 SELECT * FROM purchase_orders WHERE id = $1 AND organization_id = $2 AND project_id = $3 FOR UPDATE;
 
+-- name: CountOpenPurchaseOrdersForQuotation :one
+-- Bir tekliften açılmış, iptal edilmemiş sipariş sayısı -- teklif başına
+-- tek sipariş (bkz. CreatePurchaseOrder; çağıran teklif satırını kilitli
+-- tutar). Bunu bir UNIQUE index ile değil kodla sağlıyoruz: mevcut veride
+-- aynı tekliften açılmış birden fazla sipariş olabilir ve index migration'ı
+-- düşürürdü.
+SELECT count(*)::int AS open_count FROM purchase_orders
+WHERE source_quotation_id = $1 AND organization_id = $2 AND project_id = $3 AND status <> 'cancelled';
+
 -- name: UpdatePurchaseOrderFields :one
 UPDATE purchase_orders SET
     issue_date = $4, expected_delivery_date = $5, payment_terms = $6, delivery_address = $7,

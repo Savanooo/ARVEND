@@ -46,6 +46,10 @@ var (
 	ErrPurchaseOrderItemsRequired    = errors.New("sipariş en az bir kalem içermelidir")
 	ErrPurchaseOrderSupplierInactive = errors.New("arşivlenmiş bir tedarikçiye yeni sipariş açılamaz")
 	ErrPurchaseOrderReasonRequired   = errors.New("gerekçe zorunludur")
+
+	ErrPurchaseOrderQuotationNotAwarded     = errors.New("sipariş yalnızca RFQ'nun kazanan (ödül verilmiş) teklifinden oluşturulabilir")
+	ErrPurchaseOrderSupplierMismatch        = errors.New("siparişin tedarikçisi, kaynak teklifi veren tedarikçiyle aynı olmalı")
+	ErrPurchaseOrderQuotationAlreadyOrdered = errors.New("bu teklif için zaten bir sipariş var; yeni sipariş açmadan önce mevcut siparişi iptal edin")
 )
 
 type PurchaseOrderItemInput struct {
@@ -164,9 +168,15 @@ func (s *ProjectService) CreatePurchaseOrder(ctx context.Context, projectID, org
 		if err != nil {
 			return nil, domain.ErrNotFound
 		}
-		quotation, err := txq.GetSupplierQuotation(ctx, sqlc.GetSupplierQuotationParams{ID: quotationID, OrganizationID: orgID, ProjectID: pid})
+		// Teklif satırı KİLİTLENİR: aynı teklifle eşzamanlı iki sipariş
+		// açma isteği serileşir, ikincisi aşağıdaki "zaten siparişe
+		// dönüşmüş" kontrolünü görür.
+		quotation, err := txq.GetSupplierQuotationForUpdate(ctx, sqlc.GetSupplierQuotationForUpdateParams{ID: quotationID, OrganizationID: orgID, ProjectID: pid})
 		if err != nil {
-			return nil, domain.ErrNotFound
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, domain.ErrNotFound
+			}
+			return nil, err
 		}
 		// Kaynak RFQ VERİLMİŞSE, teklif GERÇEKTEN o RFQ'ya ait olmalı
 		// (çapraz-RFQ referans İMKANSIZ olmalı -- AwardRFQ'daki AYNI
@@ -174,6 +184,35 @@ func (s *ProjectService) CreatePurchaseOrder(ctx context.Context, projectID, org
 		if rfqID.Valid && quotation.RfqID != rfqID {
 			return nil, ErrAwardQuotationMismatch
 		}
+		// Teklif, RFQ'nun KAZANAN teklifi olmalı, sipariş o teklifi veren
+		// tedarikçiye açılmalı ve teklif başına yalnızca bir (iptal
+		// edilmemiş) sipariş olabilir. Önceden yalnızca RFQ eşleşmesi
+		// kontrol ediliyordu: kaybeden bir tekliften, başka bir tedarikçiye
+		// ya da aynı tekliften birden fazla sipariş (çift taahhüt)
+		// açılabiliyordu.
+		rfq, err := txq.GetRFQ(ctx, sqlc.GetRFQParams{ID: quotation.RfqID, OrganizationID: orgID, ProjectID: pid})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, domain.ErrNotFound
+			}
+			return nil, err
+		}
+		if !rfq.AwardedQuotationID.Valid || rfq.AwardedQuotationID != quotationID {
+			return nil, ErrPurchaseOrderQuotationNotAwarded
+		}
+		if quotation.SupplierID != supplierID {
+			return nil, ErrPurchaseOrderSupplierMismatch
+		}
+		existing, err := txq.CountOpenPurchaseOrdersForQuotation(ctx, sqlc.CountOpenPurchaseOrdersForQuotationParams{
+			SourceQuotationID: quotationID, OrganizationID: orgID, ProjectID: pid,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if existing > 0 {
+			return nil, ErrPurchaseOrderQuotationAlreadyOrdered
+		}
+		rfqID = quotation.RfqID
 	}
 
 	poNo, err := s.generatePONo(ctx, txq, orgID)

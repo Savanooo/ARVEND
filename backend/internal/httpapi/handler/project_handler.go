@@ -325,7 +325,10 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrPurchaseOrderNotCancellable),
 		errors.Is(err, service.ErrPurchaseOrderNotCloseable),
 		errors.Is(err, service.ErrPurchaseOrderItemsRequired),
-		errors.Is(err, service.ErrPurchaseOrderSupplierInactive):
+		errors.Is(err, service.ErrPurchaseOrderSupplierInactive),
+		errors.Is(err, service.ErrPurchaseOrderQuotationNotAwarded),
+		errors.Is(err, service.ErrPurchaseOrderSupplierMismatch),
+		errors.Is(err, service.ErrPurchaseOrderQuotationAlreadyOrdered):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrPurchaseOrderReasonRequired):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
