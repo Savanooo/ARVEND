@@ -164,7 +164,21 @@ class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
         );
         return;
       }
-      context.go('/projeler/${widget.projectId}/gorevler/${task.id}');
+      final detail = '/projeler/${widget.projectId}/gorevler/${task.id}';
+      // `go` KULLANILMAZ: form Ana Sayfa'dan push ile açıldığında başka bir
+      // sekme dalına atlıyor, formu Ana Sayfa yığınında dolu haliyle
+      // bırakıyordu (geri dönünce yeniden görünüp ikinci kez kaydediliyordu).
+      if (widget.isEdit && context.canPop()) {
+        // Düzenleme detaydan açılır: detay listeyi izlediği için tazelenmiş
+        // görevle geri dönülür.
+        context.pop(task);
+      } else if (widget.isEdit) {
+        context.go(detail);
+      } else {
+        // Yeni görev: form yerini detaya bırakır; geri tuşu formun açıldığı
+        // ekrana döner.
+        context.pushReplacement(detail);
+      }
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } finally {

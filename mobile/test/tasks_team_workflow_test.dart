@@ -306,6 +306,91 @@ void main() {
     });
   });
 
+  group('TaskFormScreen — kaydedince gezinme', () {
+    GoRouter router() => GoRouter(
+          initialLocation: '/ana-sayfa',
+          routes: [
+            GoRoute(
+              path: '/ana-sayfa',
+              builder: (context, _) => Scaffold(
+                body: Column(
+                  children: [
+                    TextButton(
+                      onPressed: () => context.push('/projeler/p1/gorevler/yeni'),
+                      child: const Text('yeni görev'),
+                    ),
+                    TextButton(
+                      onPressed: () => context.push('/projeler/p1/gorevler/t1/duzenle'),
+                      child: const Text('düzenle'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            GoRoute(
+              path: '/projeler/:id/gorevler/yeni',
+              builder: (_, state) => TaskFormScreen(projectId: state.pathParameters['id']!),
+            ),
+            GoRoute(
+              path: '/projeler/:id/gorevler/:taskId/duzenle',
+              builder: (_, state) => TaskFormScreen(
+                projectId: state.pathParameters['id']!,
+                taskId: state.pathParameters['taskId'],
+              ),
+            ),
+            GoRoute(
+              path: '/projeler/:id/gorevler/:taskId',
+              builder: (_, state) => Scaffold(appBar: AppBar(), body: Text('detay ${state.pathParameters['taskId']}')),
+            ),
+          ],
+        );
+
+    testWidgets('yeni görev: form yerini detaya bırakır, geri dönünce dolu form yeniden görünmez', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _me(_managerPerms))],
+        '/projects/p1/assignees': [(status: 200, body: {'employees': <dynamic>[]})],
+        '/projects/p1/tasks': [(status: 201, body: _task(id: 't9', title: 'İskele kur'))],
+      });
+      final r = router();
+      await _pumpRouter(tester, adapter, r);
+      await tester.tap(find.text('yeni görev'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.widgetWithText(TextFormField, 'Başlık'), 'İskele kur');
+      await tester.ensureVisible(find.text('Görevi Oluştur'));
+      await tester.tap(find.text('Görevi Oluştur'));
+      await tester.pumpAndSettle();
+      expect(find.text('detay t9'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('yeni görev'), findsOneWidget);
+      expect(find.text('Yeni Görev'), findsNothing);
+      expect(r.routerDelegate.currentConfiguration.uri.path, '/ana-sayfa');
+    });
+
+    testWidgets('düzenleme: kaydedince açıldığı ekrana geri döner', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _me(_managerPerms))],
+        '/projects/p1/assignees': [(status: 200, body: {'employees': <dynamic>[]})],
+        '/projects/p1/tasks': [(status: 200, body: {'tasks': [_task()]})],
+        '/projects/p1/tasks/t1': [(status: 200, body: _task(title: 'Elektrik tesisatı (revize)'))],
+      });
+      final r = router();
+      await _pumpRouter(tester, adapter, r);
+      await tester.tap(find.text('düzenle'));
+      await tester.pumpAndSettle();
+      expect(find.text('Görevi Düzenle'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('Kaydet'));
+      await tester.tap(find.text('Kaydet'));
+      await tester.pumpAndSettle();
+
+      expect(r.routerDelegate.currentConfiguration.uri.path, '/ana-sayfa');
+      expect(find.text('Görevi Düzenle'), findsNothing);
+    });
+  });
+
   group('TaskDetailScreen — notlar ve Bilgi Ver', () {
     Map<String, dynamic> update({
       String id = 'u1',

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -98,17 +100,26 @@ Future<void> _runQuickAction(
 ) async {
   void invalidate() => container.invalidate(dashboardProvider);
 
+  // Tam sayfa açan işlemlerde kilit sayfa açılınca çözülür; rotanın
+  // kapanması BEKLENMEZ. Açılan sayfa kendini go/pushReplacement ile
+  // değiştirirse push'un Future'ı hiç tamamlanmıyor ve bütün hızlı işlemler
+  // kalıcı olarak pasif kalıyordu. Sayfa üstte olduğu için ikinci dokunuş
+  // zaten mümkün değil; özet, sayfadan dönülünce (tamamlanırsa) tazelenir.
+  void openPage(String location, {bool refresh = true}) {
+    unawaited(context.push<Object?>(location).then((_) {
+      if (refresh) invalidate();
+    }));
+  }
+
   switch (action) {
     case QuickActionKey.offer:
-      await context.push('/teklifler/yeni');
-      invalidate();
+      openPage('/teklifler/yeni');
       return;
     case QuickActionKey.attendance:
-      await context.push('/diger/mesai');
-      invalidate();
+      openPage('/diger/mesai');
       return;
     case QuickActionKey.calc:
-      await context.push('/diger/metraj');
+      openPage('/diger/metraj', refresh: false);
       return;
     case QuickActionKey.customer:
       await showModalBottomSheet<void>(
@@ -144,11 +155,9 @@ Future<void> _runQuickAction(
     case QuickActionKey.note:
       if (await showNoteFormSheet(context, project.id) != null) invalidate();
     case QuickActionKey.purchaseRequest:
-      await context.push('/projeler/${project.id}/satin-alma/talepler/yeni');
-      invalidate();
+      openPage('/projeler/${project.id}/satin-alma/talepler/yeni');
     case QuickActionKey.task:
-      await context.push('/projeler/${project.id}/gorevler/yeni');
-      invalidate();
+      openPage('/projeler/${project.id}/gorevler/yeni');
     default:
       break;
   }
