@@ -49,7 +49,7 @@ func TestComputeOfferTotalsVatAndSums(t *testing.T) {
 	items := []OfferItemInput{
 		{ProductName: "A", Quantity: 1, UnitPrice: 0.1},
 		{ProductName: "B", Quantity: 1, UnitPrice: 0.2},
-		{ProductName: "", Quantity: 1, UnitPrice: 5}, // boş form satırı: atlanır
+		{ProductName: "", Quantity: 1, UnitPrice: 5},  // boş form satırı: atlanır
 		{ProductName: "C", Quantity: 0, UnitPrice: 5}, // miktar 0: atlanır
 	}
 	computed, subtotal, vatRate, vatAmount, grand, err := computeOfferTotals(items, f64(18), false)

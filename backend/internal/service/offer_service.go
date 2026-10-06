@@ -1380,24 +1380,38 @@ func (s *OfferService) RevokeShareLink(ctx context.Context, linkID, organization
 // Respond) tek giriş noktasıdır -- güvenlik sınırı organization_id değil,
 // tahmin edilemez token'ın kendisidir.
 func (s *OfferService) resolveActiveShareLink(ctx context.Context, q *sqlc.Queries, token string) (sqlc.OfferShareLink, error) {
+	link, _, err := s.resolveActiveShareLinkWithOrg(ctx, q, token)
+	return link, err
+}
+
+// resolveActiveShareLinkWithOrg, resolveActiveShareLink'in bağlantının
+// firmasını da (public sayfadaki firma adı için) dönen hâlidir.
+// Askıya alınmış/iptal edilmiş/silinmiş firmanın linki çalışmaz (bkz.
+// publicLinkOrganization); Respond'da bu kontrol de kilit altında tekrarlanır
+// (çözüm orada ikinci kez yapılır).
+func (s *OfferService) resolveActiveShareLinkWithOrg(ctx context.Context, q *sqlc.Queries, token string) (sqlc.OfferShareLink, sqlc.Organization, error) {
 	tid, err := repository.StringToUUID(token)
 	if err != nil {
-		return sqlc.OfferShareLink{}, domain.ErrNotFound
+		return sqlc.OfferShareLink{}, sqlc.Organization{}, domain.ErrNotFound
 	}
 	link, err := q.GetShareLinkByToken(ctx, tid)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return sqlc.OfferShareLink{}, domain.ErrNotFound
+			return sqlc.OfferShareLink{}, sqlc.Organization{}, domain.ErrNotFound
 		}
-		return sqlc.OfferShareLink{}, err
+		return sqlc.OfferShareLink{}, sqlc.Organization{}, err
 	}
 	if link.RevokedAt.Valid {
-		return sqlc.OfferShareLink{}, ErrShareLinkRevoked
+		return sqlc.OfferShareLink{}, sqlc.Organization{}, ErrShareLinkRevoked
 	}
 	if link.ExpiresAt.Valid && time.Now().After(link.ExpiresAt.Time) {
-		return sqlc.OfferShareLink{}, ErrShareLinkExpired
+		return sqlc.OfferShareLink{}, sqlc.Organization{}, ErrShareLinkExpired
 	}
-	return link, nil
+	org, err := publicLinkOrganization(ctx, q, link.OrganizationID)
+	if err != nil {
+		return sqlc.OfferShareLink{}, sqlc.Organization{}, err
+	}
+	return link, org, nil
 }
 
 // GetByShareLinkToken, müşterinin auth gerektirmeyen paylaşım linkinden
@@ -1417,30 +1431,58 @@ func (s *OfferService) resolveActiveShareLink(ctx context.Context, q *sqlc.Queri
 // başarılı olamayacak bir buton gösterilmiş olurdu (karar zaten
 // verilmişse ya da yeni bir revizyon gönderilmişse).
 func (s *OfferService) GetByShareLinkToken(ctx context.Context, token, ip, userAgent string) (*domain.Offer, bool, error) {
-	link, err := s.resolveActiveShareLink(ctx, s.q, token)
+	v, err := s.GetPublicView(ctx, token, ip, userAgent)
 	if err != nil {
 		return nil, false, err
+	}
+	return &v.Offer, v.CanRespond, nil
+}
+
+// PublicOfferView, müşteri paylaşım sayfasının ihtiyaç duyduğu her şeydir:
+// bağlı revizyonun içeriği, şu an karar verilip verilemeyeceği, geçerlilik
+// süresinin dolup dolmadığı ve teklifi veren firmanın adı (sayfa başlığı
+// her firmanın müşterisine "Arvend Yapı" gösteriyordu).
+type PublicOfferView struct {
+	Offer            domain.Offer
+	CanRespond       bool
+	ValidityExpired  bool
+	OrganizationName string
+}
+
+// GetPublicView: bkz. GetByShareLinkToken. Pasife (arşive) alınmış bir
+// teklifin linki artık açılmaz (ErrPublicLinkUnavailable) -- arşive almak
+// teklifi geri çekmektir; eskiden link çalışmaya ve teklif kabul
+// edilebilmeye devam ediyordu. Arşivden çıkarılınca linkler yeniden
+// çalışır (iptal edilmezler, yalnızca reddedilirler).
+func (s *OfferService) GetPublicView(ctx context.Context, token, ip, userAgent string) (*PublicOfferView, error) {
+	link, org, err := s.resolveActiveShareLinkWithOrg(ctx, s.q, token)
+	if err != nil {
+		return nil, err
 	}
 	offerRow, err := s.q.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: link.OfferID, OrganizationID: link.OrganizationID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, false, domain.ErrNotFound
+			return nil, domain.ErrNotFound
 		}
-		return nil, false, err
+		return nil, err
+	}
+	if offerRow.IsPassive {
+		return nil, ErrPublicLinkUnavailable
 	}
 	revRow, err := s.q.GetOfferRevisionByID(ctx, sqlc.GetOfferRevisionByIDParams{ID: link.RevisionID, OrganizationID: link.OrganizationID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, false, domain.ErrNotFound
+			return nil, domain.ErrNotFound
 		}
-		return nil, false, err
+		return nil, err
 	}
+	now := time.Now()
+	expired := offerRevisionValidityExpired(revRow, now)
 	canRespond := offerRow.CurrentRevisionID.String() == link.RevisionID.String() &&
-		revRow.Status == domain.OfferStatusGonderildi &&
-		!offerRevisionValidityExpired(revRow, time.Now())
+		revRow.Status == domain.OfferStatusGonderildi && !expired
 	itemRows, err := s.q.ListOfferRevisionItems(ctx, revRow.ID)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	items := make([]domain.OfferItem, len(itemRows))
 	for i, r := range itemRows {
@@ -1458,7 +1500,7 @@ func (s *OfferService) GetByShareLinkToken(ctx context.Context, token, ip, userA
 		pgtype.UUID{}, nil, ip, userAgent); err != nil {
 		log.Printf("customer_viewed olayı yazılamadı: %v", err)
 	}
-	return &offer, canRespond, nil
+	return &PublicOfferView{Offer: offer, CanRespond: canRespond, ValidityExpired: expired, OrganizationName: org.Name}, nil
 }
 
 // RespondByShareLinkToken, müşterinin paylaşım linkinden teklifi kabul/red
@@ -1521,6 +1563,9 @@ func (s *OfferService) RespondByShareLinkToken(ctx context.Context, token, decis
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
+	}
+	if offerRow.IsPassive {
+		return nil, ErrPublicLinkUnavailable
 	}
 	if offerRow.CurrentRevisionID.String() != link.RevisionID.String() {
 		return nil, ErrOfferSuperseded

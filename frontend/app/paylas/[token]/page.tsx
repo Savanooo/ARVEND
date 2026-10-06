@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
-import { Logo } from "@/components/layout/Logo";
+import { PublicPageHeader } from "@/components/layout/PublicPageHeader";
 import { apiServer, ApiError } from "@/lib/api";
 import { formatTL } from "@/lib/format";
 import type { Offer, OfferStatus } from "@/lib/types";
@@ -23,7 +23,9 @@ const STATUS_TONE: Record<OfferStatus, "success" | "gold" | "danger" | "muted"> 
 //
 // validity_expired: geçerlilik tarihi (o gün dahil) geçmiş -- "bugün"ü
 // sunucu belirler (İstanbul takvim günü), tarayıcı saatine bakılmaz.
-type PublicOffer = Offer & { can_respond: boolean; validity_expired: boolean };
+//
+// organization_name: teklifi veren firmanın adı (sayfa başlığı).
+type PublicOffer = Offer & { can_respond: boolean; validity_expired: boolean; organization_name: string };
 
 type FetchResult = { offer: PublicOffer; error: null } | { offer: null; error: ApiError };
 
@@ -56,13 +58,7 @@ export default async function PaylasPage({
 
   return (
     <div className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 p-6 sm:p-10">
-      <div className="flex items-center gap-3">
-        <Logo size={40} />
-        <div>
-          <div className="font-semibold">Arvend Yapı</div>
-          <div className="text-xs text-text-muted">Teklif Görüntüleme</div>
-        </div>
-      </div>
+      <PublicPageHeader organizationName={offer?.organization_name} subtitle="Teklif Görüntüleme" />
 
       {!offer ? (
         <Card>
