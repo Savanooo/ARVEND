@@ -113,13 +113,21 @@ export default function GizlilikPage() {
               <strong>Görev ve proje notları,</strong> uygulama içi bildirimler.
             </>,
             <>
+              <strong>İzin verdiğinizde:</strong> videolar, rehberinizdeki kişiler ve takvim kayıtları — yalnızca
+              ilgili özelliği kullandığınızda ve telefonunuzun izin penceresinde onay verdiğinizde.
+            </>,
+            <>
+              <strong>Kullanım kayıtları:</strong> uygulama içi aramalar ve ekran etkileşimleri; yalnızca hizmetin
+              çalışması ve hataların giderilmesi için, üçüncü taraflara aktarılmaz.
+            </>,
+            <>
               <strong>Teknik kayıtlar:</strong> oturum bilgileri, kimin hangi kaydı ne zaman değiştirdiğini
               gösteren işlem kayıtları ve sunucu erişim kayıtları (IP adresi, zaman).
             </>,
           ]}
         />
         <p>
-          <strong>Toplamadıklarımız:</strong> konumunuz, rehberiniz, mikrofonunuz, reklam kimliğiniz. Uygulamada
+          <strong>Toplamadıklarımız:</strong> konumunuz, mikrofonunuz, reklam kimliğiniz. Uygulamada
           reklam ve üçüncü taraf analitik/izleme aracı yoktur. Kamera izni yalnızca siz fotoğraf çekmek
           istediğinizde kullanılır.
         </p>
