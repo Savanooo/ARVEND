@@ -51,6 +51,12 @@ class _SubcontractPaymentFormSheetState extends ConsumerState<_SubcontractPaymen
   bool _submitting = false;
   String? _error;
 
+  /// Form örneği başına SABİT anahtar (masraf/tahsilat formlarıyla aynı
+  /// desen): yanıtı kaybolan bir kaydı yeniden denemek ikinci bir ödeme
+  /// oluşturmaz -- sunucu aynı anahtarlı ödemeyi döndürür. Anahtar taşeron
+  /// sözleşmesine özgüdür (sunucu da sözleşme bazında eşler).
+  late final _idempotencyKey = 'scpay-${widget.subcontractId}-${DateTime.now().microsecondsSinceEpoch}';
+
   @override
   void dispose() {
     _amountController.dispose();
@@ -77,6 +83,7 @@ class _SubcontractPaymentFormSheetState extends ConsumerState<_SubcontractPaymen
             paymentMethod: _paymentMethodController.text.trim(),
             referenceNo: _referenceController.text.trim(),
             description: _descriptionController.text.trim(),
+            idempotencyKey: _idempotencyKey,
           );
       if (mounted) Navigator.of(context).pop(payment);
     } on ApiException catch (e) {

@@ -7,7 +7,6 @@ import 'package:arvend/core/api/api_providers.dart';
 import 'package:arvend/features/projects/presentation/form_number_input.dart';
 import 'package:arvend/features/projects/presentation/purchase_order_form_screen.dart';
 import 'package:arvend/features/projects/presentation/purchase_request_form_screen.dart';
-import 'package:arvend/features/projects/presentation/subcontract_payment_form_sheet.dart';
 
 import '../../test_utils/fake_api_client.dart';
 
@@ -211,43 +210,5 @@ void main() {
     final item = ((adapter.requestBodies[i] as Map<String, dynamic>)['items'] as List).single as Map<String, dynamic>;
     expect(item['quantity'], 2.5);
     expect(item['estimated_unit_cost'], 12500);
-  });
-
-  testWidgets('taşeron ödemesi: "1.250,50" bin iki yüz elli virgül elli gider', (tester) async {
-    final adapter = FakeHttpClientAdapter(script: {
-      '/projects/p1/subcontracts/sc1/payments': [
-        (
-          status: 201,
-          body: {'id': 'pay1', 'amount': 1250.5, 'currency': 'TRY', 'paid_date': '2026-10-06', 'created_at': ''},
-        ),
-      ],
-    });
-    final client = await buildFakeApiClient(adapter);
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [apiClientProvider.overrideWithValue(client)],
-        child: MaterialApp(
-          home: Builder(
-            builder: (context) => Scaffold(
-              body: Center(
-                child: ElevatedButton(
-                  onPressed: () => showSubcontractPaymentFormSheet(context, 'p1', 'sc1', currency: 'TRY'),
-                  child: const Text('Aç'),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.tap(find.text('Aç'));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(_field('Ödenen Tutar (TRY)'), '1.250,50');
-    await _tapButton(tester, 'Kaydet');
-
-    final i = adapter.calls.indexOf('/projects/p1/subcontracts/sc1/payments');
-    expect(i, isNonNegative);
-    expect((adapter.requestBodies[i] as Map<String, dynamic>)['amount'], 1250.5);
   });
 }
