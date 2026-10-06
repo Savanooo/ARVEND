@@ -28,6 +28,10 @@ export function getPlatformNavItems(): NavItem[] {
   return [
     { href: "/super-admin", label: "Firmalar" },
     { href: "/super-admin/planlar", label: "Planlar" },
+    // Firmaların kullanıcılarına duyuru (zil + telefon bildirimi).
+    { href: "/super-admin/duyurular", label: "Duyurular" },
+    // Kullanıcıların mobilden gönderdiği öneri/hata/şikâyetler.
+    { href: "/super-admin/oneriler", label: "Öneriler" },
   ];
 }
 

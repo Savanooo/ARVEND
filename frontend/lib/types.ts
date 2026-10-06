@@ -1637,3 +1637,16 @@ export interface PurchaseOrderItem {
   line_total: number;
   sort_order: number;
 }
+
+// Öneri / görüş (mobil "Öneri Gönder" -> Super Admin, migration 0054).
+export interface FeedbackMessage {
+  id: string;
+  organization_id: string;
+  organization_name: string;
+  user_name: string;
+  category: "oneri" | "hata" | "sikayet" | "diger";
+  body: string;
+  app_version: string;
+  read_at: string | null;
+  created_at: string;
+}
