@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useReasonDialog } from "@/components/ui/ReasonDialog";
 import { DateInput } from "@/components/ui/DateInput";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -71,6 +72,7 @@ export function ContractSection({
   const { busy, error, run } = useContractAction(locked);
   const toast = useToast();
   const { confirm, dialog } = useConfirmDialog();
+  const { askReason, dialog: reasonDialog } = useReasonDialog();
 
   const [form, setForm] = useState({
     scope: contract?.scope ?? "",
@@ -158,14 +160,15 @@ export function ContractSection({
   }
 
   async function cancelContract() {
-    const ok = await confirm({
+    const reason = await askReason({
       title: "Sözleşmeyi İptal Et",
       message: "Bu taslak sözleşme iptal edilecek. Bu işlem GERİ ALINAMAZ.",
+      label: "İptal nedeni",
       confirmLabel: "İptal Et",
       danger: true,
+      required: true,
     });
-    if (!ok) return;
-    const reason = prompt("İptal nedeni:") ?? "";
+    if (reason === null) return;
     const done = await run(() =>
       apiClient(`/api/v1/projects/${project.id}/contract/cancel`, { method: "POST", body: JSON.stringify({ reason }) })
     );
@@ -173,14 +176,15 @@ export function ContractSection({
   }
 
   async function terminateContract() {
-    const ok = await confirm({
+    const reason = await askReason({
       title: "Sözleşmeyi Feshet",
       message: "Aktif sözleşme erken feshedilecek. Bu işlem GERİ ALINAMAZ.",
+      label: "Fesih nedeni",
       confirmLabel: "Feshet",
       danger: true,
+      required: true,
     });
-    if (!ok) return;
-    const reason = prompt("Fesih nedeni:") ?? "";
+    if (reason === null) return;
     const done = await run(() =>
       apiClient(`/api/v1/projects/${project.id}/contract/terminate`, { method: "POST", body: JSON.stringify({ reason }) })
     );
@@ -339,6 +343,7 @@ export function ContractSection({
       </div>
 
       {dialog}
+      {reasonDialog}
     </div>
   );
 }

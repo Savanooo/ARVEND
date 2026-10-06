@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DateInput } from "@/components/ui/DateInput";
 import { Input } from "@/components/ui/Input";
+import { useReasonDialog } from "@/components/ui/ReasonDialog";
 import { Select } from "@/components/ui/Select";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
@@ -268,6 +269,7 @@ export function CollectionsSection({
   locked: boolean;
 }) {
   const { busy, error, run } = useFinanceAction(locked);
+  const { askReason, dialog } = useReasonDialog();
   const [open, setOpen] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey);
   const [form, setForm] = useState({
@@ -309,6 +311,7 @@ export function CollectionsSection({
 
   return (
     <div className="flex flex-col gap-3">
+      {dialog}
       {collections.length === 0 ? (
         <p className="text-text-muted">Henüz tahsilat kaydı yok.</p>
       ) : (
@@ -345,8 +348,16 @@ export function CollectionsSection({
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() => {
-                        const reason = prompt("İptal nedeni:") ?? "";
+                      onClick={async () => {
+                        const reason = await askReason({
+                          title: "Tahsilatı İptal Et",
+                          message: `${formatMoney(c.amount, c.currency)} tutarındaki tahsilat iptal edilecek; kayıt silinmez, İPTAL olarak işaretlenir.`,
+                          label: "İptal nedeni",
+                          confirmLabel: "İptal Et",
+                          cancelLabel: "Vazgeç",
+                          danger: true,
+                        });
+                        if (reason === null) return;
                         run(() =>
                           apiClient(`/api/v1/projects/${project.id}/collections/${c.id}/void`, {
                             method: "POST",
@@ -469,6 +480,7 @@ export function ExpensesSection({
   locked: boolean;
 }) {
   const { busy, error, run } = useFinanceAction(locked);
+  const { askReason, dialog } = useReasonDialog();
   const [sectionOpen, setSectionOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(emptyExpenseForm);
@@ -528,6 +540,7 @@ export function ExpensesSection({
       }
     >
       <div className="flex flex-col gap-3">
+        {dialog}
         {expenses.length === 0 ? (
           <p className="text-text-muted">Henüz masraf kaydı yok.</p>
         ) : (
@@ -579,8 +592,16 @@ export function ExpensesSection({
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => {
-                          const reason = prompt("İptal nedeni:") ?? "";
+                        onClick={async () => {
+                          const reason = await askReason({
+                            title: "Masrafı İptal Et",
+                            message: `${formatMoney(e.amount, e.currency)} tutarındaki masraf iptal edilecek; kayıt silinmez, İPTAL olarak işaretlenir.`,
+                            label: "İptal nedeni",
+                            confirmLabel: "İptal Et",
+                            cancelLabel: "Vazgeç",
+                            danger: true,
+                          });
+                          if (reason === null) return;
                           run(() =>
                             apiClient(`/api/v1/projects/${project.id}/expenses/${e.id}/void`, {
                               method: "POST",

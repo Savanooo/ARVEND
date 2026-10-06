@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useReasonDialog } from "@/components/ui/ReasonDialog";
 import { Select } from "@/components/ui/Select";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Tabs } from "@/components/ui/Tabs";
@@ -176,7 +177,7 @@ function prItemsToPayload(items: PRItemDraft[]) {
 function PurchaseRequestCard({ project, pr, locked }: { project: Project; pr: PurchaseRequest; locked: boolean }) {
   const { busy, error, run } = usePurchasingAction(locked);
   const toast = useToast();
-  const { confirm, dialog } = useConfirmDialog();
+  const { askReason, dialog } = useReasonDialog();
   const [expanded, setExpanded] = useState(false);
   const [detailItems, setDetailItems] = useState<PurchaseRequestItem[] | null>(null);
 
@@ -209,16 +210,20 @@ function PurchaseRequestCard({ project, pr, locked }: { project: Project; pr: Pu
     if (ok) toast.success(`${pr.pr_no} onaylandı.`);
   }
   async function reject() {
-    const ok2 = await confirm({ title: "Talebi Reddet", message: "Bu satın alma talebi reddedilecek.", confirmLabel: "Reddet", danger: true });
-    if (!ok2) return;
-    const reason = prompt("Red nedeni:") ?? "";
+    const reason = await askReason({
+      title: "Talebi Reddet", message: `${pr.pr_no} reddedilecek.`, label: "Red nedeni",
+      confirmLabel: "Reddet", danger: true, required: true,
+    });
+    if (reason === null) return;
     const done = await run(() => apiClient(`/api/v1/projects/${project.id}/purchase-requests/${pr.id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }));
     if (done) toast.success("Talep reddedildi.");
   }
   async function cancel() {
-    const ok2 = await confirm({ title: "Talebi İptal Et", message: "Bu satın alma talebi iptal edilecek.", confirmLabel: "İptal Et", danger: true });
-    if (!ok2) return;
-    const reason = prompt("İptal nedeni:") ?? "";
+    const reason = await askReason({
+      title: "Talebi İptal Et", message: `${pr.pr_no} iptal edilecek.`, label: "İptal nedeni",
+      confirmLabel: "İptal Et", danger: true, required: true,
+    });
+    if (reason === null) return;
     const done = await run(() => apiClient(`/api/v1/projects/${project.id}/purchase-requests/${pr.id}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }));
     if (done) toast.success("Talep iptal edildi.");
   }
@@ -595,6 +600,7 @@ function ComparisonTab({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const { askReason, dialog } = useReasonDialog();
   const [comparison, setComparison] = useState<{ rows: BidComparisonRow[]; quotations: SupplierQuotation[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -663,7 +669,14 @@ function ComparisonTab({
 
   async function award(quotationId: string) {
     if (!rfq) return;
-    const notes = prompt("Ödül notu (opsiyonel):") ?? "";
+    const winner = comparison?.quotations.find((q) => q.id === quotationId);
+    const notes = await askReason({
+      title: "Kazananı Seç",
+      message: `${rfq.rfq_no} için kazanan ${winner ? `${winner.supplier_code} (${formatMoney(winner.total, project.currency)})` : "seçilen teklif"} olarak işaretlenecek ve RFQ kapanacak.`,
+      label: "Ödül notu",
+      confirmLabel: "Kazanan Olarak Seç",
+    });
+    if (notes === null) return;
     setBusy(true);
     setError(null);
     try {
@@ -682,6 +695,7 @@ function ComparisonTab({
 
   return (
     <div className="flex flex-col gap-3">
+      {dialog}
       <Select value={selectedRFQId ?? ""} onChange={(e) => setSelectedRFQId(e.target.value || null)}>
         <option value="">Karşılaştırılacak RFQ seçin…</option>
         {comparableRFQs.map((r) => (
@@ -790,6 +804,7 @@ function POCard({ project, po, locked }: { project: Project; po: PurchaseOrder; 
   const { busy, error, run } = usePurchasingAction(locked);
   const toast = useToast();
   const { confirm, dialog } = useConfirmDialog();
+  const { askReason, dialog: reasonDialog } = useReasonDialog();
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<{ items: PurchaseOrderItem[]; commitments: Commitment[] } | null>(null);
 
@@ -813,13 +828,12 @@ function POCard({ project, po, locked }: { project: Project; po: PurchaseOrder; 
     if (done) toast.success(`${po.po_no} onaylandı.`);
   }
   async function cancel() {
-    const ok2 = await confirm({
+    const reason = await askReason({
       title: "Siparişi İptal Et",
       message: po.status === "approved" ? "Bu sipariş iptal edilecek — bağlı taahhüt(ler) serbest bırakılacak." : "Bu sipariş iptal edilecek.",
-      confirmLabel: "İptal Et", danger: true,
+      label: "İptal nedeni", confirmLabel: "İptal Et", danger: true, required: true,
     });
-    if (!ok2) return;
-    const reason = prompt("İptal nedeni:") ?? "";
+    if (reason === null) return;
     const done = await run(() => apiClient(`/api/v1/projects/${project.id}/purchase-orders/${po.id}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }));
     if (done) toast.success("Sipariş iptal edildi.");
   }
@@ -896,6 +910,7 @@ function POCard({ project, po, locked }: { project: Project; po: PurchaseOrder; 
         </div>
       )}
       {dialog}
+      {reasonDialog}
     </div>
   );
 }
