@@ -281,7 +281,8 @@ iOS (App Store Connect):
 `https://app.arvendyapi.com.tr/gizlilik` (kaynak:
 `frontend/app/gizlilik/page.tsx`, giriş istemez -- `proxy.ts` matcher'ında
 yok). Hesap silme bölümü `#hesap-silme` (Play'in "hesap silme URL'si").
-Yayınlayan: ARVEND Yapı, iletişim info@arvendyapi.com.tr.
+Yayınlayan: ARVEND Yapı, Şerefiye Mah. Kıbrıs Sk. No: 29 D: 3, Merkez / Düzce;
+iletişim info@arvendyapi.com.tr.
 
 - İçerik §10'daki veri envanterine dayanır. Yeni bir veri türü eklenince
   (ör. push bildirimi cihaz kimliği) sayfa, §10 ve Play "Veri güvenliği"

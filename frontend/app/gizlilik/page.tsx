@@ -16,7 +16,7 @@ import { Logo } from "@/components/layout/Logo";
 
 const YAYINCI = "ARVEND Yapı";
 // Boşsa adres satırı gösterilmez.
-const ADRES = "";
+const ADRES = "Şerefiye Mahallesi, Kıbrıs Sokak No: 29 D: 3, Merkez / Düzce";
 const EPOSTA = "info@arvendyapi.com.tr";
 const SON_GUNCELLEME = "6 Ekim 2026";
 
