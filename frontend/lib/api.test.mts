@@ -301,6 +301,43 @@ describe("apiClient oturum yenileme", () => {
     assert.equal(assign.mock.callCount(), 0);
   });
 
+  it("JSON olmayan hata gövdesi (502 HTML) SyntaxError değil ApiError olur", async (t) => {
+    const { impl } = scriptedFetch({
+      "/api/v1/offers": [() => new Response("<html>Bad Gateway</html>", { status: 502 })],
+    });
+    t.mock.method(globalThis, "fetch", impl);
+
+    await assert.rejects(apiClient("/api/v1/offers"), (err: unknown) => {
+      assert.ok(err instanceof ApiError);
+      assert.equal(err.status, 502);
+      assert.match(err.message, /ulaşılamıyor/);
+      return true;
+    });
+  });
+
+  it("JSON olmayan 4xx gövdesinde genel mesaj, JSON hata gövdesinde backend mesajı", async (t) => {
+    const { impl } = scriptedFetch({
+      "/api/v1/offers": [
+        () => new Response("not found", { status: 404 }),
+        json(404, { error: "kayıt bulunamadı" }),
+      ],
+    });
+    t.mock.method(globalThis, "fetch", impl);
+
+    await assert.rejects(apiClient("/api/v1/offers"), { name: "Error", message: "Beklenmeyen bir hata oluştu" });
+    await assert.rejects(apiClient("/api/v1/offers"), { message: "kayıt bulunamadı" });
+  });
+
+  it("2xx ama JSON olmayan gövde ApiError olur, boş gövde null döner", async (t) => {
+    const { impl } = scriptedFetch({
+      "/api/v1/offers": [() => new Response("<html></html>", { status: 200 }), () => new Response(null, { status: 204 })],
+    });
+    t.mock.method(globalThis, "fetch", impl);
+
+    await assert.rejects(apiClient("/api/v1/offers"), ApiError);
+    assert.equal(await apiClient("/api/v1/offers"), null);
+  });
+
   it("fetchWithSession multipart gövdeyi tekrar gönderebilir (upload yolu)", async (t) => {
     const { calls, impl } = scriptedFetch({
       "/api/v1/projects/p1/files": [unauthorized, json(201, { id: "f1" })],

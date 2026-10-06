@@ -23,13 +23,27 @@ export class ApiError extends Error {
   }
 }
 
+// Gövde JSON değilse (ör. gateway'in 502 HTML sayfası, düz metin hata)
+// undefined -- JSON.parse'ın SyntaxError'ı ApiError yerine çağırana
+// sızıp "Bağlantı hatası"/çökmüş sayfa olarak görünmesin.
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
 async function parse<T>(res: Response): Promise<T> {
   const text = await res.text();
-  const body = text ? JSON.parse(text) : null;
+  const body = text ? parseJson(text) : null;
   if (!res.ok) {
-    const message = (body as ApiErrorBody | null)?.error ?? "Beklenmeyen bir hata oluştu";
+    const message =
+      (body as ApiErrorBody | null | undefined)?.error ??
+      (res.status >= 500 ? "Sunucuya şu an ulaşılamıyor, lütfen biraz sonra tekrar deneyin." : "Beklenmeyen bir hata oluştu");
     throw new ApiError(res.status, message);
   }
+  if (body === undefined) throw new ApiError(res.status, "Sunucudan beklenmeyen bir yanıt alındı");
   return body as T;
 }
 

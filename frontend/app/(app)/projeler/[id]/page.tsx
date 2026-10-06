@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
+import { notFound } from "next/navigation";
 
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ControlledTabPanel, ControlledTabs } from "@/components/ui/Tabs";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { apiServer } from "@/lib/api";
+import { apiServer, ApiError } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
 import { parseProjectTab } from "@/lib/dashboard";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
@@ -130,12 +131,14 @@ export default async function ProjeDetayPage({
   const canUpdateProject = hasPermission(user?.permissions, "projects.update");
 
   // project, sayfanın var olabilmesi için ZORUNLUDUR -- ayrı ve
-  // korumasız çekilir; başarısızsa (proje yok/erişim yok) temiz bir
-  // "erişim yok" ekranı gösterilir (Next.js'in ham hata sayfası yerine).
-  let project: Project;
-  try {
-    project = await apiServer<Project>(base, cookieHeader);
-  } catch {
+  // korumasız çekilir; proje yoksa (404: silinmiş/bayat bağlantı) "Kayıt
+  // bulunamadı", erişim yoksa temiz bir "erişim yok" ekranı gösterilir
+  // (Next.js'in ham hata sayfası yerine).
+  const project = await apiServer<Project>(base, cookieHeader).catch((err: unknown) =>
+    err instanceof ApiError && err.status === 404 ? ("missing" as const) : null
+  );
+  if (project === "missing") notFound();
+  if (!project) {
     return (
       <>
         <PageHeader title="Proje" />
