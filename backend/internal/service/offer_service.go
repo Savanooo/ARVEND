@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/mailer"
@@ -160,16 +161,38 @@ type computedOfferItem struct {
 // olursa olsun cost*(1+markup/100) olarak SUNUCUDA yeniden hesaplanır;
 // "manual" modda ise unit_price OLDUĞU GİBİ (dokunulmadan) kullanılır --
 // elle girilen satış fiyatı hiçbir zaman otomatik ÜZERİNE YAZILMAZ.
+//
+// Yuvarlama: miktar, birim fiyat ve iç maliyet kolonları numeric(12,2)'dir
+// -- bu yüzden ÖNCE ikisi de 2 haneye (decimal ile, float gürültüsü
+// olmadan) yuvarlanır, satır toplamı ANCAK SONRA bu yuvarlanmış değerlerin
+// çarpımından hesaplanır. Aksi halde (eski hâl) satır toplamı yuvarlanmamış
+// miktardan hesaplanıp miktar kolona yuvarlanarak yazılıyordu ve müşterinin
+// gördüğü "miktar × birim fiyat" satır toplamını tutmuyordu.
+//
+// Doğrulama sırası: negatif birim fiyat kontrolü marj yeniden hesabından
+// SONRA yapılır (%-100'ün altındaki bir marj aksi halde negatif satış
+// fiyatı üretiyordu); KDV oranı 0-100 aralığında olmalıdır (negatif değer
+// kabul ediliyor, 999,99 üstü ise numeric(5,2) taşıp 500 dönüyordu).
 func computeOfferTotals(items []OfferItemInput, vatRateInput *float64, canManageInternalPricing bool) ([]computedOfferItem, float64, float64, float64, float64, error) {
-	vatRate := 20.0
+	fail := func(msg string) ([]computedOfferItem, float64, float64, float64, float64, error) {
+		return nil, 0, 0, 0, 0, errors.New(msg)
+	}
+	hundred := decimal.NewFromInt(100)
+	vatRate := decimal.NewFromInt(20)
 	if vatRateInput != nil {
-		vatRate = *vatRateInput
+		vatRate = decimal.NewFromFloat(*vatRateInput).Round(2)
+	}
+	if vatRate.IsNegative() || vatRate.GreaterThan(hundred) {
+		return fail("KDV oranı 0 ile 100 arasında olmalıdır")
 	}
 	computed := make([]computedOfferItem, 0, len(items))
-	subtotal := 0.0
+	subtotal := decimal.Zero
 	for _, it := range items {
 		name := strings.TrimSpace(it.ProductName)
-		if name == "" || it.Quantity <= 0 || it.UnitPrice < 0 {
+		qty := decimal.NewFromFloat(it.Quantity).Round(2)
+		// Adı boş ya da miktarı 0 olan satırlar formun boş bıraktığı
+		// satırlardır -- sessizce atlanır (mevcut davranış).
+		if name == "" || !qty.IsPositive() {
 			continue
 		}
 		if !canManageInternalPricing {
@@ -177,37 +200,67 @@ func computeOfferTotals(items []OfferItemInput, vatRateInput *float64, canManage
 			it.PricingMode = ""
 			it.MarkupPercent = nil
 		}
+		price := decimal.NewFromFloat(it.UnitPrice).Round(2)
 		if it.InternalSubcontractCost != nil {
-			if *it.InternalSubcontractCost < 0 {
-				return nil, 0, 0, 0, 0, errors.New("iç taşeron maliyeti negatif olamaz")
+			cost := decimal.NewFromFloat(*it.InternalSubcontractCost).Round(2)
+			if cost.IsNegative() {
+				return fail("iç taşeron maliyeti negatif olamaz")
 			}
+			if !cost.LessThan(offerAmountLimit) {
+				return fail("iç taşeron maliyeti çok büyük")
+			}
+			costF := cost.InexactFloat64()
+			it.InternalSubcontractCost = &costF
 			switch it.PricingMode {
 			case domain.OfferItemPricingModeMarkup:
 				if it.MarkupPercent == nil {
-					return nil, 0, 0, 0, 0, errors.New("marj yüzdesi girilmelidir")
+					return fail("marj yüzdesi girilmelidir")
 				}
-				it.UnitPrice = round2(*it.InternalSubcontractCost * (1 + *it.MarkupPercent/100))
+				markup := decimal.NewFromFloat(*it.MarkupPercent).Round(2)
+				// markup_percent numeric(6,2): ±9999,99.
+				if !markup.Abs().LessThan(decimal.NewFromInt(10000)) {
+					return fail("marj yüzdesi -9999,99 ile 9999,99 arasında olmalıdır")
+				}
+				markupF := markup.InexactFloat64()
+				it.MarkupPercent = &markupF
+				price = cost.Mul(decimal.NewFromInt(1).Add(markup.Div(hundred))).Round(2)
 			case domain.OfferItemPricingModeManual:
 				it.MarkupPercent = nil
 			default:
-				return nil, 0, 0, 0, 0, errors.New("geçersiz fiyatlama modu")
+				return fail("geçersiz fiyatlama modu")
 			}
 		} else {
 			it.PricingMode = ""
 			it.MarkupPercent = nil
 		}
-		lineTotal := round2(it.Quantity * it.UnitPrice)
-		subtotal += lineTotal
-		computed = append(computed, computedOfferItem{OfferItemInput: it, LineTotal: lineTotal})
+		if price.IsNegative() {
+			return fail(fmt.Sprintf("%q kaleminin birim fiyatı negatif olamaz", name))
+		}
+		lineTotal := qty.Mul(price).Round(2)
+		if !qty.LessThan(offerAmountLimit) || !price.LessThan(offerAmountLimit) || !lineTotal.LessThan(offerAmountLimit) {
+			return fail(fmt.Sprintf("%q kaleminin miktarı veya tutarı çok büyük", name))
+		}
+		it.Quantity = qty.InexactFloat64()
+		it.UnitPrice = price.InexactFloat64()
+		subtotal = subtotal.Add(lineTotal)
+		computed = append(computed, computedOfferItem{OfferItemInput: it, LineTotal: lineTotal.InexactFloat64()})
 	}
 	if len(computed) == 0 {
-		return nil, 0, 0, 0, 0, errors.New("geçerli en az bir kalem girilmelidir")
+		return fail("geçerli en az bir kalem girilmelidir")
 	}
-	subtotal = round2(subtotal)
-	vatAmount := round2(subtotal * vatRate / 100)
-	grandTotal := round2(subtotal + vatAmount)
-	return computed, subtotal, vatRate, vatAmount, grandTotal, nil
+	vatAmount := subtotal.Mul(vatRate).Div(hundred).Round(2)
+	grandTotal := subtotal.Add(vatAmount)
+	if !grandTotal.LessThan(offerAmountLimit) {
+		return fail("teklif toplamı çok büyük")
+	}
+	return computed, subtotal.InexactFloat64(), vatRate.InexactFloat64(), vatAmount.InexactFloat64(), grandTotal.InexactFloat64(), nil
 }
+
+// offerAmountLimit: teklif miktar/tutar kolonları numeric(12,2) -- en çok
+// 9.999.999.999,99. Sınırı aşan bir değer INSERT'te "numeric field
+// overflow" ile 500'e düşerdi; computeOfferTotals anlaşılır bir mesajla
+// reddeder.
+var offerAmountLimit = decimal.New(1, 10)
 
 // resolveCustomerSnapshot, customerID doluysa o müşterinin o anki
 // bilgilerini döner (snapshot için); boşsa sıfır değerler döner ve
@@ -1570,6 +1623,10 @@ func (s *OfferService) Delete(ctx context.Context, id, organizationID string) er
 	return s.q.DeleteOffer(ctx, sqlc.DeleteOfferParams{ID: uid, OrganizationID: orgID})
 }
 
+// round2, 2 haneye yuvarlar (yarım değerler sıfırdan uzağa). decimal
+// üzerinden yapılır: eski float hâli (int64(f*100+0.5)) 1.005 gibi ikili
+// tabanda tam temsil edilemeyen değerleri aşağı, negatif değerleri ise
+// yanlış yöne yuvarlıyordu.
 func round2(f float64) float64 {
-	return float64(int64(f*100+0.5)) / 100
+	return decimal.NewFromFloat(f).Round(2).InexactFloat64()
 }
