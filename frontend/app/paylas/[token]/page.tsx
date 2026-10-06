@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { PublicPageHeader } from "@/components/layout/PublicPageHeader";
-import { apiServer, ApiError } from "@/lib/api";
+import { API_BASE, apiServer, ApiError } from "@/lib/api";
 import { formatTL } from "@/lib/format";
 import type { Offer, OfferStatus } from "@/lib/types";
 
@@ -125,6 +125,21 @@ export default async function PaylasPage({
               </div>
             </CardBody>
           </Card>
+
+          {/* Düz bağlantı yeterli: public uç oturum istemez. Tarayıcı bu
+              adrese doğrudan gittiği için (sunucu içi INTERNAL_API_URL değil)
+              herkese açık API kökü kullanılır. Bağlantı kuralları paylaşım
+              sayfasıyla aynıdır (iptal/süresi dolmuş link PDF de vermez). */}
+          <div className="flex justify-end">
+            <a
+              href={`${API_BASE}/api/v1/public/offers/${encodeURIComponent(token)}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm font-medium text-text hover:bg-surface-hover"
+            >
+              PDF İndir
+            </a>
+          </div>
 
           {offer.notes && (
             <Card>

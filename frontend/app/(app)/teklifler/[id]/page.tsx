@@ -21,6 +21,7 @@ import type {
 } from "@/lib/types";
 
 import { ActivityTimeline } from "./ActivityTimeline";
+import { DownloadPdfButton } from "./DownloadPdfButton";
 import { OfferActions } from "./OfferActions";
 import { ShareOfferCard } from "./ShareOfferCard";
 
@@ -70,6 +71,7 @@ export default async function TeklifDetayPage({
         }
         action={
           <div className="flex items-center gap-3">
+            <DownloadPdfButton offerId={offer.id} offerNo={offer.offer_no} revisionNo={offer.revision_no} />
             {offer.status === "taslak" && canUpdate && (
               <Link href={`/teklifler/${offer.id}/duzenle`}>
                 <Button variant="secondary">Düzenle</Button>
