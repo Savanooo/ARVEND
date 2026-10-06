@@ -4,6 +4,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_buttons.dart';
 import '../domain/price_change.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 /// Zam Geçmişi filtreleri (web PriceChangeFilters formu): kaynak, neden,
 /// yön, sıralama, kategori, ürün adı. Dönem, ekrandaki dönem çiplerindedir.
@@ -15,7 +16,7 @@ Future<ZamlarParams?> showPriceChangesFilterSheet(
   required List<({String code, String name})> sources,
   required List<String> categories,
 }) {
-  return showModalBottomSheet<ZamlarParams>(
+  return showAppSheet<ZamlarParams>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,

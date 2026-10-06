@@ -8,6 +8,7 @@ import '../../../../core/widgets/unsaved_changes_scope.dart';
 import '../data/contract_co_providers.dart';
 import '../domain/project_contract.dart';
 import 'widgets/contract_co_ui.dart';
+import '../../../../core/widgets/app_sheet.dart';
 
 /// Sözleşmenin dahili notunu düzenler (`PUT .../contract/notes`) --
 /// ticari OLMAYAN alan, taslak VE aktifte açık (web "Notu Kaydet").
@@ -17,13 +18,10 @@ Future<ProjectContract?> showContractNotesSheet(
   required String projectId,
   required String initial,
 }) {
-  return showModalBottomSheet<ProjectContract>(
+  return showAppSheet<ProjectContract>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    // Sürükleyerek kapatma PopScope'u (UnsavedChangesScope) atlar: kayıt
-    // sürerken sayfa kapanıp sonuç kaybolmasın.
-    enableDrag: false,
     builder: (_) => _ContractNotesSheet(projectId: projectId, initial: initial),
   );
 }

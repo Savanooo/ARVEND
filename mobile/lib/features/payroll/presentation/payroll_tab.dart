@@ -13,6 +13,7 @@ import '../../../core/widgets/status_badge.dart';
 import '../../projects/budget/domain/budget.dart' show formatTrDecimalInput, parseTrDecimal;
 import '../data/payroll_providers.dart';
 import '../domain/payroll.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 const _paymentTypeTones = {
   'maaş': ('Maaş', StatusTone.success),
@@ -51,7 +52,7 @@ Future<void> showPaymentForm(
   PayrollSummaryRow? payFor,
   String type = 'maaş',
 }) {
-  return showModalBottomSheet(
+  return showAppSheet(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,

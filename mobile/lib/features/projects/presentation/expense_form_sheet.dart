@@ -15,6 +15,7 @@ import '../data/projects_providers.dart';
 import '../domain/project.dart';
 import '../finance_plan/domain/finance_dates.dart' show parseAmountInput;
 import 'form_project_banner.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 /// "Masraf Ekle" (web ExpensesSection formu). Kategori/açıklama/tutar/tarih/
 /// tedarikçi/fatura no'nun yanında web'deki opsiyonel bağlar: Ek İş, Bütçe
@@ -28,14 +29,10 @@ Future<Expense?> showExpenseFormSheet(
   required String currency,
   String? projectLabel,
 }) {
-  return showModalBottomSheet<Expense>(
+  return showAppSheet<Expense>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    // Kayıt sürerken sayfa kapanamaz (UnsavedChangesScope + sürükleme
-    // kapalı; sürükleyerek kapatma PopScope'u atlar): kapanırsa kayıt oluşur
-    // ama çağıran sonucu alamaz, liste tazelenmezdi.
-    enableDrag: false,
     builder: (context) => _ExpenseFormSheet(projectId: projectId, currency: currency, projectLabel: projectLabel),
   );
 }

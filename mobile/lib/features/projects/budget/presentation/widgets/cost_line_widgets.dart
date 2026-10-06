@@ -11,6 +11,7 @@ import '../../../../../core/widgets/status_badge.dart';
 import '../../../../../core/widgets/viz/progress_bar.dart';
 import '../../domain/budget.dart';
 import 'budget_ui.dart';
+import '../../../../../core/widgets/app_sheet.dart';
 
 String costLineTitle(CostControlLine l) =>
     l.costCodeName.isEmpty ? l.costCodeCode : '${l.costCodeCode} — ${l.costCodeName}';
@@ -134,7 +135,7 @@ Future<CostLineAction?> showCostLineSheet(
   required bool canAdjust,
   bool hasForecastOverride = false,
 }) {
-  return showModalBottomSheet<CostLineAction>(
+  return showAppSheet<CostLineAction>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,

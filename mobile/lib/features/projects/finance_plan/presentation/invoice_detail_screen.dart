@@ -23,6 +23,7 @@ import '../data/finance_plan_providers.dart';
 import '../domain/project_invoice.dart';
 import '../finance_plan_paths.dart';
 import 'widgets/finance_plan_ui.dart';
+import '../../../../core/widgets/app_sheet.dart';
 
 /// Fatura detayı (`/projeler/:id/faturalar/:invoiceId`). Tekil uç olmadığı
 /// için fatura, proje fatura listesinden okunur. Fatura alanları
@@ -211,7 +212,7 @@ class _InvoiceDetailScreenState extends ConsumerState<InvoiceDetailScreen> {
   }
 
   Future<void> _pickStatus(ProjectInvoice invoice) async {
-    final picked = await showModalBottomSheet<String>(
+    final picked = await showAppSheet<String>(
       context: context,
       useSafeArea: true,
       builder: (sheetContext) => SafeArea(

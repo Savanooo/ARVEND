@@ -10,16 +10,16 @@ import '../data/products_providers.dart';
 import '../domain/price_format.dart';
 import '../domain/price_source.dart';
 import 'widgets/products_common.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 /// Kâr oranı ayarları (web PriceSourceCard modalı): varsayılan oran,
 /// gece otomatik güncelleme ve kategoriye özel oranlar. PUT tam durumdur.
 /// Kayıt sürerken sayfa kapatılamaz (sürükleme kapalı, geri tuşu engelli).
 Future<PriceSourceUpdateResult?> showPriceSourceSettingsSheet(BuildContext context, PriceSource ps) {
-  return showModalBottomSheet<PriceSourceUpdateResult>(
+  return showAppSheet<PriceSourceUpdateResult>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    enableDrag: false,
     builder: (_) => PriceSourceSettingsSheet(priceSource: ps),
   );
 }

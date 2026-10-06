@@ -15,6 +15,7 @@ import '../domain/project.dart';
 import '../finance_plan/domain/finance_dates.dart' show parseAmountInput;
 import '../finance_plan/data/finance_plan_providers.dart';
 import 'form_project_banner.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 /// "Tahsilat Ekle" (web CollectionsSection formu). [initialPlanItemId]
 /// verilirse tahsilat o ödeme planı kalemine bağlı başlar.
@@ -25,14 +26,10 @@ Future<Collection?> showCollectionFormSheet(
   String? initialPlanItemId,
   String? projectLabel,
 }) {
-  return showModalBottomSheet<Collection>(
+  return showAppSheet<Collection>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    // Kayıt sürerken sayfa kapanamaz (UnsavedChangesScope + sürükleme
-    // kapalı; sürükleyerek kapatma PopScope'u atlar): kapanırsa kayıt oluşur
-    // ama çağıran sonucu alamaz, liste tazelenmezdi.
-    enableDrag: false,
     builder: (context) =>
         _CollectionFormSheet(
           projectId: projectId,

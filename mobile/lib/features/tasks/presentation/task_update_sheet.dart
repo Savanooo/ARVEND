@@ -9,6 +9,7 @@ import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../projects/data/projects_providers.dart';
 import '../../projects/domain/project.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 /// "Bilgi Ver": göreve not (isteğe bağlı durum değişikliğiyle). Görevi
 /// alan kişi ne yaptığını buradan yazar; sunucu görevi verene ve proje
@@ -19,7 +20,7 @@ Future<(TaskUpdate, ProjectTask)?> showTaskUpdateSheet(
   required String projectId,
   required ProjectTask task,
 }) {
-  return showModalBottomSheet<(TaskUpdate, ProjectTask)>(
+  return showAppSheet<(TaskUpdate, ProjectTask)>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,

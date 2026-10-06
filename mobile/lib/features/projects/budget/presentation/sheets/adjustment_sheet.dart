@@ -9,6 +9,7 @@ import '../../../../../core/widgets/unsaved_changes_scope.dart';
 import '../../data/budget_providers.dart';
 import '../../domain/budget.dart';
 import '../widgets/budget_ui.dart';
+import '../../../../../core/widgets/app_sheet.dart';
 
 /// Baseline alınmış bütçede bir kalem için revizyon TASLAĞI oluşturur --
 /// `POST /budget/adjustments` (projects.budget.manage). Onaylanana kadar
@@ -22,11 +23,10 @@ Future<bool?> showAdjustmentSheet(
   String? initialLineId,
   String? initialLineLabel,
 }) {
-  return showModalBottomSheet<bool>(
+  return showAppSheet<bool>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    enableDrag: false,
     builder: (_) => AdjustmentSheet(
       projectId: projectId,
       currency: currency,

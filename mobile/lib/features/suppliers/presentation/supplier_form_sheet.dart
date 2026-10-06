@@ -10,18 +10,16 @@ import '../../../core/widgets/unsaved_changes_scope.dart';
 import '../data/suppliers_providers.dart';
 import '../domain/supplier.dart';
 import 'widgets/supplier_ui.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 /// Yeni/düzenle formunu alt sayfa olarak açar; kaydedilen tedarikçiyi
 /// döner (vazgeçilirse null). Yalnızca `organization.suppliers.manage`
 /// sahibine gösterilen düğmelerden çağrılır.
 Future<OrganizationSupplier?> showSupplierFormSheet(BuildContext context, {OrganizationSupplier? existing}) {
-  return showModalBottomSheet<OrganizationSupplier>(
+  return showAppSheet<OrganizationSupplier>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    // Kayıt sürerken sayfa sürüklenerek kapatılamaz (dışarı dokunma ve geri
-    // tuşu da formdaki UnsavedChangesScope ile engellenir).
-    enableDrag: false,
     builder: (_) => SupplierFormSheet(existing: existing),
   );
 }

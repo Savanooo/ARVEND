@@ -10,6 +10,7 @@ import '../data/contract_co_repository.dart';
 import '../data/contract_co_providers.dart';
 import '../domain/project_change_order.dart';
 import 'widgets/contract_co_ui.dart';
+import '../../../../core/widgets/app_sheet.dart';
 
 /// "Mail Gönder" (web ChangeOrderCard e-posta formu): Kime (müşteri
 /// e-postasıyla dolu gelir), Konu ve Mesaj opsiyonel -- boşsa sunucu
@@ -24,14 +25,10 @@ Future<bool?> showChangeOrderEmailSheet(
   required ProjectChangeOrder changeOrder,
   String defaultTo = '',
 }) {
-  return showModalBottomSheet<bool>(
+  return showAppSheet<bool>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    // Gönderim sürerken sayfa kapanamaz (UnsavedChangesScope + sürükleme
-    // kapalı): aksi halde mail gider ama "Mail gönderildi." görünmez,
-    // kullanıcı tekrar gönderip müşteriye iki mail düşerdi.
-    enableDrag: false,
     builder: (_) => _ChangeOrderEmailSheet(projectId: projectId, changeOrder: changeOrder, defaultTo: defaultTo),
   );
 }

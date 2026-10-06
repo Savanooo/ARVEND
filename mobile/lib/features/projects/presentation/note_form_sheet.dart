@@ -8,9 +8,10 @@ import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_form_section.dart';
 import '../data/projects_providers.dart';
 import '../domain/project.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 Future<ProjectNote?> showNoteFormSheet(BuildContext context, String projectId) {
-  return showModalBottomSheet<ProjectNote>(
+  return showAppSheet<ProjectNote>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,

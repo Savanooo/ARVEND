@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
+import 'app_sheet.dart';
 
 /// Sayfadan çıkışı (AppBar geri oku, Android geri hareketi, alt sayfanın
 /// dışına dokunma) iki durumda yakalar:
@@ -13,8 +14,13 @@ import '../theme/app_colors.dart';
 ///
 /// Aynı sayfada birden çok kapsam olabilir (ör. kullanıcı bilgileri + rol
 /// ve yetkiler kartı); onay penceresi yine TEK kez açılır.
-class UnsavedChangesScope extends StatelessWidget {
-  const UnsavedChangesScope({super.key, required this.child, this.dirty = false, this.busy = false});
+class UnsavedChangesScope extends StatefulWidget {
+  const UnsavedChangesScope({
+    super.key,
+    required this.child,
+    this.dirty = false,
+    this.busy = false,
+  });
 
   final Widget child;
   final bool dirty;
@@ -23,7 +29,43 @@ class UnsavedChangesScope extends StatelessWidget {
   static bool _asking = false;
 
   @override
+  State<UnsavedChangesScope> createState() => _UnsavedChangesScopeState();
+}
+
+class _UnsavedChangesScopeState extends State<UnsavedChangesScope> {
+  /// Alttan açılan bir sayfanın içindeysek (showAppSheet) sürükleyerek
+  /// kapatmayı da bu kurallara bağlar -- Flutter sürüklemede PopScope'a bakmaz.
+  SheetDragLock? _sheetLock;
+
+  bool get _locked => widget.busy || widget.dirty;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final lock = SheetDragLock.maybeOf(context);
+    if (!identical(lock, _sheetLock)) {
+      _sheetLock?.release(this);
+      _sheetLock = lock;
+    }
+    _sheetLock?.hold(this, _locked);
+  }
+
+  @override
+  void didUpdateWidget(UnsavedChangesScope oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _sheetLock?.hold(this, _locked);
+  }
+
+  @override
+  void dispose() {
+    _sheetLock?.release(this);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final busy = widget.busy;
+    final dirty = widget.dirty;
     return PopScope<Object?>(
       canPop: !dirty && !busy,
       onPopInvokedWithResult: (didPop, result) async {
@@ -34,20 +76,23 @@ class UnsavedChangesScope extends StatelessWidget {
           ScaffoldMessenger.maybeOf(context)
             ?..hideCurrentSnackBar()
             ..showSnackBar(
-              const SnackBar(content: Text('Kaydediliyor, lütfen bitmesini bekle.'), duration: Duration(seconds: 2)),
+              const SnackBar(
+                content: Text('Kaydediliyor, lütfen bitmesini bekle.'),
+                duration: Duration(seconds: 2),
+              ),
             );
           return;
         }
-        if (!dirty || _asking) return;
-        _asking = true;
+        if (!dirty || UnsavedChangesScope._asking) return;
+        UnsavedChangesScope._asking = true;
         try {
           final leave = await confirmDiscardChanges(context);
           if (leave && context.mounted) Navigator.of(context).pop(result);
         } finally {
-          _asking = false;
+          UnsavedChangesScope._asking = false;
         }
       },
-      child: child,
+      child: widget.child,
     );
   }
 }
@@ -58,9 +103,14 @@ Future<bool> confirmDiscardChanges(BuildContext context) async {
     context: context,
     builder: (dialogContext) => AlertDialog(
       title: const Text('Kaydedilmemiş değişiklikler'),
-      content: const Text('Kaydedilmemiş değişiklikler var. Çıkmak istiyor musun?'),
+      content: const Text(
+        'Kaydedilmemiş değişiklikler var. Çıkmak istiyor musun?',
+      ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Vazgeç')),
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('Vazgeç'),
+        ),
         TextButton(
           style: TextButton.styleFrom(foregroundColor: AppColors.danger),
           onPressed: () => Navigator.of(dialogContext).pop(true),

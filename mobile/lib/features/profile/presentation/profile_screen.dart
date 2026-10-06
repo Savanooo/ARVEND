@@ -15,6 +15,7 @@ import '../../../core/widgets/app_page_scaffold.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/domain/user.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -161,7 +162,7 @@ class ProfileScreen extends ConsumerWidget {
   }
 
   void _showChangePasswordSheet(BuildContext context, WidgetRef ref) {
-    showModalBottomSheet(
+    showAppSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,

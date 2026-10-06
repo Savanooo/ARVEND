@@ -13,6 +13,7 @@ import '../../data/projects_providers.dart';
 import '../../presentation/destructive_action_button.dart';
 import '../../domain/project.dart';
 import '../data/finance_ledger_providers.dart';
+import '../../../../core/widgets/app_sheet.dart';
 
 /// Masraf / tahsilat satırına dokununca açılan ayrıntı sayfası (web
 /// tablosundaki tüm sütunlar + bağlar + iptal gerekçesi) ve "İptal Et"
@@ -111,13 +112,10 @@ Future<bool?> _showLedgerSheet(
   required String doneMessage,
   required Future<void> Function(ProviderContainer container, String reason) onVoid,
 }) {
-  return showModalBottomSheet<bool>(
+  return showAppSheet<bool>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    // İptal isteği sürerken sayfa kapanamaz (UnsavedChangesScope + sürükleme
-    // kapalı; sürükleyerek kapatma PopScope'u atlar).
-    enableDrag: false,
     builder: (_) => _LedgerSheet(
       projectId: projectId,
       title: title,

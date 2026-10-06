@@ -12,6 +12,7 @@ import '../../../../core/widgets/unsaved_changes_scope.dart';
 import '../data/ops_team_providers.dart';
 import '../domain/project_access.dart';
 import 'widgets/ops_common.dart';
+import '../../../../core/widgets/app_sheet.dart';
 
 /// Erişim düzenleme sonucunun türü (liste mesajı için).
 enum AccessEditResult { roleChanged, revoked }
@@ -25,11 +26,10 @@ Future<OrgUserOption?> showAccessGrantSheet(
   required String projectId,
   required List<ProjectAccessUser> assigned,
 }) {
-  return showModalBottomSheet<OrgUserOption>(
+  return showAppSheet<OrgUserOption>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    enableDrag: false,
     builder: (_) => AccessGrantSheet(projectId: projectId, assigned: assigned),
   );
 }
@@ -173,11 +173,10 @@ Future<AccessEditResult?> showAccessUserSheet(
   required String projectId,
   required ProjectAccessUser user,
 }) {
-  return showModalBottomSheet<AccessEditResult>(
+  return showAppSheet<AccessEditResult>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    enableDrag: false,
     builder: (_) => AccessUserSheet(projectId: projectId, user: user),
   );
 }

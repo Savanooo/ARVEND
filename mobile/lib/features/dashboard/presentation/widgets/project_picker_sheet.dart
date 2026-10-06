@@ -9,6 +9,7 @@ import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/async_state_view.dart';
 import '../../data/dashboard_providers.dart';
 import '../../domain/dashboard.dart';
+import '../../../../core/widgets/app_sheet.dart';
 
 /// Hızlı işlemler için proje seçici (spec §3.5/§6.4). Veri
 /// GET /dashboard/project-options'tan gelir -- para alanı taşımaz (D16).
@@ -28,7 +29,7 @@ Future<ProjectOption?> showProjectPickerSheet(BuildContext context, {void Functi
   }
   if (initial != null && initial.length == 1) return initial.first;
   if (!context.mounted) return null;
-  return showModalBottomSheet<ProjectOption>(
+  return showAppSheet<ProjectOption>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,

@@ -13,6 +13,7 @@ import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../data/customers_providers.dart';
 import 'customer_form_sheet.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 class CustomersScreen extends ConsumerStatefulWidget {
   const CustomersScreen({super.key});
@@ -151,7 +152,7 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
   }
 
   void _showFormSheet(BuildContext context) {
-    showModalBottomSheet(
+    showAppSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,

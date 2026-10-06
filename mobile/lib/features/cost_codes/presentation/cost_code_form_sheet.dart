@@ -10,6 +10,7 @@ import '../../../core/widgets/unsaved_changes_scope.dart';
 import '../data/cost_codes_providers.dart';
 import '../domain/cost_code.dart';
 import 'widgets/cost_code_ui.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 /// Yeni/düzenle formunu alt sayfa olarak açar; kaydedilen kodu döner
 /// (vazgeçilirse null). [categories] mevcut kategori adlarıdır (hızlı
@@ -21,13 +22,10 @@ Future<OrganizationCostCode?> showCostCodeFormSheet(
   OrganizationCostCode? existing,
   List<String> categories = const [],
 }) {
-  return showModalBottomSheet<OrganizationCostCode>(
+  return showAppSheet<OrganizationCostCode>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    // Kayıt sürerken sayfa sürüklenerek kapatılamaz (dışarı dokunma ve geri
-    // tuşu da formdaki UnsavedChangesScope ile engellenir).
-    enableDrag: false,
     builder: (_) => CostCodeFormSheet(existing: existing, categories: categories),
   );
 }

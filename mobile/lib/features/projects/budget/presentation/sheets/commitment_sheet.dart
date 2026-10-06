@@ -12,6 +12,7 @@ import '../../../presentation/destructive_action_button.dart';
 import '../../data/budget_providers.dart';
 import '../../domain/budget.dart';
 import '../widgets/budget_ui.dart';
+import '../../../../../core/widgets/app_sheet.dart';
 
 /// Taahhüt detayı + (izin, durum ve kaynak uygunsa) iptal. İptal edilirse
 /// true döner.
@@ -22,12 +23,10 @@ Future<bool?> showCommitmentSheet(
   required bool canVoid,
   String? budgetLineLabel,
 }) {
-  return showModalBottomSheet<bool>(
+  return showAppSheet<bool>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    // İptal isteği sürerken sayfa sürüklenerek kapanmasın (PopScope'u atlar).
-    enableDrag: false,
     builder: (_) => CommitmentSheet(
       projectId: projectId,
       commitment: commitment,

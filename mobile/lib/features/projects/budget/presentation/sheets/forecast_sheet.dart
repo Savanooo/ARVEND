@@ -10,6 +10,7 @@ import '../../../../../core/widgets/unsaved_changes_scope.dart';
 import '../../data/budget_providers.dart';
 import '../../domain/budget.dart';
 import '../widgets/budget_ui.dart';
+import '../../../../../core/widgets/app_sheet.dart';
 
 /// Kalem için manuel ETC (kalan tahmini maliyet) girer/düzenler --
 /// `PUT /budget/lines/{lineId}/forecast` (projects.cost_control.manage).
@@ -23,11 +24,10 @@ Future<bool?> showForecastSheet(
   CostForecast? existing,
   double? defaultEtc,
 }) {
-  return showModalBottomSheet<bool>(
+  return showAppSheet<bool>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    enableDrag: false,
     builder: (_) => ForecastSheet(
       projectId: projectId,
       budgetLineId: budgetLineId,

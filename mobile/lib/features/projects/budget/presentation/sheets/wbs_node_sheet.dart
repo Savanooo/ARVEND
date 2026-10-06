@@ -9,6 +9,7 @@ import '../../../../../core/widgets/unsaved_changes_scope.dart';
 import '../../data/budget_providers.dart';
 import '../../domain/budget.dart';
 import '../widgets/budget_ui.dart';
+import '../../../../../core/widgets/app_sheet.dart';
 
 /// WBS düğümü ekle (kök ya da [parent] altına) / yeniden adlandır
 /// ([existing]) -- web `NewNodeRow`/`RenameRow` alanları: Kod, Ad. Ağaç
@@ -20,11 +21,10 @@ Future<WbsNode?> showWbsNodeSheet(
   WbsNode? existing,
   WbsNode? parent,
 }) {
-  return showModalBottomSheet<WbsNode>(
+  return showAppSheet<WbsNode>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    enableDrag: false,
     builder: (_) => WbsNodeSheet(projectId: projectId, existing: existing, parent: parent),
   );
 }
