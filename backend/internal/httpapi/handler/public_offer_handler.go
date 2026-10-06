@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -50,6 +51,11 @@ func clientIP(r *http.Request) string {
 type publicOfferResponse struct {
 	offerResponse
 	CanRespond bool `json:"can_respond"`
+	// ValidityExpired: geçerlilik tarihi (valid_until, o gün dahil) geçmiş
+	// -- sayfa butonlar yerine "süresi doldu" mesajını gösterir. "Bugün"ün
+	// tek tanımı sunucudadır (İstanbul takvim günü, bkz.
+	// service.OfferValidityExpired); istemci saatine güvenilmez.
+	ValidityExpired bool `json:"validity_expired"`
 }
 
 func (h *PublicOfferHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -59,8 +65,9 @@ func (h *PublicOfferHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpjson.Write(w, http.StatusOK, publicOfferResponse{
-		offerResponse: toOfferResponse(*o),
-		CanRespond:    canRespond,
+		offerResponse:   toOfferResponse(*o),
+		CanRespond:      canRespond,
+		ValidityExpired: service.OfferValidityExpired(o.ValidUntil, time.Now()),
 	})
 }
 
@@ -93,7 +100,8 @@ func (h *PublicOfferHandler) writeError(w http.ResponseWriter, err error) {
 		// olmadı" ile "artık geçerli değil"i ayırt eder.
 		httpjson.Error(w, http.StatusGone, err.Error())
 	case errors.Is(err, service.ErrOfferSuperseded),
-		errors.Is(err, service.ErrOfferNotRespondable):
+		errors.Is(err, service.ErrOfferNotRespondable),
+		errors.Is(err, service.ErrOfferValidityExpired):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case isInternalError(err):
 		writeInternalError(w, err)

@@ -20,7 +20,10 @@ const STATUS_TONE: Record<OfferStatus, "success" | "gold" | "danger" | "muted"> 
 // Kabul/Reddet butonları buna göre gösterilir -- teklifin durumuna bakmak
 // yetmez, çünkü gösterilen durum linkin bağlı olduğu (donmuş) revizyonun
 // durumudur.
-type PublicOffer = Offer & { can_respond: boolean };
+//
+// validity_expired: geçerlilik tarihi (o gün dahil) geçmiş -- "bugün"ü
+// sunucu belirler (İstanbul takvim günü), tarayıcı saatine bakılmaz.
+type PublicOffer = Offer & { can_respond: boolean; validity_expired: boolean };
 
 type FetchResult = { offer: PublicOffer; error: null } | { offer: null; error: ApiError };
 
@@ -82,6 +85,9 @@ export default async function PaylasPage({
               )}
               <div className="mt-1 text-xs text-text-muted">
                 Teklif Tarihi: {new Date(offer.offer_date).toLocaleDateString("tr-TR")}
+                {offer.valid_until && (
+                  <> · Geçerlilik: {new Date(offer.valid_until).toLocaleDateString("tr-TR")}</>
+                )}
               </div>
             </CardBody>
           </Card>
@@ -138,7 +144,15 @@ export default async function PaylasPage({
           {offer.status === "reddedildi" && (
             <p className="text-center text-sm text-danger">Bu teklifi reddettiniz.</p>
           )}
-          {!offer.can_respond && offer.status === "gönderildi" && (
+          {offer.status === "gönderildi" && offer.validity_expired && offer.valid_until && (
+            <p className="text-center text-sm text-text-muted">
+              Bu teklifin geçerlilik süresi{" "}
+              {new Date(offer.valid_until).toLocaleDateString("tr-TR")} tarihinde doldu; bu teklif
+              artık onaylanamaz veya reddedilemez. Güncel bir teklif için lütfen teklifi gönderen
+              firmayla iletişime geçin.
+            </p>
+          )}
+          {!offer.can_respond && offer.status === "gönderildi" && !offer.validity_expired && (
             <p className="text-center text-sm text-text-muted">
               Bu teklif için daha güncel bir revizyon hazırlanmıştır; bu bağlantı üzerinden karar
               verilemez. Lütfen size en son gönderilen bağlantıyı kullanın.

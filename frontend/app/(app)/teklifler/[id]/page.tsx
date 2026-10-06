@@ -174,6 +174,12 @@ export default async function TeklifDetayPage({
                 Teklif Tarihi
               </div>
               <div>{new Date(offer.offer_date).toLocaleDateString("tr-TR")}</div>
+              <div className="mt-3 border-t border-border pt-3 text-xs uppercase tracking-widest text-text-muted">
+                Geçerlilik Tarihi
+              </div>
+              <div>
+                {offer.valid_until ? new Date(offer.valid_until).toLocaleDateString("tr-TR") : "Süresiz"}
+              </div>
             </CardBody>
           </Card>
 

@@ -9,6 +9,7 @@ import { Trash2 } from "lucide-react";
 import { MetrajHesaplaPanel, type MetrajOfferItemDraft } from "@/components/calc/MetrajHesaplaPanel";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { DateInput } from "@/components/ui/DateInput";
 import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
 import { apiClient, ApiError } from "@/lib/api";
@@ -97,6 +98,18 @@ function parseNum(raw: string): number {
   return parseFloat(raw.replace(",", ".")) || 0;
 }
 
+// Önizleme, sunucunun hesabıyla (computeOfferTotals) aynı sırayı izler:
+// miktar ve birim fiyat önce 2 haneye yuvarlanır, satır toplamı onların
+// çarpımıdır -- kaydettikten sonra tutarlar kuruşu kuruşuna aynı kalır.
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+function todayISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 // Hem yeni teklif oluşturma hem taslak düzenleme için ortak form --
 // müşteri seçimi datalist üzerinden: bilinen bir müşteri adı seçilirse
 // customer_id o karta bağlanır ve iletişim bilgileri o karttan otomatik
@@ -127,6 +140,10 @@ export function OfferForm({
     notes: offer?.notes ?? "",
   });
   const [vatRate, setVatRate] = useState(String(offer?.vat_rate ?? 20));
+  // Geçerlilik tarihi: boş = süresiz. Kaydederken HER ZAMAN gönderilir
+  // ("" = temizle); backend, alanı hiç göndermeyen istemcilerde (mobil)
+  // mevcut tarihi korur.
+  const [validUntil, setValidUntil] = useState(offer?.valid_until ?? "");
   const [items, setItems] = useState<ItemRow[]>(offerToRows(offer));
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -195,28 +212,28 @@ export function OfferForm({
   // yazdığı unit_price'tır, hiç dokunulmaz.
   function effectiveUnitPrice(row: ItemRow): number {
     if (canManageInternalPricing && row.pricing_mode === "markup" && row.internal_cost.trim()) {
-      const cost = parseNum(row.internal_cost);
-      const markup = parseNum(row.markup_percent);
-      return cost * (1 + markup / 100);
+      const cost = round2(parseNum(row.internal_cost));
+      const markup = round2(parseNum(row.markup_percent));
+      return round2(cost * (1 + markup / 100));
     }
-    return parseNum(row.unit_price);
+    return round2(parseNum(row.unit_price));
   }
 
   const computedRows = items.map((row) => {
-    const qty = parseNum(row.quantity);
+    const qty = round2(parseNum(row.quantity));
     const price = effectiveUnitPrice(row);
     const cost = row.internal_cost.trim() ? parseNum(row.internal_cost) : null;
     return {
       ...row,
-      lineTotal: qty * price,
+      lineTotal: round2(qty * price),
       effectivePrice: price,
       expectedProfit: cost !== null ? price - cost : null,
     };
   });
-  const subtotal = computedRows.reduce((sum, r) => sum + r.lineTotal, 0);
+  const subtotal = round2(computedRows.reduce((sum, r) => sum + r.lineTotal, 0));
   const vat = parseFloat(vatRate.replace(",", ".")) || 0;
-  const vatAmount = (subtotal * vat) / 100;
-  const grandTotal = subtotal + vatAmount;
+  const vatAmount = round2((subtotal * vat) / 100);
+  const grandTotal = round2(subtotal + vatAmount);
   const customerIsLinked = customerId !== null;
 
   async function handleSubmit(e: FormEvent) {
@@ -228,6 +245,7 @@ export function OfferForm({
         customer_id: customerId,
         ...customer,
         vat_rate: vat,
+        valid_until: validUntil,
         items: items
           .filter((r) => r.product_name.trim() && parseFloat(r.quantity) > 0)
           .map((r) => ({
@@ -493,6 +511,17 @@ export function OfferForm({
       <Card className="h-fit w-full lg:w-72">
         <CardHeader>Özet</CardHeader>
         <CardBody className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <DateInput
+              label="Geçerlilik Tarihi"
+              value={validUntil}
+              min={todayISO()}
+              onChange={(e) => setValidUntil(e.target.value)}
+            />
+            <p className="text-xs text-text-muted">
+              Müşteri bu tarihten sonra teklifi onaylayamaz. Boş bırakılırsa süresizdir.
+            </p>
+          </div>
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold uppercase tracking-widest text-text-muted">
               KDV (%)
@@ -501,6 +530,7 @@ export function OfferForm({
               type="number"
               step="0.01"
               min={0}
+              max={100}
               value={vatRate}
               onChange={(e) => setVatRate(e.target.value)}
               className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-gold"

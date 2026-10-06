@@ -390,6 +390,9 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 	if len(in.Items) == 0 {
 		return nil, errors.New("en az bir kalem girilmelidir")
 	}
+	if err := validateOfferValidUntil(in.ValidUntil, time.Now()); err != nil {
+		return nil, err
+	}
 	items, subtotal, vatRate, vatAmount, grandTotal, err := computeOfferTotals(in.Items, in.VatRate, in.CanManageInternalPricing)
 	if err != nil {
 		return nil, err
@@ -667,12 +670,50 @@ type UpdateOfferInput struct {
 	CustomerEmail   string
 	CustomerAddress string
 	ValidUntil      *time.Time
-	Notes           string
-	VatRate         *float64
-	Items           []OfferItemInput
-	UserID          string
+	// ValidUntilProvided false ise (istemci alanı hiç göndermedi ya da null
+	// gönderdi) revizyonun mevcut geçerlilik tarihi KORUNUR; true ise
+	// ValidUntil yazılır (nil = tarihi temizle). Eskiden alanı göndermeyen
+	// her kayıt (ör. mobil form) tarihi sessizce NULL'a çekiyordu.
+	ValidUntilProvided bool
+	Notes              string
+	VatRate            *float64
+	Items              []OfferItemInput
+	UserID             string
 	// CanManageInternalPricing: bkz. CreateOfferInput.
 	CanManageInternalPricing bool
+}
+
+// ErrOfferValidUntilInPast: yeni girilen geçerlilik tarihi bugünden önce
+// olamaz -- böyle bir teklif müşteriye ulaştığı anda yanıtlanamazdı.
+var ErrOfferValidUntilInPast = errors.New("geçerlilik tarihi bugünden önce olamaz")
+
+// calendarDay, bir anın takvim gününü (saat/dilim bilgisi atılmış) döner.
+func calendarDay(t time.Time) time.Time {
+	y, m, d := t.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
+func validateOfferValidUntil(validUntil *time.Time, now time.Time) error {
+	if validUntil != nil && calendarDay(*validUntil).Before(calendarDay(IstanbulNow(now))) {
+		return ErrOfferValidUntilInPast
+	}
+	return nil
+}
+
+// OfferValidityExpired, geçerlilik tarihi (dahil) geçmiş bir teklif için
+// true döner -- "bugün" İstanbul takvim günüdür (bkz. timezone.go). Tarihi
+// olmayan teklif süresiz geçerlidir. Müşteri kararı (RespondByShareLinkToken)
+// ve public sayfanın "süresi doldu" bilgisi bu TEK fonksiyondan türer.
+func OfferValidityExpired(validUntil *time.Time, now time.Time) bool {
+	return validUntil != nil && calendarDay(IstanbulNow(now)).After(calendarDay(*validUntil))
+}
+
+func offerRevisionValidityExpired(rev sqlc.OfferRevision, now time.Time) bool {
+	if !rev.ValidUntil.Valid {
+		return false
+	}
+	t := rev.ValidUntil.Time
+	return OfferValidityExpired(&t, now)
 }
 
 // Update, yalnızca "taslak" durumundaki (henüz gönderilmemiş ya da yeni
@@ -703,6 +744,11 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 	if len(in.Items) == 0 {
 		return nil, errors.New("en az bir kalem girilmelidir")
 	}
+	if in.ValidUntilProvided {
+		if err := validateOfferValidUntil(in.ValidUntil, time.Now()); err != nil {
+			return nil, err
+		}
+	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -710,6 +756,15 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 	}
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
+
+	validUntil := repository.TimePtrToDate(in.ValidUntil)
+	if !in.ValidUntilProvided {
+		currentRev, err := txq.GetOfferRevisionByID(ctx, sqlc.GetOfferRevisionByIDParams{ID: offerRow.CurrentRevisionID, OrganizationID: orgID})
+		if err != nil {
+			return nil, err
+		}
+		validUntil = currentRev.ValidUntil
+	}
 
 	// İç fiyatlama yetkisi olmayan düzenleyici: istemcinin gönderdiği iç
 	// alanlara hiç güvenilmez, mevcut kalemlerinkiler id ile taşınır (bkz.
@@ -754,7 +809,7 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 		CustomerPhone:   strings.TrimSpace(customerPhone),
 		CustomerEmail:   strings.TrimSpace(customerEmail),
 		CustomerAddress: strings.TrimSpace(customerAddress),
-		ValidUntil:      repository.TimePtrToDate(in.ValidUntil),
+		ValidUntil:      validUntil,
 		Subtotal:        repository.Float64ToNumeric(subtotal),
 		VatRate:         repository.Float64ToNumeric(vatRate),
 		VatAmount:       repository.Float64ToNumeric(vatAmount),
@@ -892,6 +947,9 @@ func (s *OfferService) UpdateStatus(ctx context.Context, id, organizationID, sta
 
 	eventType := domain.EventOfferUpdated
 	justSent := status == domain.OfferStatusGonderildi && previousStatus != domain.OfferStatusGonderildi
+	if justSent && offerRevisionValidityExpired(updatedRev, time.Now()) {
+		return nil, ErrOfferSendExpired
+	}
 	if justSent {
 		eventType = domain.EventRevisionSent
 		revokedLinks, err := txq.RevokeShareLinksForOtherRevisions(ctx, sqlc.RevokeShareLinksForOtherRevisionsParams{
@@ -1055,6 +1113,14 @@ func (s *OfferService) Revise(ctx context.Context, id, organizationID, userID st
 		}
 	}
 
+	// Süresi zaten dolmuş bir geçerlilik tarihi yeni revizyona taşınmaz:
+	// yeni revizyon yeni bir fiyat/süre teklifidir, eski tarihle gönderilirse
+	// müşteri onu hiç yanıtlayamazdı. Personel yeni tarihi taslakta girer.
+	validUntil := currentRev.ValidUntil
+	if offerRevisionValidityExpired(currentRev, time.Now()) {
+		validUntil = pgtype.Date{}
+	}
+
 	newRev, err := txq.CreateOfferRevision(ctx, sqlc.CreateOfferRevisionParams{
 		OrganizationID:  orgID,
 		OfferID:         offerRow.ID,
@@ -1064,7 +1130,7 @@ func (s *OfferService) Revise(ctx context.Context, id, organizationID, userID st
 		CustomerPhone:   currentRev.CustomerPhone,
 		CustomerEmail:   currentRev.CustomerEmail,
 		CustomerAddress: currentRev.CustomerAddress,
-		ValidUntil:      currentRev.ValidUntil,
+		ValidUntil:      validUntil,
 		Subtotal:        currentRev.Subtotal,
 		DiscountType:    currentRev.DiscountType,
 		DiscountValue:   currentRev.DiscountValue,
@@ -1176,6 +1242,14 @@ var (
 	ErrShareLinkExpired    = errors.New("bu paylaşım bağlantısının süresi dolmuş")
 	ErrOfferSuperseded     = errors.New("bu teklif için yeni bir revizyon oluşturuldu, bu bağlantı üzerinden artık karar verilemez")
 	ErrOfferNotRespondable = errors.New("bu teklif için onay/red işlemi yapılamaz")
+	// ErrOfferValidityExpired: revizyonun geçerlilik tarihi (valid_until,
+	// o gün dahil) geçmiş -- müşteri artık kabul/red veremez. Eskiden tarih
+	// hiç kontrol edilmiyordu; süresi aylar önce dolmuş bir fiyat kabul
+	// edilebiliyordu.
+	ErrOfferValidityExpired = errors.New("bu teklifin geçerlilik süresi dolmuş; onay/red işlemi yapılamaz. Güncel bir teklif için lütfen teklifi gönderen firmayla iletişime geçin")
+	// ErrOfferSendExpired: geçerlilik tarihi geçmiş bir revizyon müşteriye
+	// gönderilemez -- gönderilen link hiçbir zaman yanıtlanamazdı.
+	ErrOfferSendExpired = errors.New("teklifin geçerlilik tarihi geçmiş; göndermeden önce geçerlilik tarihini güncelleyin")
 )
 
 // CreateShareLink, teklifin O ANKİ (current) revizyonuna bağlı yeni bir
@@ -1362,7 +1436,8 @@ func (s *OfferService) GetByShareLinkToken(ctx context.Context, token, ip, userA
 		return nil, false, err
 	}
 	canRespond := offerRow.CurrentRevisionID.String() == link.RevisionID.String() &&
-		revRow.Status == domain.OfferStatusGonderildi
+		revRow.Status == domain.OfferStatusGonderildi &&
+		!offerRevisionValidityExpired(revRow, time.Now())
 	itemRows, err := s.q.ListOfferRevisionItems(ctx, revRow.ID)
 	if err != nil {
 		return nil, false, err
@@ -1460,6 +1535,9 @@ func (s *OfferService) RespondByShareLinkToken(ctx context.Context, token, decis
 	}
 	if revRow.Status != domain.OfferStatusGonderildi {
 		return nil, ErrOfferNotRespondable
+	}
+	if offerRevisionValidityExpired(revRow, time.Now()) {
+		return nil, ErrOfferValidityExpired
 	}
 
 	updatedRev, err := txq.UpdateOfferRevisionStatus(ctx, sqlc.UpdateOfferRevisionStatusParams{
@@ -1600,6 +1678,11 @@ func (s *OfferService) SendOfferEmail(ctx context.Context, offerID, organization
 	// kısaltmak yerine reddediyoruz.
 	if len([]rune(to)) > 255 {
 		return nil, errors.New("alıcı e-posta adresi çok uzun")
+	}
+	// Mail gönderilMEDEN önce: süresi dolmuş bir teklifin linki müşteriye
+	// gitse bile hiçbir zaman yanıtlanamaz (bkz. RespondByShareLinkToken).
+	if OfferValidityExpired(offer.ValidUntil, time.Now()) {
+		return nil, ErrOfferSendExpired
 	}
 
 	link, err := s.getOrCreateActiveShareLink(ctx, offer.ID, organizationID, offer.CurrentRevisionID, userID)
