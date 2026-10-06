@@ -117,6 +117,15 @@ export default function GizlilikPage() {
               ilgili özelliği kullandığınızda ve telefonunuzun izin penceresinde onay verdiğinizde.
             </>,
             <>
+              <strong>Bildirim kaydı:</strong> telefonunuza bildirim gönderebilmek için, bildirim iznini
+              verdiğinizde Google Firebase&apos;in o telefona verdiği kayıt anahtarı ve uygulama sürümü. Çıkış
+              yaptığınızda silinir.
+            </>,
+            <>
+              <strong>Öneri ve geri bildirimler:</strong> uygulamadan &quot;Öneri Gönder&quot; ile yazdığınız mesaj,
+              adınız ve firmanız. Bunları yalnızca ARVEND ekibi okur, firmanızın yöneticisi görmez.
+            </>,
+            <>
               <strong>Kullanım kayıtları:</strong> uygulama içi aramalar ve ekran etkileşimleri; yalnızca hizmetin
               çalışması ve hataların giderilmesi için, üçüncü taraflara aktarılmaz.
             </>,
@@ -162,6 +171,10 @@ export default function GizlilikPage() {
             <>
               <strong>Altyapı hizmet sağlayıcıları:</strong> uygulamaya güvenli bağlantı Cloudflare, Inc. ağı
               üzerinden sağlanır; bu nedenle trafik yurt dışındaki sunuculardan geçebilir (KVKK m. 9).
+            </>,
+            <>
+              <strong>Telefon bildirimleri:</strong> Google Firebase Cloud Messaging üzerinden iletilir; bildirimin
+              başlığı ve kısa metni bu altyapıdan geçer (KVKK m. 9).
             </>,
             <>
               <strong>E-posta:</strong> uygulamadan gönderilen teklif ve ek iş e-postaları, firmanızın ayarlarda

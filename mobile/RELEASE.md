@@ -199,21 +199,28 @@ Gelecek sürümler için kural:
 
 ---
 
-## 6. Bildirimler — Yayın Durumu
+## 6. Bildirimler
 
-**Uygulama İÇİ bildirim VAR. OS push (FCM/APNs) YOK.**
+**Durum (2026-10-06): telefona bildirim (FCM) var.**
 
-- Backend: `notifications` tablosu + `GET /notifications`, `POST
-  /notifications/{id}/read` vb. — kullanıcı uygulamayı AÇIKKEN görür.
-- Mobil: `lib/features/notifications/` — zil ikonu + liste, cihaz token
-  kaydı YOK, `firebase_messaging`/`flutter_local_notifications` gibi
-  hiçbir push paketi pubspec.yaml'da YOK.
-- **Bu görev push bildirim EKLEMEDİ** (kapsam dışı, talimat gereği).
-  Play Store Data Safety / App Store Privacy formlarında "push
-  notification" YETENEĞİ İDDİA EDİLMEMELİDİR — yalnızca uygulama-içi
-  bildirim doğrudur.
-- İleride push eklenirse: ayrı bir ürün kararı + ayrı bir gizlilik
-  değerlendirmesi gerekir (FCM/APNs cihaz kimliği toplar).
+- Firebase projesi `arvend-8bc93` (sahibi info@tahaeryetisozen.com.tr),
+  Spark (ücretsiz) plan, **Analytics kapalı**. İstemci seçenekleri
+  `lib/core/push/firebase_push_messaging.dart`'ta (gizli değil); gradle
+  google-services eklentisi kullanılmıyor.
+- Gönderen sunucu: `FCM_SERVICE_ACCOUNT_FILE` (/etc/arvend/
+  fcm-service-account.json). Anahtar yoksa telefona gönderim kapalıdır,
+  bildirimler zilde durur.
+- Telefon kaydı oturum açınca yapılır, çıkışta silinir
+  (`POST /push/devices[/unregister]`).
+- Android kanal: `arvend_bildirimler` (MainActivity) -- backend fcm.Send
+  ile aynı ad.
+- Duyuru: firma yöneticisi (Diğer > Duyuru Gönder) ve Süper Admin (web
+  /super-admin/duyurular).
+- Öneri: herkes (Diğer > Öneri Gönder) -> Süper Admin /super-admin/oneriler.
+- Play "Veri güvenliği": **Cihaz veya diğer kimlikler** işaretlenmeli
+  (FCM kayıt anahtarı; toplandı, paylaşılmadı, uygulama işlevselliği).
+- `derle.sh play` AAB'de AD_ID izni görürse durur (Play beyanı: reklam
+  kimliği yok).
 
 ---
 
