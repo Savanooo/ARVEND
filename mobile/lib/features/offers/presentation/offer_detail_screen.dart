@@ -52,6 +52,38 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     }
   }
 
+  /// Durum düğmeleri tek dokunuşla geri alınamaz sonuç doğurur: "Kabul
+  /// Edildi" teklifi KALICI olarak kilitler (sunucu `ErrOfferLocked`; bir
+  /// daha düzenlenemez, revize edilemez, durumu değişmez), "Reddedildi" ve
+  /// "Gönderildi" ise yalnızca yeni bir revizyonla düzeltilebilir. Bu yüzden
+  /// her biri onay ister -- yanlışlıkla dokunmak teklifi kilitlemesin.
+  Future<void> _confirmAndSetStatus(
+    String status, {
+    required String title,
+    required String message,
+    required String confirmLabel,
+    bool danger = false,
+  }) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
+          TextButton(
+            key: const ValueKey('offer-status-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            style: danger ? TextButton.styleFrom(foregroundColor: AppColors.danger) : null,
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _setStatus(status);
+  }
+
   Future<void> _reviseAndEdit() async {
     final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
     try {
@@ -352,7 +384,13 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
               if (offer.isEditable)
                 PrimaryButton(
                   label: 'Gönderildi Olarak İşaretle',
-                  onPressed: () => _setStatus(Offer.statusGonderildi),
+                  onPressed: () => _confirmAndSetStatus(
+                    Offer.statusGonderildi,
+                    title: 'Gönderildi Olarak İşaretle',
+                    message: '${offer.offerNo} gönderildi olarak işaretlensin mi? Bu revizyon artık '
+                        'düzenlenemez; değişiklik için yeni bir revizyon gerekir.',
+                    confirmLabel: 'İşaretle',
+                  ),
                 ),
               if (offer.status == Offer.statusGonderildi)
                 Row(
@@ -360,14 +398,28 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                     Expanded(
                       child: PrimaryButton(
                         label: 'Kabul Edildi',
-                        onPressed: () => _setStatus(Offer.statusKabulEdildi),
+                        onPressed: () => _confirmAndSetStatus(
+                          Offer.statusKabulEdildi,
+                          title: 'Teklif Kabul Edildi',
+                          message: '${offer.offerNo} kabul edildi olarak işaretlensin mi? Kabul edilen teklif '
+                              'KALICI olarak kilitlenir: bir daha düzenlenemez, revize edilemez ve durumu '
+                              'değiştirilemez.',
+                          confirmLabel: 'Kabul Edildi',
+                        ),
                       ),
                     ),
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(
                       child: SecondaryButton(
                         label: 'Reddedildi',
-                        onPressed: () => _setStatus(Offer.statusReddedildi),
+                        onPressed: () => _confirmAndSetStatus(
+                          Offer.statusReddedildi,
+                          title: 'Teklif Reddedildi',
+                          message: '${offer.offerNo} reddedildi olarak işaretlensin mi? Teklif ancak yeni bir '
+                              'revizyonla yeniden açılabilir.',
+                          confirmLabel: 'Reddedildi',
+                          danger: true,
+                        ),
                       ),
                     ),
                   ],
