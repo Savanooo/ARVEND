@@ -1234,6 +1234,29 @@ func (q *Queries) GetSubcontractForUpdate(ctx context.Context, arg GetSubcontrac
 	return i, err
 }
 
+const getSubcontractPaidForProgressClaim = `-- name: GetSubcontractPaidForProgressClaim :one
+SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
+FROM subcontract_payments
+WHERE progress_claim_id = $1 AND organization_id = $2 AND project_id = $3 AND voided_at IS NULL
+`
+
+type GetSubcontractPaidForProgressClaimParams struct {
+	ProgressClaimID pgtype.UUID `json:"progress_claim_id"`
+	OrganizationID  pgtype.UUID `json:"organization_id"`
+	ProjectID       pgtype.UUID `json:"project_id"`
+}
+
+// Bir hakedişe BAĞLI, iptal edilmemiş ödemelerin toplamı -- hakedişe bağlı
+// yeni bir ödeme hakedişin net ödenecek tutarını aşamaz (bkz.
+// CreateSubcontractPayment; çağıran sözleşme satırını kilitli tutar, aynı
+// sözleşmeye eşzamanlı iki ödeme bu toplamı birlikte delemez).
+func (q *Queries) GetSubcontractPaidForProgressClaim(ctx context.Context, arg GetSubcontractPaidForProgressClaimParams) (pgtype.Numeric, error) {
+	row := q.db.QueryRow(ctx, getSubcontractPaidForProgressClaim, arg.ProgressClaimID, arg.OrganizationID, arg.ProjectID)
+	var total pgtype.Numeric
+	err := row.Scan(&total)
+	return total, err
+}
+
 const getSubcontractPaidToDate = `-- name: GetSubcontractPaidToDate :one
 SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
 FROM subcontract_payments

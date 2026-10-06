@@ -339,6 +339,76 @@ func TestSubcontractPayments(t *testing.T) {
 		}
 	})
 
+	t.Run("10_claim_linked_payment_capped_at_claim_net_payable", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 100000)
+		cc := newCostCode(t, orgA.ID, "P10-CC")
+		s := newSupplier(t, orgA.ID, "P10-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 100000)
+		items, err := projectSvc.ListSubcontractItems(ctx, p.ID, sc.ID, orgA.ID)
+		if err != nil || len(items) == 0 {
+			t.Fatalf("SOV kalemleri alınamadı: %v", err)
+		}
+		// Gross 10.000,10 -- %5 teminat (500,01) => net 9.500,09.
+		retention := 5.0
+		claim, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), RetentionPercent: &retention,
+			Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 10000.10}},
+		})
+		if err != nil {
+			t.Fatalf("hakediş oluşturulamadı: %v", err)
+		}
+		if _, err := projectSvc.SubmitProgressClaim(ctx, p.ID, claim.ID, orgA.ID, ""); err != nil {
+			t.Fatal(err)
+		}
+		certified, err := projectSvc.CertifyProgressClaim(ctx, p.ID, claim.ID, orgA.ID, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if certified.NetPayable != 9500.09 {
+			t.Fatalf("net ödenecek 9500.09 olmalı, geldi %v", certified.NetPayable)
+		}
+
+		over := basicPayment(orgA.ID, p.ID, sc.ID, 50000)
+		over.ProgressClaimID = claim.ID
+		_, err = projectSvc.CreateSubcontractPayment(ctx, p.ID, sc.ID, orgA.ID, over)
+		if !errors.Is(err, service.ErrPaymentExceedsClaim) {
+			t.Fatalf("hakedişin net tutarını aşan bağlı ödeme reddedilmeli, geldi %v", err)
+		}
+		if !strings.Contains(err.Error(), claim.ClaimNumber) {
+			t.Errorf("mesaj hakedişi adıyla anmalı: %q", err.Error())
+		}
+
+		first := basicPayment(orgA.ID, p.ID, sc.ID, 9000)
+		first.ProgressClaimID = claim.ID
+		if _, err := projectSvc.CreateSubcontractPayment(ctx, p.ID, sc.ID, orgA.ID, first); err != nil {
+			t.Fatalf("net tutarın altındaki bağlı ödeme kabul edilmeli: %v", err)
+		}
+		// Kalan 500,09; 500,10 bir kuruş fazla.
+		tooMuch := basicPayment(orgA.ID, p.ID, sc.ID, 500.10)
+		tooMuch.ProgressClaimID = claim.ID
+		if _, err := projectSvc.CreateSubcontractPayment(ctx, p.ID, sc.ID, orgA.ID, tooMuch); !errors.Is(err, service.ErrPaymentExceedsClaim) {
+			t.Fatalf("bir kuruş fazlası da reddedilmeli, geldi %v", err)
+		}
+		exact := basicPayment(orgA.ID, p.ID, sc.ID, 500.09)
+		exact.ProgressClaimID = claim.ID
+		pay, err := projectSvc.CreateSubcontractPayment(ctx, p.ID, sc.ID, orgA.ID, exact)
+		if err != nil {
+			t.Fatalf("kalan tutarın tamamı ödenebilmeli: %v", err)
+		}
+		// İptal edilen ödeme sınırdan düşer.
+		if _, err := projectSvc.VoidSubcontractPayment(ctx, p.ID, pay.ID, orgA.ID, "", "hatalı"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.CreateSubcontractPayment(ctx, p.ID, sc.ID, orgA.ID, exact); err != nil {
+			t.Fatalf("iptal edilen ödemenin yeri yeniden kullanılabilmeli: %v", err)
+		}
+		// Hakedişe bağlı OLMAYAN (avans) ödeme bu sınıra takılmaz, yalnızca
+		// sözleşme bedeline takılır.
+		if _, err := projectSvc.CreateSubcontractPayment(ctx, p.ID, sc.ID, orgA.ID, basicPayment(orgA.ID, p.ID, sc.ID, 20000)); err != nil {
+			t.Fatalf("bağımsız avans ödemesi kabul edilmeli: %v", err)
+		}
+	})
+
 	t.Run("8_cross_tenant_isolation", func(t *testing.T) {
 		p := newProject(t, orgA.ID, 100000)
 		cc := newCostCode(t, orgA.ID, "P8-CC")

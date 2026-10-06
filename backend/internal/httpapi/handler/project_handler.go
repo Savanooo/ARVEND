@@ -264,7 +264,8 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "proje bulunamadı")
-	case errors.Is(err, service.ErrPaymentExceedsContract):
+	case errors.Is(err, service.ErrPaymentExceedsContract),
+		errors.Is(err, service.ErrPaymentExceedsClaim):
 		// Metin rakamları ve ne yapılacağını içerir (bkz. PaymentExceedsContractError).
 		httpjson.Error(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, service.ErrBudgetNotFound):

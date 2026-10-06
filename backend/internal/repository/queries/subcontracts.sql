@@ -367,6 +367,15 @@ SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
 FROM subcontract_payments
 WHERE subcontract_id = $1 AND organization_id = $2 AND project_id = $3 AND voided_at IS NULL;
 
+-- name: GetSubcontractPaidForProgressClaim :one
+-- Bir hakedişe BAĞLI, iptal edilmemiş ödemelerin toplamı -- hakedişe bağlı
+-- yeni bir ödeme hakedişin net ödenecek tutarını aşamaz (bkz.
+-- CreateSubcontractPayment; çağıran sözleşme satırını kilitli tutar, aynı
+-- sözleşmeye eşzamanlı iki ödeme bu toplamı birlikte delemez).
+SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
+FROM subcontract_payments
+WHERE progress_claim_id = $1 AND organization_id = $2 AND project_id = $3 AND voided_at IS NULL;
+
 -- name: GetSubcontractPaidTotalForProject :one
 -- GetProjectFinancialSummary'nin new-module taşeron maliyeti CTE'si için --
 -- projedeki TÜM (henüz voidlenmemiş) taşeron ödemelerinin toplamı.
