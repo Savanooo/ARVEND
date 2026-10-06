@@ -46,8 +46,11 @@ class AppNotification {
 }
 
 class NotificationsPage {
-  const NotificationsPage({required this.notifications, required this.total});
+  const NotificationsPage({required this.notifications, required this.total, this.reachedEnd = false});
 
   final List<AppNotification> notifications;
   final int total;
+  final bool reachedEnd;
+
+  bool get hasMore => !reachedEnd && notifications.length < total;
 }

@@ -7,6 +7,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../features/notifications/data/notifications_providers.dart';
 import '../auth/auth_controller.dart';
+import '../auth/last_user_store.dart';
 import 'push_messaging.dart';
 
 /// Uygulamanın kökündeki ScaffoldMessenger -- açıkken gelen bildirim alt
@@ -19,7 +20,9 @@ final rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 ///   yenilenince yeniden),
 /// - uygulama açıkken gelen bildirimde zil sayacını tazeler ve alt bant
 ///   gösterir,
-/// - dokunulan bildirimin hedef ekranını açar (oturum yoksa girişten sonra).
+/// - dokunulan bildirimi okundu işaretler ve hedef ekranını açar (oturum
+///   yoksa girişten sonra -- yalnızca bildirimin sahibi giriş yaparsa),
+/// - uygulama öne gelince zil sayacını tazeler.
 class PushWatcher extends ConsumerStatefulWidget {
   const PushWatcher({super.key, required this.router, required this.child});
 
@@ -30,10 +33,24 @@ class PushWatcher extends ConsumerStatefulWidget {
   ConsumerState<PushWatcher> createState() => _PushWatcherState();
 }
 
+/// Oturum yokken dokunulan bildirim. [ownerId]: bildirimin ait olduğu
+/// kişi (bu telefonda en son oturum açmış kullanıcı); [awaitingRestore]:
+/// uygulama bildirimle açıldı ve oturum henüz geri yükleniyordu -- çerezle
+/// geri gelen oturum telefonun kayıtlı kullanıcısıdır.
+typedef _PendingPush = ({PushMessage message, String? ownerId, bool awaitingRestore});
+
 class _PushWatcherState extends ConsumerState<PushWatcher> {
   final _subs = <StreamSubscription<Object?>>[];
-  String? _pendingTarget;
+  late final AppLifecycleListener _lifecycle;
+  _PendingPush? _pending;
   String? _registeredFor;
+
+  /// Bu süreçte en son oturum açmış kullanıcı (çıkıştan sonra da tutulur).
+  String? _lastUserId;
+
+  /// Açılıştaki oturum geri yüklemesi (GET /auth/me) sonuçlandı mı. Sonraki
+  /// yüklemeler (giriş isteği) "geri yükleme" sayılmaz.
+  bool _restoreSettled = false;
 
   PushMessaging get _push => ref.read(pushMessagingProvider);
   bool get _loggedIn => ref.read(authControllerProvider).valueOrNull != null;
@@ -42,13 +59,15 @@ class _PushWatcherState extends ConsumerState<PushWatcher> {
   void initState() {
     super.initState();
     _subs.add(_push.onForegroundMessage.listen(_onForeground));
-    _subs.add(_push.onMessageOpenedApp.listen((m) => _open(m.actionTarget)));
+    _subs.add(_push.onMessageOpenedApp.listen(_openMessage));
     _subs.add(_push.onTokenRefresh.listen((t) {
       if (_loggedIn) _register(t);
     }));
     unawaited(_push.initialMessage().then((m) {
-      if (m != null) _open(m.actionTarget);
+      if (m != null) _openMessage(m);
     }));
+    // Arka plandayken gelen bildirimler zildeki sayıya yansısın.
+    _lifecycle = AppLifecycleListener(onResume: _onResume);
     // Uygulama oturum açık halde başladıysa (çerez geçerli) dinleyici
     // değişiklik görmez -- ilk karede kaydet.
     WidgetsBinding.instance.addPostFrameCallback((_) => _onAuthChanged());
@@ -56,28 +75,64 @@ class _PushWatcherState extends ConsumerState<PushWatcher> {
 
   @override
   void dispose() {
+    _lifecycle.dispose();
     for (final s in _subs) {
       s.cancel();
     }
     super.dispose();
   }
 
+  void _onResume() {
+    if (!mounted || !_loggedIn) return;
+    ref.invalidate(unreadNotificationCountProvider);
+    ref.invalidate(notificationsListProvider);
+  }
+
   void _onAuthChanged() {
     if (!mounted) return;
-    final user = ref.read(authControllerProvider).valueOrNull;
+    final auth = ref.read(authControllerProvider);
+    if (!auth.isLoading) _restoreSettled = true;
+    final user = auth.valueOrNull;
     if (user == null) {
       _registeredFor = null;
+      // Oturum geri gelmedi: bekleyen bildirim artık yalnızca sahibine.
+      final pending = _pending;
+      if (pending != null && pending.awaitingRestore && _restoreSettled) {
+        unawaited(_bindToLastUser(pending.message));
+      }
       return;
     }
+    _lastUserId = user.id;
     if (_registeredFor != user.id) {
       _registeredFor = user.id;
       unawaited(_registerCurrent());
     }
-    final target = _pendingTarget;
-    if (target != null) {
-      _pendingTarget = null;
-      _open(target);
+    final pending = _pending;
+    if (pending != null) {
+      _pending = null;
+      // Oturum yokken dokunulan bildirim, girişte BAŞKA biri oturum açarsa
+      // ona açılmaz (başkasının görev/proje bağlantısı) -- atılır.
+      if (pending.awaitingRestore || pending.ownerId == user.id) _openMessage(pending.message);
     }
+  }
+
+  /// Oturum yokken dokunulan bildirimi girişe kadar beklet.
+  void _holdUntilLogin(PushMessage m) {
+    if (!_restoreSettled && ref.read(authControllerProvider).isLoading) {
+      _pending = (message: m, ownerId: null, awaitingRestore: true);
+      return;
+    }
+    unawaited(_bindToLastUser(m));
+  }
+
+  Future<void> _bindToLastUser(PushMessage m) async {
+    final owner = _lastUserId ?? await ref.read(lastUserStoreProvider).lastUserId();
+    if (!mounted) return;
+    // Bu telefonda kimin oturumu olduğu bilinmiyorsa kime ait olduğu da
+    // bilinemez -- bildirim atılır (zilde yine durur).
+    _pending = owner == null ? null : (message: m, ownerId: owner, awaitingRestore: false);
+    // Beklerken giriş yapılmış olabilir.
+    if (_loggedIn) _onAuthChanged();
   }
 
   Future<void> _registerCurrent() async {
@@ -116,18 +171,40 @@ class _PushWatcherState extends ConsumerState<PushWatcher> {
         duration: const Duration(seconds: 5),
         action: m.actionTarget.isEmpty
             ? null
-            : SnackBarAction(label: 'Aç', onPressed: () => _open(m.actionTarget)),
+            : SnackBarAction(label: 'Aç', onPressed: () => _openMessage(m)),
       ),
     );
   }
 
-  void _open(String target) {
-    if (target.isEmpty || !target.startsWith('/')) return;
+  /// Dokunulan bildirim: okundu işaretlenir ve hedefi açılır.
+  void _openMessage(PushMessage m) {
     if (!_loggedIn) {
-      _pendingTarget = target;
+      _holdUntilLogin(m);
       return;
     }
+    unawaited(_markRead(m.notificationId));
+    _open(m.actionTarget);
+  }
+
+  Future<void> _markRead(String notificationId) async {
+    if (notificationId.isNotEmpty) {
+      try {
+        await ref.read(notificationsRepositoryProvider).markRead(notificationId);
+      } catch (e) {
+        // Okundu işaretlenemezse zilde okunmamış kalır; ekran yine açılır.
+        debugPrint('Bildirim: okundu işaretlenemedi: $e');
+      }
+    }
+    if (!mounted) return;
     ref.invalidate(unreadNotificationCountProvider);
+    ref.invalidate(notificationsListProvider);
+  }
+
+  void _open(String target) {
+    if (target.isEmpty || !target.startsWith('/')) return;
+    // Hedef zaten açık olan ekransa (ör. duyurunun hedefi bildirim
+    // listesi) ikinci bir kopyası açılmaz; liste yukarıda tazelendi.
+    if (widget.router.routerDelegate.currentConfiguration.uri.path == target) return;
     widget.router.push(target);
   }
 
