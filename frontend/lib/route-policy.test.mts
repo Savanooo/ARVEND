@@ -5,8 +5,10 @@ import {
   homeFor,
   isPlatformPath,
   isTenantPath,
+  loginDestination,
   nextDestination,
   resolveRoleRedirect,
+  safeNextPath,
 } from "./route-policy.ts";
 import type { User } from "./types.ts";
 
@@ -137,5 +139,54 @@ describe("yol sınıflandırma", () => {
     assert.equal(homeFor("super_admin"), "/super-admin");
     assert.equal(homeFor("admin"), "/admin");
     assert.equal(homeFor("kullanici"), "/panel");
+  });
+});
+
+describe("safeNextPath (giriş sonrası dönüş yolu)", () => {
+  it("uygulama içi göreli yolu sorgu/hash ile korur", () => {
+    assert.equal(safeNextPath("/projeler/p1?tab=finans"), "/projeler/p1?tab=finans");
+    assert.equal(safeNextPath(["/teklifler", "/mesai"]), "/teklifler");
+  });
+
+  it("açık yönlendirme ve giriş döngüsü reddedilir", () => {
+    for (const bad of [
+      "//evil.com/x",
+      "/\\evil.com",
+      "https://evil.com",
+      "javascript:alert(1)",
+      "projeler",
+      "",
+      "/giris",
+      "/giris?next=/x",
+      "/giris/",
+    ]) {
+      assert.equal(safeNextPath(bad), null, bad);
+    }
+    assert.equal(safeNextPath(undefined), null);
+    assert.equal(safeNextPath(null), null);
+  });
+});
+
+describe("loginDestination", () => {
+  it("hazır kullanıcı kendi kabuğundaki next'e döner", () => {
+    assert.equal(loginDestination(user({}), "/projeler/p1?tab=finans"), "/projeler/p1?tab=finans");
+    assert.equal(loginDestination(user({ role: "kullanici" }), "/admin/urunler"), "/admin/urunler");
+    assert.equal(
+      loginDestination(user({ role: "super_admin", organization_id: null }), "/super-admin/org1"),
+      "/super-admin/org1"
+    );
+  });
+
+  it("zorunlu akış next'ten önce gelir", () => {
+    assert.equal(loginDestination(user({ must_change_password: true }), "/projeler/p1"), "/sifre-belirle");
+    assert.equal(loginDestination(user({ onboarding_completed: false }), "/projeler/p1"), "/kurulum");
+  });
+
+  it("başka kabuğun ya da yetkisiz bölümün yolu yok sayılır", () => {
+    assert.equal(loginDestination(user({ role: "kullanici" }), "/admin/kullanicilar"), "/panel");
+    assert.equal(loginDestination(user({}), "/super-admin"), "/admin");
+    assert.equal(loginDestination(user({ role: "super_admin", organization_id: null }), "/projeler/p1"), "/super-admin");
+    assert.equal(loginDestination(user({}), "/paylas/abc"), "/admin");
+    assert.equal(loginDestination(user({}), null), "/admin");
   });
 });

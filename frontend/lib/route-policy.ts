@@ -91,3 +91,42 @@ export function resolveRoleRedirect(pathname: string, role: Role | undefined): s
   }
   return null;
 }
+
+export const LOGIN_PATH = "/giris";
+
+/**
+ * /giris?next=... değerini doğrular: yalnızca uygulama içi göreli bir yol
+ * ("/projeler/p1?tab=finans") kabul edilir. "//evil.com", "/\evil.com",
+ * mutlak URL'ler ve /giris'in kendisi reddedilir (açık yönlendirme ve
+ * giriş döngüsü olmasın).
+ */
+export function safeNextPath(raw: string | readonly string[] | null | undefined): string | null {
+  const value = typeof raw === "string" ? raw : raw?.[0];
+  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) {
+    return null;
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(value, "http://arvend.invalid");
+  } catch {
+    return null;
+  }
+  if (parsed.origin !== "http://arvend.invalid") return null;
+  if (parsed.pathname === LOGIN_PATH || parsed.pathname.startsWith(`${LOGIN_PATH}/`)) return null;
+  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+}
+
+/**
+ * Giriş sonrası (ya da oturumu zaten açık biri /giris'e geldiğinde) hedef.
+ * Zorunlu akışlar (şifre belirleme, firma kurulumu) next'ten ÖNCE gelir;
+ * next yalnızca kullanıcının kendi kabuğundaki bir yolsa kullanılır --
+ * aksi halde (ör. kullanici için /admin/kullanicilar) rol ana sayfası.
+ */
+export function loginDestination(user: User, next: string | null): string {
+  const destination = nextDestination(user);
+  if (!next || destination !== homeFor(user.role)) return destination;
+  const pathname = next.split(/[?#]/)[0];
+  const inOwnShell = user.role === "super_admin" ? isPlatformPath(pathname) : isTenantPath(pathname);
+  if (!inOwnShell || resolveRoleRedirect(pathname, user.role) !== null) return destination;
+  return next;
+}
