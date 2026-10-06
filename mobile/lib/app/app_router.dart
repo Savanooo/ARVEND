@@ -25,6 +25,7 @@ import '../features/offers/presentation/offer_create_screen.dart';
 import '../features/offers/presentation/offer_detail_screen.dart';
 import '../features/offers/presentation/offer_revision_detail_screen.dart';
 import '../features/offers/presentation/offers_screen.dart';
+import '../features/onboarding/presentation/onboarding_pending_screen.dart';
 import '../features/onboarding/presentation/onboarding_wizard_screen.dart';
 import '../features/onboarding/presentation/organization_settings_screen.dart';
 import '../features/notifications/presentation/notifications_screen.dart';
@@ -66,6 +67,7 @@ import '../features/messages/presentation/feedback_screen.dart';
 
 const _passwordSetupRoute = '/sifre-belirle';
 const _onboardingRoute = '/kurulum';
+const _onboardingPendingRoute = '/kurulum-bekleniyor';
 const _superAdminUnsupportedRoute = '/hesap-yonetim-web';
 const _accountBlockedRoute = '/hesap-erisimi-kapali';
 
@@ -77,7 +79,12 @@ const _accountBlockedRoute = '/hesap-erisimi-kapali';
 String? _forcedRouteFor(User user) {
   if (user.role == UserRole.superAdmin) return _superAdminUnsupportedRoute;
   if (user.mustChangePassword) return _passwordSetupRoute;
-  if (!user.onboardingCompleted) return _onboardingRoute;
+  // Kurulumu yalnızca kaba rol admin (firma sahibi/yönetici) yapabilir
+  // (backend /onboarding requireAdmin). Diğerleri sihirbazda kilitli
+  // kalmasın: bekleme ekranı (çıkış + tekrar kontrol).
+  if (!user.onboardingCompleted) {
+    return user.role == UserRole.admin ? _onboardingRoute : _onboardingPendingRoute;
+  }
   return null;
 }
 
@@ -144,7 +151,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       // Zorunlu bir rota yok -- giriş/şifre-belirle/kurulum ekranlarından
       // birindeyse (ör. az önce tamamlandı) ana sayfaya çıkılır; başka bir
       // rotadaysa (serbest gezinme) dokunulmaz.
-      const exitRoutes = {'/giris', _passwordSetupRoute, _onboardingRoute};
+      const exitRoutes = {'/giris', _passwordSetupRoute, _onboardingRoute, _onboardingPendingRoute};
       if (exitRoutes.contains(currentLocation)) return '/ana-sayfa';
       return null;
     },
@@ -152,6 +159,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/giris', builder: (context, state) => const LoginScreen()),
       GoRoute(path: _passwordSetupRoute, builder: (context, state) => const SetInitialPasswordScreen()),
       GoRoute(path: _onboardingRoute, builder: (context, state) => const OnboardingWizardScreen()),
+      GoRoute(path: _onboardingPendingRoute, builder: (context, state) => const OnboardingPendingScreen()),
       GoRoute(
         path: _superAdminUnsupportedRoute,
         builder: (context, state) => const SuperAdminUnsupportedScreen(),

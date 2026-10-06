@@ -259,4 +259,43 @@ void main() {
       expect(adapter.calls, isNot(contains('/auth/refresh')));
     });
   });
+
+  testWidgets('kurulumu bitmemiş firmanın yönetici OLMAYAN kullanıcısı: sihirbaz yerine bekleme ekranı, çıkış yapabilir',
+      (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/auth/me': [(status: 200, body: _meBody(role: 'kullanici', onboardingCompleted: false, onboardingStep: 'company'))],
+      // /onboarding KASITLI olarak betiklenmedi: yalnızca admin'e açık.
+      '/auth/logout': [(status: 200, body: null)],
+    });
+    await _pumpApp(tester, adapter);
+
+    expect(
+      find.text('Firma kurulumu henüz tamamlanmadı; firma sahibinin kurulumu bitirmesi gerekiyor.'),
+      findsOneWidget,
+    );
+    expect(find.text('Firma Kurulumu'), findsNothing);
+    expect(adapter.calls, isNot(contains('/onboarding')));
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Çıkış Yap'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextFormField), findsWidgets);
+  });
+
+  testWidgets('bekleme ekranında "Tekrar Kontrol Et": sahip kurulumu bitirdiyse ana sayfaya çıkılır', (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/auth/me': [
+        (status: 200, body: _meBody(role: 'kullanici', onboardingCompleted: false, onboardingStep: 'company')),
+        (status: 200, body: _meBody(role: 'kullanici')),
+      ],
+      '/dashboard': [(status: 200, body: fixtureJson('owner'))],
+      '/offers/': [(status: 200, body: {'offers': <dynamic>[], 'total': 0})],
+      '/notifications/unread-count': [(status: 200, body: {'unread_count': 0})],
+    });
+    await _pumpApp(tester, adapter);
+
+    await tester.tap(find.text('Tekrar Kontrol Et'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dikkat Gerektirenler'), findsOneWidget);
+  });
 }
