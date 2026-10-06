@@ -8,6 +8,7 @@ import 'package:arvend/core/api/api_providers.dart';
 import 'package:arvend/core/auth/auth_controller.dart';
 import 'package:arvend/core/auth/last_user_store.dart';
 import 'package:arvend/core/errors/api_exception.dart';
+import 'package:arvend/core/push/push_messaging.dart';
 
 import '../../test_utils/fake_api_client.dart';
 
@@ -27,9 +28,18 @@ Map<String, dynamic> _me({String id = 'u1', String fullName = 'Ali Usta'}) => {
       'permissions': ['projects.read', 'projects.operations.manage'],
     };
 
-Future<ProviderContainer> _container(FakeHttpClientAdapter adapter) async {
+class _CountingPush extends NoopPushMessaging {
+  int deletes = 0;
+  @override
+  Future<void> deleteToken() async => deletes++;
+}
+
+Future<ProviderContainer> _container(FakeHttpClientAdapter adapter, {PushMessaging? push}) async {
   final client = await buildFakeApiClient(adapter);
-  final container = ProviderContainer(overrides: [apiClientProvider.overrideWithValue(client)]);
+  final container = ProviderContainer(overrides: [
+    apiClientProvider.overrideWithValue(client),
+    if (push != null) pushMessagingProvider.overrideWithValue(push),
+  ]);
   addTearDown(container.dispose);
   return container;
 }
@@ -96,5 +106,24 @@ void main() {
     // Kimlik ayrı tutulur: oturum yokken dokunulan bildirimin sahibini
     // bilmek için (bkz. PushWatcher).
     expect(await LastUserStore().lastUserId(), 'u1');
+  });
+
+  test('oturum süresi dolunca telefonun bildirim anahtarı silinir ve saklanan kullanıcı unutulur', () async {
+    final push = _CountingPush();
+    final c = await _container(
+      FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _me())],
+      }),
+      push: push,
+    );
+    await c.read(authControllerProvider.future);
+    await _settle();
+
+    c.read(authControllerProvider.notifier).sessionExpired();
+    await _settle();
+
+    expect(c.read(authControllerProvider).valueOrNull, isNull);
+    expect(push.deletes, 1);
+    expect(await LastUserStore().read(), isNull);
   });
 }

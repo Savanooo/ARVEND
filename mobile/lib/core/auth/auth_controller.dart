@@ -129,10 +129,25 @@ class AuthController extends AsyncNotifier<User?> {
   /// TEK yetkili oturum-sıfırlama yolu: token süresi doldu (sebep yok) VEYA
   /// hesap engellendi (bkz. accountAccessIssueProvider, main.dart'taki
   /// onAccountAccessBlocked kablosu bu çağrıdan ÖNCE sebebi zaten yazar).
+  ///
+  /// Telefonun bildirim anahtarı da silinir: süresi dolmuş/engellenmiş
+  /// kullanıcının telefonuna bildirim düşmeye devam etmesin (sunucu bir
+  /// sonraki gönderimde anahtarı geçersiz görüp kaydı kendisi siler).
+  /// Sunucudaki kaydı silme isteği BİLEREK atılmaz: oturum yok, 401 ->
+  /// refresh -> tekrar sessionExpired döngüsüne girerdi.
   void sessionExpired() {
     _cancelRevalidate();
     _remember(null);
+    unawaited(_deletePushToken());
     state = const AsyncData(null);
+  }
+
+  Future<void> _deletePushToken() async {
+    try {
+      await ref.read(pushMessagingProvider).deleteToken();
+    } catch (_) {
+      // Anahtar silinemese de oturum kapanır.
+    }
   }
 
   /// setInitialPassword/onboarding adımları User döndürmez (yalnızca
