@@ -1077,4 +1077,125 @@ func TestSubcontracts(t *testing.T) {
 			t.Errorf("yarış SONRASI birden fazla aktif commitment satırı OLMAMALI (senkronizasyon her zaman void+create yapar), geldi: %d", active)
 		}
 	})
+
+	// ---------- 2026-10 denetim düzeltmeleri ----------
+
+	// submitAndCertify, bir hakedişi gönderip sertifikalar.
+	submitAndCertify := func(t *testing.T, projectID, claimID, orgID string) *domain.SubcontractProgressClaim {
+		t.Helper()
+		if _, err := projectSvc.SubmitProgressClaim(ctx, projectID, claimID, orgID, ""); err != nil {
+			t.Fatalf("hakediş gönderilemedi: %v", err)
+		}
+		c, err := projectSvc.CertifyProgressClaim(ctx, projectID, claimID, orgID, "")
+		if err != nil {
+			t.Fatalf("hakediş sertifika edilemedi: %v", err)
+		}
+		return c
+	}
+
+	t.Run("33_duplicate_sov_item_in_one_claim_rejected", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 200000)
+		cc := newCostCode(t, orgA.ID, "S33-CC")
+		s := newSupplier(t, orgA.ID, "S33-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 60000)
+		items, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc.ID, orgA.ID)
+		twice := []service.ProgressClaimItemInput{
+			{SubcontractItemID: items[0].ID, CurrentProgressAmount: 40000},
+			{SubcontractItemID: items[0].ID, CurrentProgressAmount: 40000},
+		}
+		if _, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: twice,
+		}); !errors.Is(err, service.ErrProgressClaimDuplicateItem) {
+			t.Fatalf("aynı SOV kalemi iki kez (2 x 40.000 > 60.000) REDDEDİLMELİ, geldi: %v", err)
+		}
+		claim, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: twice[:1],
+		})
+		if err != nil {
+			t.Fatalf("tek satırlı hakediş oluşturulamadı: %v", err)
+		}
+		if _, err := projectSvc.UpdateProgressClaimDraft(ctx, p.ID, claim.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: twice,
+		}); !errors.Is(err, service.ErrProgressClaimDuplicateItem) {
+			t.Fatalf("taslak güncellemede de aynı kalem iki kez REDDEDİLMELİ, geldi: %v", err)
+		}
+	})
+
+	t.Run("34_final_claim_to_exactly_100_percent_accepted_decimal", func(t *testing.T) {
+		// float64'te 50,10 + 50,20 = 100,30000000000001 > 100,30 -- eski
+		// karşılaştırma tam %100'e çıkan son hakedişi reddediyordu.
+		p := newProject(t, orgA.ID, 200000)
+		cc := newCostCode(t, orgA.ID, "S34-CC")
+		s := newSupplier(t, orgA.ID, "S34-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 100.30)
+		items, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc.ID, orgA.ID)
+		c1, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 50.10}},
+		})
+		if err != nil {
+			t.Fatalf("1. hakediş oluşturulamadı: %v", err)
+		}
+		submitAndCertify(t, p.ID, c1.ID, orgA.ID)
+		c2, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 50.20}},
+		})
+		if err != nil {
+			t.Fatalf("tam %%100'e çıkan son hakediş KABUL EDİLMELİ, geldi: %v", err)
+		}
+		ci, _ := projectSvc.ListProgressClaimItems(ctx, p.ID, c2.ID, orgA.ID)
+		if ci[0].CumulativeProgressAmount != 100.30 {
+			t.Fatalf("kümülatif 100.30 olmalı, geldi %v", ci[0].CumulativeProgressAmount)
+		}
+		submitAndCertify(t, p.ID, c2.ID, orgA.ID)
+		// Bir kuruş fazlası hâlâ reddedilir.
+		if _, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 0.01}},
+		}); !errors.Is(err, service.ErrProgressClaimOverrun) {
+			t.Fatalf("%%100 sonrası bir kuruş REDDEDİLMELİ, geldi: %v", err)
+		}
+	})
+
+	t.Run("35_legacy_duplicate_rows_count_fully_in_previous", func(t *testing.T) {
+		// Düzeltme ÖNCESİ oluşmuş, aynı SOV kalemini iki satırda taşıyan
+		// sertifikalı bir hakediş: sonraki hakedişin "previous"ı iki
+		// satırın TOPLAMINI görmeli (tek satırı seçip aynı işi yeniden
+		// sertifikalatmamalı) ve sonuç her çağrıda aynı olmalı.
+		p := newProject(t, orgA.ID, 200000)
+		cc := newCostCode(t, orgA.ID, "S35-CC")
+		s := newSupplier(t, orgA.ID, "S35-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 100000)
+		items, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc.ID, orgA.ID)
+		c1, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 30000}},
+		})
+		if err != nil {
+			t.Fatalf("hakediş oluşturulamadı: %v", err)
+		}
+		submitAndCertify(t, p.ID, c1.ID, orgA.ID)
+		if _, err := pool.Exec(ctx, `INSERT INTO subcontract_progress_claim_items
+			(organization_id, project_id, progress_claim_id, subcontract_item_id, scheduled_value,
+			 previous_progress_amount, current_progress_amount, cumulative_progress_amount, sort_order)
+			VALUES ($1, $2, $3, $4, 100000, 0, 20000, 20000, 1)`, orgA.ID, p.ID, c1.ID, items[0].ID); err != nil {
+			t.Fatalf("eski veri simülasyonu eklenemedi: %v", err)
+		}
+		for i := 0; i < 3; i++ {
+			c2, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+				PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 1000}},
+			})
+			if err != nil {
+				t.Fatalf("2. hakediş oluşturulamadı: %v", err)
+			}
+			ci, _ := projectSvc.ListProgressClaimItems(ctx, p.ID, c2.ID, orgA.ID)
+			if ci[0].PreviousProgressAmount != 50000 {
+				t.Fatalf("previous iki eski satırın toplamı (50000) olmalı, geldi %v", ci[0].PreviousProgressAmount)
+			}
+			if _, err := projectSvc.CancelProgressClaim(ctx, p.ID, c2.ID, orgA.ID, ""); err != nil {
+				t.Fatal(err)
+			}
+		}
+		val, err := projectSvc.GetSubcontractValue(ctx, p.ID, sc.ID, orgA.ID)
+		if err != nil || val.CertifiedToDate != 50000 {
+			t.Fatalf("sertifikalı toplam 50000 olmalı, geldi %v err=%v", val.CertifiedToDate, err)
+		}
+	})
 }

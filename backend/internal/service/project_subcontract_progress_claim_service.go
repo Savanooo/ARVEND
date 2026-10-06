@@ -30,6 +30,7 @@ var (
 	ErrProgressClaimItemsRequired   = errors.New("hakedişin en az bir kalemi olmalıdır")
 	ErrProgressClaimReasonRequired  = errors.New("red gerekçesi zorunludur")
 	ErrProgressClaimOverrun         = errors.New("kümülatif ilerleme, kalemin sözleşme tutarını aşamaz")
+	ErrProgressClaimDuplicateItem   = errors.New("aynı SOV kalemi bir hakedişte birden fazla kez yer alamaz; tutarları tek satırda birleştirin")
 	ErrProgressClaimStale           = errors.New("bu hakedişten sonra aynı kalemler için başka bir hakediş sertifika edildi — lütfen hakedişi güncelleyip tekrar deneyin")
 	ErrSubcontractNotActiveForClaim = errors.New("taşeron sözleşmesi aktif olmadan hakediş oluşturulamaz")
 )
@@ -69,32 +70,40 @@ func insertProgressClaimItems(ctx context.Context, txq *sqlc.Queries, orgID, pid
 	if err := txq.DeleteSubcontractProgressClaimItems(ctx, sqlc.DeleteSubcontractProgressClaimItemsParams{ProgressClaimID: claimID, OrganizationID: orgID, ProjectID: pid}); err != nil {
 		return err
 	}
+	seen := make(map[string]bool, len(items))
 	for i, it := range items {
 		sovItem, ok := subcontractItems[it.SubcontractItemID]
 		if !ok {
 			return domain.ErrNotFound
 		}
+		// Aynı SOV kalemi bir hakedişte iki kez yer alamaz: her satır aynı
+		// "previous"tan hesaplandığı için kümülatif kontrolü satır başına
+		// geçiyor, toplamda ise kalem %100'ün üzerinde sertifikalanıyordu
+		// (60.000'lik kaleme 2 x 40.000).
+		if seen[sovItem.ID.String()] {
+			return ErrProgressClaimDuplicateItem
+		}
+		seen[sovItem.ID.String()] = true
 		if it.CurrentProgressAmount < 0 {
 			return ErrInvalidAmount
 		}
-		sovItemID, err := repository.StringToUUID(it.SubcontractItemID)
-		if err != nil {
-			return domain.ErrNotFound
-		}
-		prevNumeric, err := txq.GetLatestCertifiedCumulativeForSubcontractItem(ctx, sovItemID)
+		prevNumeric, err := txq.GetLatestCertifiedCumulativeForSubcontractItem(ctx, sovItem.ID)
 		if err != nil {
 			return err
 		}
-		previous := repository.NumericToFloat64(prevNumeric)
-		scheduled := repository.NumericToFloat64(sovItem.OriginalAmount)
-		cumulative := previous + it.CurrentProgressAmount
-		if cumulative > scheduled {
+		// Kuruş karşılaştırması decimal'dir: float64 toplama (ör. 50,10 +
+		// 50,20 = 100,30000000000001) tam %100'e çıkan son hakedişi
+		// "aşım" diye reddediyordu.
+		previous := repository.NumericToDecimal(prevNumeric)
+		scheduled := repository.NumericToDecimal(sovItem.OriginalAmount)
+		current := money2(it.CurrentProgressAmount)
+		if previous.Add(current).Cmp(scheduled) > 0 {
 			return ErrProgressClaimOverrun
 		}
 		if _, err := txq.CreateSubcontractProgressClaimItem(ctx, sqlc.CreateSubcontractProgressClaimItemParams{
-			OrganizationID: orgID, ProjectID: pid, ProgressClaimID: claimID, SubcontractItemID: sovItemID,
-			ScheduledValue: repository.Float64ToNumeric(scheduled), PreviousProgressAmount: repository.Float64ToNumeric(previous),
-			CurrentProgressAmount: repository.Float64ToNumeric(it.CurrentProgressAmount), SortOrder: int32(i),
+			OrganizationID: orgID, ProjectID: pid, ProgressClaimID: claimID, SubcontractItemID: sovItem.ID,
+			ScheduledValue: repository.DecimalToNumeric(scheduled), PreviousProgressAmount: repository.DecimalToNumeric(previous),
+			CurrentProgressAmount: repository.DecimalToNumeric(current), SortOrder: int32(i),
 		}); err != nil {
 			return err
 		}
@@ -415,7 +424,7 @@ func (s *ProjectService) CertifyProgressClaim(ctx context.Context, projectID, cl
 		if err != nil {
 			return nil, err
 		}
-		if repository.NumericToFloat64(freshPrev) != repository.NumericToFloat64(it.PreviousProgressAmount) {
+		if repository.NumericToDecimal(freshPrev).Cmp(repository.NumericToDecimal(it.PreviousProgressAmount)) != 0 {
 			return nil, ErrProgressClaimStale
 		}
 	}

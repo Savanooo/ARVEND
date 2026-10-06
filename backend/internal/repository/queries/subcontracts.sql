@@ -109,14 +109,48 @@ WHERE sc.id = $1 AND sc.organization_id = $2 AND sc.project_id = $3;
 -- project_id, subcontract_progress_claims üzerinden DOĞRUDAN filtrelenir
 -- (savunma derinliği -- çağıran zaten subcontract_id'yi doğrulamış olsa
 -- bile, bkz. VoidCommitmentsBySourcePOItems İLE AYNI ilke).
-WITH latest_certified AS (
-    SELECT DISTINCT ON (pci.subcontract_item_id) pci.subcontract_item_id, pci.cumulative_progress_amount
+--
+-- "En son sertifikalı kümülatif" tanımı bu dosyadaki DÖRT sorguda
+-- (bu, GetSubcontractTerminationTargets, ListLatestCertifiedCumulative-
+-- BySubcontractItem, GetLatestCertifiedCumulativeForSubcontractItem) ve
+-- project_finance.sql'deki certified_by_sc CTE'sinde BİREBİR AYNIDIR:
+--   * kalem, hakediş başına previous + Σ current olarak toplanır -- düzeltme
+--     ÖNCESİ bir hakedişte aynı SOV kalemi iki satırda yer almışsa (artık
+--     reddediliyor) iki satır da sertifikalıdır, tek satırı seçmek
+--     sertifikalı işi eksik gösterir ve sonraki hakedişin aynı tutarı
+--     yeniden sertifikalamasına izin verirdi;
+--   * "en son" = certified_at DESC, eşitlikte hakediş id DESC --
+--     DISTINCT ON/LIMIT 1'in eşitlikte rastgele satır seçmesi engellenir.
+WITH certified_lines AS (
+    SELECT pci.subcontract_item_id, pc.id AS claim_id, pc.certified_at,
+        (max(pci.previous_progress_amount) + sum(pci.current_progress_amount))::numeric(18,2) AS cumulative
     FROM subcontract_progress_claim_items pci
     JOIN subcontract_progress_claims pc ON pc.id = pci.progress_claim_id
     WHERE pc.subcontract_id = $1 AND pc.organization_id = $2 AND pc.project_id = $3 AND pc.status = 'certified'
-    ORDER BY pci.subcontract_item_id, pc.certified_at DESC
+    GROUP BY pci.subcontract_item_id, pc.id, pc.certified_at
+),
+latest_certified AS (
+    SELECT DISTINCT ON (subcontract_item_id) subcontract_item_id, cumulative
+    FROM certified_lines
+    ORDER BY subcontract_item_id, certified_at DESC, claim_id DESC
 )
-SELECT COALESCE(sum(cumulative_progress_amount), 0)::numeric(18,2) AS total FROM latest_certified;
+SELECT COALESCE(sum(cumulative), 0)::numeric(18,2) AS total FROM latest_certified;
+
+-- name: ListLatestCertifiedCumulativeBySubcontractItem :many
+-- SOV kalemi başına en son sertifikalı kümülatif tutar (tanım için bkz.
+-- GetSubcontractCertifiedToDate) -- hakediş/değişiklik sınırlarının
+-- (checkClaimCaps) kalem ve grup bazlı kontrolü için.
+WITH certified_lines AS (
+    SELECT pci.subcontract_item_id, pc.id AS claim_id, pc.certified_at,
+        (max(pci.previous_progress_amount) + sum(pci.current_progress_amount))::numeric(18,2) AS cumulative
+    FROM subcontract_progress_claim_items pci
+    JOIN subcontract_progress_claims pc ON pc.id = pci.progress_claim_id
+    WHERE pc.subcontract_id = $1 AND pc.organization_id = $2 AND pc.project_id = $3 AND pc.status = 'certified'
+    GROUP BY pci.subcontract_item_id, pc.id, pc.certified_at
+)
+SELECT DISTINCT ON (subcontract_item_id) subcontract_item_id, cumulative
+FROM certified_lines
+ORDER BY subcontract_item_id, certified_at DESC, claim_id DESC;
 
 -- name: ListSubcontractItemTotalsByCostCode :many
 -- syncSubcontractCommitments'ın "normal" (aktivasyon/değişiklik-onayı)
@@ -145,20 +179,27 @@ GROUP BY scoi.cost_code_id, scoi.budget_line_id;
 -- SERTİFİKALI hakediş kümülatif tutarı, maliyet kodu/bütçe kalemi başına
 -- NETLENMİŞ -- "earned/certified amount korunur, remaining unperformed
 -- commitment release edilir" (spec §15) kuralının doğrudan uygulanışı.
-WITH latest_certified AS (
-    SELECT DISTINCT ON (pci.subcontract_item_id) pci.subcontract_item_id, pci.cumulative_progress_amount
+-- "En son sertifikalı kümülatif" tanımı: bkz. GetSubcontractCertifiedToDate.
+WITH certified_lines AS (
+    SELECT pci.subcontract_item_id, pc.id AS claim_id, pc.certified_at,
+        (max(pci.previous_progress_amount) + sum(pci.current_progress_amount))::numeric(18,2) AS cumulative
     FROM subcontract_progress_claim_items pci
     JOIN subcontract_progress_claims pc ON pc.id = pci.progress_claim_id
     WHERE pc.subcontract_id = $1 AND pc.organization_id = $2 AND pc.project_id = $3 AND pc.status = 'certified'
-    ORDER BY pci.subcontract_item_id, pc.certified_at DESC
+    GROUP BY pci.subcontract_item_id, pc.id, pc.certified_at
+),
+latest_certified AS (
+    SELECT DISTINCT ON (subcontract_item_id) subcontract_item_id, cumulative
+    FROM certified_lines
+    ORDER BY subcontract_item_id, certified_at DESC, claim_id DESC
 )
 SELECT si.cost_code_id, si.budget_line_id,
-    COALESCE(sum(lc.cumulative_progress_amount), 0)::numeric(18,2) AS net_amount
+    COALESCE(sum(lc.cumulative), 0)::numeric(18,2) AS net_amount
 FROM subcontract_items si
 LEFT JOIN latest_certified lc ON lc.subcontract_item_id = si.id
 WHERE si.subcontract_id = $1 AND si.organization_id = $2 AND si.project_id = $3
 GROUP BY si.cost_code_id, si.budget_line_id
-HAVING COALESCE(sum(lc.cumulative_progress_amount), 0) > 0;
+HAVING COALESCE(sum(lc.cumulative), 0) > 0;
 
 -- ============ Subcontract Items (SOV) ============
 
@@ -289,7 +330,7 @@ FROM (SELECT COALESCE(sum(current_progress_amount), 0)::numeric(18,2) AS gross
           SELECT current_certified_amount FROM subcontract_progress_claims
           WHERE subcontract_id = (SELECT subcontract_id FROM subcontract_progress_claims WHERE id = $1)
             AND status = 'certified' AND id <> $1
-          ORDER BY certified_at DESC LIMIT 1
+          ORDER BY certified_at DESC, id DESC LIMIT 1
       ) AS amount) prev
 WHERE pc.id = $1 AND pc.organization_id = $2 AND pc.project_id = $3
 RETURNING pc.*;
@@ -396,13 +437,19 @@ GROUP BY subcontract_id;
 -- Yeni bir hakediş kalemi oluşturulurken previous_progress_amount'ı
 -- OTOMATİK doldurmak için -- yalnızca SERTİFİKALI hakedişler sayılır
 -- (draft/submitted/rejected/cancelled bir hakedişin rakamları "önceki"
--- zincire ASLA sızmaz).
+-- zincire ASLA sızmaz). Tanım GetSubcontractCertifiedToDate İLE AYNI:
+-- en son sertifikalı hakediş (certified_at DESC, eşitlikte id DESC --
+-- deterministik), o hakedişteki satırlarından previous + Σ current.
 SELECT COALESCE(
-    (SELECT pci.cumulative_progress_amount
+    (SELECT (max(pci.previous_progress_amount) + sum(pci.current_progress_amount))
      FROM subcontract_progress_claim_items pci
-     JOIN subcontract_progress_claims pc ON pc.id = pci.progress_claim_id
-     WHERE pci.subcontract_item_id = $1 AND pc.status = 'certified'
-     ORDER BY pc.certified_at DESC LIMIT 1),
+     WHERE pci.subcontract_item_id = $1
+       AND pci.progress_claim_id = (
+           SELECT pc.id
+           FROM subcontract_progress_claims pc
+           JOIN subcontract_progress_claim_items x ON x.progress_claim_id = pc.id
+           WHERE x.subcontract_item_id = $1 AND pc.status = 'certified'
+           ORDER BY pc.certified_at DESC, pc.id DESC LIMIT 1)),
     0
 )::numeric(18,2) AS cumulative;
 

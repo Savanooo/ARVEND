@@ -350,6 +350,7 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrProgressClaimNotCancellable),
 		errors.Is(err, service.ErrProgressClaimItemsRequired),
 		errors.Is(err, service.ErrProgressClaimOverrun),
+		errors.Is(err, service.ErrProgressClaimDuplicateItem),
 		errors.Is(err, service.ErrProgressClaimStale),
 		errors.Is(err, service.ErrSubcontractNotActiveForClaim):
 		httpjson.Error(w, http.StatusConflict, err.Error())
