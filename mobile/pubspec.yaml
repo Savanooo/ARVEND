@@ -2,7 +2,7 @@ name: arvend
 description: "ARVEND Yapı - saha ekibi için proje/teklif/metraj mobil uygulaması."
 publish_to: 'none'
 
-version: 1.5.7+13
+version: 1.5.8+14
 
 environment:
   sdk: ^3.12.2
@@ -70,6 +70,11 @@ dependencies:
   # derleme düzenine dokunmadan. Analytics YOK (Play veri güvenliği formu).
   firebase_core: ^4.15.0
   firebase_messaging: ^16.7.0
+
+  # Google Play sürümünde güncelleme: Play'in uygulama içi güncelleme API'si
+  # (Play, Play dışından kendini güncellemeyi yasaklıyor; bkz.
+  # core/update/play_update.dart). Sideload yapısında çağrılmaz.
+  in_app_update: ^5.0.0
 
   cupertino_icons: ^1.0.8
 

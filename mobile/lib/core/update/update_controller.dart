@@ -16,9 +16,9 @@ import 'update_service.dart';
 
 /// Uzaktan güncelleme yalnızca sideload Android sürümünde çalışır -- store'a
 /// çıkana kadar APK sunucudan dağıtılıyor. iOS/web'de ve Google Play
-/// sürümünde modülün TAMAMI no-op'tur (denetim yapılmaz, "Güncellemeleri
-/// denetle" gösterilmez): Play, Play dışı güncellemeyi yasaklıyor, güncellemeyi
-/// mağaza yapıyor (bkz. AppConfig.isPlayBuild). Testler bunu override eder
+/// sürümünde modülün TAMAMI no-op'tur: Play, Play dışı güncellemeyi
+/// yasaklıyor; Play sürümünde onun yerine Play'in uygulama içi güncellemesi
+/// çalışır (bkz. play_update.dart, AppConfig.isPlayBuild). Testler bunu override eder
 /// (flutter test macOS/Linux üstünde koşar, `Platform.isAndroid` false'tur --
 /// bu yüzden mevcut testlerin hiçbiri ek bir istek görmez).
 final updateSupportedProvider =

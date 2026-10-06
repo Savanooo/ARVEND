@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/push/push_watcher.dart';
 import '../core/theme/app_theme.dart';
 import '../core/update/app_update_watcher.dart';
+import '../core/update/play_update.dart';
 import 'app_router.dart';
 
 class ArvendApp extends ConsumerWidget {
@@ -20,12 +21,16 @@ class ArvendApp extends ConsumerWidget {
       routerConfig: router,
       scaffoldMessengerKey: rootScaffoldMessengerKey,
       // Uzaktan güncelleme denetimi (yalnızca Android) -- Navigator'ın
-      // üstünde durur, istemleri router'ın kök Navigator'ına açar.
+      // üstünde durur, istemleri router'ın kök Navigator'ına açar. Sideload
+      // yapısında kendi güncelleyicimiz, Play yapısında Play'in uygulama içi
+      // güncellemesi çalışır; diğeri no-op'tur.
       builder: (context, child) => AppUpdateWatcher(
         navigatorKey: router.routerDelegate.navigatorKey,
-        // Telefona bildirim: kayıt, açıkken gelen bildirim, dokununca
-        // hedef ekran (bkz. core/push/).
-        child: PushWatcher(router: router, child: child ?? const SizedBox.shrink()),
+        child: PlayUpdateWatcher(
+          // Telefona bildirim: kayıt, açıkken gelen bildirim, dokununca
+          // hedef ekran (bkz. core/push/).
+          child: PushWatcher(router: router, child: child ?? const SizedBox.shrink()),
+        ),
       ),
       locale: const Locale('tr', 'TR'),
       supportedLocales: const [Locale('tr', 'TR')],

@@ -19,9 +19,10 @@ class AppConfig {
   /// ile verilir ve Gradle flavor'ıyla AYNI olmalıdır -- scripts/derle.sh
   /// ikisini tek argümandan verir.
   ///
-  /// Play sürümü kendini güncellemez (Play politikası; bkz.
+  /// Play sürümü kendini Play dışından güncellemez (Play politikası; bkz.
   /// android/app/src/play/AndroidManifest.xml): updateSupportedProvider bu
-  /// bayrağa bakar, otomatik denetim ve "Güncellemeleri denetle" satırı kapanır.
+  /// bayrağa bakıp kendi güncelleyicimizi kapatır, yerine Play'in uygulama içi
+  /// güncellemesi çalışır (playUpdateSupportedProvider, play_update.dart).
   static const String distribution = String.fromEnvironment(
     'DISTRIBUTION',
     defaultValue: 'sideload',
