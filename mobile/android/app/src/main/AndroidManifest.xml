@@ -34,6 +34,18 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="false">
+        <!-- Telefona bildirim (FCM): uygulama kapalıyken sistem bunları
+             kullanarak çizer. Kanal MainActivity'de oluşturulur; ad
+             backend fcm.Send'deki channel_id ile aynı. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_arvend" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/bildirim_rengi" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="arvend_bildirimler" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -34,6 +34,12 @@ class NotificationsScreen extends ConsumerWidget {
       appBar: buildAppBar(
         'Bildirimler',
         actions: [
+          // Sahada istendi: "bildirim menüsünde öneri yeri olsun".
+          IconButton(
+            icon: const Icon(Icons.lightbulb_outline),
+            tooltip: 'Öneri gönder',
+            onPressed: () => context.push('/diger/oneri'),
+          ),
           if (hasUnread)
             IconButton(
               icon: const Icon(Icons.done_all),
@@ -95,6 +101,7 @@ class _NotificationTile extends StatelessWidget {
     'purchase_request' => Icons.shopping_cart_outlined,
     'rfq' => Icons.request_quote_outlined,
     'purchase_order' => Icons.local_shipping_outlined,
+    'announcement' => Icons.campaign_outlined,
     'schedule_item' => Icons.event_note_outlined,
     'project_photo' => Icons.photo_camera_outlined,
     'project_file' => Icons.attach_file,

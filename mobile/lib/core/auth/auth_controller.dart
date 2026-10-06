@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/auth/domain/user.dart';
 import '../api/api_providers.dart';
 import '../errors/api_exception.dart';
+import '../push/push_messaging.dart';
 
 /// `ApiClient.onAccountAccessBlocked` en son hangi sabit sebeple tetiklendiği
 /// -- go_router redirect'i (organizationBlocked -> özel ekran) ve LoginScreen
@@ -43,6 +44,18 @@ class AuthController extends AsyncNotifier<User?> {
 
   Future<void> logout() async {
     final client = ref.read(apiClientProvider);
+    // Önce telefonun bildirim kaydı silinir (oturum hâlâ geçerliyken):
+    // çıkış yapılmış telefona başkasının bildirimi düşmesin.
+    try {
+      final push = ref.read(pushMessagingProvider);
+      final token = await push.token();
+      if (token != null) {
+        await ref.read(pushRepositoryProvider).unregister(token);
+        await push.deleteToken();
+      }
+    } catch (_) {
+      // Bildirim kaydı silinemese de çıkış sürer.
+    }
     try {
       await ref.read(authRepositoryProvider).logout();
     } on ApiException {

@@ -37,6 +37,8 @@ const List<MenuEntry> kCatalogMenuEntries = [
 const List<MenuEntry> kTeamMenuEntries = [
   ...employeesMenuEntries, // Personel
   ...accessMenuEntries, // Kullanıcılar, Roller & Yetkiler
+  // Firmadaki herkese zil + telefon bildirimi.
+  (label: 'Duyuru Gönder', icon: Icons.campaign_outlined, route: '/diger/duyuru', permission: 'organization.users.manage'),
 ];
 
 /// Katalog + Ekip, menüdeki sırasıyla.
@@ -93,6 +95,11 @@ class OtherMenuScreen extends ConsumerWidget {
           label: 'Bildirimler',
           onTap: () => context.push('/diger/bildirimler'),
         ),
+      _MenuItem(
+        icon: Icons.lightbulb_outline,
+        label: 'Öneri Gönder',
+        onTap: () => context.push('/diger/oneri'),
+      ),
       _MenuItem(
         icon: Icons.info_outline,
         label: 'Hakkında',

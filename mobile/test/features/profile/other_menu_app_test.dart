@@ -114,7 +114,10 @@ void main() {
       expect(find.byType(BackButton), findsOneWidget, reason: entry.key);
       await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
-      expect(find.text('Yönetim'), findsOneWidget, reason: '${entry.key}: geri menüye dönmedi');
+      // Başlık ("Yönetim") değil öğenin kendisi: scrollUntilVisible öğeyi en
+      // üste hizalar, menü uzayınca başlık görünür alanın üstünde kalır.
+      expect(find.text(entry.key), findsOneWidget, reason: '${entry.key}: geri menüye dönmedi');
+      expect(find.text('Hesap'), findsOneWidget, reason: '${entry.key}: Diğer menüsünde değil');
     }
   });
 }

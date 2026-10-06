@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bildirim çubuğu ikonu: Android bunu tek renk (beyaz) maske olarak
+     çizer; renkli uygulama ikonu burada beyaz bir kareye dönüşürdü.
+     ARVEND sembolünün sadeleştirilmiş hâli: çatı + kuleler. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- kuleler -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M10.6,2.5h2.8v6.2l-1.4,-1.2l-1.4,1.2z"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M7.4,5.2h2.2v4.4l-2.2,1.9z"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M14.4,5.2h2.2v6.3l-2.2,-1.9z"/>
+    <!-- çatı -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M12,8.6L3,16.4v2.3L12,11l9,7.7v-2.3z"/>
+    <!-- pencere -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M10.8,14.6h2.4v2.4h-2.4z"/>
+</vector>

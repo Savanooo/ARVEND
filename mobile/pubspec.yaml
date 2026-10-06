@@ -65,6 +65,12 @@ dependencies:
   # zaten mevcut, doğrudan bağımlılık olarak da bildiriliyor).
   meta: ^1.16.0
 
+  # Telefona bildirim (FCM). Firebase, google-services gradle eklentisi
+  # yerine Dart'ta açık seçeneklerle başlatılır (bkz. core/push/) --
+  # derleme düzenine dokunmadan. Analytics YOK (Play veri güvenliği formu).
+  firebase_core: ^4.15.0
+  firebase_messaging: ^16.7.0
+
   cupertino_icons: ^1.0.8
 
 dev_dependencies:

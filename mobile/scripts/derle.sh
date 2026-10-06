@@ -143,6 +143,12 @@ if [ "$kanal" = "play" ]; then
     hata "play paketinde galeri/depolama izni var -- Play reddeder, yüklemeyin"
   fi
   echo "Galeri/depolama izni     : yok (doğru)"
+  # Play'de "reklam kimliği kullanılmıyor" beyan edildi; Firebase'in yalnızca
+  # Messaging modülü var -- Analytics/Ads gelirse beyan da değişmeli.
+  if echo "$MANIFEST" | grep -q 'permission.AD_ID'; then
+    hata "play paketinde AD_ID izni var -- Play beyanı 'reklam kimliği yok', yüklemeyin"
+  fi
+  echo "Reklam kimliği (AD_ID)   : yok (doğru)"
 else
   APKSIGNER=$(apksigner_bul) || hata "apksigner bulunamadı (Android SDK build-tools)"
   GERCEK=$(JAVA_HOME="$JDK" PATH="$JDK/bin:$PATH" "$APKSIGNER" verify --print-certs "$CIKTI" 2>/dev/null \

@@ -49,6 +49,7 @@ const _managementOrder = [
   'Personel',
   'Kullanıcılar',
   'Roller & Yetkiler',
+  'Duyuru Gönder',
   'Firma Ayarları',
   'E-posta Ayarları',
 ];

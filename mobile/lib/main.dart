@@ -6,15 +6,22 @@ import 'app/app.dart';
 import 'core/api/api_client.dart';
 import 'core/api/api_providers.dart';
 import 'core/auth/auth_controller.dart';
+import 'core/push/firebase_push_messaging.dart';
+import 'core/push/push_messaging.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('tr_TR');
 
   final apiClient = await ApiClient.create();
+  // Telefona bildirim; Firebase başlatılamazsa uygulama bildirimsiz açılır.
+  final push = await FirebasePushMessaging.create();
 
   final container = ProviderContainer(
-    overrides: [apiClientProvider.overrideWithValue(apiClient)],
+    overrides: [
+      apiClientProvider.overrideWithValue(apiClient),
+      if (push != null) pushMessagingProvider.overrideWithValue(push),
+    ],
   );
 
   // Tek uçuş refresh başarısız olduğunda (sınıflandırılamayan bir 401/403)

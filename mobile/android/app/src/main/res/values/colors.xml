@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Bildirim ikonunun vurgu rengi (marka altını). -->
+    <color name="bildirim_rengi">#D99A29</color>
+</resources>

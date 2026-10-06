@@ -61,6 +61,8 @@ import '../features/settings/settings_routes.dart';
 import '../features/suppliers/suppliers_routes.dart';
 import '../features/tasks/presentation/tasks_screen.dart';
 import 'app_shell.dart';
+import '../features/messages/presentation/announcement_screen.dart';
+import '../features/messages/presentation/feedback_screen.dart';
 
 const _passwordSetupRoute = '/sifre-belirle';
 const _onboardingRoute = '/kurulum';
@@ -433,6 +435,9 @@ final routerProvider = Provider<GoRouter>((ref) {
               builder: (context, state) => const OtherMenuScreen(),
               routes: [
                 GoRoute(path: 'bildirimler', builder: (context, state) => const NotificationsScreen()),
+                // Öneri (herkes -> ARVEND ekibi) ve duyuru (yönetici -> ekip).
+                GoRoute(path: 'oneri', builder: (context, state) => const FeedbackScreen()),
+                GoRoute(path: 'duyuru', builder: (context, state) => const AnnouncementScreen()),
                 GoRoute(path: 'metraj', builder: (context, state) => const MetrajScreen()),
                 GoRoute(
                   path: 'musteriler',
