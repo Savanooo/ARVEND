@@ -20,6 +20,7 @@ import '../../../core/widgets/money_text.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../data/projects_providers.dart';
 import '../domain/procurement.dart';
+import 'purchase_order_form_screen.dart' show PurchaseOrderPrefill;
 
 /// P3 — RFQ detayı. Kalemler/tedarikçiler/teklifler/karşılaştırma/ödül
 /// hepsi burada. Backend "en düşük"/"kazanan" alanı DÖNMEZ -- mobil
@@ -276,32 +277,25 @@ class _RFQDetailBody extends ConsumerWidget {
         rfqId,
         rfq.awardedQuotationId!,
       );
-      final itemsById = {for (final it in detail.items) it.id: it};
-      final prefillItems = qDetail.items.map((qi) {
-        final rfqItem = itemsById[qi.rfqItemId];
-        return PurchaseOrderItem(
-          id: '',
-          wbsNodeId: rfqItem?.wbsNodeId,
-          costCodeId: '',
-          budgetLineId: rfqItem?.budgetLineId,
-          description: rfqItem?.description ?? qi.notes,
-          quantity: qi.quantity,
-          unit: rfqItem?.unit ?? '',
-          unitPrice: qi.unitPrice,
-          lineTotal: qi.lineTotal,
-          sortOrder: 0,
-        );
-      }).toList();
-      if (!context.mounted) return;
-      context.push(
-        '/projeler/$projectId/satin-alma/siparisler/yeni',
-        extra: (
-          supplierId: qDetail.quotation.supplierId,
-          sourceRfqId: rfqId,
-          sourceQuotationId: rfq.awardedQuotationId,
-          items: prefillItems,
-        ),
+      // Maliyet kodu, KDV oranı ve iskonto da taşınır -- eskiden maliyet
+      // kodu boş, KDV %20 sabit geliyor, iskonto atılıyordu; sipariş toplamı
+      // kazanan teklifle tutmuyordu (bkz. purchaseOrderItemsFromAward).
+      final quotation = qDetail.quotation;
+      final prefillItems = purchaseOrderItemsFromAward(
+        rfqItems: detail.items,
+        quotationItems: qDetail.items,
+        discount: quotation.discount,
       );
+      if (!context.mounted) return;
+      final PurchaseOrderPrefill prefill = (
+        supplierId: quotation.supplierId,
+        sourceRfqId: rfqId,
+        sourceQuotationId: rfq.awardedQuotationId,
+        items: prefillItems,
+        taxRate: quotation.taxRate,
+        discount: quotation.discount,
+      );
+      context.push('/projeler/$projectId/satin-alma/siparisler/yeni', extra: prefill);
     } on ApiException catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));

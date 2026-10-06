@@ -40,7 +40,6 @@ import '../features/projects/ops_team/ops_team_routes.dart' show opsTeamRoutes;
 import '../features/projects/presentation/project_detail_screen.dart';
 import '../features/projects/projects_routes.dart';
 import '../features/projects/presentation/projects_screen.dart';
-import '../features/projects/domain/procurement.dart';
 import '../features/projects/presentation/bid_comparison_screen.dart';
 import '../features/projects/presentation/purchase_order_detail_screen.dart';
 import '../features/projects/presentation/purchase_order_form_screen.dart';
@@ -286,19 +285,15 @@ final routerProvider = Provider<GoRouter>((ref) {
                     GoRoute(
                       path: 'satin-alma/siparisler/yeni',
                       builder: (context, state) {
-                        final prefill = state.extra
-                            as ({
-                              String supplierId,
-                              String? sourceRfqId,
-                              String? sourceQuotationId,
-                              List<PurchaseOrderItem> items
-                            })?;
+                        final prefill = state.extra as PurchaseOrderPrefill?;
                         return PurchaseOrderFormScreen(
                           projectId: state.pathParameters['id']!,
                           prefillSupplierId: prefill?.supplierId,
                           sourceRfqId: prefill?.sourceRfqId,
                           sourceQuotationId: prefill?.sourceQuotationId,
                           prefillItems: prefill?.items ?? const [],
+                          prefillTaxRate: prefill?.taxRate,
+                          prefillDiscount: prefill?.discount ?? 0,
                         );
                       },
                     ),

@@ -21,8 +21,16 @@ class _DraftItem {
   String description = '';
   String amount = '';
 
+  /// Formda seçici yok ama mevcut kalemden KORUNUR: PUT kalemleri tümden
+  /// yeniden yazdığı için gönderilmezse web'de bağlanmış bütçe kalemi/WBS
+  /// mobilde düzenlenen taslakta sessizce silinirdi.
+  String? wbsNodeId;
+  String? budgetLineId;
+
   factory _DraftItem.fromItem(SubcontractChangeOrderItem item) => _DraftItem()
     ..costCodeId = item.costCodeId
+    ..wbsNodeId = item.wbsNodeId
+    ..budgetLineId = item.budgetLineId
     ..description = item.description
     ..amount = formNumberText(item.amount);
 
@@ -34,8 +42,8 @@ class _DraftItem {
 /// Sprint 5 P2 — Taşeron Değişiklik Emri Ekle/Düzenle. Create + Edit AYNI
 /// ekran (bkz. `SubcontractFormScreen` deseni). Maliyet kodu seçimi P1'deki
 /// `orgCostCodesProvider`'ı YENİDEN KULLANIR -- mobil bir WBS/bütçe kalemi
-/// seçici SUNMAZ (P1'in bilinçli kapsam sınırı, bu görevde de korunur),
-/// ikisi de opsiyonel boş bırakılır.
+/// seçici SUNMAZ (P1'in bilinçli kapsam sınırı, bu görevde de korunur):
+/// yeni kalemde ikisi de boş bırakılır, mevcut kalemin değerleri korunur.
 class SubcontractChangeOrderFormScreen extends ConsumerStatefulWidget {
   const SubcontractChangeOrderFormScreen({
     super.key,
@@ -122,9 +130,9 @@ class _SubcontractChangeOrderFormScreenState extends ConsumerState<SubcontractCh
           if (!i.isBlank)
             SubcontractChangeOrderItem(
               id: '',
-              wbsNodeId: null,
+              wbsNodeId: i.wbsNodeId,
               costCodeId: i.costCodeId,
-              budgetLineId: null,
+              budgetLineId: i.budgetLineId,
               description: i.description.trim(),
               amount: parseFormNumber(i.amount)!,
               sortOrder: 0,

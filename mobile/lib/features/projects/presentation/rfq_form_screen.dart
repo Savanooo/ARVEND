@@ -25,8 +25,16 @@ class _DraftItem {
   String quantity = '';
   String unit = '';
 
+  /// Formda seçici yok ama mevcut kalemden KORUNUR: PUT kalemleri tümden
+  /// yeniden yazdığı için gönderilmezse web'de bağlanmış bütçe kalemi/WBS
+  /// mobilde düzenlenen taslakta sessizce silinirdi.
+  String? wbsNodeId;
+  String? budgetLineId;
+
   factory _DraftItem.fromItem(RFQItem item) => _DraftItem()
     ..costCodeId = item.costCodeId ?? ''
+    ..wbsNodeId = item.wbsNodeId
+    ..budgetLineId = item.budgetLineId
     ..description = item.description
     ..quantity = formNumberText(item.quantity)
     ..unit = item.unit;
@@ -138,9 +146,9 @@ class _RFQFormScreenState extends ConsumerState<RFQFormScreen> {
             RFQItem(
               id: '',
               sourcePrItemId: null,
-              wbsNodeId: null,
+              wbsNodeId: i.wbsNodeId,
               costCodeId: i.costCodeId.isEmpty ? null : i.costCodeId,
-              budgetLineId: null,
+              budgetLineId: i.budgetLineId,
               description: i.description.trim(),
               quantity: parseFormNumber(i.quantity)!,
               unit: i.unit,

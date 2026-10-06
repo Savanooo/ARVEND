@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_form_section.dart';
@@ -15,6 +16,17 @@ import '../domain/procurement.dart';
 import '../domain/subcontract.dart' show OrgCostCode, Supplier;
 import 'form_number_input.dart';
 
+/// RFQ detayının "Bu Tekliften Sipariş Oluştur"u ile forma geçirilen ön
+/// doldurma (rota `extra`'sı). [taxRate]/[discount] kazanan teklifinkidir.
+typedef PurchaseOrderPrefill = ({
+  String supplierId,
+  String? sourceRfqId,
+  String? sourceQuotationId,
+  List<PurchaseOrderItem> items,
+  double? taxRate,
+  double discount,
+});
+
 class _DraftItem {
   _DraftItem();
 
@@ -24,8 +36,16 @@ class _DraftItem {
   String unit = '';
   String unitPrice = '';
 
+  /// Formda seçici yok ama mevcut kalemden KORUNUR: PUT kalemleri tümden
+  /// yeniden yazdığı için gönderilmezse web'de bağlanmış bütçe kalemi/WBS
+  /// mobilde düzenlenen taslakta sessizce silinirdi.
+  String? wbsNodeId;
+  String? budgetLineId;
+
   factory _DraftItem.fromItem(PurchaseOrderItem item) => _DraftItem()
     ..costCodeId = item.costCodeId
+    ..wbsNodeId = item.wbsNodeId
+    ..budgetLineId = item.budgetLineId
     ..description = item.description
     ..quantity = formNumberText(item.quantity)
     ..unit = item.unit
@@ -37,7 +57,17 @@ class _DraftItem {
   /// etmezdi).
   bool get isBlank =>
       costCodeId.isEmpty && description.trim().isEmpty && quantity.trim().isEmpty && unitPrice.trim().isEmpty;
+
+  /// Satır toplamı önizlemesi (sunucu `round(q*p, 2)`); geçersizse `null`.
+  double? get lineTotal {
+    final q = parseFormNumber(quantity);
+    final p = parseFormNumber(unitPrice);
+    if (q == null || p == null || q <= 0 || p <= 0) return null;
+    return _round2(q * p);
+  }
 }
+
+double _round2(double v) => (v * 100).roundToDouble() / 100;
 
 String? _fmtDate(DateTime? d) {
   if (d == null) return null;
@@ -66,6 +96,8 @@ class PurchaseOrderFormScreen extends ConsumerStatefulWidget {
     this.sourceRfqId,
     this.sourceQuotationId,
     this.prefillItems = const [],
+    this.prefillTaxRate,
+    this.prefillDiscount = 0,
   });
 
   final String projectId;
@@ -74,6 +106,14 @@ class PurchaseOrderFormScreen extends ConsumerStatefulWidget {
   final String? sourceRfqId;
   final String? sourceQuotationId;
   final List<PurchaseOrderItem> prefillItems;
+
+  /// Kazanan teklifin KDV oranı (yoksa varsayılan %20).
+  final double? prefillTaxRate;
+
+  /// Kazanan teklifin iskontosu -- siparişte iskonto alanı olmadığı için
+  /// birim fiyatlara dağıtılmış olarak gelir (bkz.
+  /// purchaseOrderItemsFromAward); burada yalnızca kullanıcıya söylenir.
+  final double prefillDiscount;
 
   bool get isEdit => poId != null;
 
@@ -104,6 +144,7 @@ class _PurchaseOrderFormScreenState extends ConsumerState<PurchaseOrderFormScree
     } else {
       _supplierId = widget.prefillSupplierId;
       _issueDate = DateTime.now();
+      if (widget.prefillTaxRate != null) _taxRateController.text = formNumberText(widget.prefillTaxRate);
       if (widget.prefillItems.isNotEmpty) {
         _items.addAll(widget.prefillItems.map(_DraftItem.fromItem));
       } else {
@@ -161,9 +202,9 @@ class _PurchaseOrderFormScreenState extends ConsumerState<PurchaseOrderFormScree
           if (!i.isBlank)
             PurchaseOrderItem(
               id: '',
-              wbsNodeId: null,
+              wbsNodeId: i.wbsNodeId,
               costCodeId: i.costCodeId,
-              budgetLineId: null,
+              budgetLineId: i.budgetLineId,
               description: i.description.trim(),
               quantity: parseFormNumber(i.quantity)!,
               unit: i.unit,
@@ -256,6 +297,9 @@ class _PurchaseOrderFormScreenState extends ConsumerState<PurchaseOrderFormScree
     );
   }
 
+  /// Sipariş para birimi proje para birimidir (sunucu atar).
+  String get _currency => ref.watch(projectDetailProvider(widget.projectId)).valueOrNull?.currency ?? 'TRY';
+
   Widget _buildForm(BuildContext context, List<Supplier> suppliers, List<OrgCostCode> costCodes) {
     return Form(
       key: _formKey,
@@ -267,6 +311,14 @@ class _PurchaseOrderFormScreenState extends ConsumerState<PurchaseOrderFormScree
               'Ödüllendirilmiş bir tekliften ön dolduruldu -- göndermeden önce gözden geçirin.',
               style: AppTypography.metadata,
             ),
+            if (widget.prefillDiscount > 0) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Teklifteki ${Formatters.money(widget.prefillDiscount, currency: _currency)} iskonto, siparişte iskonto alanı '
+                'olmadığı için birim fiyatlara oranlı olarak dağıtıldı.',
+                style: AppTypography.helper,
+              ),
+            ],
             const SizedBox(height: AppSpacing.md),
           ],
           AppFormSection(
@@ -314,6 +366,7 @@ class _PurchaseOrderFormScreenState extends ConsumerState<PurchaseOrderFormScree
                 decoration: const InputDecoration(labelText: 'KDV Oranı (%)'),
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 validator: formPercentError,
+                onChanged: (_) => setState(() {}),
               ),
             ],
           ),
@@ -334,6 +387,11 @@ class _PurchaseOrderFormScreenState extends ConsumerState<PurchaseOrderFormScree
                   label: const Text('Kalem Ekle'),
                   onPressed: () => setState(() => _items.add(_DraftItem())),
                 ),
+              ),
+              _TotalsPreview(
+                items: _items,
+                taxRateText: _taxRateController.text,
+                currency: _currency,
               ),
             ],
           ),
@@ -413,7 +471,12 @@ class _ItemRow extends StatelessWidget {
               Expanded(
                 child: DropdownButtonFormField<String>(
                   initialValue: item.costCodeId.isEmpty ? null : item.costCodeId,
-                  decoration: const InputDecoration(labelText: 'Maliyet Kodu', isDense: true),
+                  decoration: InputDecoration(
+                    labelText: 'Maliyet Kodu',
+                    isDense: true,
+                    helperText: item.budgetLineId != null ? 'Bütçe kalemine bağlı -- bağ kayıtta korunur.' : null,
+                    helperMaxLines: 2,
+                  ),
                   validator: (v) => item.isBlank || (v != null && v.isNotEmpty) ? null : 'Maliyet kodu seçin',
                   items: costCodes
                       .where((c) => c.isActive || c.id == item.costCodeId)
@@ -482,6 +545,48 @@ class _ItemRow extends StatelessWidget {
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Kalemlerin altındaki Ara Toplam / KDV / Toplam önizlemesi (sunucu
+/// formülüyle aynı yuvarlama: satır `round(q*p, 2)`, KDV `round(ara*oran/100,
+/// 2)`) -- yanlış büyüklüğün (ör. 1.250 yerine 1,25) kayıttan ÖNCE görünmesi
+/// için. Kesin toplamı kayıtta sunucu hesaplar. Geçerli satır yoksa çizilmez.
+class _TotalsPreview extends StatelessWidget {
+  const _TotalsPreview({required this.items, required this.taxRateText, required this.currency});
+
+  final List<_DraftItem> items;
+  final String taxRateText;
+  final String currency;
+
+  @override
+  Widget build(BuildContext context) {
+    final totals = [for (final i in items) if (!i.isBlank) i.lineTotal].whereType<double>().toList();
+    if (totals.isEmpty) return const SizedBox.shrink();
+    final subtotal = _round2(totals.fold<double>(0, (a, b) => a + b));
+    final rate = parseFormPercent(taxRateText) ?? 0;
+    final tax = _round2(subtotal * rate / 100);
+    Widget row(String label, double value, {bool bold = false}) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            children: [
+              Expanded(child: Text(label, style: bold ? AppTypography.cardTitle : AppTypography.metadata)),
+              Text(Formatters.money(value, currency: currency), style: bold ? AppTypography.cardTitle : AppTypography.body),
+            ],
+          ),
+        );
+    return AppCard(
+      key: const ValueKey('po-totals-preview'),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        children: [
+          row('Ara Toplam', subtotal),
+          row('KDV (${Formatters.percent(rate)})', tax),
+          const Divider(height: AppSpacing.lg),
+          row('Toplam', _round2(subtotal + tax), bold: true),
         ],
       ),
     );

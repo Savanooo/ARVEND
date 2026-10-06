@@ -25,8 +25,21 @@ class _DraftItem {
   String unit = '';
   String estimatedUnitCost = '';
 
+  /// Formda seçici yok ama mevcut kalemden KORUNUR: PUT kalemleri tümden
+  /// yeniden yazdığı için gönderilmezse web'de bağlanmış bütçe kalemi/WBS/not ve (birim fiyatsız
+  /// kalemde tek kaynak olan) tahmini toplam
+  /// mobilde düzenlenen taslakta sessizce silinirdi.
+  String? wbsNodeId;
+  String? budgetLineId;
+  String notes = '';
+  double estimatedTotal = 0;
+
   factory _DraftItem.fromItem(PurchaseRequestItem item) => _DraftItem()
     ..costCodeId = item.costCodeId ?? ''
+    ..wbsNodeId = item.wbsNodeId
+    ..budgetLineId = item.budgetLineId
+    ..notes = item.notes
+    ..estimatedTotal = item.estimatedTotal
     ..description = item.description
     ..quantity = formNumberText(item.quantity)
     ..unit = item.unit
@@ -130,9 +143,9 @@ class _PurchaseRequestFormScreenState extends ConsumerState<PurchaseRequestFormS
           if (!i.isBlank)
             PurchaseRequestItem(
               id: '',
-              wbsNodeId: null,
+              wbsNodeId: i.wbsNodeId,
               costCodeId: i.costCodeId.isEmpty ? null : i.costCodeId,
-              budgetLineId: null,
+              budgetLineId: i.budgetLineId,
               description: i.description.trim(),
               quantity: parseFormNumber(i.quantity)!,
               unit: i.unit,
@@ -140,9 +153,10 @@ class _PurchaseRequestFormScreenState extends ConsumerState<PurchaseRequestFormS
               // Mobil ayrı bir "tahmini toplam" alanı SUNMAZ -- birim fiyat
               // verildiğinde backend'in KENDİSİ qty*unitCost'u yeniden hesaplar
               // ve bu değeri YOKSAYAR (bkz. Phase 1: estimated_total yalnızca
-              // unitCost boşken bir yedek olarak kullanılır).
-              estimatedTotal: 0,
-              notes: '',
+              // unitCost boşken bir yedek olarak kullanılır). Birim fiyatsız
+              // mevcut bir kalemin (web'den girilmiş) toplamı bu yüzden korunur.
+              estimatedTotal: i.estimatedTotal,
+              notes: i.notes,
               sortOrder: 0,
             ),
       ];
