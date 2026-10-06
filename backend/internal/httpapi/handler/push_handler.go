@@ -77,6 +77,9 @@ func (h *PushHandler) writeAnnouncementResult(w http.ResponseWriter, n int64, er
 		switch {
 		case errors.Is(err, domain.ErrNotFound):
 			httpjson.Error(w, http.StatusBadRequest, "geçersiz firma")
+		case isInternalError(err):
+			// Duyuru yazımı veritabanında düşerse ham hata metni gitmesin.
+			writeInternalError(w, err)
 		default:
 			// ErrAnnouncementEmpty ve uzunluk hatası kullanıcıya olduğu gibi.
 			httpjson.Error(w, http.StatusBadRequest, err.Error())

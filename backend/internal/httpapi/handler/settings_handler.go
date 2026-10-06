@@ -74,6 +74,11 @@ func (h *SettingsHandler) UpdateSmtp(w http.ResponseWriter, r *http.Request) {
 		UseTLS:    req.UseTLS,
 	})
 	if err != nil {
+		if isInternalError(err) {
+			// Ham veritabanı metni kullanıcıya gitmesin.
+			writeInternalError(w, err)
+			return
+		}
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
