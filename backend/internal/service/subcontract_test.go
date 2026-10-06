@@ -1068,13 +1068,77 @@ func TestSubcontracts(t *testing.T) {
 			t.Fatalf("taahhütler alınamadı: %v", err)
 		}
 		active := 0
+		committed := 0.0
 		for _, c := range commitments {
 			if c.Status == domain.CommitmentStatusActive {
 				active++
+				committed += c.CommittedAmount
 			}
 		}
 		if active > 1 {
 			t.Errorf("yarış SONRASI birden fazla aktif commitment satırı OLMAMALI (senkronizasyon her zaman void+create yapar), geldi: %d", active)
+		}
+		// Fesih sonrası değişmez: taahhüt == sertifikalı tutar. Sertifika
+		// fesihten SONRA geçebilseydi sertifikalı iş taahhüdü aşardı.
+		if reloadedSC.Status == domain.SubcontractStatusTerminated {
+			val, err := projectSvc.GetSubcontractValue(ctx, p.ID, sc.ID, orgA.ID)
+			if err != nil {
+				t.Fatalf("değer alınamadı: %v", err)
+			}
+			if committed != val.CertifiedToDate {
+				t.Errorf("fesih sonrası taahhüt (%v) sertifikalı tutara (%v) eşit olmalı", committed, val.CertifiedToDate)
+			}
+		}
+	})
+
+	t.Run("36_claim_cannot_be_certified_after_termination", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 100000)
+		cc := newCostCode(t, orgA.ID, "S36-CC")
+		s := newSupplier(t, orgA.ID, "S36-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 50000)
+		items, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc.ID, orgA.ID)
+		claim, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 20000}},
+		})
+		if err != nil {
+			t.Fatalf("oluşturulamadı: %v", err)
+		}
+		if _, err := projectSvc.SubmitProgressClaim(ctx, p.ID, claim.ID, orgA.ID, ""); err != nil {
+			t.Fatalf("gönderilemedi: %v", err)
+		}
+		if _, err := projectSvc.TerminateSubcontract(ctx, p.ID, sc.ID, orgA.ID, "", "fesih"); err != nil {
+			t.Fatalf("feshedilemedi: %v", err)
+		}
+		if _, err := projectSvc.CertifyProgressClaim(ctx, p.ID, claim.ID, orgA.ID, ""); !errors.Is(err, service.ErrSubcontractNotCertifiable) {
+			t.Fatalf("feshedilmiş sözleşmenin hakedişi sertifika edilememeli, geldi: %v", err)
+		}
+		reloaded, _ := projectSvc.GetProgressClaim(ctx, p.ID, claim.ID, orgA.ID)
+		if reloaded.Status != domain.ProgressClaimStatusSubmitted {
+			t.Fatalf("hakediş gönderilmiş durumda kalmalı, geldi %s", reloaded.Status)
+		}
+		// Bekleyen hakediş hâlâ reddedilebilir (temizlik).
+		if _, err := projectSvc.RejectProgressClaim(ctx, p.ID, claim.ID, orgA.ID, "", "sözleşme feshedildi"); err != nil {
+			t.Fatalf("feshedilmiş sözleşmenin bekleyen hakedişi reddedilebilmeli: %v", err)
+		}
+
+		// Tamamlanmış sözleşmenin bekleyen (kesin) hakedişi ise
+		// sertifikalanabilir.
+		sc2 := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 30000)
+		items2, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc2.ID, orgA.ID)
+		final, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc2.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items2[0].ID, CurrentProgressAmount: 30000}},
+		})
+		if err != nil {
+			t.Fatalf("oluşturulamadı: %v", err)
+		}
+		if _, err := projectSvc.SubmitProgressClaim(ctx, p.ID, final.ID, orgA.ID, ""); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.CompleteSubcontract(ctx, p.ID, sc2.ID, orgA.ID, ""); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.CertifyProgressClaim(ctx, p.ID, final.ID, orgA.ID, ""); err != nil {
+			t.Fatalf("tamamlanmış sözleşmenin kesin hakedişi sertifikalanabilmeli: %v", err)
 		}
 	})
 

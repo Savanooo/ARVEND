@@ -33,6 +33,7 @@ var (
 	ErrProgressClaimDuplicateItem   = errors.New("aynı SOV kalemi bir hakedişte birden fazla kez yer alamaz; tutarları tek satırda birleştirin")
 	ErrProgressClaimStale           = errors.New("bu hakedişten sonra aynı kalemler için başka bir hakediş sertifika edildi — lütfen hakedişi güncelleyip tekrar deneyin")
 	ErrSubcontractNotActiveForClaim = errors.New("taşeron sözleşmesi aktif olmadan hakediş oluşturulamaz")
+	ErrSubcontractNotCertifiable    = errors.New("feshedilmiş bir taşeron sözleşmesinin hakedişi sertifika edilemez (kalan taahhüt fesihte serbest bırakıldı); hakedişi reddedin veya iptal edin")
 )
 
 type ProgressClaimItemInput struct {
@@ -404,6 +405,28 @@ func (s *ProjectService) CertifyProgressClaim(ctx context.Context, projectID, cl
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	// Sözleşme satırı, hakedişten ÖNCE kilitlenir (fesih/değişiklik onayı/
+	// ödeme de AYNI sözleşme satırını kilitler; sıra her yerde sözleşme ->
+	// hakediş). Kilitsiz bir ilk okuma yalnızca sözleşme kimliği içindir.
+	// Aksi halde fesih (yalnızca o ana kadar sertifikalı tutarı taahhütte
+	// bırakıp kalanı serbest bırakır) ile bu sertifikasyon yarışabilir ya
+	// da feshedilmiş sözleşmenin bekleyen hakedişi sonradan sertifikalanıp
+	// taahhüt edilenden fazla sertifikalı iş oluşturabilirdi.
+	peek, err := txq.GetSubcontractProgressClaim(ctx, sqlc.GetSubcontractProgressClaimParams{ID: id, OrganizationID: orgID, ProjectID: pid})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	sc, err := txq.GetSubcontractForUpdate(ctx, sqlc.GetSubcontractForUpdateParams{ID: peek.SubcontractID, OrganizationID: orgID, ProjectID: pid})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+
 	current, err := txq.GetSubcontractProgressClaimForUpdate(ctx, sqlc.GetSubcontractProgressClaimForUpdateParams{ID: id, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -413,6 +436,13 @@ func (s *ProjectService) CertifyProgressClaim(ctx context.Context, projectID, cl
 	}
 	if current.Status != domain.ProgressClaimStatusSubmitted {
 		return nil, ErrProgressClaimNotCertifiable
+	}
+	// Tamamlanmış sözleşmenin bekleyen (kesin) hakedişi sertifikalanabilir
+	// -- tamamlanma taahhüde dokunmaz. Feshedilmiş sözleşmede ise taahhüt
+	// fesih anındaki sertifikalı tutara indirildi; sonradan sertifika o
+	// dengeyi bozar.
+	if sc.Status != domain.SubcontractStatusActive && sc.Status != domain.SubcontractStatusCompleted {
+		return nil, ErrSubcontractNotCertifiable
 	}
 
 	items, err := txq.ListSubcontractProgressClaimItemsDetailed(ctx, id)
