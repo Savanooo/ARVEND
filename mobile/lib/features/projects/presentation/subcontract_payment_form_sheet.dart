@@ -7,6 +7,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_buttons.dart';
 import '../data/projects_providers.dart';
 import '../domain/subcontract.dart';
+import 'form_number_input.dart';
 
 Future<SubcontractPayment?> showSubcontractPaymentFormSheet(
   BuildContext context,
@@ -69,7 +70,8 @@ class _SubcontractPaymentFormSheetState extends ConsumerState<_SubcontractPaymen
       final payment = await ref.read(projectsRepositoryProvider).createSubcontractPayment(
             widget.projectId,
             widget.subcontractId,
-            amount: double.parse(_amountController.text.replaceAll(',', '.')),
+            // Türkçe giriş: "1.250" = bin iki yüz elli, "1.250,50" kabul edilir.
+            amount: parseFormNumber(_amountController.text)!,
             paidDate:
                 '${_date.year.toString().padLeft(4, '0')}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}',
             paymentMethod: _paymentMethodController.text.trim(),
@@ -114,11 +116,11 @@ class _SubcontractPaymentFormSheetState extends ConsumerState<_SubcontractPaymen
                 controller: _amountController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: InputDecoration(labelText: 'Ödenen Tutar (${widget.currency})'),
-                validator: (v) {
-                  final parsed = double.tryParse((v ?? '').replaceAll(',', '.'));
-                  if (parsed == null || parsed <= 0) return 'Geçerli bir tutar girin';
-                  return null;
-                },
+                validator: (v) => formNumberError(
+                  v,
+                  requiredMessage: 'Geçerli bir tutar girin',
+                  positiveMessage: 'Geçerli bir tutar girin',
+                ),
               ),
               const SizedBox(height: AppSpacing.md),
               ListTile(

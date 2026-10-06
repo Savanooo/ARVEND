@@ -12,6 +12,7 @@ import '../../../core/widgets/app_page_scaffold.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../data/projects_providers.dart';
 import '../domain/subcontract.dart';
+import 'form_number_input.dart';
 
 class _DraftItem {
   _DraftItem();
@@ -23,12 +24,11 @@ class _DraftItem {
   factory _DraftItem.fromItem(SubcontractChangeOrderItem item) => _DraftItem()
     ..costCodeId = item.costCodeId
     ..description = item.description
-    ..amount = _numStr(item.amount);
+    ..amount = formNumberText(item.amount);
 
-  static String _numStr(double v) {
-    if (v == v.truncateToDouble()) return v.toInt().toString();
-    return v.toString();
-  }
+  /// Hiç dokunulmamış satır gönderilmez; yarım ya da geçersiz satır kendi
+  /// alanında hata gösterir ve kaydı durdurur (eskiden sessizce atlanırdı).
+  bool get isBlank => costCodeId.isEmpty && description.trim().isEmpty && amount.trim().isEmpty;
 }
 
 /// Sprint 5 P2 — Taşeron Değişiklik Emri Ekle/Düzenle. Create + Edit AYNI
@@ -116,23 +116,20 @@ class _SubcontractChangeOrderFormScreenState extends ConsumerState<SubcontractCh
     super.dispose();
   }
 
-  List<SubcontractChangeOrderItem> _buildItems() {
-    final out = <SubcontractChangeOrderItem>[];
-    for (final i in _items) {
-      final amt = double.tryParse(i.amount.replaceAll(',', '.'));
-      if (i.costCodeId.isEmpty || i.description.trim().isEmpty || amt == null || amt <= 0) continue;
-      out.add(SubcontractChangeOrderItem(
-        id: '',
-        wbsNodeId: null,
-        costCodeId: i.costCodeId,
-        budgetLineId: null,
-        description: i.description.trim(),
-        amount: amt,
-        sortOrder: 0,
-      ));
-    }
-    return out;
-  }
+  /// Form doğrulandıktan SONRA çağrılır: boş olmayan her satır geçerlidir.
+  List<SubcontractChangeOrderItem> _buildItems() => [
+        for (final i in _items)
+          if (!i.isBlank)
+            SubcontractChangeOrderItem(
+              id: '',
+              wbsNodeId: null,
+              costCodeId: i.costCodeId,
+              budgetLineId: null,
+              description: i.description.trim(),
+              amount: parseFormNumber(i.amount)!,
+              sortOrder: 0,
+            ),
+      ];
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -248,6 +245,7 @@ class _SubcontractChangeOrderFormScreenState extends ConsumerState<SubcontractCh
                 ),
               ),
               ..._items.asMap().entries.map((entry) => _ItemRow(
+                    key: ObjectKey(entry.value),
                     item: entry.value,
                     costCodes: costCodes,
                     onChanged: () => setState(() {}),
@@ -271,7 +269,7 @@ class _SubcontractChangeOrderFormScreenState extends ConsumerState<SubcontractCh
 }
 
 class _ItemRow extends StatelessWidget {
-  const _ItemRow({required this.item, required this.costCodes, required this.onChanged, this.onRemove});
+  const _ItemRow({super.key, required this.item, required this.costCodes, required this.onChanged, this.onRemove});
 
   final _DraftItem item;
   final List<OrgCostCode> costCodes;
@@ -292,6 +290,7 @@ class _ItemRow extends StatelessWidget {
                 child: DropdownButtonFormField<String>(
                   initialValue: item.costCodeId.isEmpty ? null : item.costCodeId,
                   decoration: const InputDecoration(labelText: 'Maliyet Kodu', isDense: true),
+                  validator: (v) => item.isBlank || (v != null && v.isNotEmpty) ? null : 'Maliyet kodu seçin',
                   items: costCodes
                       .where((c) => c.isActive || c.id == item.costCodeId)
                       .map((c) => DropdownMenuItem(
@@ -312,6 +311,7 @@ class _ItemRow extends StatelessWidget {
           TextFormField(
             initialValue: item.description,
             decoration: const InputDecoration(labelText: 'Açıklama', isDense: true),
+            validator: (v) => item.isBlank || (v ?? '').trim().isNotEmpty ? null : 'Açıklama gerekli',
             onChanged: (v) {
               item.description = v;
               onChanged();
@@ -322,6 +322,7 @@ class _ItemRow extends StatelessWidget {
             initialValue: item.amount,
             decoration: const InputDecoration(labelText: 'Tutar', isDense: true),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: (v) => item.isBlank ? null : formNumberError(v),
             onChanged: (v) {
               item.amount = v;
               onChanged();

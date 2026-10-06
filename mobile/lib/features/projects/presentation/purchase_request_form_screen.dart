@@ -14,6 +14,7 @@ import '../../../core/widgets/async_state_view.dart';
 import '../data/projects_providers.dart';
 import '../domain/procurement.dart';
 import '../domain/subcontract.dart' show OrgCostCode;
+import 'form_number_input.dart';
 
 class _DraftItem {
   _DraftItem();
@@ -27,14 +28,14 @@ class _DraftItem {
   factory _DraftItem.fromItem(PurchaseRequestItem item) => _DraftItem()
     ..costCodeId = item.costCodeId ?? ''
     ..description = item.description
-    ..quantity = _numStr(item.quantity)
+    ..quantity = formNumberText(item.quantity)
     ..unit = item.unit
-    ..estimatedUnitCost = item.estimatedUnitCost != null ? _numStr(item.estimatedUnitCost!) : '';
+    ..estimatedUnitCost = formNumberText(item.estimatedUnitCost);
 
-  static String _numStr(double v) {
-    if (v == v.truncateToDouble()) return v.toInt().toString();
-    return v.toString();
-  }
+  /// Hiç dokunulmamış satır gönderilmez; yarım ya da geçersiz satır kendi
+  /// alanında hata gösterir ve kaydı durdurur (eskiden sessizce atlanırdı).
+  bool get isBlank =>
+      description.trim().isEmpty && quantity.trim().isEmpty && estimatedUnitCost.trim().isEmpty;
 }
 
 String? _fmtDate(DateTime? d) {
@@ -123,32 +124,28 @@ class _PurchaseRequestFormScreenState extends ConsumerState<PurchaseRequestFormS
     super.dispose();
   }
 
-  List<PurchaseRequestItem> _buildItems() {
-    final out = <PurchaseRequestItem>[];
-    for (final i in _items) {
-      final qty = double.tryParse(i.quantity.replaceAll(',', '.'));
-      if (i.description.trim().isEmpty || qty == null || qty <= 0) continue;
-      final unitCost = double.tryParse(i.estimatedUnitCost.replaceAll(',', '.'));
-      out.add(PurchaseRequestItem(
-        id: '',
-        wbsNodeId: null,
-        costCodeId: i.costCodeId.isEmpty ? null : i.costCodeId,
-        budgetLineId: null,
-        description: i.description.trim(),
-        quantity: qty,
-        unit: i.unit,
-        estimatedUnitCost: unitCost,
-        // Mobil ayrı bir "tahmini toplam" alanı SUNMAZ -- birim fiyat
-        // verildiğinde backend'in KENDİSİ qty*unitCost'u yeniden hesaplar
-        // ve bu değeri YOKSAYAR (bkz. Phase 1: estimated_total yalnızca
-        // unitCost boşken bir yedek olarak kullanılır).
-        estimatedTotal: 0,
-        notes: '',
-        sortOrder: 0,
-      ));
-    }
-    return out;
-  }
+  /// Form doğrulandıktan SONRA çağrılır: boş olmayan her satır geçerlidir.
+  List<PurchaseRequestItem> _buildItems() => [
+        for (final i in _items)
+          if (!i.isBlank)
+            PurchaseRequestItem(
+              id: '',
+              wbsNodeId: null,
+              costCodeId: i.costCodeId.isEmpty ? null : i.costCodeId,
+              budgetLineId: null,
+              description: i.description.trim(),
+              quantity: parseFormNumber(i.quantity)!,
+              unit: i.unit,
+              estimatedUnitCost: parseFormNumber(i.estimatedUnitCost),
+              // Mobil ayrı bir "tahmini toplam" alanı SUNMAZ -- birim fiyat
+              // verildiğinde backend'in KENDİSİ qty*unitCost'u yeniden hesaplar
+              // ve bu değeri YOKSAYAR (bkz. Phase 1: estimated_total yalnızca
+              // unitCost boşken bir yedek olarak kullanılır).
+              estimatedTotal: 0,
+              notes: '',
+              sortOrder: 0,
+            ),
+      ];
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -237,6 +234,7 @@ class _PurchaseRequestFormScreenState extends ConsumerState<PurchaseRequestFormS
             subtitle: 'Kalemler opsiyoneldir, ama talebi göndermek için en az bir geçerli kalem gerekir.',
             children: [
               ..._items.asMap().entries.map((entry) => _ItemRow(
+                    key: ObjectKey(entry.value),
                     item: entry.value,
                     costCodes: costCodes,
                     onChanged: () => setState(() {}),
@@ -312,7 +310,7 @@ class _NeededByField extends StatelessWidget {
 }
 
 class _ItemRow extends StatelessWidget {
-  const _ItemRow({required this.item, required this.costCodes, required this.onChanged, this.onRemove});
+  const _ItemRow({super.key, required this.item, required this.costCodes, required this.onChanged, this.onRemove});
 
   final _DraftItem item;
   final List<OrgCostCode> costCodes;
@@ -332,6 +330,7 @@ class _ItemRow extends StatelessWidget {
                 child: TextFormField(
                   initialValue: item.description,
                   decoration: const InputDecoration(labelText: 'Açıklama', isDense: true),
+                  validator: (v) => item.isBlank || (v ?? '').trim().isNotEmpty ? null : 'Açıklama gerekli',
                   onChanged: (v) {
                     item.description = v;
                     onChanged();
@@ -347,8 +346,9 @@ class _ItemRow extends StatelessWidget {
               Expanded(
                 child: TextFormField(
                   initialValue: item.quantity,
-                  decoration: const InputDecoration(labelText: 'Miktar', isDense: true),
+                  decoration: const InputDecoration(labelText: 'Miktar', isDense: true, errorMaxLines: 3),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (v) => item.isBlank ? null : formNumberError(v),
                   onChanged: (v) {
                     item.quantity = v;
                     onChanged();
@@ -370,8 +370,9 @@ class _ItemRow extends StatelessWidget {
               Expanded(
                 child: TextFormField(
                   initialValue: item.estimatedUnitCost,
-                  decoration: const InputDecoration(labelText: 'Tahmini Br. Fiyat', isDense: true),
+                  decoration: const InputDecoration(labelText: 'Tahmini Br. Fiyat', isDense: true, errorMaxLines: 3),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (v) => item.isBlank ? null : formNumberError(v, required: false, allowZero: true),
                   onChanged: (v) {
                     item.estimatedUnitCost = v;
                     onChanged();

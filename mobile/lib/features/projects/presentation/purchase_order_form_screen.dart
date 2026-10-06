@@ -13,6 +13,7 @@ import '../../../core/widgets/async_state_view.dart';
 import '../data/projects_providers.dart';
 import '../domain/procurement.dart';
 import '../domain/subcontract.dart' show OrgCostCode, Supplier;
+import 'form_number_input.dart';
 
 class _DraftItem {
   _DraftItem();
@@ -26,14 +27,16 @@ class _DraftItem {
   factory _DraftItem.fromItem(PurchaseOrderItem item) => _DraftItem()
     ..costCodeId = item.costCodeId
     ..description = item.description
-    ..quantity = _numStr(item.quantity)
+    ..quantity = formNumberText(item.quantity)
     ..unit = item.unit
-    ..unitPrice = _numStr(item.unitPrice);
+    ..unitPrice = formNumberText(item.unitPrice);
 
-  static String _numStr(double v) {
-    if (v == v.truncateToDouble()) return v.toInt().toString();
-    return v.toString();
-  }
+  /// Hiç dokunulmamış satır gönderilmez; YARIM doldurulmuş ya da geçersiz
+  /// bir satır ise satırın kendi alanında hata gösterir ve kaydı durdurur
+  /// (eskiden sessizce atlanıyordu -- kullanıcı kalemin kaybolduğunu fark
+  /// etmezdi).
+  bool get isBlank =>
+      costCodeId.isEmpty && description.trim().isEmpty && quantity.trim().isEmpty && unitPrice.trim().isEmpty;
 }
 
 String? _fmtDate(DateTime? d) {
@@ -127,7 +130,7 @@ class _PurchaseOrderFormScreenState extends ConsumerState<PurchaseOrderFormScree
       _paymentTermsController.text = po.paymentTerms;
       _deliveryAddressController.text = po.deliveryAddress;
       _notesController.text = po.notes;
-      _taxRateController.text = _DraftItem._numStr(po.taxRate);
+      _taxRateController.text = formNumberText(po.taxRate);
       _items
         ..clear()
         ..addAll(detail.items.map(_DraftItem.fromItem));
@@ -152,29 +155,23 @@ class _PurchaseOrderFormScreenState extends ConsumerState<PurchaseOrderFormScree
     super.dispose();
   }
 
-  List<PurchaseOrderItem> _buildItems() {
-    final out = <PurchaseOrderItem>[];
-    for (final i in _items) {
-      final qty = double.tryParse(i.quantity.replaceAll(',', '.'));
-      final price = double.tryParse(i.unitPrice.replaceAll(',', '.'));
-      if (i.costCodeId.isEmpty || i.description.trim().isEmpty || qty == null || qty <= 0 || price == null || price <= 0) {
-        continue;
-      }
-      out.add(PurchaseOrderItem(
-        id: '',
-        wbsNodeId: null,
-        costCodeId: i.costCodeId,
-        budgetLineId: null,
-        description: i.description.trim(),
-        quantity: qty,
-        unit: i.unit,
-        unitPrice: price,
-        lineTotal: 0,
-        sortOrder: 0,
-      ));
-    }
-    return out;
-  }
+  /// Form doğrulandıktan SONRA çağrılır: boş olmayan her satır geçerlidir.
+  List<PurchaseOrderItem> _buildItems() => [
+        for (final i in _items)
+          if (!i.isBlank)
+            PurchaseOrderItem(
+              id: '',
+              wbsNodeId: null,
+              costCodeId: i.costCodeId,
+              budgetLineId: null,
+              description: i.description.trim(),
+              quantity: parseFormNumber(i.quantity)!,
+              unit: i.unit,
+              unitPrice: parseFormNumber(i.unitPrice)!,
+              lineTotal: 0,
+              sortOrder: 0,
+            ),
+      ];
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -194,7 +191,7 @@ class _PurchaseOrderFormScreenState extends ConsumerState<PurchaseOrderFormScree
     });
     try {
       final repo = ref.read(projectsRepositoryProvider);
-      final taxRate = double.tryParse(_taxRateController.text.replaceAll(',', '.')) ?? 0;
+      final taxRate = parseFormPercent(_taxRateController.text) ?? 0;
       final PurchaseOrder po;
       if (widget.isEdit) {
         po = await repo.updatePurchaseOrder(
@@ -316,6 +313,7 @@ class _PurchaseOrderFormScreenState extends ConsumerState<PurchaseOrderFormScree
                 controller: _taxRateController,
                 decoration: const InputDecoration(labelText: 'KDV Oranı (%)'),
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                validator: formPercentError,
               ),
             ],
           ),
@@ -323,6 +321,7 @@ class _PurchaseOrderFormScreenState extends ConsumerState<PurchaseOrderFormScree
             title: 'Kalemler',
             children: [
               ..._items.asMap().entries.map((entry) => _ItemRow(
+                    key: ObjectKey(entry.value),
                     item: entry.value,
                     costCodes: costCodes,
                     onChanged: () => setState(() {}),
@@ -395,7 +394,7 @@ class _DatePickerTile extends StatelessWidget {
 }
 
 class _ItemRow extends StatelessWidget {
-  const _ItemRow({required this.item, required this.costCodes, required this.onChanged, this.onRemove});
+  const _ItemRow({super.key, required this.item, required this.costCodes, required this.onChanged, this.onRemove});
 
   final _DraftItem item;
   final List<OrgCostCode> costCodes;
@@ -415,6 +414,7 @@ class _ItemRow extends StatelessWidget {
                 child: DropdownButtonFormField<String>(
                   initialValue: item.costCodeId.isEmpty ? null : item.costCodeId,
                   decoration: const InputDecoration(labelText: 'Maliyet Kodu', isDense: true),
+                  validator: (v) => item.isBlank || (v != null && v.isNotEmpty) ? null : 'Maliyet kodu seçin',
                   items: costCodes
                       .where((c) => c.isActive || c.id == item.costCodeId)
                       .map((c) => DropdownMenuItem(
@@ -435,6 +435,7 @@ class _ItemRow extends StatelessWidget {
           TextFormField(
             initialValue: item.description,
             decoration: const InputDecoration(labelText: 'Açıklama', isDense: true),
+            validator: (v) => item.isBlank || (v ?? '').trim().isNotEmpty ? null : 'Açıklama gerekli',
             onChanged: (v) {
               item.description = v;
               onChanged();
@@ -446,8 +447,9 @@ class _ItemRow extends StatelessWidget {
               Expanded(
                 child: TextFormField(
                   initialValue: item.quantity,
-                  decoration: const InputDecoration(labelText: 'Miktar', isDense: true),
+                  decoration: const InputDecoration(labelText: 'Miktar', isDense: true, errorMaxLines: 3),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (v) => item.isBlank ? null : formNumberError(v),
                   onChanged: (v) {
                     item.quantity = v;
                     onChanged();
@@ -469,8 +471,9 @@ class _ItemRow extends StatelessWidget {
               Expanded(
                 child: TextFormField(
                   initialValue: item.unitPrice,
-                  decoration: const InputDecoration(labelText: 'Birim Fiyat', isDense: true),
+                  decoration: const InputDecoration(labelText: 'Birim Fiyat', isDense: true, errorMaxLines: 3),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (v) => item.isBlank ? null : formNumberError(v),
                   onChanged: (v) {
                     item.unitPrice = v;
                     onChanged();

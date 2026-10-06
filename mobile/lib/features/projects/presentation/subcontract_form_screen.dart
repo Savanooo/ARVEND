@@ -12,6 +12,7 @@ import '../../../core/widgets/app_page_scaffold.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../data/projects_providers.dart';
 import '../domain/subcontract.dart';
+import 'form_number_input.dart';
 
 class _DraftItem {
   _DraftItem();
@@ -27,12 +28,11 @@ class _DraftItem {
     ..budgetLineId = item.budgetLineId ?? ''
     ..wbsNodeId = item.wbsNodeId ?? ''
     ..description = item.description
-    ..amount = _numStr(item.originalAmount);
+    ..amount = formNumberText(item.originalAmount);
 
-  static String _numStr(double v) {
-    if (v == v.truncateToDouble()) return v.toInt().toString();
-    return v.toString();
-  }
+  /// Hiç dokunulmamış satır gönderilmez; yarım ya da geçersiz satır kendi
+  /// alanında hata gösterir ve kaydı durdurur (eskiden sessizce atlanırdı).
+  bool get isBlank => costCodeId.isEmpty && description.trim().isEmpty && amount.trim().isEmpty;
 }
 
 String? _fmtDate(DateTime? d) {
@@ -114,8 +114,8 @@ class _SubcontractFormScreenState extends ConsumerState<SubcontractFormScreen> {
       _scopeController.text = sc.scopeSummary;
       _paymentTermsController.text = sc.paymentTerms;
       _notesController.text = sc.notes;
-      _retentionController.text = sc.retentionPercent != null ? _DraftItem._numStr(sc.retentionPercent!) : '';
-      _advanceController.text = sc.advanceAmount != null ? _DraftItem._numStr(sc.advanceAmount!) : '';
+      _retentionController.text = formNumberText(sc.retentionPercent);
+      _advanceController.text = formNumberText(sc.advanceAmount);
       _effectiveDate = _parseDate(sc.effectiveDate);
       _startDate = _parseDate(sc.startDate);
       _plannedCompletionDate = _parseDate(sc.plannedCompletionDate);
@@ -145,26 +145,23 @@ class _SubcontractFormScreenState extends ConsumerState<SubcontractFormScreen> {
     super.dispose();
   }
 
-  List<SubcontractItem> _buildItems() {
-    final out = <SubcontractItem>[];
-    for (final i in _items) {
-      final amt = double.tryParse(i.amount.replaceAll(',', '.'));
-      if (i.costCodeId.isEmpty || i.description.trim().isEmpty || amt == null || amt <= 0) continue;
-      out.add(SubcontractItem(
-        id: '',
-        wbsNodeId: i.wbsNodeId.isEmpty ? null : i.wbsNodeId,
-        costCodeId: i.costCodeId,
-        budgetLineId: i.budgetLineId.isEmpty ? null : i.budgetLineId,
-        description: i.description.trim(),
-        quantity: null,
-        unit: '',
-        unitPrice: null,
-        originalAmount: amt,
-        sortOrder: 0,
-      ));
-    }
-    return out;
-  }
+  /// Form doğrulandıktan SONRA çağrılır: boş olmayan her satır geçerlidir.
+  List<SubcontractItem> _buildItems() => [
+        for (final i in _items)
+          if (!i.isBlank)
+            SubcontractItem(
+              id: '',
+              wbsNodeId: i.wbsNodeId.isEmpty ? null : i.wbsNodeId,
+              costCodeId: i.costCodeId,
+              budgetLineId: i.budgetLineId.isEmpty ? null : i.budgetLineId,
+              description: i.description.trim(),
+              quantity: null,
+              unit: '',
+              unitPrice: null,
+              originalAmount: parseFormNumber(i.amount)!,
+              sortOrder: 0,
+            ),
+      ];
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -195,8 +192,8 @@ class _SubcontractFormScreenState extends ConsumerState<SubcontractFormScreen> {
           effectiveDate: _fmtDate(_effectiveDate),
           startDate: _fmtDate(_startDate),
           plannedCompletionDate: _fmtDate(_plannedCompletionDate),
-          retentionPercent: double.tryParse(_retentionController.text.replaceAll(',', '.')),
-          advanceAmount: double.tryParse(_advanceController.text.replaceAll(',', '.')),
+          retentionPercent: parseFormPercent(_retentionController.text),
+          advanceAmount: parseFormNumber(_advanceController.text),
           paymentTerms: _paymentTermsController.text.trim(),
           notes: _notesController.text.trim(),
           items: items,
@@ -210,8 +207,8 @@ class _SubcontractFormScreenState extends ConsumerState<SubcontractFormScreen> {
           effectiveDate: _fmtDate(_effectiveDate),
           startDate: _fmtDate(_startDate),
           plannedCompletionDate: _fmtDate(_plannedCompletionDate),
-          retentionPercent: double.tryParse(_retentionController.text.replaceAll(',', '.')),
-          advanceAmount: double.tryParse(_advanceController.text.replaceAll(',', '.')),
+          retentionPercent: parseFormPercent(_retentionController.text),
+          advanceAmount: parseFormNumber(_advanceController.text),
           paymentTerms: _paymentTermsController.text.trim(),
           notes: _notesController.text.trim(),
           items: items,
@@ -312,16 +309,18 @@ class _SubcontractFormScreenState extends ConsumerState<SubcontractFormScreen> {
                   Expanded(
                     child: TextFormField(
                       controller: _retentionController,
-                      decoration: const InputDecoration(labelText: 'Hakediş Kesintisi % (opsiyonel)'),
+                      decoration: const InputDecoration(labelText: 'Hakediş Kesintisi % (opsiyonel)', errorMaxLines: 3),
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      validator: formPercentError,
                     ),
                   ),
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
                     child: TextFormField(
                       controller: _advanceController,
-                      decoration: const InputDecoration(labelText: 'Avans Tutarı (opsiyonel)'),
+                      decoration: const InputDecoration(labelText: 'Avans Tutarı (opsiyonel)', errorMaxLines: 3),
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      validator: (v) => formNumberError(v, required: false, allowZero: true),
                     ),
                   ),
                 ],
@@ -345,6 +344,7 @@ class _SubcontractFormScreenState extends ConsumerState<SubcontractFormScreen> {
               ),
               for (final entry in _items.asMap().entries)
                 _ItemRow(
+                  key: ObjectKey(entry.value),
                   item: entry.value,
                   costCodes: costCodes,
                   onChanged: () => setState(() {}),
@@ -412,7 +412,7 @@ class _DatePickerTile extends StatelessWidget {
 }
 
 class _ItemRow extends StatelessWidget {
-  const _ItemRow({required this.item, required this.costCodes, required this.onChanged, this.onRemove});
+  const _ItemRow({super.key, required this.item, required this.costCodes, required this.onChanged, this.onRemove});
 
   final _DraftItem item;
   final List<OrgCostCode> costCodes;
@@ -432,6 +432,7 @@ class _ItemRow extends StatelessWidget {
                 child: DropdownButtonFormField<String>(
                   initialValue: item.costCodeId.isEmpty ? null : item.costCodeId,
                   decoration: const InputDecoration(labelText: 'Maliyet Kodu', isDense: true),
+                  validator: (v) => item.isBlank || (v != null && v.isNotEmpty) ? null : 'Maliyet kodu seçin',
                   items: costCodes
                       .where((c) => c.isActive || c.id == item.costCodeId)
                       .map((c) => DropdownMenuItem(
@@ -452,6 +453,7 @@ class _ItemRow extends StatelessWidget {
           TextFormField(
             initialValue: item.description,
             decoration: const InputDecoration(labelText: 'Açıklama', isDense: true),
+            validator: (v) => item.isBlank || (v ?? '').trim().isNotEmpty ? null : 'Açıklama gerekli',
             onChanged: (v) {
               item.description = v;
               onChanged();
@@ -462,6 +464,7 @@ class _ItemRow extends StatelessWidget {
             initialValue: item.amount,
             decoration: const InputDecoration(labelText: 'Tutar', isDense: true),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: (v) => item.isBlank ? null : formNumberError(v),
             onChanged: (v) {
               item.amount = v;
               onChanged();

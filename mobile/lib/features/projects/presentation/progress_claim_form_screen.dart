@@ -12,6 +12,7 @@ import '../../../core/widgets/app_page_scaffold.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../data/projects_providers.dart';
 import '../domain/subcontract.dart';
+import 'form_number_input.dart';
 
 class _DraftItem {
   _DraftItem();
@@ -23,12 +24,11 @@ class _DraftItem {
   factory _DraftItem.fromClaimItem(ProgressClaimItem item) => _DraftItem()
     ..subcontractItemId = item.subcontractItemId
     ..description = item.itemDescription
-    ..amount = _numStr(item.currentProgressAmount);
+    ..amount = formNumberText(item.currentProgressAmount);
 
-  static String _numStr(double v) {
-    if (v == v.truncateToDouble()) return v.toInt().toString();
-    return v.toString();
-  }
+  /// Hiç dokunulmamış satır gönderilmez; yarım ya da geçersiz satır kendi
+  /// alanında hata gösterir ve kaydı durdurur (eskiden sessizce atlanırdı).
+  bool get isBlank => subcontractItemId.isEmpty && amount.trim().isEmpty;
 }
 
 String? _fmtDate(DateTime? d) {
@@ -89,7 +89,7 @@ class _ProgressClaimFormScreenState extends ConsumerState<ProgressClaimFormScree
     final sc = await ref.read(subcontractDetailProvider(scArgs).future);
     if (!mounted) return;
     _retentionController.text = sc.subcontract.retentionPercent != null
-        ? _DraftItem._numStr(sc.subcontract.retentionPercent!)
+        ? formNumberText(sc.subcontract.retentionPercent!)
         : '0';
   }
 
@@ -107,9 +107,9 @@ class _ProgressClaimFormScreenState extends ConsumerState<ProgressClaimFormScree
       final claim = detail.claim;
       _periodStart = _parseDate(claim.periodStart);
       _periodEnd = _parseDate(claim.periodEnd);
-      _retentionController.text = _DraftItem._numStr(claim.retentionPercentSnapshot);
-      _advanceController.text = _DraftItem._numStr(claim.advanceRecoveryAmount);
-      _deductionsController.text = _DraftItem._numStr(claim.otherDeductions);
+      _retentionController.text = formNumberText(claim.retentionPercentSnapshot);
+      _advanceController.text = formNumberText(claim.advanceRecoveryAmount);
+      _deductionsController.text = formNumberText(claim.otherDeductions);
       _notesController.text = claim.notes;
       _items
         ..clear()
@@ -135,27 +135,24 @@ class _ProgressClaimFormScreenState extends ConsumerState<ProgressClaimFormScree
     super.dispose();
   }
 
-  List<ProgressClaimItem> _buildItems() {
-    final out = <ProgressClaimItem>[];
-    for (final i in _items) {
-      final amt = double.tryParse(i.amount.replaceAll(',', '.'));
-      if (i.subcontractItemId.isEmpty || amt == null || amt < 0) continue;
-      out.add(ProgressClaimItem(
-        id: '',
-        subcontractItemId: i.subcontractItemId,
-        itemDescription: '',
-        itemUnit: '',
-        scheduledValue: 0,
-        previousProgressAmount: 0,
-        currentProgressAmount: amt,
-        cumulativeProgressAmount: 0,
-        progressPercent: 0,
-        remainingAmount: 0,
-        sortOrder: 0,
-      ));
-    }
-    return out;
-  }
+  /// Form doğrulandıktan SONRA çağrılır: boş olmayan her satır geçerlidir.
+  List<ProgressClaimItem> _buildItems() => [
+        for (final i in _items)
+          if (!i.isBlank)
+            ProgressClaimItem(
+              id: '',
+              subcontractItemId: i.subcontractItemId,
+              itemDescription: '',
+              itemUnit: '',
+              scheduledValue: 0,
+              previousProgressAmount: 0,
+              currentProgressAmount: parseFormNumber(i.amount)!,
+              cumulativeProgressAmount: 0,
+              progressPercent: 0,
+              remainingAmount: 0,
+              sortOrder: 0,
+            ),
+      ];
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -175,9 +172,9 @@ class _ProgressClaimFormScreenState extends ConsumerState<ProgressClaimFormScree
     });
     try {
       final repo = ref.read(projectsRepositoryProvider);
-      final retention = double.tryParse(_retentionController.text.replaceAll(',', '.')) ?? 0;
-      final advance = double.tryParse(_advanceController.text.replaceAll(',', '.')) ?? 0;
-      final deductions = double.tryParse(_deductionsController.text.replaceAll(',', '.')) ?? 0;
+      final retention = parseFormPercent(_retentionController.text) ?? 0;
+      final advance = parseFormNumber(_advanceController.text) ?? 0;
+      final deductions = parseFormNumber(_deductionsController.text) ?? 0;
       final ProgressClaim claim;
       if (widget.isEdit) {
         claim = await repo.updateProgressClaim(
@@ -266,16 +263,18 @@ class _ProgressClaimFormScreenState extends ConsumerState<ProgressClaimFormScree
                   Expanded(
                     child: TextFormField(
                       controller: _retentionController,
-                      decoration: const InputDecoration(labelText: 'Hakediş Kesintisi %'),
+                      decoration: const InputDecoration(labelText: 'Hakediş Kesintisi %', errorMaxLines: 3),
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      validator: formPercentError,
                     ),
                   ),
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
                     child: TextFormField(
                       controller: _advanceController,
-                      decoration: const InputDecoration(labelText: 'Avans Mahsubu (opsiyonel)'),
+                      decoration: const InputDecoration(labelText: 'Avans Mahsubu (opsiyonel)', errorMaxLines: 3),
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      validator: (v) => formNumberError(v, required: false, allowZero: true),
                     ),
                   ),
                 ],
@@ -284,6 +283,7 @@ class _ProgressClaimFormScreenState extends ConsumerState<ProgressClaimFormScree
                 controller: _deductionsController,
                 decoration: const InputDecoration(labelText: 'Diğer Kesintiler (opsiyonel)'),
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                validator: (v) => formNumberError(v, required: false, allowZero: true),
               ),
             ],
           ),
@@ -300,6 +300,7 @@ class _ProgressClaimFormScreenState extends ConsumerState<ProgressClaimFormScree
                 ),
               ),
               ..._items.asMap().entries.map((entry) => _ItemRow(
+                    key: ObjectKey(entry.value),
                     item: entry.value,
                     subcontractItems: subcontractItems,
                     onChanged: () => setState(() {}),
@@ -369,7 +370,7 @@ class _DatePickerTile extends StatelessWidget {
 }
 
 class _ItemRow extends StatelessWidget {
-  const _ItemRow({required this.item, required this.subcontractItems, required this.onChanged, this.onRemove});
+  const _ItemRow({super.key, required this.item, required this.subcontractItems, required this.onChanged, this.onRemove});
 
   final _DraftItem item;
   final List<SubcontractItem> subcontractItems;
@@ -389,6 +390,7 @@ class _ItemRow extends StatelessWidget {
                 child: DropdownButtonFormField<String>(
                   initialValue: item.subcontractItemId.isEmpty ? null : item.subcontractItemId,
                   decoration: const InputDecoration(labelText: 'SOV Kalemi', isDense: true),
+                  validator: (v) => item.isBlank || (v != null && v.isNotEmpty) ? null : 'SOV kalemi seçin',
                   items: subcontractItems
                       .map((it) => DropdownMenuItem(
                             value: it.id,
@@ -409,6 +411,7 @@ class _ItemRow extends StatelessWidget {
             initialValue: item.amount,
             decoration: const InputDecoration(labelText: 'Bu Dönem İlerleme Tutarı', isDense: true),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: (v) => item.isBlank ? null : formNumberError(v, allowZero: true, positiveMessage: 'Negatif olamaz'),
             onChanged: (v) {
               item.amount = v;
               onChanged();

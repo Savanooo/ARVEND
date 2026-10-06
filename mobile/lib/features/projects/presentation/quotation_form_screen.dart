@@ -16,6 +16,7 @@ import '../../../core/widgets/async_state_view.dart';
 import '../data/projects_providers.dart';
 import '../domain/procurement.dart';
 import '../domain/subcontract.dart' show Supplier;
+import 'form_number_input.dart';
 
 class _DraftItem {
   _DraftItem({
@@ -31,10 +32,10 @@ class _DraftItem {
   String unitPrice = '';
   String notes = '';
 
-  static String numStr(double v) {
-    if (v == v.truncateToDouble()) return v.toInt().toString();
-    return v.toString();
-  }
+  /// Birim fiyatı boş bırakılan RFQ kalemi "teklif edilmedi" demektir ve
+  /// gönderilmez. Fiyatı yazılmış ama geçersiz bir satır ise kendi alanında
+  /// hata gösterir ve kaydı durdurur (eskiden sessizce atlanırdı).
+  bool get isBlank => unitPrice.trim().isEmpty;
 }
 
 String? _fmtDate(DateTime? d) {
@@ -135,8 +136,8 @@ class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
         _quotationNumberController.text = q.quotationNumber;
         _quotationDate = _parseDate(q.quotationDate);
         _validUntil = _parseDate(q.validUntil);
-        _discountController.text = _DraftItem.numStr(q.discount);
-        _taxRateController.text = _DraftItem.numStr(q.taxRate);
+        _discountController.text = formNumberText(q.discount);
+        _taxRateController.text = formNumberText(q.taxRate);
         _deliveryDaysController.text = q.deliveryDays?.toString() ?? '';
         _paymentTermsController.text = q.paymentTerms;
         _notesController.text = q.notes;
@@ -151,11 +152,11 @@ class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
           );
           final existing = existingByRfqItem[rfqItem.id];
           if (existing != null) {
-            draft.quantity = _DraftItem.numStr(existing.quantity);
-            draft.unitPrice = _DraftItem.numStr(existing.unitPrice);
+            draft.quantity = formNumberText(existing.quantity);
+            draft.unitPrice = formNumberText(existing.unitPrice);
             draft.notes = existing.notes;
           } else {
-            draft.quantity = _DraftItem.numStr(rfqItem.quantity);
+            draft.quantity = formNumberText(rfqItem.quantity);
           }
           _items.add(draft);
         }
@@ -166,7 +167,7 @@ class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
               rfqItemId: rfqItem.id,
               description: rfqItem.description,
               unit: rfqItem.unit,
-            )..quantity = _DraftItem.numStr(rfqItem.quantity),
+            )..quantity = formNumberText(rfqItem.quantity),
           );
         }
       }
@@ -193,25 +194,19 @@ class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
     super.dispose();
   }
 
-  List<QuotationItem> _buildItems() {
-    final out = <QuotationItem>[];
-    for (final i in _items) {
-      final qty = double.tryParse(i.quantity.replaceAll(',', '.'));
-      final price = double.tryParse(i.unitPrice.replaceAll(',', '.'));
-      if (qty == null || qty <= 0 || price == null || price <= 0) continue;
-      out.add(
-        QuotationItem(
-          id: '',
-          rfqItemId: i.rfqItemId,
-          quantity: qty,
-          unitPrice: price,
-          lineTotal: 0,
-          notes: i.notes,
-        ),
-      );
-    }
-    return out;
-  }
+  /// Form doğrulandıktan SONRA çağrılır: fiyatı girilmiş her satır geçerlidir.
+  List<QuotationItem> _buildItems() => [
+        for (final i in _items)
+          if (!i.isBlank)
+            QuotationItem(
+              id: '',
+              rfqItemId: i.rfqItemId,
+              quantity: parseFormNumber(i.quantity)!,
+              unitPrice: parseFormNumber(i.unitPrice)!,
+              lineTotal: 0,
+              notes: i.notes,
+            ),
+      ];
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -233,10 +228,8 @@ class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
     });
     try {
       final repo = ref.read(projectsRepositoryProvider);
-      final discount =
-          double.tryParse(_discountController.text.replaceAll(',', '.')) ?? 0;
-      final taxRate =
-          double.tryParse(_taxRateController.text.replaceAll(',', '.')) ?? 0;
+      final discount = parseFormNumber(_discountController.text) ?? 0;
+      final taxRate = parseFormPercent(_taxRateController.text) ?? 0;
       final deliveryDays = int.tryParse(_deliveryDaysController.text);
       final Quotation q;
       if (widget.isEdit) {
@@ -389,9 +382,15 @@ class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
                             controller: _discountController,
                             decoration: const InputDecoration(
                               labelText: 'İskonto (tutar)',
+                              errorMaxLines: 3,
                             ),
                             keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
+                            ),
+                            validator: (v) => formNumberError(
+                              v,
+                              required: false,
+                              allowZero: true,
                             ),
                           ),
                         ),
@@ -401,10 +400,12 @@ class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
                             controller: _taxRateController,
                             decoration: const InputDecoration(
                               labelText: 'KDV Oranı (%)',
+                              errorMaxLines: 3,
                             ),
                             keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                             ),
+                            validator: formPercentError,
                           ),
                         ),
                       ],
@@ -438,7 +439,11 @@ class _QuotationFormScreenState extends ConsumerState<QuotationFormScreen> {
                   spacing: AppSpacing.sm,
                   children: [
                     for (final item in _items)
-                      _ItemRow(item: item, onChanged: () => setState(() {})),
+                      _ItemRow(
+                        key: ObjectKey(item),
+                        item: item,
+                        onChanged: () => setState(() {}),
+                      ),
                   ],
                 ),
                 AppFormSection(
@@ -545,7 +550,7 @@ class _DatePickerTile extends StatelessWidget {
 /// bkz. sınıf yorumu). Miktar + birim fiyat HER ZAMAN doğrudan görünür,
 /// hiçbir alan bir daraltılabilir bölümün arkasına gizlenmez.
 class _ItemRow extends StatelessWidget {
-  const _ItemRow({required this.item, required this.onChanged});
+  const _ItemRow({super.key, required this.item, required this.onChanged});
 
   final _DraftItem item;
   final VoidCallback onChanged;
@@ -572,10 +577,12 @@ class _ItemRow extends StatelessWidget {
                   decoration: InputDecoration(
                     labelText: 'Miktar (${item.unit})',
                     isDense: true,
+                    errorMaxLines: 3,
                   ),
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
+                  validator: (v) => item.isBlank ? null : formNumberError(v),
                   onChanged: (v) {
                     item.quantity = v;
                     onChanged();
@@ -589,10 +596,12 @@ class _ItemRow extends StatelessWidget {
                   decoration: const InputDecoration(
                     labelText: 'Birim Fiyat',
                     isDense: true,
+                    errorMaxLines: 3,
                   ),
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
+                  validator: (v) => item.isBlank ? null : formNumberError(v),
                   onChanged: (v) {
                     item.unitPrice = v;
                     onChanged();
