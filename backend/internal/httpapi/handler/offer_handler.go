@@ -704,6 +704,7 @@ func (h *OfferHandler) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, service.ErrOfferAccepted),
 		errors.Is(err, service.ErrOfferNotEditable),
 		errors.Is(err, service.ErrOfferLocked),
+		errors.Is(err, service.ErrOfferCannotReturnToDraft),
 		errors.Is(err, service.ErrOfferNotRevisable):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case isInternalError(err):

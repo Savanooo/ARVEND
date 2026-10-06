@@ -13,6 +13,37 @@ import type { Offer, OfferStatus } from "@/lib/types";
 
 const STATUSES: OfferStatus[] = ["taslak", "gönderildi", "kabul edildi", "reddedildi"];
 
+// Seçilebilir durumlar, backend'in (OfferService.UpdateStatus) kurallarının
+// aynısıdır: müşteriye gönderilmiş/karar verilmiş bir revizyon taslağa geri
+// alınamaz (değişiklik "Revize Et" ile yapılır), kabul edilmiş teklifin
+// durumu ise hiç değiştirilemez -- reddedilecek bir seçenek gösterilmez.
+function selectableStatuses(current: OfferStatus): OfferStatus[] {
+  if (current === "kabul edildi") return ["kabul edildi"];
+  if (current === "taslak") return STATUSES;
+  return STATUSES.filter((s) => s !== "taslak");
+}
+
+// Geri alınamayan geçişlerin onay metinleri. Gönderildi de buna dahil:
+// gönderilen teklif bir daha taslağa dönemez.
+const STATUS_CONFIRM: Partial<Record<OfferStatus, { title: string; message: string; danger?: boolean }>> = {
+  gönderildi: {
+    title: "Gönderildi Olarak İşaretle",
+    message:
+      "Teklif gönderildi olarak işaretlensin mi? Gönderilen teklif artık düzenlenemez ve taslağa geri alınamaz; değişiklik için \"Revize Et\" kullanılır.",
+  },
+  "kabul edildi": {
+    title: "Kabul Edildi Olarak İşaretle",
+    message:
+      "Teklif kabul edildi olarak işaretlensin mi? Kabul edilen teklifin durumu bir daha değiştirilemez, revize edilemez ve silinemez.",
+  },
+  reddedildi: {
+    title: "Reddedildi Olarak İşaretle",
+    message:
+      "Teklif reddedildi olarak işaretlensin mi? Müşteri paylaşım bağlantısı üzerinden artık karar veremez; yeni bir teklif için \"Revize Et\" kullanılır.",
+    danger: true,
+  },
+};
+
 export function OfferActions({ offer }: { offer: Offer }) {
   const router = useRouter();
   const toast = useToast();
@@ -23,8 +54,18 @@ export function OfferActions({ offer }: { offer: Offer }) {
   const [revising, setRevising] = useState(false);
 
   const canRevise = offer.status === "gönderildi" || offer.status === "reddedildi";
+  const statusOptions = selectableStatuses(offer.status);
 
   async function handleStatusChange(next: OfferStatus) {
+    if (next === offer.status) return;
+    const confirmation = STATUS_CONFIRM[next];
+    if (confirmation) {
+      const ok = await confirm({ ...confirmation, confirmLabel: "Evet, işaretle" });
+      if (!ok) {
+        setStatus(offer.status);
+        return;
+      }
+    }
     setStatus(next);
     setSavingStatus(true);
     try {
@@ -82,12 +123,12 @@ export function OfferActions({ offer }: { offer: Offer }) {
     <div className="flex items-center gap-3">
       <Select
         value={status}
-        disabled={savingStatus}
+        disabled={savingStatus || statusOptions.length < 2}
         onChange={(e) => handleStatusChange(e.target.value as OfferStatus)}
         aria-label="Teklif durumu"
         className="w-40"
       >
-        {STATUSES.map((s) => (
+        {statusOptions.map((s) => (
           <option key={s} value={s}>
             {OFFER_STATUS[s].label}
           </option>

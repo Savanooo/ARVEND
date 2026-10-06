@@ -666,6 +666,15 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 
 var ErrOfferLocked = errors.New("kabul edilmiş teklif/revizyon durumu değiştirilemez")
 
+// ErrOfferCannotReturnToDraft: müşteriye gönderilmiş (ya da müşterinin/
+// personelin karar verdiği) bir revizyon "taslak"a geri alınamaz. Taslak,
+// Update()'in revizyonu YERİNDE yeniden yazdığı tek durumdur -- geri dönüşe
+// izin vermek, müşterinin elindeki hâlâ aktif paylaşım linkinin gösterdiği
+// içeriği sessizce değiştirmek (ve sonra yeniden "gönderildi" yapınca
+// müşterinin görmediği bir içeriği kabul ettirmek) demekti. Değişiklik için
+// her zaman "Revize Et" (yeni revizyon + eski linklerin iptali) kullanılır.
+var ErrOfferCannotReturnToDraft = errors.New("müşteriye gönderilmiş bir teklif taslağa geri alınamaz; değişiklik için \"Revize Et\" ile yeni bir revizyon oluşturun")
+
 // UpdateStatus, personelin (dashboard'daki durum seçiciyle) teklifin
 // GÜNCEL revizyonunun durumunu doğrudan değiştirmesini sağlar --
 // müşterinin public paylaşım linkinden verdiği karar için bkz.
@@ -726,6 +735,9 @@ func (s *OfferService) UpdateStatus(ctx context.Context, id, organizationID, sta
 	// edilmez" kuralının durum boyutu.
 	if offerRow.Status == domain.OfferStatusKabulEdildi {
 		return nil, ErrOfferLocked
+	}
+	if status == domain.OfferStatusTaslak && offerRow.Status != domain.OfferStatusTaslak {
+		return nil, ErrOfferCannotReturnToDraft
 	}
 	previousStatus := offerRow.Status
 
