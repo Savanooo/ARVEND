@@ -128,8 +128,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
               onChanged: (_) => setState(() {}),
             ),
             const SizedBox(height: AppSpacing.sm),
+            // Tek satır, yatay kayar (eskiden iki satıra sarıyordu).
             AppFilterBar(
-              wrap: true,
               chips: [
                 AppFilterChipData(
                   label: 'Yalnızca gecikmiş',
@@ -203,66 +203,78 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                     .toList();
                 final showPeople = isTeam && (people.length + (hasUnassigned ? 1 : 0)) > 1;
 
+                final projectField = projects.length > 1
+                    ? DropdownButtonFormField<String>(
+                        key: ValueKey('proje-$scope'),
+                        initialValue: _projectFilter ?? '',
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Proje',
+                          isDense: true,
+                        ),
+                        items: [
+                          const DropdownMenuItem(
+                            value: '',
+                            child: Text('Tüm projeler'),
+                          ),
+                          ...projects.entries.map(
+                            (e) => DropdownMenuItem(
+                              value: e.key,
+                              child: Text(e.value, overflow: TextOverflow.ellipsis),
+                            ),
+                          ),
+                        ],
+                        onChanged: (v) => setState(
+                          () => _projectFilter = (v == null || v.isEmpty)
+                              ? null
+                              : v,
+                        ),
+                      )
+                    : null;
+                final peopleField = showPeople
+                    ? DropdownButtonFormField<String>(
+                        key: const Key('gorev-kisi'),
+                        initialValue: _assigneeFilter ?? '',
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Kişi',
+                          isDense: true,
+                        ),
+                        items: [
+                          const DropdownMenuItem(value: '', child: Text('Herkes')),
+                          ...(people.entries.toList()
+                                ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase())))
+                              .map(
+                            (e) => DropdownMenuItem(
+                              value: e.key,
+                              child: Text(e.value, overflow: TextOverflow.ellipsis),
+                            ),
+                          ),
+                          if (hasUnassigned)
+                            const DropdownMenuItem(value: kUnassignedFilter, child: Text('Atanmamış')),
+                        ],
+                        onChanged: (v) => setState(
+                          () => _assigneeFilter = (v == null || v.isEmpty) ? null : v,
+                        ),
+                      )
+                    : null;
+
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (projects.length > 1)
+                    // Proje ve kişi yan yana: telefonda filtreler listeyi
+                    // ekranın altına itmesin (sahada görevlerin yalnızca
+                    // biri görünüyordu).
+                    if (projectField != null || peopleField != null)
                       Padding(
                         padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                        child: DropdownButtonFormField<String>(
-                          key: ValueKey('proje-$scope'),
-                          initialValue: _projectFilter ?? '',
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Proje',
-                            isDense: true,
-                          ),
-                          items: [
-                            const DropdownMenuItem(
-                              value: '',
-                              child: Text('Tüm projeler'),
-                            ),
-                            ...projects.entries.map(
-                              (e) => DropdownMenuItem(
-                                value: e.key,
-                                child: Text(e.value, overflow: TextOverflow.ellipsis),
-                              ),
-                            ),
+                        child: Row(
+                          children: [
+                            if (projectField != null) Expanded(child: projectField),
+                            if (projectField != null && peopleField != null)
+                              const SizedBox(width: AppSpacing.sm),
+                            if (peopleField != null) Expanded(child: peopleField),
                           ],
-                          onChanged: (v) => setState(
-                            () => _projectFilter = (v == null || v.isEmpty)
-                                ? null
-                                : v,
-                          ),
-                        ),
-                      ),
-                    if (showPeople)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                        child: DropdownButtonFormField<String>(
-                          key: const Key('gorev-kisi'),
-                          initialValue: _assigneeFilter ?? '',
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Kişi',
-                            isDense: true,
-                          ),
-                          items: [
-                            const DropdownMenuItem(value: '', child: Text('Herkes')),
-                            ...(people.entries.toList()
-                                  ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase())))
-                                .map(
-                              (e) => DropdownMenuItem(
-                                value: e.key,
-                                child: Text(e.value, overflow: TextOverflow.ellipsis),
-                              ),
-                            ),
-                            if (hasUnassigned)
-                              const DropdownMenuItem(value: kUnassignedFilter, child: Text('Atanmamış')),
-                          ],
-                          onChanged: (v) => setState(
-                            () => _assigneeFilter = (v == null || v.isEmpty) ? null : v,
-                          ),
                         ),
                       ),
                     if (items.isEmpty)

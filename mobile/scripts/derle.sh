@@ -137,6 +137,12 @@ if [ "$kanal" = "play" ]; then
     hata "play paketinde REQUEST_INSTALL_PACKAGES var -- Play politikası ihlali, yüklemeyin"
   fi
   echo "REQUEST_INSTALL_PACKAGES : yok (doğru)"
+  # Fotoğraf ve video izinleri politikası: tek tek dosya seçen uygulama
+  # galeri izni taşıyamaz (open_filex ekliyor; main manifest düşürüyor).
+  if echo "$MANIFEST" | grep -qE 'READ_MEDIA_(IMAGES|VIDEO)|READ_EXTERNAL_STORAGE'; then
+    hata "play paketinde galeri/depolama izni var -- Play reddeder, yüklemeyin"
+  fi
+  echo "Galeri/depolama izni     : yok (doğru)"
 else
   APKSIGNER=$(apksigner_bul) || hata "apksigner bulunamadı (Android SDK build-tools)"
   GERCEK=$(JAVA_HOME="$JDK" PATH="$JDK/bin:$PATH" "$APKSIGNER" verify --print-certs "$CIKTI" 2>/dev/null \

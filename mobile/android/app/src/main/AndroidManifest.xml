@@ -1,12 +1,23 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- Yalnız gerçekten gereken izinler: API'ye erişim için INTERNET,
          "Kameradan Çek" akışı için CAMERA. Galeri/dosya seçimi (image_picker/
-         file_picker) modern Android'in sistem seçicisini kullanır - ilgili
-         eklentiler kendi manifest'lerinde (maxSdkVersion ile sınırlı) gerekli
-         storage izinlerini zaten bildirir; burada tekrar/gereksiz storage
-         izni istenmiyor. -->
+         file_picker) Android'in sistem seçicisini kullanır, depolama izni
+         gerekmez; eklentilerin eklediği galeri izinleri aşağıda düşürülüyor. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- open_filex galeri/medya okuma izinlerini kendi manifest'inden ekliyor.
+         Bizim açtığımız her dosya (PDF dökümü, indirilen proje dosyası,
+         güncelleme APK'sı) uygulamanın kendi cache dizininde; open_filex bu
+         dizin için izin istemiyor (pathRequiresPermission). Google Play
+         "Fotoğraf ve video izinleri" politikası, tek tek dosya seçen
+         uygulamaların bu izinleri taşımasını reddediyor (2026-10, ilk Play
+         gönderiminde hata). Galeri seçimi image_picker ile sistem fotoğraf
+         seçicisinden geçer, izin gerektirmez. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:node="remove"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" tools:node="remove"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove"/>
     <!-- Uzaktan güncelleme (lib/core/update/): store'a çıkana kadar uygulama
          kendi APK'sını sunucudan indirip Android'in kurulum ekranını açar.
          Kullanıcı yine de bir kereye mahsus "Bu kaynaktan izin ver"i
