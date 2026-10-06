@@ -13,7 +13,7 @@ import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { Textarea } from "@/components/ui/Textarea";
 import { useToast } from "@/components/ui/Toast";
 import { apiClient, ApiError } from "@/lib/api";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, istanbulDate } from "@/lib/format";
 import { PURCHASE_ORDER_STATUS, PURCHASE_REQUEST_STATUS, RFQ_STATUS } from "@/lib/status";
 import type {
   BidComparisonRow,
@@ -471,7 +471,7 @@ function RFQsTab({
 }) {
   const { busy, error, run } = usePurchasingAction(locked);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ title: "", purchase_request_id: "", issue_date: new Date().toISOString().slice(0, 10), due_date: "", notes: "" });
+  const [form, setForm] = useState({ title: "", purchase_request_id: "", issue_date: istanbulDate(new Date()), due_date: "", notes: "" });
   const [supplierIds, setSupplierIds] = useState<string[]>([]);
   const [items, setItems] = useState<RFQItemDraft[]>([emptyRFQItem()]);
 
@@ -496,7 +496,7 @@ function RFQsTab({
       })
     );
     if (ok) {
-      setForm({ title: "", purchase_request_id: "", issue_date: new Date().toISOString().slice(0, 10), due_date: "", notes: "" });
+      setForm({ title: "", purchase_request_id: "", issue_date: istanbulDate(new Date()), due_date: "", notes: "" });
       setSupplierIds([]);
       setItems([emptyRFQItem()]);
       setOpen(false);
@@ -605,7 +605,7 @@ function ComparisonTab({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rfqSuppliers, setRfqSuppliers] = useState<RFQSupplier[]>([]);
-  const [quoteForm, setQuoteForm] = useState({ supplier_id: "", quotation_date: new Date().toISOString().slice(0, 10), tax_rate: "20" });
+  const [quoteForm, setQuoteForm] = useState({ supplier_id: "", quotation_date: istanbulDate(new Date()), tax_rate: "20" });
   const [quoteItems, setQuoteItems] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
 
@@ -923,7 +923,7 @@ function PurchaseOrdersTab({
 }) {
   const { busy, error, run } = usePurchasingAction(locked);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ supplier_id: "", issue_date: new Date().toISOString().slice(0, 10), expected_delivery_date: "", payment_terms: "", delivery_address: "", notes: "", tax_rate: "20" });
+  const [form, setForm] = useState({ supplier_id: "", issue_date: istanbulDate(new Date()), expected_delivery_date: "", payment_terms: "", delivery_address: "", notes: "", tax_rate: "20" });
   const [items, setItems] = useState<POItemDraft[]>([emptyPOItem()]);
   const activeSuppliers = suppliers.filter((s) => s.is_active);
 
@@ -943,7 +943,7 @@ function PurchaseOrdersTab({
       })
     );
     if (ok) {
-      setForm({ supplier_id: "", issue_date: new Date().toISOString().slice(0, 10), expected_delivery_date: "", payment_terms: "", delivery_address: "", notes: "", tax_rate: "20" });
+      setForm({ supplier_id: "", issue_date: istanbulDate(new Date()), expected_delivery_date: "", payment_terms: "", delivery_address: "", notes: "", tax_rate: "20" });
       setItems([emptyPOItem()]);
       setOpen(false);
     }

@@ -14,7 +14,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { Textarea } from "@/components/ui/Textarea";
 import { apiClient, ApiError } from "@/lib/api";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, istanbulDate } from "@/lib/format";
 import { INVOICE_STATUS, PLAN_ITEM_STATUS, SUBCONTRACTOR_STATUS } from "@/lib/status";
 import {
   EXPENSE_CATEGORY_LABELS,
@@ -274,7 +274,7 @@ export function CollectionsSection({
   const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey);
   const [form, setForm] = useState({
     amount: "",
-    received_date: new Date().toISOString().slice(0, 10),
+    received_date: istanbulDate(new Date()),
     payment_method: "",
     description: "",
     reference_no: "",
@@ -443,7 +443,7 @@ const emptyExpenseForm = () => ({
   category: "material" as ExpenseCategory,
   description: "",
   amount: "",
-  expense_date: new Date().toISOString().slice(0, 10),
+  expense_date: istanbulDate(new Date()),
   supplier_name: "",
   invoice_no: "",
   notes: "",
@@ -811,7 +811,7 @@ export function InvoicesSection({
   const [form, setForm] = useState({
     invoice_no: "",
     invoice_type: "sales",
-    invoice_date: new Date().toISOString().slice(0, 10),
+    invoice_date: istanbulDate(new Date()),
     due_date: "",
     amount: "",
     status: "draft",
@@ -959,7 +959,7 @@ export function SubcontractorsSection({
   const [open, setOpen] = useState(false);
   const [payingFor, setPayingFor] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", company_name: "", work_description: "", contract_amount: "" });
-  const [payForm, setPayForm] = useState({ amount: "", paid_date: new Date().toISOString().slice(0, 10), description: "" });
+  const [payForm, setPayForm] = useState({ amount: "", paid_date: istanbulDate(new Date()), description: "" });
   // Anahtar TAŞERON BAŞINA tutulur (tek bir bölüm-geneli anahtar DEĞİL):
   // aksi halde taşeron A'ya ödeme yanıtı ağ hatasıyla kaybolduğunda, aynı
   // anahtarla taşeron B'ye yapılan bir sonraki ödeme, sunucu tarafında A'nın
