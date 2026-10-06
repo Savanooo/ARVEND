@@ -88,6 +88,7 @@ export function PaymentPlanSection({
   plannedTotal,
   currentContractValue,
   locked,
+  canManage,
 }: {
   project: Project;
   items: PaymentPlanItem[];
@@ -98,8 +99,11 @@ export function PaymentPlanSection({
   // bir "hata" değil, doğru bir sinyaldir (bkz. spesifikasyon madde 25).
   currentContractValue: number;
   locked: boolean;
+  // projects.finance.manage yoksa (salt okuma) yazma kontrolleri gizlenir.
+  canManage: boolean;
 }) {
   const { busy, error, run } = useFinanceAction(locked);
+  const editable = !locked && canManage;
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: "", percentage: "", planned_amount: "", due_date: "" });
 
@@ -160,7 +164,7 @@ export function PaymentPlanSection({
                   <StatusBadge status={it.status} registry={PLAN_ITEM_STATUS} />
                 </Td>
                 <Td className="text-right">
-                  {!locked && it.status !== "cancelled" && (
+                  {editable && it.status !== "cancelled" && (
                     <button
                       type="button"
                       disabled={busy}
@@ -208,7 +212,7 @@ export function PaymentPlanSection({
 
       {locked ? (
         <LockedNote project={project} />
-      ) : open ? (
+      ) : !canManage ? null : open ? (
         <form onSubmit={submit} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
           <Input
             placeholder="Kalem adı (ör. Peşinat)"
@@ -262,13 +266,17 @@ export function CollectionsSection({
   collections,
   planItems,
   locked,
+  canManage,
 }: {
   project: Project;
   collections: Collection[];
   planItems: PaymentPlanItem[];
   locked: boolean;
+  // projects.finance.manage yoksa (salt okuma) yazma kontrolleri gizlenir.
+  canManage: boolean;
 }) {
   const { busy, error, run } = useFinanceAction(locked);
+  const editable = !locked && canManage;
   const { askReason, dialog } = useReasonDialog();
   const [open, setOpen] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey);
@@ -344,7 +352,7 @@ export function CollectionsSection({
                   {formatMoney(c.amount, c.currency)}
                 </Td>
                 <Td className="text-right">
-                  {!c.voided_at && !locked && (
+                  {!c.voided_at && editable && (
                     <button
                       type="button"
                       disabled={busy}
@@ -379,7 +387,7 @@ export function CollectionsSection({
 
       {locked ? (
         <LockedNote project={project} />
-      ) : open ? (
+      ) : !canManage ? null : open ? (
         <form onSubmit={submit} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
           <Input
             className="w-36"
@@ -467,6 +475,7 @@ export function ExpensesSection({
   costCodes = [],
   budgetLines = [],
   locked,
+  canManage,
 }: {
   project: Project;
   expenses: Expense[];
@@ -478,8 +487,11 @@ export function ExpensesSection({
   costCodes?: OrganizationCostCode[];
   budgetLines?: BudgetLine[];
   locked: boolean;
+  // projects.finance.manage yoksa (salt okuma) yazma kontrolleri gizlenir.
+  canManage: boolean;
 }) {
   const { busy, error, run } = useFinanceAction(locked);
+  const editable = !locked && canManage;
   const { askReason, dialog } = useReasonDialog();
   const [sectionOpen, setSectionOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
@@ -532,7 +544,7 @@ export function ExpensesSection({
       open={sectionOpen}
       onOpenChange={setSectionOpen}
       action={
-        !locked && (
+        editable && (
           <Button type="button" onClick={openForm} disabled={busy}>
             + Masraf Ekle
           </Button>
@@ -588,7 +600,7 @@ export function ExpensesSection({
                     {formatMoney(e.amount, e.currency)}
                   </Td>
                   <Td className="text-right">
-                    {!e.voided_at && !locked && (
+                    {!e.voided_at && editable && (
                       <button
                         type="button"
                         disabled={busy}
@@ -774,12 +786,16 @@ export function InvoicesSection({
   project,
   invoices,
   locked,
+  canManage,
 }: {
   project: Project;
   invoices: ProjectInvoice[];
   locked: boolean;
+  // projects.finance.manage yoksa (salt okuma) yazma kontrolleri gizlenir.
+  canManage: boolean;
 }) {
   const { busy, error, run } = useFinanceAction(locked);
+  const editable = !locked && canManage;
   const { confirm, dialog } = useConfirmDialog();
   const [open, setOpen] = useState(false);
 
@@ -866,7 +882,7 @@ export function InvoicesSection({
                 </Td>
                 <Td className="text-right font-medium">{formatMoney(inv.amount, inv.currency)}</Td>
                 <Td>
-                  {locked ? (
+                  {!editable ? (
                     <StatusBadge status={inv.status} registry={INVOICE_STATUS} />
                   ) : (
                     <Select
@@ -892,7 +908,7 @@ export function InvoicesSection({
 
       {locked ? (
         <LockedNote project={project} />
-      ) : open ? (
+      ) : !canManage ? null : open ? (
         <form onSubmit={submit} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
           <Input
             placeholder="Fatura no"
@@ -949,13 +965,17 @@ export function SubcontractorsSection({
   subcontractors,
   payments,
   locked,
+  canManage,
 }: {
   project: Project;
   subcontractors: Subcontractor[];
   payments: SubcontractorPayment[];
   locked: boolean;
+  // projects.finance.manage yoksa (salt okuma) yazma kontrolleri gizlenir.
+  canManage: boolean;
 }) {
   const { busy, error, run } = useFinanceAction(locked);
+  const editable = !locked && canManage;
   const [open, setOpen] = useState(false);
   const [payingFor, setPayingFor] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", company_name: "", work_description: "", contract_amount: "" });
@@ -1060,7 +1080,7 @@ export function SubcontractorsSection({
                 </ul>
               )}
 
-              {!locked && (
+              {editable && (
                 <div className="mt-2">
                   {payingFor === s.id ? (
                     <form onSubmit={(e) => addPayment(e, s.id)} className="flex flex-wrap items-end gap-2">
@@ -1104,7 +1124,7 @@ export function SubcontractorsSection({
 
       {locked ? (
         <LockedNote project={project} />
-      ) : open ? (
+      ) : !canManage ? null : open ? (
         <form onSubmit={addSub} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
           <Input
             placeholder="Taşeron adı"

@@ -51,6 +51,13 @@ import type {
 const inputClass =
   "rounded-md border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-muted/60 outline-none focus:border-gold";
 
+// Satın alma izinleri (router.go): oluşturma/düzenleme/gönderme/RFQ
+// gönderme-kapatma-iptal/teklif girme/talep iptali = procurement.manage;
+// talep onay-red, RFQ ödülü ve sipariş onay/iptal/kapatma =
+// procurement.approve. Proje Yöneticisi approve'a sahip değil -- izni
+// olmayan düğme gösterilmez (eskiden tıklayınca 403 alıyordu).
+type PurchasingPerms = { canManage: boolean; canApprove: boolean };
+
 function usePurchasingAction(locked: boolean) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -174,7 +181,11 @@ function prItemsToPayload(items: PRItemDraft[]) {
 
 // ---------- Purchase Request kartı ----------
 
-function PurchaseRequestCard({ project, pr, locked }: { project: Project; pr: PurchaseRequest; locked: boolean }) {
+function PurchaseRequestCard({
+  project, pr, locked, perms,
+}: {
+  project: Project; pr: PurchaseRequest; locked: boolean; perms: PurchasingPerms;
+}) {
   const { busy, error, run } = usePurchasingAction(locked);
   const toast = useToast();
   const { askReason, dialog } = useReasonDialog();
@@ -262,7 +273,7 @@ function PurchaseRequestCard({ project, pr, locked }: { project: Project; pr: Pu
           </Table>
           {!locked && (
             <div className="flex flex-wrap gap-2">
-              {isDraft && (
+              {isDraft && perms.canManage && (
                 <>
                   <Button type="button" disabled={busy} onClick={submit}>Gönder</Button>
                   <Button type="button" variant="danger" disabled={busy} onClick={cancel}>İptal</Button>
@@ -270,12 +281,18 @@ function PurchaseRequestCard({ project, pr, locked }: { project: Project; pr: Pu
               )}
               {isSubmitted && (
                 <>
-                  <Button type="button" variant="secondary" disabled={busy} onClick={withdraw}>Geri Çek</Button>
-                  <Button type="button" disabled={busy} onClick={approve}>Onayla</Button>
-                  <Button type="button" variant="danger" disabled={busy} onClick={reject}>Reddet</Button>
+                  {perms.canManage && (
+                    <Button type="button" variant="secondary" disabled={busy} onClick={withdraw}>Geri Çek</Button>
+                  )}
+                  {perms.canApprove && (
+                    <>
+                      <Button type="button" disabled={busy} onClick={approve}>Onayla</Button>
+                      <Button type="button" variant="danger" disabled={busy} onClick={reject}>Reddet</Button>
+                    </>
+                  )}
                 </>
               )}
-              {pr.status === "approved" && (
+              {pr.status === "approved" && perms.canManage && (
                 <Button type="button" variant="danger" disabled={busy} onClick={cancel}>İptal</Button>
               )}
             </div>
@@ -298,10 +315,10 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 function PurchaseRequestsTab({
-  project, purchaseRequests, costCodes, wbsNodes, budgetLines, locked,
+  project, purchaseRequests, costCodes, wbsNodes, budgetLines, locked, perms,
 }: {
   project: Project; purchaseRequests: PurchaseRequest[]; costCodes: OrganizationCostCode[]; wbsNodes: WBSNode[];
-  budgetLines: BudgetLine[]; locked: boolean;
+  budgetLines: BudgetLine[]; locked: boolean; perms: PurchasingPerms;
 }) {
   const { busy, error, run } = usePurchasingAction(locked);
   const [open, setOpen] = useState(false);
@@ -330,7 +347,7 @@ function PurchaseRequestsTab({
       ) : (
         <div className="flex flex-col gap-2">
           {purchaseRequests.map((pr) => (
-            <PurchaseRequestCard key={pr.id} project={project} pr={pr} locked={locked} />
+            <PurchaseRequestCard key={pr.id} project={project} pr={pr} locked={locked} perms={perms} />
           ))}
         </div>
       )}
@@ -347,7 +364,9 @@ function PurchaseRequestsTab({
           {error && <p className="text-xs text-danger">{error}</p>}
         </form>
       ) : (
-        <Button type="button" variant="secondary" onClick={() => setOpen(true)} disabled={locked}>+ Talep Oluştur</Button>
+        perms.canManage && (
+          <Button type="button" variant="secondary" onClick={() => setOpen(true)} disabled={locked}>+ Talep Oluştur</Button>
+        )
       )}
     </div>
   );
@@ -359,9 +378,9 @@ type RFQItemDraft = { wbs_node_id: string; cost_code_id: string; budget_line_id:
 const emptyRFQItem = (): RFQItemDraft => ({ wbs_node_id: "", cost_code_id: "", budget_line_id: "", description: "", quantity: "1", unit: "adet" });
 
 function RFQCard({
-  project, rfq, onCompare, locked,
+  project, rfq, onCompare, locked, perms,
 }: {
-  project: Project; rfq: RFQ; onCompare: (rfqId: string) => void; locked: boolean;
+  project: Project; rfq: RFQ; onCompare: (rfqId: string) => void; locked: boolean; perms: PurchasingPerms;
 }) {
   const { busy, error, run } = usePurchasingAction(locked);
   const toast = useToast();
@@ -436,7 +455,7 @@ function RFQCard({
           </div>
           {!locked && (
             <div className="flex flex-wrap gap-2">
-              {rfq.status === "draft" && (
+              {rfq.status === "draft" && perms.canManage && (
                 <>
                   <Button type="button" disabled={busy} onClick={issue}>Gönder</Button>
                   <Button type="button" variant="danger" disabled={busy} onClick={cancel}>İptal</Button>
@@ -445,8 +464,12 @@ function RFQCard({
               {rfq.status === "issued" && (
                 <>
                   <Button type="button" variant="secondary" onClick={() => onCompare(rfq.id)}>Teklifleri Karşılaştır</Button>
-                  <Button type="button" variant="secondary" disabled={busy} onClick={close}>Kapat</Button>
-                  <Button type="button" variant="danger" disabled={busy} onClick={cancel}>İptal</Button>
+                  {perms.canManage && (
+                    <>
+                      <Button type="button" variant="secondary" disabled={busy} onClick={close}>Kapat</Button>
+                      <Button type="button" variant="danger" disabled={busy} onClick={cancel}>İptal</Button>
+                    </>
+                  )}
                 </>
               )}
               {rfq.status === "closed" && rfq.awarded_quotation_id && (
@@ -463,11 +486,11 @@ function RFQCard({
 }
 
 function RFQsTab({
-  project, rfqs, purchaseRequests, suppliers, costCodes, wbsNodes, budgetLines, onCompare, locked,
+  project, rfqs, purchaseRequests, suppliers, costCodes, wbsNodes, budgetLines, onCompare, locked, perms,
 }: {
   project: Project; rfqs: RFQ[]; purchaseRequests: PurchaseRequest[]; suppliers: Supplier[];
   costCodes: OrganizationCostCode[]; wbsNodes: WBSNode[]; budgetLines: BudgetLine[];
-  onCompare: (rfqId: string) => void; locked: boolean;
+  onCompare: (rfqId: string) => void; locked: boolean; perms: PurchasingPerms;
 }) {
   const { busy, error, run } = usePurchasingAction(locked);
   const [open, setOpen] = useState(false);
@@ -510,7 +533,7 @@ function RFQsTab({
       ) : (
         <div className="flex flex-col gap-2">
           {rfqs.map((rfq) => (
-            <RFQCard key={rfq.id} project={project} rfq={rfq} onCompare={onCompare} locked={locked} />
+            <RFQCard key={rfq.id} project={project} rfq={rfq} onCompare={onCompare} locked={locked} perms={perms} />
           ))}
         </div>
       )}
@@ -552,7 +575,9 @@ function RFQsTab({
           {error && <p className="text-xs text-danger">{error}</p>}
         </form>
       ) : (
-        <Button type="button" variant="secondary" onClick={() => setOpen(true)} disabled={locked}>+ RFQ Oluştur</Button>
+        perms.canManage && (
+          <Button type="button" variant="secondary" onClick={() => setOpen(true)} disabled={locked}>+ RFQ Oluştur</Button>
+        )
       )}
     </div>
   );
@@ -594,9 +619,10 @@ function RFQItemsEditor({
 // ---------- Teklif Karşılaştırma ----------
 
 function ComparisonTab({
-  project, rfqs, selectedRFQId, setSelectedRFQId, locked,
+  project, rfqs, selectedRFQId, setSelectedRFQId, locked, perms,
 }: {
   project: Project; rfqs: RFQ[]; selectedRFQId: string | null; setSelectedRFQId: (id: string | null) => void; locked: boolean;
+  perms: PurchasingPerms;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -745,7 +771,7 @@ function ComparisonTab({
             </Table>
           </div>
 
-          {rfq.status === "issued" && comparison.quotations.length > 0 && !locked && (
+          {rfq.status === "issued" && comparison.quotations.length > 0 && !locked && perms.canApprove && (
             <div className="flex flex-wrap gap-2">
               {comparison.quotations.map((q) => (
                 <Button key={q.id} type="button" variant="secondary" disabled={busy} onClick={() => award(q.id)}>
@@ -759,7 +785,7 @@ function ComparisonTab({
             <p className="text-xs text-text-muted">Teklif veren: {respondedSuppliers.map((s) => s.supplier_code).join(", ")}</p>
           )}
 
-          {rfq.status === "issued" && notYetQuoted.length > 0 && !locked && (
+          {rfq.status === "issued" && notYetQuoted.length > 0 && !locked && perms.canManage && (
             <form onSubmit={submitQuote} className="flex flex-col gap-2 rounded-md border border-border p-3">
               <span className="text-xs uppercase tracking-widest text-text-muted">Yeni Teklif Gir</span>
               <div className="grid grid-cols-3 gap-2">
@@ -800,7 +826,11 @@ function ComparisonTab({
 type POItemDraft = { wbs_node_id: string; cost_code_id: string; budget_line_id: string; description: string; quantity: string; unit: string; unit_price: string };
 const emptyPOItem = (): POItemDraft => ({ wbs_node_id: "", cost_code_id: "", budget_line_id: "", description: "", quantity: "1", unit: "adet", unit_price: "" });
 
-function POCard({ project, po, locked }: { project: Project; po: PurchaseOrder; locked: boolean }) {
+function POCard({
+  project, po, locked, perms,
+}: {
+  project: Project; po: PurchaseOrder; locked: boolean; perms: PurchasingPerms;
+}) {
   const { busy, error, run } = usePurchasingAction(locked);
   const toast = useToast();
   const { confirm, dialog } = useConfirmDialog();
@@ -890,7 +920,7 @@ function POCard({ project, po, locked }: { project: Project; po: PurchaseOrder; 
               </ul>
             </div>
           )}
-          {!locked && (
+          {!locked && perms.canApprove && (
             <div className="flex flex-wrap gap-2">
               {po.status === "draft" && (
                 <>
@@ -916,10 +946,10 @@ function POCard({ project, po, locked }: { project: Project; po: PurchaseOrder; 
 }
 
 function PurchaseOrdersTab({
-  project, purchaseOrders, suppliers, costCodes, wbsNodes, budgetLines, locked,
+  project, purchaseOrders, suppliers, costCodes, wbsNodes, budgetLines, locked, perms,
 }: {
   project: Project; purchaseOrders: PurchaseOrder[]; suppliers: Supplier[]; costCodes: OrganizationCostCode[];
-  wbsNodes: WBSNode[]; budgetLines: BudgetLine[]; locked: boolean;
+  wbsNodes: WBSNode[]; budgetLines: BudgetLine[]; locked: boolean; perms: PurchasingPerms;
 }) {
   const { busy, error, run } = usePurchasingAction(locked);
   const [open, setOpen] = useState(false);
@@ -956,7 +986,7 @@ function PurchaseOrdersTab({
       ) : (
         <div className="flex flex-col gap-2">
           {purchaseOrders.map((po) => (
-            <POCard key={po.id} project={project} po={po} locked={locked} />
+            <POCard key={po.id} project={project} po={po} locked={locked} perms={perms} />
           ))}
         </div>
       )}
@@ -1004,7 +1034,9 @@ function PurchaseOrdersTab({
           {error && <p className="text-xs text-danger">{error}</p>}
         </form>
       ) : (
-        <Button type="button" variant="secondary" onClick={() => setOpen(true)} disabled={locked}>+ Sipariş Oluştur</Button>
+        perms.canManage && (
+          <Button type="button" variant="secondary" onClick={() => setOpen(true)} disabled={locked}>+ Sipariş Oluştur</Button>
+        )
       )}
     </div>
   );
@@ -1013,11 +1045,13 @@ function PurchaseOrdersTab({
 // ---------- Üst seviye çalışma alanı ----------
 
 export function PurchasingWorkspace({
-  project, purchaseRequests, rfqs, purchaseOrders, suppliers, costCodes, wbsNodes, budgetLines, locked,
+  project, purchaseRequests, rfqs, purchaseOrders, suppliers, costCodes, wbsNodes, budgetLines, locked, canManage, canApprove,
 }: {
   project: Project; purchaseRequests: PurchaseRequest[]; rfqs: RFQ[]; purchaseOrders: PurchaseOrder[];
   suppliers: Supplier[]; costCodes: OrganizationCostCode[]; wbsNodes: WBSNode[]; budgetLines: BudgetLine[]; locked: boolean;
+  canManage: boolean; canApprove: boolean;
 }) {
+  const perms: PurchasingPerms = { canManage, canApprove };
   const [active, setActive] = useState<"talepler" | "rfq" | "karsilastirma" | "siparisler">("talepler");
   const [selectedRFQId, setSelectedRFQId] = useState<string | null>(null);
 
@@ -1037,19 +1071,19 @@ export function PurchasingWorkspace({
         ]}
       />
       <div hidden={active !== "talepler"}>
-        <PurchaseRequestsTab project={project} purchaseRequests={purchaseRequests} costCodes={costCodes} wbsNodes={wbsNodes} budgetLines={budgetLines} locked={locked} />
+        <PurchaseRequestsTab project={project} purchaseRequests={purchaseRequests} costCodes={costCodes} wbsNodes={wbsNodes} budgetLines={budgetLines} locked={locked} perms={perms} />
       </div>
       <div hidden={active !== "rfq"}>
         <RFQsTab
           project={project} rfqs={rfqs} purchaseRequests={purchaseRequests} suppliers={suppliers}
-          costCodes={costCodes} wbsNodes={wbsNodes} budgetLines={budgetLines} onCompare={goToComparison} locked={locked}
+          costCodes={costCodes} wbsNodes={wbsNodes} budgetLines={budgetLines} onCompare={goToComparison} locked={locked} perms={perms}
         />
       </div>
       <div hidden={active !== "karsilastirma"}>
-        <ComparisonTab project={project} rfqs={rfqs} selectedRFQId={selectedRFQId} setSelectedRFQId={setSelectedRFQId} locked={locked} />
+        <ComparisonTab project={project} rfqs={rfqs} selectedRFQId={selectedRFQId} setSelectedRFQId={setSelectedRFQId} locked={locked} perms={perms} />
       </div>
       <div hidden={active !== "siparisler"}>
-        <PurchaseOrdersTab project={project} purchaseOrders={purchaseOrders} suppliers={suppliers} costCodes={costCodes} wbsNodes={wbsNodes} budgetLines={budgetLines} locked={locked} />
+        <PurchaseOrdersTab project={project} purchaseOrders={purchaseOrders} suppliers={suppliers} costCodes={costCodes} wbsNodes={wbsNodes} budgetLines={budgetLines} locked={locked} perms={perms} />
       </div>
     </div>
   );

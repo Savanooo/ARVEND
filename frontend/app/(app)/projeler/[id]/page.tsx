@@ -129,6 +129,16 @@ export default async function ProjeDetayPage({
   const user = await getCurrentUser();
   const canReadOffers = hasPermission(user?.permissions, PAGE_PERMISSIONS.offers);
   const canUpdateProject = hasPermission(user?.permissions, "projects.update");
+  // Bölüm içi yazma düğmeleri, backend'in o uçta zorladığı izne göre
+  // gösterilir (bkz. router.go) -- izni olmayana düğme gösterip 403
+  // döndürmek yerine. Asıl sınır yine backend'dir.
+  const perms = user?.permissions;
+  const canReadContract = hasPermission(perms, "projects.contracts.read");
+  const canManageContract = hasPermission(perms, "projects.contracts.manage");
+  const canContractLifecycle = hasPermission(perms, "projects.contracts.lifecycle");
+  const canManageFinance = hasPermission(perms, "projects.finance.manage");
+  const canManageProcurement = hasPermission(perms, "projects.procurement.manage");
+  const canApproveProcurement = hasPermission(perms, "projects.procurement.approve");
 
   // project, sayfanın var olabilmesi için ZORUNLUDUR -- ayrı ve
   // korumasız çekilir; proje yoksa (404: silinmiş/bayat bağlantı) "Kayıt
@@ -451,12 +461,18 @@ export default async function ProjeDetayPage({
                 finance.read'i olmayan ama contracts.manage'e sahip bir Proje
                 Yöneticisi (bkz. rol matrisi) Sözleşme'yi hiç göremezdi. */}
             <Section title="Sözleşme" defaultOpen>
-              <ContractSection
-                project={project}
-                contract={contract}
-                changeOrders={changeOrders?.change_orders ?? []}
-                locked={locked}
-              />
+              {canReadContract ? (
+                <ContractSection
+                  project={project}
+                  contract={contract}
+                  changeOrders={changeOrders?.change_orders ?? []}
+                  locked={locked}
+                  canManage={canManageContract}
+                  canLifecycle={canContractLifecycle}
+                />
+              ) : (
+                <p className="text-sm text-text-muted">Bu bölümü görüntüleme yetkiniz yok.</p>
+              )}
             </Section>
 
             {/* Bu sekmenin GERİ KALAN TÜM kaynakları AYNI izne (projects.
@@ -472,6 +488,7 @@ export default async function ProjeDetayPage({
                     plannedTotal={plan.planned_total}
                     currentContractValue={summary.current_contract_value}
                     locked={locked}
+                    canManage={canManageFinance}
                   />
                 </Section>
 
@@ -481,6 +498,7 @@ export default async function ProjeDetayPage({
                     collections={collections.collections}
                     planItems={plan.items}
                     locked={locked}
+                    canManage={canManageFinance}
                   />
                 </Section>
 
@@ -491,10 +509,16 @@ export default async function ProjeDetayPage({
                   costCodes={costCodes?.cost_codes ?? []}
                   budgetLines={budgetLines?.budget_lines ?? []}
                   locked={locked}
+                  canManage={canManageFinance}
                 />
 
                 <Section title="Fatura Bilgileri">
-                  <InvoicesSection project={project} invoices={invoices.invoices} locked={locked} />
+                  <InvoicesSection
+                    project={project}
+                    invoices={invoices.invoices}
+                    locked={locked}
+                    canManage={canManageFinance}
+                  />
                 </Section>
 
                 <Section title="Taşeronlar">
@@ -503,6 +527,7 @@ export default async function ProjeDetayPage({
                     subcontractors={subcontractors.subcontractors}
                     payments={subPayments.payments}
                     locked={locked}
+                    canManage={canManageFinance}
                   />
                 </Section>
 
@@ -551,6 +576,8 @@ export default async function ProjeDetayPage({
                 wbsNodes={wbsNodes?.wbs_nodes ?? []}
                 budgetLines={budgetLines?.budget_lines ?? []}
                 locked={locked}
+                canManage={canManageProcurement}
+                canApprove={canApproveProcurement}
               />
             ) : (
               <p className="text-sm text-text-muted">Bu bölümü görüntüleme yetkiniz yok.</p>

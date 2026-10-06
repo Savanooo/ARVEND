@@ -63,11 +63,20 @@ export function ContractSection({
   contract,
   changeOrders,
   locked,
+  canManage,
+  canLifecycle,
 }: {
   project: Project;
   contract: ProjectContract | null;
   changeOrders: ChangeOrder[];
   locked: boolean;
+  // Üç katmanlı izin (bkz. router.go): oluşturma/taslak/not =
+  // projects.contracts.manage; aktifleştir/tamamla/iptal/feshet =
+  // projects.contracts.lifecycle. Proje Yöneticisi manage'e sahip ama
+  // lifecycle'a sahip değil -- izni olmayan düğme gösterilmez (eskiden
+  // tıklayınca 403 alıyordu).
+  canManage: boolean;
+  canLifecycle: boolean;
 }) {
   const { busy, error, run } = useContractAction(locked);
   const toast = useToast();
@@ -94,7 +103,8 @@ export function ContractSection({
         title="Bu proje için henüz bir sözleşme yok"
         description="Sözleşme oluşturduktan sonra kapsam/ödeme koşullarını doldurabilir ve aktifleştirebilirsiniz."
         action={
-          !locked && (
+          !locked &&
+          canManage && (
             <Button onClick={createContract} disabled={busy}>
               Sözleşme Oluştur
             </Button>
@@ -106,7 +116,7 @@ export function ContractSection({
 
   const isDraft = contract.status === "draft";
   const isActive = contract.status === "active";
-  const notesEditable = isDraft || isActive;
+  const notesEditable = (isDraft || isActive) && canManage;
 
   async function saveDraftFields(e: FormEvent) {
     e.preventDefault();
@@ -205,7 +215,7 @@ export function ContractSection({
               `Feshedildi${contract.termination_reason ? ` — ${contract.termination_reason}` : ""}.`}
           </span>
         </div>
-        {!locked && (
+        {!locked && canLifecycle && (
           <div className="flex gap-2">
             {isDraft && (
               <>
@@ -231,7 +241,7 @@ export function ContractSection({
         )}
       </div>
 
-      {isDraft ? (
+      {isDraft && canManage ? (
         <form onSubmit={saveDraftFields} className="flex flex-col gap-3 rounded-md border border-border p-3">
           <Textarea
             label="Kapsam"
@@ -276,9 +286,11 @@ export function ContractSection({
         </form>
       ) : (
         <div className="flex flex-col gap-3 rounded-md border border-border p-3 text-sm">
-          <p className="text-xs text-text-muted">
-            Aktivasyon sonrası ticari şartlar kilitlidir — değişiklik için resmi bir Ek İş gereklidir.
-          </p>
+          {!isDraft && (
+            <p className="text-xs text-text-muted">
+              Aktivasyon sonrası ticari şartlar kilitlidir — değişiklik için resmi bir Ek İş gereklidir.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             <Field label="Yürürlük Tarihi" value={formatDate(contract.effective_date)} />
             <Field label="Planlanan Bitiş" value={formatDate(contract.planned_completion_date)} />
