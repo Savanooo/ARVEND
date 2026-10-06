@@ -17,6 +17,11 @@ import { fetchAllProducts, type ProductPage } from "@/lib/products";
 import type { CalcSnapshot, Customer, Offer, OfferItemPricingMode, Product } from "@/lib/types";
 
 interface ItemRow {
+  // Düzenlenen taslakta satırın karşılık geldiği mevcut kalemin id'si (yeni
+  // satırlarda null). Backend, iç fiyatlama yetkisi olmayan düzenleyicinin
+  // kaydında mevcut kalemlerin iç maliyetini bu id ile taşır -- id
+  // gönderilmezse o maliyetleri silmemek için kaydı reddeder.
+  id: string | null;
   product_id: string | null;
   product_name: string;
   quantity: string;
@@ -38,6 +43,7 @@ interface ItemRow {
 }
 
 const emptyRow = (): ItemRow => ({
+  id: null,
   product_id: null,
   product_name: "",
   quantity: "1",
@@ -54,6 +60,7 @@ const emptyRow = (): ItemRow => ({
 function offerToRows(offer?: Offer): ItemRow[] {
   if (!offer?.items?.length) return [emptyRow()];
   return offer.items.map((it) => ({
+    id: it.id,
     product_id: it.product_id,
     product_name: it.product_name,
     quantity: String(it.quantity),
@@ -71,6 +78,7 @@ function offerToRows(offer?: Offer): ItemRow[] {
 
 function draftToRow(draft: MetrajOfferItemDraft): ItemRow {
   return {
+    id: null,
     product_id: draft.product_id,
     product_name: draft.product_name,
     quantity: String(draft.quantity),
@@ -223,6 +231,7 @@ export function OfferForm({
         items: items
           .filter((r) => r.product_name.trim() && parseFloat(r.quantity) > 0)
           .map((r) => ({
+            id: r.id,
             product_id: r.product_id,
             product_name: r.product_name.trim(),
             quantity: parseNum(r.quantity),

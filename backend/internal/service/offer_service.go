@@ -89,6 +89,12 @@ func logOfferEvent(ctx context.Context, q *sqlc.Queries, orgID, offerID, revisio
 }
 
 type OfferItemInput struct {
+	// ID: düzenlenen taslakta bu satırın karşılık geldiği MEVCUT kalemin
+	// id'si (yeni eklenen satırlarda nil). Yalnızca Update'te, iç fiyatlama
+	// yetkisi olmayan bir düzenleyicinin kaydında mevcut kalemlerin iç
+	// maliyetini taşımak için kullanılır (bkz. carryOverInternalPricing) --
+	// satırlar her kayıtta yine silinip yeniden yazılır.
+	ID          *string
 	ProductID   *string
 	ProductName string
 	Quantity    float64
@@ -597,6 +603,63 @@ func (s *OfferService) loadOfferWithCurrentRevision(ctx context.Context, offerRo
 
 var ErrOfferNotEditable = errors.New("yalnızca taslak durumundaki teklifler düzenlenebilir")
 
+// ErrOfferInternalPricingUnmatched: taslakta iç maliyet bilgisi olan
+// kalemler var, düzenleyicinin bunları görme/değiştirme yetkisi yok VE
+// gönderilen kalemler mevcut kalemlerle (id ile) eşleştirilemiyor. Kaydı
+// kabul etmek iç maliyetleri sessizce silmek olurdu -- bu yüzden reddedilir.
+var ErrOfferInternalPricingUnmatched = errors.New("bu taslaktaki bazı kalemlerde iç maliyet bilgisi var ve gönderilen kalemler mevcut kalemlerle eşleştirilemedi; iç maliyetlerin silinmemesi için kayıt yapılmadı. Uygulamayı güncelleyip tekrar deneyin ya da iç fiyatlama yetkisi olan bir kullanıcıdan düzenlemesini isteyin")
+
+// carryOverInternalPricing, offers.internal_pricing.manage yetkisi OLMAYAN
+// bir düzenleyicinin gönderdiği kalemlere, mevcut revizyondaki karşılık
+// gelen kalemin (istekteki id ile eşleşen) iç fiyatlama alanlarını taşır.
+// İstemcinin gönderdiği iç alanlar her durumda yok sayılır (yetki sınırı).
+//
+//   - Mevcut kalemlerin hiçbirinde iç maliyet yoksa kaybedilecek bir şey
+//     yoktur -- kalemler olduğu gibi döner.
+//   - Varsa ama istekteki HİÇBİR kalem id taşımıyorsa (id göndermeyen eski
+//     istemci) eşleştirme güvenilir değildir -> ErrOfferInternalPricingUnmatched.
+//     İstek id taşıyorsa, hiçbir satırın işaret etmediği mevcut kalemler
+//     düzenleyicinin bilerek sildiği kalemlerdir.
+//   - "markup" modundaki bir kalemin birim fiyatını düzenleyici değiştirdiyse
+//     kalem "manual"a çevrilir (maliyet korunur): aksi halde sunucu fiyatı
+//     maliyet × marjdan yeniden hesaplayıp düzenleyicinin -- iç maliyeti
+//     göremeyen kişinin -- girdiği fiyatı sessizce geri alırdı.
+func carryOverInternalPricing(items []OfferItemInput, existing []sqlc.OfferRevisionItem) ([]OfferItemInput, error) {
+	withInternal := make(map[string]sqlc.OfferRevisionItem)
+	for _, e := range existing {
+		if e.InternalSubcontractCost.Valid {
+			withInternal[e.ID.String()] = e
+		}
+	}
+	out := make([]OfferItemInput, len(items))
+	anyID := false
+	for i, it := range items {
+		it.InternalSubcontractCost, it.PricingMode, it.MarkupPercent = nil, "", nil
+		if it.ID != nil && strings.TrimSpace(*it.ID) != "" {
+			anyID = true
+			if uid, err := repository.StringToUUID(strings.TrimSpace(*it.ID)); err == nil {
+				if e, ok := withInternal[uid.String()]; ok {
+					it.InternalSubcontractCost = repository.NumericToFloat64Ptr(e.InternalSubcontractCost)
+					if e.PricingMode != nil {
+						it.PricingMode = *e.PricingMode
+					}
+					it.MarkupPercent = repository.NumericToFloat64Ptr(e.MarkupPercent)
+					if it.PricingMode == domain.OfferItemPricingModeMarkup &&
+						!decimal.NewFromFloat(it.UnitPrice).Round(2).Equal(repository.NumericToDecimal(e.UnitPrice)) {
+						it.PricingMode = domain.OfferItemPricingModeManual
+						it.MarkupPercent = nil
+					}
+				}
+			}
+		}
+		out[i] = it
+	}
+	if len(withInternal) > 0 && !anyID {
+		return nil, ErrOfferInternalPricingUnmatched
+	}
+	return out, nil
+}
+
 type UpdateOfferInput struct {
 	CustomerID      *string
 	CustomerName    string
@@ -640,10 +703,6 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 	if len(in.Items) == 0 {
 		return nil, errors.New("en az bir kalem girilmelidir")
 	}
-	items, subtotal, vatRate, vatAmount, grandTotal, err := computeOfferTotals(in.Items, in.VatRate, in.CanManageInternalPricing)
-	if err != nil {
-		return nil, err
-	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -651,6 +710,28 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 	}
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
+
+	// İç fiyatlama yetkisi olmayan düzenleyici: istemcinin gönderdiği iç
+	// alanlara hiç güvenilmez, mevcut kalemlerinkiler id ile taşınır (bkz.
+	// carryOverInternalPricing). Taşınan değerler veritabanından geldiği
+	// için hesaplama bu durumda "yetkili" yoldan yapılır -- aksi halde
+	// computeOfferTotals onları da silerdi (eski hata: kalemler silinip
+	// yeniden yazıldığı için iç maliyetler sessizce kayboluyordu).
+	itemsIn, trustInternal := in.Items, in.CanManageInternalPricing
+	if !in.CanManageInternalPricing {
+		existing, err := txq.ListOfferRevisionItems(ctx, offerRow.CurrentRevisionID)
+		if err != nil {
+			return nil, err
+		}
+		if itemsIn, err = carryOverInternalPricing(in.Items, existing); err != nil {
+			return nil, err
+		}
+		trustInternal = true
+	}
+	items, subtotal, vatRate, vatAmount, grandTotal, err := computeOfferTotals(itemsIn, in.VatRate, trustInternal)
+	if err != nil {
+		return nil, err
+	}
 
 	custID, customer, err := resolveCustomerSnapshot(ctx, txq, orgID, in.CustomerID)
 	if err != nil {

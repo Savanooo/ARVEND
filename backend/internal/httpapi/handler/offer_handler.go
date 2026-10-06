@@ -215,6 +215,9 @@ func (h *OfferHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 type createOfferItemRequest struct {
+	// ID: düzenlemede satırın karşılık geldiği mevcut kalemin id'si (yeni
+	// satırlarda boş). Bkz. service.OfferItemInput.ID.
+	ID          *string `json:"id"`
 	ProductID   *string `json:"product_id"`
 	ProductName string  `json:"product_name"`
 	Quantity    float64 `json:"quantity"`
@@ -263,6 +266,7 @@ func toOfferItemInputs(items []createOfferItemRequest) []service.OfferItemInput 
 	out := make([]service.OfferItemInput, len(items))
 	for i, it := range items {
 		out[i] = service.OfferItemInput{
+			ID:                      it.ID,
 			ProductID:               it.ProductID,
 			ProductName:             it.ProductName,
 			Quantity:                it.Quantity,
@@ -703,6 +707,7 @@ func (h *OfferHandler) writeError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusNotFound, "teklif bulunamadı")
 	case errors.Is(err, service.ErrOfferAccepted),
 		errors.Is(err, service.ErrOfferNotEditable),
+		errors.Is(err, service.ErrOfferInternalPricingUnmatched),
 		errors.Is(err, service.ErrOfferLocked),
 		errors.Is(err, service.ErrOfferCannotReturnToDraft),
 		errors.Is(err, service.ErrOfferNotRevisable):
