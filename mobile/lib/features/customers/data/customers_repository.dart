@@ -77,4 +77,19 @@ class CustomersRepository {
   /// is_active = false`, asla `DELETE FROM customers` yok). Bu yüzden
   /// mobilde güvenle sunulabilir.
   Future<void> archive(String id) => _client.delete<void>('/customers/$id');
+
+  /// Pasif (arşivlenmiş) müşteriyi yeniden aktifleştirir -- web ile AYNI
+  /// uç: `PUT /customers/{id}` ve `is_active: true`. PUT tüm alanları
+  /// yazdığı için mevcut bilgiler aynen geri gönderilir.
+  Future<Customer> reactivate(Customer c) => update(
+        c.id,
+        name: c.name,
+        phone: c.phone,
+        email: c.email,
+        address: c.address,
+        taxOffice: c.taxOffice,
+        taxNumber: c.taxNumber,
+        notes: c.notes,
+        isActive: true,
+      );
 }
