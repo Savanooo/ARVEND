@@ -152,15 +152,21 @@ func (q *Queries) DeactivateUser(ctx context.Context, arg DeactivateUserParams) 
 }
 
 const getOnboardingGateStatus = `-- name: GetOnboardingGateStatus :one
-SELECT u.must_change_password, o.onboarding_completed
+SELECT u.must_change_password, o.onboarding_completed,
+       u.is_active, (u.deleted_at IS NOT NULL)::boolean AS user_deleted,
+       u.role, u.organization_id
 FROM users u
 JOIN organizations o ON o.id = u.organization_id
 WHERE u.id = $1
 `
 
 type GetOnboardingGateStatusRow struct {
-	MustChangePassword  bool `json:"must_change_password"`
-	OnboardingCompleted bool `json:"onboarding_completed"`
+	MustChangePassword  bool        `json:"must_change_password"`
+	OnboardingCompleted bool        `json:"onboarding_completed"`
+	IsActive            bool        `json:"is_active"`
+	UserDeleted         bool        `json:"user_deleted"`
+	Role                string      `json:"role"`
+	OrganizationID      pgtype.UUID `json:"organization_id"`
 }
 
 // middleware.RequireOnboarded'ın her "business" istekte çağırdığı hafif
@@ -169,10 +175,22 @@ type GetOnboardingGateStatusRow struct {
 // organization_id dolu (super_admin olmayan) kullanıcılar için çağrılır --
 // super_admin bu JOIN'e hiç girmeden, rol kontrolüyle daha önce muaf
 // tutulur.
+//
+// Aynı satırdan kullanıcının GÜNCEL durumu da okunur (is_active, silinme,
+// kaba rol): access token 15 dakika geçerli ve rolü içinde taşıyor --
+// pasifleştirilen ya da yetkisi düşürülen biri token'ın ömrü boyunca
+// çalışmaya devam ediyordu. Ek sorgu yok, zaten okunan satır.
 func (q *Queries) GetOnboardingGateStatus(ctx context.Context, id pgtype.UUID) (GetOnboardingGateStatusRow, error) {
 	row := q.db.QueryRow(ctx, getOnboardingGateStatus, id)
 	var i GetOnboardingGateStatusRow
-	err := row.Scan(&i.MustChangePassword, &i.OnboardingCompleted)
+	err := row.Scan(
+		&i.MustChangePassword,
+		&i.OnboardingCompleted,
+		&i.IsActive,
+		&i.UserDeleted,
+		&i.Role,
+		&i.OrganizationID,
+	)
 	return i, err
 }
 
@@ -255,6 +273,35 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.OrganizationRoleID,
 		&i.DeletedAt,
 		&i.DeletedBy,
+	)
+	return i, err
+}
+
+const getUserGateStatus = `-- name: GetUserGateStatus :one
+SELECT u.is_active, (u.deleted_at IS NOT NULL)::boolean AS user_deleted,
+       u.role, u.organization_id
+FROM users u
+WHERE u.id = $1
+`
+
+type GetUserGateStatusRow struct {
+	IsActive       bool        `json:"is_active"`
+	UserDeleted    bool        `json:"user_deleted"`
+	Role           string      `json:"role"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+// RequireActiveUser'ın hafif okuması: requireOnboarded ALMAYAN uçlarda
+// (onboarding, firma ayarları, ilk şifre, cihaz kaydı...) aynı "kullanıcı
+// hâlâ aktif mi, rolü ne" kontrolü.
+func (q *Queries) GetUserGateStatus(ctx context.Context, id pgtype.UUID) (GetUserGateStatusRow, error) {
+	row := q.db.QueryRow(ctx, getUserGateStatus, id)
+	var i GetUserGateStatusRow
+	err := row.Scan(
+		&i.IsActive,
+		&i.UserDeleted,
+		&i.Role,
+		&i.OrganizationID,
 	)
 	return i, err
 }

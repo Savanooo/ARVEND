@@ -27,12 +27,13 @@ const (
 // kontrolden FARKLI bir güvenlik sınırıdır: bir firma askıya alındığında,
 // halihazırda geçerli (süresi dolmamış) bir access token'la gelen mid-session
 // istekleri de reddetmek için (spec: "existing active sessions ile suspended
-// tenant'ın erişmeye devam etmesine izin verme"). Kullanıcı deaktive
-// edilmişse (is_active=false) bu, en geç bir sonraki refresh denemesinde
-// (AuthService.Refresh, is_active kontrolü yapar) düşer; 15 dakikalık access
-// token ömrü bu gecikmeyi kabul edilebilir kılıyor -- is_active BURADA
-// kontrol edilmiyor (organization status'ten farklı olarak her istekte bir
-// users satırı okumak istemiyoruz).
+// tenant'ın erişmeye devam etmesine izin verme"). Kullanıcının kendi
+// durumu (is_active, silinme, GÜNCEL kaba rol) burada DEĞİL, users satırını
+// zaten okuyan RequireOnboarded'da ve onu almayan tenant rotalarında
+// RequireActiveUser'da kontrol edilir (bkz. applyUserGate) -- pasifleştirilen
+// ya da rolü düşürülen biri token'ın 15 dakikalık ömrünü beklemeden düşer.
+// Context'e konan rol token'dakidir; o iki middleware onu veritabanındaki
+// rolle değiştirir.
 func RequireAuth(issuer *auth.JWTIssuer, q *sqlc.Queries) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
