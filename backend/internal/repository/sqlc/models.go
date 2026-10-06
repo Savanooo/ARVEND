@@ -108,6 +108,18 @@ type Employee struct {
 	UserID         pgtype.UUID        `json:"user_id"`
 }
 
+type FeedbackMessage struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	UserName       string             `json:"user_name"`
+	Category       string             `json:"category"`
+	Body           string             `json:"body"`
+	AppVersion     string             `json:"app_version"`
+	ReadAt         pgtype.Timestamptz `json:"read_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type Notification struct {
 	ID             pgtype.UUID        `json:"id"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`
@@ -122,6 +134,7 @@ type Notification struct {
 	ReadAt         pgtype.Timestamptz `json:"read_at"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	GroupCount     int32              `json:"group_count"`
+	PushedAt       pgtype.Timestamptz `json:"pushed_at"`
 }
 
 type Offer struct {
@@ -1006,6 +1019,17 @@ type PurchaseRequestItem struct {
 	EstimatedTotal    pgtype.Numeric `json:"estimated_total"`
 	Notes             string         `json:"notes"`
 	SortOrder         int32          `json:"sort_order"`
+}
+
+type PushDevice struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	Token          string             `json:"token"`
+	Platform       string             `json:"platform"`
+	AppVersion     string             `json:"app_version"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	LastSeenAt     pgtype.Timestamptz `json:"last_seen_at"`
 }
 
 type QuotationItem struct {

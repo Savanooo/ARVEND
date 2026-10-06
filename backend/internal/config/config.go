@@ -54,6 +54,10 @@ type Config struct {
 	// garanti eder; yalnızca hangi firmaların senkronlanacağını her firma
 	// kendi "otomatik senkron" ayarıyla belirler.
 	PriceSyncScheduler bool
+	// FCMServiceAccountFile, Firebase hizmet hesabı anahtarının yolu
+	// (telefona bildirim). Boşsa ya da okunamazsa gönderim kapalıdır;
+	// bildirimler uygulama içinde durmaya devam eder.
+	FCMServiceAccountFile string
 }
 
 func Load() Config {
@@ -81,6 +85,7 @@ func Load() Config {
 		StorageRoot:           storageRoot,
 		AppReleasesDir:        getEnv("APP_RELEASES_DIR", defaultAppReleasesDir(storageRoot)),
 		PriceSyncScheduler:    envEnabled(getEnv("PRICE_SYNC_SCHEDULER", "on")),
+		FCMServiceAccountFile: getEnv("FCM_SERVICE_ACCOUNT_FILE", ""),
 	}
 }
 

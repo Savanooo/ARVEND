@@ -16,7 +16,9 @@ FOR UPDATE;
 
 -- name: BumpGroupedNotification :one
 UPDATE notifications
-SET group_count = group_count + 1, title = $2, body = $3, created_at = now()
+SET group_count = group_count + 1, title = $2, body = $3, created_at = now(),
+    -- Telefondaki bildirim de güncellensin (aynı etiketle yerine düşer).
+    pushed_at = NULL
 WHERE id = $1
 RETURNING *;
 
@@ -65,3 +67,17 @@ FROM users u
 JOIN organization_roles orole ON orole.id = u.organization_role_id
 JOIN user_permission_overrides o ON o.user_id = u.id AND o.effect = 'grant'
 WHERE u.organization_id = $1 AND o.permission_code = $2 AND u.is_active = true AND orole.code <> 'owner';
+
+-- name: CreateAnnouncementNotifications :execrows
+-- Duyuru: hedef firmalardaki (boş liste = tüm aktif/deneme firmaları) her
+-- aktif kullanıcıya bir bildirim satırı -- gönderen hariç. Super Admin'in
+-- firması yok (organization_id NULL), INNER JOIN onu zaten dışarıda bırakır.
+INSERT INTO notifications (organization_id, user_id, type, title, body, entity_type, entity_id, action_target)
+SELECT u.organization_id, u.id, 'announcement', sqlc.arg(title), sqlc.arg(body), 'announcement',
+       sqlc.arg(announcement_id)::uuid, sqlc.arg(action_target)
+FROM users u
+JOIN organizations o ON o.id = u.organization_id
+WHERE u.is_active AND u.deleted_at IS NULL
+  AND o.deleted_at IS NULL AND o.status IN ('active', 'trial')
+  AND (cardinality(sqlc.arg(organization_ids)::uuid[]) = 0 OR u.organization_id = ANY(sqlc.arg(organization_ids)::uuid[]))
+  AND u.id <> sqlc.arg(sender_id)::uuid;

@@ -18,6 +18,7 @@ import (
 	"github.com/Savanooo/ARVEND/backend/internal/httpapi"
 	"github.com/Savanooo/ARVEND/backend/internal/httpapi/handler"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/crypto"
+	"github.com/Savanooo/ARVEND/backend/internal/platform/fcm"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/storage"
 	"github.com/Savanooo/ARVEND/backend/internal/repository"
 	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
@@ -73,6 +74,20 @@ func main() {
 	costCodeSvc := service.NewCostCodeService(pool, q)
 	supplierSvc := service.NewSupplierService(pool, q, secretBox)
 	notificationSvc := service.NewNotificationService(q)
+	// Telefona bildirim: anahtar yoksa gönderim kapalı, cihaz kayıtları
+	// yine tutulur (açıldığı an telefonlar bilinsin).
+	var pushSender service.PushSender
+	if cfg.FCMServiceAccountFile != "" {
+		if c, err := fcm.NewFromFile(cfg.FCMServiceAccountFile); err != nil {
+			log.Printf("UYARI: telefona bildirim kapalı: %v", err)
+		} else {
+			pushSender = c
+			log.Printf("telefona bildirim açık (Firebase projesi %s)", c.ProjectID())
+		}
+	} else {
+		log.Println("telefona bildirim kapalı (FCM_SERVICE_ACCOUNT_FILE yok)")
+	}
+	pushSvc := service.NewPushService(q, pushSender)
 	priceSourceSvc := service.NewPriceSourceService(pool, q, service.HTTPPriceFetchers(nil, service.NewDBPriceSnapshotStore(q)))
 	dashboardSvc := service.NewDashboardService(pool, q)
 	appReleaseSvc := service.NewAppReleaseService(cfg.AppReleasesDir)
@@ -105,6 +120,8 @@ func main() {
 		CostCodes:         handler.NewCostCodeHandler(costCodeSvc),
 		Suppliers:         handler.NewSupplierHandler(supplierSvc),
 		Notifications:     handler.NewNotificationHandler(notificationSvc),
+		Push:              handler.NewPushHandler(pushSvc),
+		Feedback:          handler.NewFeedbackHandler(service.NewFeedbackService(q)),
 		Dashboard:         handler.NewDashboardHandler(dashboardSvc),
 		AppReleases:       handler.NewAppReleaseHandler(appReleaseSvc),
 		CORSOrigins:       cfg.CORSOrigins,
@@ -141,6 +158,14 @@ func main() {
 		}()
 	} else {
 		log.Println("gece fiyat senkronu zamanlayıcısı kapalı (PRICE_SYNC_SCHEDULER)")
+	}
+
+	if pushSvc.Enabled() {
+		background.Add(1)
+		go func() {
+			defer background.Done()
+			pushSvc.Run(runCtx)
+		}()
 	}
 
 	serveErr := make(chan error, 1)

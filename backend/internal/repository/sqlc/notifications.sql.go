@@ -13,9 +13,11 @@ import (
 
 const bumpGroupedNotification = `-- name: BumpGroupedNotification :one
 UPDATE notifications
-SET group_count = group_count + 1, title = $2, body = $3, created_at = now()
+SET group_count = group_count + 1, title = $2, body = $3, created_at = now(),
+    -- Telefondaki bildirim de güncellensin (aynı etiketle yerine düşer).
+    pushed_at = NULL
 WHERE id = $1
-RETURNING id, organization_id, user_id, type, title, body, entity_type, entity_id, project_id, action_target, read_at, created_at, group_count
+RETURNING id, organization_id, user_id, type, title, body, entity_type, entity_id, project_id, action_target, read_at, created_at, group_count, pushed_at
 `
 
 type BumpGroupedNotificationParams struct {
@@ -41,6 +43,7 @@ func (q *Queries) BumpGroupedNotification(ctx context.Context, arg BumpGroupedNo
 		&i.ReadAt,
 		&i.CreatedAt,
 		&i.GroupCount,
+		&i.PushedAt,
 	)
 	return i, err
 }
@@ -77,10 +80,49 @@ func (q *Queries) CountUnreadNotifications(ctx context.Context, arg CountUnreadN
 	return count, err
 }
 
+const createAnnouncementNotifications = `-- name: CreateAnnouncementNotifications :execrows
+INSERT INTO notifications (organization_id, user_id, type, title, body, entity_type, entity_id, action_target)
+SELECT u.organization_id, u.id, 'announcement', $1, $2, 'announcement',
+       $3::uuid, $4
+FROM users u
+JOIN organizations o ON o.id = u.organization_id
+WHERE u.is_active AND u.deleted_at IS NULL
+  AND o.deleted_at IS NULL AND o.status IN ('active', 'trial')
+  AND (cardinality($5::uuid[]) = 0 OR u.organization_id = ANY($5::uuid[]))
+  AND u.id <> $6::uuid
+`
+
+type CreateAnnouncementNotificationsParams struct {
+	Title           string        `json:"title"`
+	Body            string        `json:"body"`
+	AnnouncementID  pgtype.UUID   `json:"announcement_id"`
+	ActionTarget    string        `json:"action_target"`
+	OrganizationIds []pgtype.UUID `json:"organization_ids"`
+	SenderID        pgtype.UUID   `json:"sender_id"`
+}
+
+// Duyuru: hedef firmalardaki (boş liste = tüm aktif/deneme firmaları) her
+// aktif kullanıcıya bir bildirim satırı -- gönderen hariç. Super Admin'in
+// firması yok (organization_id NULL), INNER JOIN onu zaten dışarıda bırakır.
+func (q *Queries) CreateAnnouncementNotifications(ctx context.Context, arg CreateAnnouncementNotificationsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, createAnnouncementNotifications,
+		arg.Title,
+		arg.Body,
+		arg.AnnouncementID,
+		arg.ActionTarget,
+		arg.OrganizationIds,
+		arg.SenderID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createNotification = `-- name: CreateNotification :one
 INSERT INTO notifications (organization_id, user_id, type, title, body, entity_type, entity_id, project_id, action_target)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, organization_id, user_id, type, title, body, entity_type, entity_id, project_id, action_target, read_at, created_at, group_count
+RETURNING id, organization_id, user_id, type, title, body, entity_type, entity_id, project_id, action_target, read_at, created_at, group_count, pushed_at
 `
 
 type CreateNotificationParams struct {
@@ -122,12 +164,13 @@ func (q *Queries) CreateNotification(ctx context.Context, arg CreateNotification
 		&i.ReadAt,
 		&i.CreatedAt,
 		&i.GroupCount,
+		&i.PushedAt,
 	)
 	return i, err
 }
 
 const findGroupableNotification = `-- name: FindGroupableNotification :one
-SELECT id, organization_id, user_id, type, title, body, entity_type, entity_id, project_id, action_target, read_at, created_at, group_count FROM notifications
+SELECT id, organization_id, user_id, type, title, body, entity_type, entity_id, project_id, action_target, read_at, created_at, group_count, pushed_at FROM notifications
 WHERE user_id = $1 AND organization_id = $2 AND type = $3 AND project_id = $4
   AND read_at IS NULL AND created_at > $5::timestamptz
 ORDER BY created_at DESC
@@ -169,12 +212,13 @@ func (q *Queries) FindGroupableNotification(ctx context.Context, arg FindGroupab
 		&i.ReadAt,
 		&i.CreatedAt,
 		&i.GroupCount,
+		&i.PushedAt,
 	)
 	return i, err
 }
 
 const listNotificationsForUser = `-- name: ListNotificationsForUser :many
-SELECT id, organization_id, user_id, type, title, body, entity_type, entity_id, project_id, action_target, read_at, created_at, group_count FROM notifications
+SELECT id, organization_id, user_id, type, title, body, entity_type, entity_id, project_id, action_target, read_at, created_at, group_count, pushed_at FROM notifications
 WHERE user_id = $1 AND organization_id = $2
 ORDER BY created_at DESC
 LIMIT $3 OFFSET $4
@@ -215,6 +259,7 @@ func (q *Queries) ListNotificationsForUser(ctx context.Context, arg ListNotifica
 			&i.ReadAt,
 			&i.CreatedAt,
 			&i.GroupCount,
+			&i.PushedAt,
 		); err != nil {
 			return nil, err
 		}

@@ -41,6 +41,8 @@ type Deps struct {
 	CostCodes         *handler.CostCodeHandler
 	Suppliers         *handler.SupplierHandler
 	Notifications     *handler.NotificationHandler
+	Push              *handler.PushHandler
+	Feedback          *handler.FeedbackHandler
 	Dashboard         *handler.DashboardHandler
 	AppReleases       *handler.AppReleaseHandler
 	CORSOrigins       []string
@@ -568,6 +570,21 @@ func NewRouter(d Deps) http.Handler {
 			r.Post("/read-all", d.Notifications.MarkAllRead)
 		})
 
+		// Telefon kaydı (migration 0053): her kullanıcı yalnızca kendi
+		// telefonunu kaydeder/siler -- izin yok, kullanıcı context'ten.
+		r.Route("/push/devices", func(r chi.Router) {
+			r.Use(requireAuth, requireTenant)
+			r.Post("/", d.Push.RegisterDevice)
+			r.Post("/unregister", d.Push.UnregisterDevice)
+		})
+
+		// Öneri / görüş: her kullanıcı platform ekibine yazabilir (izin yok).
+		r.With(requireAuth, requireTenant).Post("/feedback", d.Feedback.Submit)
+
+		// Firma yöneticisinin kendi ekibine duyurusu.
+		r.With(requireAuth, requireTenant, requireOnboarded, loadAuthorization, perm(domain.PermOrganizationUsersManage)).
+			Post("/announcements", d.Push.SendOrganizationAnnouncement)
+
 		r.Route("/customers", func(r chi.Router) {
 			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
 			// Teklif oluşturan herkes müşteri seçebilmeli/ekleyebilmeli --
@@ -723,6 +740,11 @@ func NewRouter(d Deps) http.Handler {
 		r.Route("/platform", func(r chi.Router) {
 			r.Use(requireAuth, requireSuperAdmin)
 			r.Get("/plans", d.Platform.ListPlans)
+			// Tüm (ya da seçili) firmaların kullanıcılarına duyuru.
+			r.Post("/announcements", d.Push.SendPlatformAnnouncement)
+			// Firmalardan gelen öneriler.
+			r.Get("/feedback", d.Feedback.List)
+			r.Post("/feedback/{id}/read", d.Feedback.MarkRead)
 			r.Route("/organizations", func(r chi.Router) {
 				r.Get("/", d.Platform.ListOrganizations)
 				r.Post("/", d.Platform.CreateOrganization)
