@@ -810,4 +810,73 @@ func TestCostControl(t *testing.T) {
 			t.Errorf("satır seviyesi golden money değerleri de AYNI olmalı: eac=%v variance=%v", lineGot.EAC, lineGot.Variance)
 		}
 	})
+
+	t.Run("32_cost_code_only_expense_counts_against_its_single_budget_line", func(t *testing.T) {
+		// Bütçe kalemi seçilmeden, yalnızca maliyet koduyla girilen masraf:
+		// kodun TEK bütçe kalemi varsa ona sayılır. Önceden ayrı bir "bütçe
+		// dışı" satıra düşüyor, kalemin ETC'si azalmadığı için EAC 130.000
+		// çıkıyordu (aynı 30.000 iki kez).
+		p := newProject(t, orgA.ID, 500000)
+		cc := newCostCode(t, orgA.ID, "MLZ-CCO-"+p.ID[:8])
+		line, err := projectSvc.CreateBudgetLine(ctx, p.ID, orgA.ID, service.BudgetLineInput{
+			CostCodeID: cc.ID, Description: "Tek kalem", OriginalAmount: 100000,
+		})
+		if err != nil {
+			t.Fatalf("bütçe kalemi oluşturulamadı: %v", err)
+		}
+		if _, err := projectSvc.CreateExpense(ctx, p.ID, orgA.ID, service.ExpenseInput{
+			Category: domain.ExpenseMaterial, Description: "Kodlu masraf", Amount: 30000, ExpenseDate: time.Now(), CostCodeID: cc.ID,
+		}); err != nil {
+			t.Fatalf("masraf oluşturulamadı: %v", err)
+		}
+		if _, err := projectSvc.CreateCommitment(ctx, p.ID, orgA.ID, service.CommitmentInput{
+			CostCodeID: cc.ID, Description: "Kodlu taahhüt", CommittedAmount: 20000, CommittedAt: time.Now(),
+		}); err != nil {
+			t.Fatalf("taahhüt oluşturulamadı: %v", err)
+		}
+		lines, err := projectSvc.CostControlLines(ctx, p.ID, orgA.ID)
+		if err != nil {
+			t.Fatalf("kırılım tablosu alınamadı: %v", err)
+		}
+		got := findLine(t, lines, line.ID)
+		if got.ActualCost != 30000 || got.CommittedCost != 20000 || got.EAC != 100000 {
+			t.Errorf("kalem actual=30000 committed=20000 eac=100000 olmalı, geldi: %+v", got)
+		}
+		for _, l := range lines {
+			if l.IsUnbudgeted && l.CostCodeID == cc.ID {
+				t.Errorf("kodun tek bütçe kalemi varken bütçe dışı satır OLMAMALI: %+v", l)
+			}
+		}
+		sum, err := projectSvc.CostControlSummary(ctx, p.ID, orgA.ID)
+		if err != nil {
+			t.Fatalf("özet alınamadı: %v", err)
+		}
+		if sum.ActualCost != 30000 || sum.EACTotal != 100000 {
+			t.Errorf("özet actual=30000 eac=100000 olmalı (çift sayım yok), geldi actual=%v eac=%v", sum.ActualCost, sum.EACTotal)
+		}
+
+		// Kodun İKİNCİ bir bütçe kalemi açılırsa hangi kaleme ait olduğu
+		// belirsizdir: kayıt bütçe dışı satırda görünür.
+		if _, err := projectSvc.CreateBudgetLine(ctx, p.ID, orgA.ID, service.BudgetLineInput{
+			CostCodeID: cc.ID, Description: "İkinci kalem", OriginalAmount: 50000,
+		}); err != nil {
+			t.Fatalf("ikinci bütçe kalemi oluşturulamadı: %v", err)
+		}
+		lines, err = projectSvc.CostControlLines(ctx, p.ID, orgA.ID)
+		if err != nil {
+			t.Fatalf("kırılım tablosu alınamadı: %v", err)
+		}
+		if got := findLine(t, lines, line.ID); got.ActualCost != 0 {
+			t.Errorf("belirsiz eşlemede masraf ilk kaleme sayılmamalı, geldi: %v", got.ActualCost)
+		}
+		found := false
+		for _, l := range lines {
+			if l.IsUnbudgeted && l.CostCodeID == cc.ID && l.ActualCost == 30000 {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("belirsiz eşlemede masraf bütçe dışı satırda görünmeli")
+		}
+	})
 }
