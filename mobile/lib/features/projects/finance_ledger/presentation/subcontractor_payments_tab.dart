@@ -18,10 +18,12 @@ import '../../../../core/widgets/unsaved_changes_scope.dart';
 import '../../../../core/widgets/async_state_view.dart';
 import '../../../../core/widgets/status_badge.dart';
 import '../../../../core/widgets/viz/progress_bar.dart';
+import '../../budget/domain/budget.dart' show formatTrDecimalInput;
 import '../../domain/project.dart';
 import '../../finance_plan/domain/finance_dates.dart' show parseAmountInput;
 import '../data/finance_ledger_providers.dart';
 import '../domain/legacy_subcontractor.dart';
+import 'ledger_entry_sheet.dart';
 import 'ledger_ui.dart';
 
 /// Finans > "Taşeron Ödemeleri" (`?grup=finans&alt=taseron-odemeleri`) --
@@ -31,9 +33,11 @@ import 'ledger_ui.dart';
 /// SÖZLEŞMELERİ (SOV/hakediş) ayrı bir sistemdir (docs/subcontracts.md §0);
 /// ikisi birleştirilmez.
 ///
-/// Görmek `projects.finance.read`; "Taşeron Ekle" / "Ödeme Ekle"
-/// `projects.finance.manage` + açık proje (web `locked`). İzin yoksa API
-/// hiç çağrılmaz; 403 gelirse "yetkin yok" görünümü, çökme yok.
+/// Görmek `projects.finance.read`; "Taşeron Ekle" / "Ödeme Ekle" / taşeron
+/// düzenleme / ödeme iptali `projects.finance.manage` + açık proje (web
+/// `locked`). İzin yoksa API hiç çağrılmaz; 403 gelirse "yetkin yok"
+/// görünümü, çökme yok. Ödeme satırına dokununca ayrıntı açılır (iptal
+/// yalnızca yetkiliye).
 class SubcontractorPaymentsTab extends ConsumerWidget {
   const SubcontractorPaymentsTab({super.key, required this.projectId, required this.project});
 
@@ -125,6 +129,34 @@ class SubcontractorPaymentsTab extends ConsumerWidget {
                     LegacySubcontractorCard(
                       subcontractor: s,
                       payments: payments.where((p) => p.subcontractorId == s.id && !p.isVoided).toList(),
+                      // Yanlış girilmiş bir taşeron (ad, bedel) eskiden hiçbir
+                      // yerden düzeltilemiyordu.
+                      onEdit: canManage
+                          ? () async {
+                              final container = ProviderScope.containerOf(context, listen: false);
+                              final updated = await showLegacySubcontractorFormSheet(
+                                context,
+                                projectId: projectId,
+                                currency: s.currency,
+                                existing: s,
+                              );
+                              if (updated != null) {
+                                invalidateProjectLedger(container.invalidate, projectId);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(
+                                    context,
+                                  ).showSnackBar(const SnackBar(content: Text('Taşeron güncellendi.')));
+                                }
+                              }
+                            }
+                          : null,
+                      onPaymentTap: (p) => showLegacySubcontractorPaymentDetailSheet(
+                        context,
+                        projectId: projectId,
+                        subcontractor: s,
+                        payment: p,
+                        canVoid: canManage,
+                      ),
                       onAddPayment: canManage
                           ? () async {
                               final container = ProviderScope.containerOf(context, listen: false);
@@ -157,11 +189,22 @@ class SubcontractorPaymentsTab extends ConsumerWidget {
 /// Tek legacy taşeron kartı: ad/firma/iş, durum, Sözleşme/Ödenen/Kalan
 /// (sunucu değerleri), ödeme çubuğu ve iptal edilmemiş ödemeler.
 class LegacySubcontractorCard extends StatelessWidget {
-  const LegacySubcontractorCard({super.key, required this.subcontractor, required this.payments, this.onAddPayment});
+  const LegacySubcontractorCard({
+    super.key,
+    required this.subcontractor,
+    required this.payments,
+    this.onAddPayment,
+    this.onEdit,
+    this.onPaymentTap,
+  });
 
   final LegacySubcontractor subcontractor;
   final List<LegacySubcontractorPayment> payments;
   final VoidCallback? onAddPayment;
+
+  /// Yalnızca yönetme yetkisi + açık projede verilir.
+  final VoidCallback? onEdit;
+  final ValueChanged<LegacySubcontractorPayment>? onPaymentTap;
 
   @override
   Widget build(BuildContext context) {
@@ -194,6 +237,14 @@ class LegacySubcontractorCard extends StatelessWidget {
               ),
               const SizedBox(width: AppSpacing.sm),
               StatusRegistry.build(s.status, kLegacySubcontractorStatus),
+              if (onEdit != null)
+                IconButton(
+                  key: ValueKey('legacy-subcontractor-edit-${s.id}'),
+                  tooltip: 'Taşeronu Düzenle',
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.edit_outlined, size: 18, color: AppColors.textMuted),
+                  onPressed: onEdit,
+                ),
             ],
           ),
           const SizedBox(height: AppSpacing.md),
@@ -233,17 +284,21 @@ class LegacySubcontractorCard extends StatelessWidget {
             const Divider(),
             const SizedBox(height: AppSpacing.xs),
             for (final p in payments)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Text(
-                  [
-                    Formatters.date(p.paidDate),
-                    Formatters.money(p.amount, currency: p.currency),
-                    if (p.description.isNotEmpty) p.description,
-                  ].join(' · '),
-                  style: AppTypography.metadata,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+              InkWell(
+                key: ValueKey('legacy-payment-${p.id}'),
+                onTap: onPaymentTap == null ? null : () => onPaymentTap!(p),
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text(
+                    [
+                      Formatters.date(p.paidDate),
+                      Formatters.money(p.amount, currency: p.currency),
+                      if (p.description.isNotEmpty) p.description,
+                    ].join(' · '),
+                    style: AppTypography.metadata,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ),
           ],
@@ -297,11 +352,13 @@ String _isoDate(DateTime d) =>
 /// "1.250,50", "1250,5", "1250.5" -- finans planıyla aynı ayrıştırıcı.
 double? _parseAmount(String? v) => parseAmountInput(v ?? '');
 
-/// "Taşeron Ekle" (web formu: ad*, firma, yapılan iş, sözleşme bedeli*).
+/// "Taşeron Ekle" (web formu: ad*, firma, yapılan iş, sözleşme bedeli*);
+/// [existing] verilirse aynı alanlarla düzenleme (`PUT /subcontractors/{id}`).
 Future<LegacySubcontractor?> showLegacySubcontractorFormSheet(
   BuildContext context, {
   required String projectId,
   required String currency,
+  LegacySubcontractor? existing,
 }) {
   return showModalBottomSheet<LegacySubcontractor>(
     context: context,
@@ -311,15 +368,16 @@ Future<LegacySubcontractor?> showLegacySubcontractorFormSheet(
     // aksi halde kayıt oluşur ama liste tazelenmez ve kullanıcı tekrar
     // eklerdi (taşeron oluşturma ucunda idempotency anahtarı yok).
     enableDrag: false,
-    builder: (_) => _SubcontractorFormSheet(projectId: projectId, currency: currency),
+    builder: (_) => _SubcontractorFormSheet(projectId: projectId, currency: currency, existing: existing),
   );
 }
 
 class _SubcontractorFormSheet extends ConsumerStatefulWidget {
-  const _SubcontractorFormSheet({required this.projectId, required this.currency});
+  const _SubcontractorFormSheet({required this.projectId, required this.currency, this.existing});
 
   final String projectId;
   final String currency;
+  final LegacySubcontractor? existing;
 
   @override
   ConsumerState<_SubcontractorFormSheet> createState() => _SubcontractorFormSheetState();
@@ -327,10 +385,10 @@ class _SubcontractorFormSheet extends ConsumerStatefulWidget {
 
 class _SubcontractorFormSheetState extends ConsumerState<_SubcontractorFormSheet> {
   final _formKey = GlobalKey<FormState>();
-  final _name = TextEditingController();
-  final _company = TextEditingController();
-  final _work = TextEditingController();
-  final _amount = TextEditingController();
+  late final _name = TextEditingController(text: widget.existing?.name ?? '');
+  late final _company = TextEditingController(text: widget.existing?.companyName ?? '');
+  late final _work = TextEditingController(text: widget.existing?.workDescription ?? '');
+  late final _amount = TextEditingController(text: formatTrDecimalInput(widget.existing?.contractAmount));
   bool _busy = false;
   String? _error;
 
@@ -350,17 +408,26 @@ class _SubcontractorFormSheetState extends ConsumerState<_SubcontractorFormSheet
       _error = null;
     });
     try {
-      final created = await ref
-          .read(financeLedgerRepositoryProvider)
-          .createSubcontractor(
-            widget.projectId,
-            name: _name.text.trim(),
-            companyName: _company.text.trim(),
-            workDescription: _work.text.trim(),
-            contractAmount: _parseAmount(_amount.text)!,
-            currency: widget.currency,
-          );
-      if (mounted) Navigator.of(context).pop(created);
+      final repo = ref.read(financeLedgerRepositoryProvider);
+      final existing = widget.existing;
+      final saved = existing == null
+          ? await repo.createSubcontractor(
+              widget.projectId,
+              name: _name.text.trim(),
+              companyName: _company.text.trim(),
+              workDescription: _work.text.trim(),
+              contractAmount: _parseAmount(_amount.text)!,
+              currency: widget.currency,
+            )
+          : await repo.updateSubcontractor(
+              widget.projectId,
+              existing,
+              name: _name.text.trim(),
+              companyName: _company.text.trim(),
+              workDescription: _work.text.trim(),
+              contractAmount: _parseAmount(_amount.text)!,
+            );
+      if (mounted) Navigator.of(context).pop(saved);
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.isForbidden ? 'Bu işlem için yetkin yok.' : e.message);
     } finally {
@@ -370,12 +437,13 @@ class _SubcontractorFormSheetState extends ConsumerState<_SubcontractorFormSheet
 
   @override
   Widget build(BuildContext context) {
+    final existing = widget.existing;
     return _SheetFrame(
-      title: 'Taşeron Ekle',
+      title: existing == null ? 'Taşeron Ekle' : 'Taşeronu Düzenle',
       formKey: _formKey,
       error: _error,
       busy: _busy,
-      submitLabel: 'Taşeron Ekle',
+      submitLabel: existing == null ? 'Taşeron Ekle' : 'Kaydet',
       onSubmit: _submit,
       children: [
         AppFormSection(
@@ -398,10 +466,22 @@ class _SubcontractorFormSheetState extends ConsumerState<_SubcontractorFormSheet
             TextFormField(
               controller: _amount,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(labelText: 'Sözleşme bedeli (${widget.currency})'),
+              decoration: InputDecoration(
+                labelText: 'Sözleşme bedeli (${widget.currency})',
+                helperText: existing == null || existing.paidAmount <= 0
+                    ? null
+                    : 'Ödenen ${Formatters.money(existing.paidAmount, currency: existing.currency)}',
+              ),
               validator: (v) {
                 final parsed = _parseAmount(v);
-                return (parsed == null || parsed <= 0) ? 'Geçerli bir tutar gir' : null;
+                if (parsed == null || parsed <= 0) return 'Geçerli bir tutar gir';
+                // Bedel, yapılmış ödemelerin altına inerse "Kalan" eksiye
+                // düşerdi; fazla ödeme önce iptal edilmeli. Kuruş payı 0,005.
+                if (existing != null && parsed < existing.paidAmount - 0.005) {
+                  return 'Sözleşme bedeli ödenen tutarın '
+                      '(${Formatters.money(existing.paidAmount, currency: existing.currency)}) altına indirilemez.';
+                }
+                return null;
               },
             ),
           ],

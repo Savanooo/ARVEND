@@ -5,6 +5,8 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:arvend/core/api/api_client.dart';
 import 'package:arvend/core/widgets/access_notices.dart';
 import 'package:arvend/features/projects/domain/project.dart';
+import 'package:arvend/features/projects/finance_ledger/data/finance_ledger_repository.dart';
+import 'package:arvend/features/projects/finance_ledger/domain/legacy_subcontractor.dart';
 import 'package:arvend/features/projects/finance_ledger/presentation/ledger_sections.dart';
 import 'package:arvend/features/projects/finance_ledger/presentation/subcontractor_payments_tab.dart';
 import 'package:arvend/features/projects/domain/project_lock_text.dart';
@@ -258,6 +260,130 @@ void main() {
       expect(find.text(kProjectLockedNoticeText), findsOneWidget);
       expect(find.text('Taşeron Ekle'), findsNothing);
       expect(find.text('Ödeme Ekle'), findsNothing);
+    });
+
+    testWidgets('taşeron düzenle: mevcut değerlerle açılır, Türkçe bedel ile kaydedilir', (tester) async {
+      final client = await _client(FakeHttpClientAdapter(script: {}));
+      final repo = FakeFinanceLedgerRepository();
+      final project = cc.sampleProject();
+      await _pump(tester, buildLedgerApp(user: ledgerOwner, client: client, repo: repo, home: tab(project)));
+
+      await tester.tap(find.byKey(const ValueKey('legacy-subcontractor-edit-s1')));
+      await tester.pumpAndSettle();
+      expect(find.text('Taşeronu Düzenle'), findsOneWidget);
+      expect(find.text('180000'), findsOneWidget, reason: 'mevcut bedel alana yazılır');
+
+      await tester.enterText(find.widgetWithText(TextFormField, 'Taşeron adı'), 'Yılmaz Elektrik Taahhüt');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Sözleşme bedeli (TRY)'), '195.000,50');
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Kaydet'));
+      await tester.pumpAndSettle();
+
+      final body = repo.updatedSubcontractors.single;
+      expect(body['id'], 's1');
+      expect(body['name'], 'Yılmaz Elektrik Taahhüt');
+      expect(body['company_name'], 'Yılmaz Elektrik Taahhüt Ltd.');
+      expect(body['work_description'], 'Zemin kat elektrik tesisatı');
+      expect(body['contract_amount'], 195000.5);
+      expect(find.text('Taşeron güncellendi.'), findsOneWidget);
+    });
+
+    testWidgets('taşeron düzenle: bedel ödenen tutarın altına indirilemez', (tester) async {
+      final client = await _client(FakeHttpClientAdapter(script: {}));
+      final repo = FakeFinanceLedgerRepository();
+      final project = cc.sampleProject();
+      await _pump(tester, buildLedgerApp(user: ledgerOwner, client: client, repo: repo, home: tab(project)));
+
+      await tester.tap(find.byKey(const ValueKey('legacy-subcontractor-edit-s1')));
+      await tester.pumpAndSettle();
+      // Yılmaz Elektrik'e 120.000 ödenmiş.
+      await tester.enterText(find.widgetWithText(TextFormField, 'Sözleşme bedeli (TRY)'), '100.000');
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Kaydet'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('altına indirilemez'), findsOneWidget);
+      expect(repo.updatedSubcontractors, isEmpty);
+    });
+
+    testWidgets('ödeme ayrıntısı: gerekçeyle iptal edilir', (tester) async {
+      final client = await _client(FakeHttpClientAdapter(script: {}));
+      final repo = FakeFinanceLedgerRepository();
+      final project = cc.sampleProject();
+      await _pump(tester, buildLedgerApp(user: ledgerOwner, client: client, repo: repo, home: tab(project)));
+
+      await tester.tap(find.byKey(const ValueKey('legacy-payment-sp1')));
+      await tester.pumpAndSettle();
+      expect(find.text('Taşeron Ödemesi'), findsOneWidget);
+      await tester.tap(find.widgetWithText(OutlinedButton, 'İptal Et'));
+      await tester.pumpAndSettle();
+      await _confirmReason(tester, 'Mükerrer kayıt');
+
+      expect(repo.voidedPayments.single, {'payment_id': 'sp1', 'reason': 'Mükerrer kayıt'});
+      expect(find.text('Ödeme iptal edildi.'), findsOneWidget);
+    });
+
+    testWidgets('salt-okur: düzenleme yok, ödeme ayrıntısı açılır ama iptal yok', (tester) async {
+      final client = await _client(FakeHttpClientAdapter(script: {}));
+      await _pump(tester, buildLedgerApp(user: ledgerViewer, client: client, home: tab(cc.sampleProject())));
+
+      expect(find.byKey(const ValueKey('legacy-subcontractor-edit-s1')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('legacy-payment-sp1')));
+      await tester.pumpAndSettle();
+      expect(find.text('Taşeron Ödemesi'), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, 'İptal Et'), findsNothing);
+    });
+
+    test('depo: düzenleme formda olmayan alanları aynen geri gönderir; iptal doğru uca gider', () async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/projects/p1/subcontractors/s1': [
+          (status: 200, body: {'id': 's1', 'name': 'Yeni Ad', 'contract_amount': 200000, 'status': 'active'}),
+        ],
+        '/projects/p1/subcontractor-payments/sp1/void': [(status: 200, body: null)],
+      });
+      final repo = FinanceLedgerRepository(await _client(adapter));
+      const existing = LegacySubcontractor(
+        id: 's1',
+        name: 'Eski Ad',
+        companyName: 'Firma',
+        workDescription: 'İş',
+        contractAmount: 180000,
+        paidAmount: 0,
+        remainingAmount: 180000,
+        currency: 'TRY',
+        status: 'completed',
+        phone: '5551112233',
+        email: 'usta@ornek.com',
+        notes: 'Not',
+        startDate: '2026-09-01',
+        endDate: '2026-12-01',
+        costCodeId: 'cc1',
+      );
+
+      await repo.updateSubcontractor(
+        'p1',
+        existing,
+        name: 'Yeni Ad',
+        companyName: 'Firma',
+        workDescription: 'İş',
+        contractAmount: 200000,
+      );
+      expect(adapter.requestBodies.first, {
+        'name': 'Yeni Ad',
+        'company_name': 'Firma',
+        'work_description': 'İş',
+        'contract_amount': 200000.0,
+        'currency': 'TRY',
+        'phone': '5551112233',
+        'email': 'usta@ornek.com',
+        'start_date': '2026-09-01',
+        'end_date': '2026-12-01',
+        'status': 'completed',
+        'notes': 'Not',
+        'cost_code_id': 'cc1',
+      });
+
+      await repo.voidSubcontractorPayment('p1', 'sp1', reason: 'Mükerrer');
+      expect(adapter.calls.last, '/projects/p1/subcontractor-payments/sp1/void');
+      expect(adapter.requestBodies.last, {'reason': 'Mükerrer'});
     });
   });
 }

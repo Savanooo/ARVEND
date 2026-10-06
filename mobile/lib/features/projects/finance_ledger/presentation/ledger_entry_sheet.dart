@@ -13,6 +13,7 @@ import '../../data/projects_providers.dart';
 import '../../presentation/destructive_action_button.dart';
 import '../../domain/project.dart';
 import '../data/finance_ledger_providers.dart';
+import '../domain/legacy_subcontractor.dart';
 
 /// Masraf / tahsilat satırına dokununca açılan ayrıntı sayfası (web
 /// tablosundaki tüm sütunlar + bağlar + iptal gerekçesi) ve "İptal Et"
@@ -92,6 +93,42 @@ Future<bool?> showCollectionDetailSheet(
     doneMessage: 'Tahsilat iptal edildi.',
     onVoid: (container, reason) async {
       await container.read(projectsRepositoryProvider).voidCollection(projectId, collection.id, reason: reason);
+      invalidateProjectLedger(container.invalidate, projectId);
+    },
+  );
+}
+
+/// Legacy taşeron ödemesinin ayrıntısı + "İptal Et" (`POST .../subcontractor-
+/// payments/{id}/void {reason}`). Yanlış girilmiş bir ödeme başka hiçbir
+/// yerden düzeltilemiyordu (web'de de iptal yok).
+Future<bool?> showLegacySubcontractorPaymentDetailSheet(
+  BuildContext context, {
+  required String projectId,
+  required LegacySubcontractor subcontractor,
+  required LegacySubcontractorPayment payment,
+  required bool canVoid,
+}) {
+  final rows = <Widget>[
+    AppDataRow(label: 'Taşeron', value: subcontractor.name, multiline: true),
+    AppDataRow(label: 'Tarih', value: Formatters.date(payment.paidDate)),
+    AppDataRow(label: 'Açıklama', value: payment.description.isEmpty ? '—' : payment.description, multiline: true),
+  ];
+  return _showLedgerSheet(
+    context,
+    projectId: projectId,
+    title: 'Taşeron Ödemesi',
+    amount: Formatters.money(payment.amount, currency: payment.currency),
+    voided: payment.isVoided,
+    voidReason: payment.voidReason,
+    rows: rows,
+    canVoid: canVoid,
+    voidTitle: 'Ödemeyi İptal Et',
+    voidMessage: 'Ödeme iptal edilir; taşerona ödenen tutardan ve gerçekleşen maliyetten düşer. Kayıt silinmez.',
+    doneMessage: 'Ödeme iptal edildi.',
+    onVoid: (container, reason) async {
+      await container
+          .read(financeLedgerRepositoryProvider)
+          .voidSubcontractorPayment(projectId, payment.id, reason: reason);
       invalidateProjectLedger(container.invalidate, projectId);
     },
   );
