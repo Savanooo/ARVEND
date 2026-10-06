@@ -197,7 +197,7 @@ func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
 	}
 	projectSvc := service.NewProjectService(pool, q, fileStore, settingsSvc, "http://localhost:3000")
 	customerSvc := service.NewCustomerService(q)
-	employeeSvc := service.NewEmployeeService(q)
+	employeeSvc := service.NewEmployeeService(pool, q)
 	attendanceSvc := service.NewAttendanceService(q)
 	calcSvc := service.NewCalcService(q)
 	platformSvc := service.NewPlatformService(pool, q, userSvc, calcSvc, productSvc)

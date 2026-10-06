@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/repository"
@@ -15,11 +16,16 @@ import (
 )
 
 type EmployeeService struct {
-	q *sqlc.Queries
+	pool *pgxpool.Pool
+	q    *sqlc.Queries
+	now  func() time.Time
 }
 
-func NewEmployeeService(q *sqlc.Queries) *EmployeeService {
-	return &EmployeeService{q: q}
+// pool, personel satırı ile ücret geçmişinin (employee_wage_history) aynı
+// transaction'da yazılması içindir: biri yazılıp diğeri yazılmazsa maaş
+// hesabı geçmiş ayları yanlış ücretle hesaplardı.
+func NewEmployeeService(pool *pgxpool.Pool, q *sqlc.Queries) *EmployeeService {
+	return &EmployeeService{pool: pool, q: q, now: time.Now}
 }
 
 type EmployeeInput struct {
@@ -40,6 +46,9 @@ type EmployeeInput struct {
 	// eşleştirmesi YAPILMAZ -- yalnızca yöneticinin açıkça seçtiği bir
 	// kullanıcı ID'si kabul edilir.
 	UserID *string
+	// ChangedBy, oturumdaki kullanıcı -- ücret geçmişi satırına yazılır
+	// (kim değiştirdi); boşsa NULL.
+	ChangedBy string
 }
 
 // ErrEmployeeUserAlreadyLinked, seçilen kullanıcı hesabı ZATEN başka bir
@@ -122,7 +131,15 @@ func (s *EmployeeService) Create(ctx context.Context, organizationID string, in 
 	if err != nil {
 		return nil, err
 	}
-	row, err := s.q.CreateEmployee(ctx, sqlc.CreateEmployeeParams{
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	row, err := txq.CreateEmployee(ctx, sqlc.CreateEmployeeParams{
 		OrganizationID: orgID,
 		FullName:       in.FullName,
 		Phone:          strings.TrimSpace(in.Phone),
@@ -139,8 +156,43 @@ func (s *EmployeeService) Create(ctx context.Context, organizationID string, in 
 		}
 		return nil, err
 	}
+	// İlk ücret, işe girişten (geçmişteyse) itibaren geçerli: sonradan
+	// girilen bir personelin işe başladığı aydan bugüne kadarki ayları da
+	// bu ücretle hesaplanır.
+	today := istanbulToday(s.now())
+	effective := today
+	if in.StartDate != nil {
+		if sd := time.Date(in.StartDate.Year(), in.StartDate.Month(), in.StartDate.Day(), 0, 0, 0, 0, time.UTC); sd.Before(today) {
+			effective = sd
+		}
+	}
+	if err := txq.UpsertEmployeeWage(ctx, sqlc.UpsertEmployeeWageParams{
+		OrganizationID: orgID,
+		EmployeeID:     row.ID,
+		Salary:         row.Salary,
+		DailyWage:      row.DailyWage,
+		EffectiveFrom:  repository.TimeToDate(effective),
+		CreatedBy:      optionalUUID(&in.ChangedBy),
+	}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
 	e := repository.ToDomainEmployee(row)
 	return &e, nil
+}
+
+// sameNumeric, iki nullable numeric'in aynı değer olup olmadığını söyler
+// (NULL = NULL). Ücret değişikliği tespiti için.
+func sameNumeric(a, b pgtype.Numeric) bool {
+	if a.Valid != b.Valid {
+		return false
+	}
+	if !a.Valid {
+		return true
+	}
+	return repository.NumericToFloat64(a) == repository.NumericToFloat64(b)
 }
 
 func (s *EmployeeService) Update(ctx context.Context, id, organizationID string, in EmployeeInput) (*domain.Employee, error) {
@@ -160,14 +212,44 @@ func (s *EmployeeService) Update(ctx context.Context, id, organizationID string,
 	if err != nil {
 		return nil, err
 	}
-	row, err := s.q.UpdateEmployee(ctx, sqlc.UpdateEmployeeParams{
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	old, err := txq.GetEmployeeForUpdate(ctx, sqlc.GetEmployeeForUpdateParams{ID: uid, OrganizationID: orgID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	newSalary := repository.FloatPtrToNumeric(in.Salary)
+	newDailyWage := repository.FloatPtrToNumeric(in.DailyWage)
+	wageChanged := !sameNumeric(old.Salary, newSalary) || !sameNumeric(old.DailyWage, newDailyWage)
+	today := istanbulToday(s.now())
+	if wageChanged {
+		// Geçmişi hiç olmayan personelde (servisi atlayan bir yazıcıdan
+		// gelmiş) önce ESKİ ücret kaydedilir -- yoksa yeni ücret bilinen tek
+		// ücret olur ve geçmiş ayların tamamına yayılırdı.
+		if err := txq.InsertEmployeeWageIfNone(ctx, sqlc.InsertEmployeeWageIfNoneParams{
+			Today: repository.TimeToDate(today), ID: uid, OrganizationID: orgID,
+		}); err != nil {
+			return nil, err
+		}
+	}
+
+	row, err := txq.UpdateEmployee(ctx, sqlc.UpdateEmployeeParams{
 		ID:             uid,
 		OrganizationID: orgID,
 		FullName:       in.FullName,
 		Phone:          strings.TrimSpace(in.Phone),
 		Position:       strings.TrimSpace(in.Position),
-		Salary:         repository.FloatPtrToNumeric(in.Salary),
-		DailyWage:      repository.FloatPtrToNumeric(in.DailyWage),
+		Salary:         newSalary,
+		DailyWage:      newDailyWage,
 		StartDate:      repository.TimePtrToDate(in.StartDate),
 		Description:    strings.TrimSpace(in.Description),
 		IsActive:       in.IsActive,
@@ -180,6 +262,24 @@ func (s *EmployeeService) Update(ctx context.Context, id, organizationID string,
 		if isUniqueViolation(err) {
 			return nil, ErrEmployeeUserAlreadyLinked
 		}
+		return nil, err
+	}
+	if wageChanged {
+		// Yeni ücret BUGÜNDEN (İstanbul) itibaren geçerli; maaş hesabı bir
+		// ayı, ayın son günü geçerli ücretle kapatır (domain.WageForPeriod)
+		// -- yani bu ayın tamamı yeni, önceki aylar eski ücretle kalır.
+		if err := txq.UpsertEmployeeWage(ctx, sqlc.UpsertEmployeeWageParams{
+			OrganizationID: orgID,
+			EmployeeID:     uid,
+			Salary:         row.Salary,
+			DailyWage:      row.DailyWage,
+			EffectiveFrom:  repository.TimeToDate(today),
+			CreatedBy:      optionalUUID(&in.ChangedBy),
+		}); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	e := repository.ToDomainEmployee(row)

@@ -32,7 +32,7 @@ func TestListMyTasks(t *testing.T) {
 	offerSvc := service.NewOfferService(pool, q, settingsSvc, "http://localhost:3000")
 	projectSvc := service.NewProjectService(pool, q, mustTestStore(t), settingsSvc, "http://localhost:3000")
 	userSvc := service.NewUserService(q)
-	employeeSvc := service.NewEmployeeService(q)
+	employeeSvc := service.NewEmployeeService(pool, q)
 
 	orgA := mustCreateOrg(t, ctx, orgSvc, pool, "MyTasks A", "mytasks-a")
 	orgB := mustCreateOrg(t, ctx, orgSvc, pool, "MyTasks B", "mytasks-b")

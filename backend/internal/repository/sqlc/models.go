@@ -108,6 +108,17 @@ type Employee struct {
 	UserID         pgtype.UUID        `json:"user_id"`
 }
 
+type EmployeeWageHistory struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	EmployeeID     pgtype.UUID        `json:"employee_id"`
+	Salary         pgtype.Numeric     `json:"salary"`
+	DailyWage      pgtype.Numeric     `json:"daily_wage"`
+	EffectiveFrom  pgtype.Date        `json:"effective_from"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type FeedbackMessage struct {
 	ID             pgtype.UUID        `json:"id"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`

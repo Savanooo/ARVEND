@@ -471,20 +471,39 @@ func ToDomainSalaryPaymentRow(r sqlc.ListSalaryPaymentsByPeriodRow) domain.Salar
 }
 
 func ToDomainPayrollSummaryRow(r sqlc.PayrollSummaryByPeriodRow) domain.PayrollSummaryRow {
-	return domain.PayrollSummaryRow{
-		EmployeeID:     r.EmployeeID.String(),
-		FullName:       r.FullName,
-		Position:       r.Position,
-		Salary:         NumericToFloat64Ptr(r.Salary),
-		DailyWage:      NumericToFloat64Ptr(r.DailyWage),
-		IsActive:       r.IsActive,
-		WorkedDays:     NumericToFloat64(r.WorkedDays),
-		WorkHours:      NumericToFloat64(r.WorkHours),
-		PaidTotal:      NumericToFloat64(r.PaidTotal),
-		SalaryPaid:     NumericToFloat64(r.SalaryPaid),
-		PaymentCount:   int(r.PaymentCount),
-		PrevWorkedDays: NumericToFloat64(r.PrevWorkedDays),
-		PrevSalaryPaid: NumericToFloat64(r.PrevSalaryPaid),
+	row := domain.PayrollSummaryRow{
+		EmployeeID:   r.EmployeeID.String(),
+		FullName:     r.FullName,
+		Position:     r.Position,
+		Salary:       NumericToFloat64Ptr(r.Salary),
+		DailyWage:    NumericToFloat64Ptr(r.DailyWage),
+		IsActive:     r.IsActive,
+		WorkedDays:   NumericToFloat64(r.WorkedDays),
+		WorkHours:    NumericToFloat64(r.WorkHours),
+		PaidTotal:    NumericToFloat64(r.PaidTotal),
+		SalaryPaid:   NumericToFloat64(r.SalaryPaid),
+		PaymentCount: int(r.PaymentCount),
+	}
+	if r.StartDate.Valid {
+		t := r.StartDate.Time
+		row.StartDate = &t
+	}
+	return row
+}
+
+func ToDomainPayrollMonth(r sqlc.PayrollHistoryBeforeRow) domain.PayrollMonth {
+	return domain.PayrollMonth{
+		Period:     r.Period,
+		WorkedDays: NumericToFloat64(r.WorkedDays),
+		SalaryPaid: NumericToFloat64(r.SalaryPaid),
+	}
+}
+
+func ToDomainWageRate(r sqlc.ListEmployeeWageHistoryByOrganizationRow) domain.WageRate {
+	return domain.WageRate{
+		EffectiveFrom: r.EffectiveFrom.Time,
+		Salary:        NumericToFloat64Ptr(r.Salary),
+		DailyWage:     NumericToFloat64Ptr(r.DailyWage),
 	}
 }
 

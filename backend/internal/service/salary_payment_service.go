@@ -83,10 +83,39 @@ func (s *SalaryPaymentService) Summary(ctx context.Context, organizationID, peri
 	if err != nil {
 		return nil, err
 	}
+	// Devir zinciri önceki ayların TAMAMINA bakar (bkz. domain
+	// PayrollSummaryRow.carryOverInto); her ay o ayda geçerli ücretle
+	// hesaplanır (employee_wage_history). İkisi de firma başına tek sorgu.
+	history, err := s.q.PayrollHistoryBefore(ctx, sqlc.PayrollHistoryBeforeParams{
+		OrganizationID: orgID,
+		Period:         period,
+	})
+	if err != nil {
+		return nil, err
+	}
+	wages, err := s.q.ListEmployeeWageHistoryByOrganization(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	historyByEmp := make(map[string][]domain.PayrollMonth)
+	for _, h := range history {
+		id := h.EmployeeID.String()
+		historyByEmp[id] = append(historyByEmp[id], repository.ToDomainPayrollMonth(h))
+	}
+	wagesByEmp := make(map[string][]domain.WageRate)
+	for _, w := range wages {
+		id := w.EmployeeID.String()
+		wagesByEmp[id] = append(wagesByEmp[id], repository.ToDomainWageRate(w))
+	}
+	// "İçinde bulunulan ay" İstanbul takvimine göre: sunucu UTC'de çalışır,
+	// ayın 1'inde 00:00-03:00 arası bir önceki ayı gösterirdi.
+	currentPeriod := IstanbulNow(time.Now()).Format("2006-01")
 	out := make([]domain.PayrollSummaryRow, len(rows))
 	for i, r := range rows {
 		out[i] = repository.ToDomainPayrollSummaryRow(r)
-		out[i].Calculate()
+		out[i].History = historyByEmp[out[i].EmployeeID]
+		out[i].Wages = wagesByEmp[out[i].EmployeeID]
+		out[i].Calculate(period, currentPeriod)
 	}
 	return out, nil
 }

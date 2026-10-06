@@ -37,7 +37,7 @@ func TestNotifications(t *testing.T) {
 
 	q := sqlc.New(pool)
 	userSvc := service.NewUserService(q)
-	employeeSvc := service.NewEmployeeService(q)
+	employeeSvc := service.NewEmployeeService(pool, q)
 	authzSvc := service.NewAuthorizationService(q)
 	settingsSvc := service.NewSettingsService(q, box)
 	offerSvc := service.NewOfferService(pool, q, settingsSvc, "http://localhost:3000")

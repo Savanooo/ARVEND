@@ -12,6 +12,11 @@ WHERE organization_id = $1
   AND (sqlc.narg('is_active')::boolean IS NULL OR is_active = sqlc.narg('is_active')::boolean)
 ORDER BY full_name ASC;
 
+-- name: GetEmployeeForUpdate :one
+-- Ücret değişikliğini (eski -> yeni) aynı transaction içinde güvenle
+-- karşılaştırmak için satırı kilitler (bkz. EmployeeService.Update).
+SELECT * FROM employees WHERE id = $1 AND organization_id = $2 FOR UPDATE;
+
 -- name: UpdateEmployee :one
 UPDATE employees
 SET full_name = $3, phone = $4, position = $5, salary = $6, daily_wage = $7,

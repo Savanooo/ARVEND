@@ -33,7 +33,7 @@ func sampleStatement() *PayrollStatement {
 		EmployeeID: "e1", FullName: "Batuhan İnci", DailyWage: &wage, IsActive: true,
 		WorkedDays: 12, WorkHours: 120, PaidTotal: 24000, SalaryPaid: 23000,
 	}
-	row.Calculate()
+	row.Calculate("2026-10", "2026-10")
 	st := &PayrollStatement{
 		CompanyName: "Arvend Yapı", EmployeeName: "Batuhan İnci", Position: "Alçı levha uygulayıcısı",
 		Period: "2026-10", Row: row, HasRow: true, GeneratedAt: time.Date(2026, 10, 6, 9, 30, 0, 0, time.UTC),

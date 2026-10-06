@@ -239,7 +239,7 @@ func TestTenantIsolation(t *testing.T) {
 	q := sqlc.New(pool)
 	orgSvc := service.NewOrganizationService(q)
 	productSvc := service.NewProductService(q)
-	employeeSvc := service.NewEmployeeService(q)
+	employeeSvc := service.NewEmployeeService(pool, q)
 	attendanceSvc := service.NewAttendanceService(q)
 	settingsSvc := service.NewSettingsService(q, box)
 	offerSvc := service.NewOfferService(pool, q, settingsSvc, "http://localhost:3000")

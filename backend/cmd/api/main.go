@@ -64,7 +64,7 @@ func main() {
 	offerSvc := service.NewOfferService(pool, q, settingsSvc, cfg.FrontendURL)
 	projectSvc := service.NewProjectService(pool, q, fileStore, settingsSvc, cfg.FrontendURL)
 	customerSvc := service.NewCustomerService(q)
-	employeeSvc := service.NewEmployeeService(q)
+	employeeSvc := service.NewEmployeeService(pool, q)
 	attendanceSvc := service.NewAttendanceService(q)
 	salaryPaymentSvc := service.NewSalaryPaymentService(q)
 	calcSvc := service.NewCalcService(q)
