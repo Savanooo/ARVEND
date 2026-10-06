@@ -324,6 +324,13 @@ class ApiClient {
         try {
           final retryOptions = error.requestOptions;
           retryOptions.extra['_retried'] = true;
+          // Multipart gövde (dosya/fotoğraf yükleme) ilk gönderimde
+          // "finalize" edildi; aynı FormData ikinci kez gönderilemez (Dio
+          // StateError atar ve kullanıcı "Bağlantı kurulamadı" görürdü --
+          // 15 dk boşta kalınca ilk yükleme hep böyle düşüyordu). Klon aynı
+          // sınırı (boundary) ve dosyaları baştan okuyan yeni akışları taşır.
+          final data = retryOptions.data;
+          if (data is FormData) retryOptions.data = data.clone();
           final response = await _dio.fetch(retryOptions);
           return handler.resolve(response);
         } on DioException catch (retryError) {
