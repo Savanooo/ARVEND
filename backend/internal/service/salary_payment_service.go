@@ -158,7 +158,8 @@ func (s *SalaryPaymentService) Create(ctx context.Context, organizationID string
 
 	paidDate := in.PaidDate
 	if paidDate.IsZero() {
-		paidDate = time.Now()
+		// Varsayılan "bugün" İstanbul takvimiyle (sunucu UTC'de).
+		paidDate = istanbulToday(time.Now())
 	}
 	var createdBy pgtype.UUID
 	if in.CreatedBy != "" {
