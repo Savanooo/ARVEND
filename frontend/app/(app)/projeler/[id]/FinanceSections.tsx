@@ -19,6 +19,7 @@ import { INVOICE_STATUS, PLAN_ITEM_STATUS, SUBCONTRACTOR_STATUS } from "@/lib/st
 import {
   EXPENSE_CATEGORY_LABELS,
   INVOICE_STATUS_LABELS,
+  SUBCONTRACTOR_STATUS_LABELS,
   type BudgetLine,
   type ChangeOrder,
   type Collection,
@@ -30,6 +31,7 @@ import {
   type ProjectInvoice,
   type Subcontractor,
   type SubcontractorPayment,
+  type SubcontractorStatus,
 } from "@/lib/types";
 
 // Anahtar form ÖRNEĞİ başına bir kez üretilir ve tekrar denemelerde AYNI
@@ -976,8 +978,17 @@ export function SubcontractorsSection({
 }) {
   const { busy, error, run } = useFinanceAction(locked);
   const editable = !locked && canManage;
+  const { askReason, dialog } = useReasonDialog();
   const [open, setOpen] = useState(false);
   const [payingFor, setPayingFor] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    company_name: "",
+    work_description: "",
+    contract_amount: "",
+    status: "planned" as SubcontractorStatus,
+  });
   const [form, setForm] = useState({ name: "", company_name: "", work_description: "", contract_amount: "" });
   const [payForm, setPayForm] = useState({ amount: "", paid_date: istanbulDate(new Date()), description: "" });
   // Anahtar TAŞERON BAŞINA tutulur (tek bir bölüm-geneli anahtar DEĞİL):
@@ -1013,6 +1024,64 @@ export function SubcontractorsSection({
     }
   }
 
+  function startEdit(sub: Subcontractor) {
+    setPayingFor(null);
+    setEditingId(sub.id);
+    setEditForm({
+      name: sub.name,
+      company_name: sub.company_name,
+      work_description: sub.work_description,
+      contract_amount: String(sub.contract_amount),
+      status: sub.status,
+    });
+  }
+
+  // PUT /subcontractors/{id} TAM kayıt yazar (bkz. ProjectService.
+  // UpdateSubcontractor): formda olmayan alanlar (telefon, e-posta, tarihler,
+  // not, maliyet kodu) mevcut değerleriyle gönderilir -- aksi halde
+  // düzenleme onları sessizce silerdi.
+  async function saveEdit(e: FormEvent, sub: Subcontractor) {
+    e.preventDefault();
+    const ok = await run(() =>
+      apiClient(`/api/v1/projects/${project.id}/subcontractors/${sub.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: editForm.name,
+          company_name: editForm.company_name,
+          phone: sub.phone,
+          email: sub.email,
+          work_description: editForm.work_description,
+          contract_amount: Number(editForm.contract_amount),
+          currency: sub.currency,
+          start_date: sub.start_date,
+          end_date: sub.end_date,
+          status: editForm.status,
+          notes: sub.notes,
+          change_order_id: sub.change_order_id ?? "",
+          cost_code_id: sub.cost_code_id ?? "",
+        }),
+      })
+    );
+    if (ok) setEditingId(null);
+  }
+
+  async function voidPayment(payment: SubcontractorPayment, sub: Subcontractor) {
+    const reason = await askReason({
+      title: "Taşeron Ödemesini İptal Et",
+      message: `${sub.name} için ${formatMoney(payment.amount, payment.currency)} tutarındaki ödeme iptal edilecek; kayıt silinmez, İPTAL olarak işaretlenir ve kalan bakiye geri artar.`,
+      label: "İptal nedeni",
+      confirmLabel: "İptal Et",
+      danger: true,
+    });
+    if (reason === null) return;
+    await run(() =>
+      apiClient(`/api/v1/projects/${project.id}/subcontractor-payments/${payment.id}/void`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      })
+    );
+  }
+
   async function addPayment(e: FormEvent, subId: string) {
     e.preventDefault();
     const ok = await run(() =>
@@ -1036,23 +1105,92 @@ export function SubcontractorsSection({
 
   return (
     <div className="flex flex-col gap-4">
+      {dialog}
       {subcontractors.length === 0 ? (
         <p className="text-text-muted">Henüz taşeron kaydı yok.</p>
       ) : (
         subcontractors.map((s) => {
-          const subPayments = payments.filter((p) => p.subcontractor_id === s.id && !p.voided_at);
+          const subPayments = payments.filter((p) => p.subcontractor_id === s.id);
           return (
             <div key={s.id} className="rounded-md border border-border p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <span className="font-medium">{s.name}</span>
-                  {s.company_name && <span className="ml-2 text-text-muted">{s.company_name}</span>}
-                  {s.work_description && (
-                    <div className="text-xs text-text-muted">{s.work_description}</div>
-                  )}
+              {editingId === s.id ? (
+                <form onSubmit={(e) => saveEdit(e, s)} className="flex flex-col gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <Input
+                      label="Taşeron adı"
+                      name={`sub_name_${s.id}`}
+                      required
+                      value={editForm.name}
+                      onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                    />
+                    <Input
+                      label="Firma"
+                      name={`sub_company_${s.id}`}
+                      value={editForm.company_name}
+                      onChange={(e) => setEditForm({ ...editForm, company_name: e.target.value })}
+                    />
+                    <Input
+                      label="Yapılan iş"
+                      name={`sub_work_${s.id}`}
+                      value={editForm.work_description}
+                      onChange={(e) => setEditForm({ ...editForm, work_description: e.target.value })}
+                    />
+                    <Input
+                      label={`Sözleşme bedeli (${s.currency})`}
+                      name={`sub_amount_${s.id}`}
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      required
+                      value={editForm.contract_amount}
+                      onChange={(e) => setEditForm({ ...editForm, contract_amount: e.target.value })}
+                    />
+                    <Select
+                      label="Durum"
+                      name={`sub_status_${s.id}`}
+                      value={editForm.status}
+                      onChange={(e) => setEditForm({ ...editForm, status: e.target.value as SubcontractorStatus })}
+                    >
+                      {Object.entries(SUBCONTRACTOR_STATUS_LABELS).map(([k, label]) => (
+                        <option key={k} value={k}>
+                          {label}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="submit" loading={busy}>
+                      Kaydet
+                    </Button>
+                    <Button type="button" variant="ghost" onClick={() => setEditingId(null)}>
+                      Vazgeç
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="font-medium">{s.name}</span>
+                    {s.company_name && <span className="ml-2 text-text-muted">{s.company_name}</span>}
+                    {s.work_description && (
+                      <div className="text-xs text-text-muted">{s.work_description}</div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <StatusBadge status={s.status} registry={SUBCONTRACTOR_STATUS} />
+                    {editable && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => startEdit(s)}
+                        className="text-xs text-text-muted hover:text-gold hover:underline"
+                      >
+                        Düzenle
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <StatusBadge status={s.status} registry={SUBCONTRACTOR_STATUS} />
-              </div>
+              )}
               <div className="mt-2 grid grid-cols-3 gap-3 text-sm">
                 <div>
                   <div className="text-xs uppercase tracking-widest text-text-muted">Sözleşme</div>
@@ -1071,16 +1209,32 @@ export function SubcontractorsSection({
               {subPayments.length > 0 && (
                 <ul className="mt-2 flex flex-col gap-0.5 border-t border-border pt-2 text-xs text-text-muted">
                   {subPayments.map((p) => (
-                    <li key={p.id}>
-                      {new Date(p.paid_date).toLocaleDateString("tr-TR")} ·{" "}
-                      {formatMoney(p.amount, p.currency)}
-                      {p.description && ` · ${p.description}`}
+                    <li key={p.id} className="flex flex-wrap items-center gap-x-2">
+                      <span className={p.voided_at ? "line-through opacity-60" : ""}>
+                        {new Date(p.paid_date).toLocaleDateString("tr-TR")} ·{" "}
+                        {formatMoney(p.amount, p.currency)}
+                        {p.description && ` · ${p.description}`}
+                      </span>
+                      {p.voided_at ? (
+                        <span className="text-danger">İPTAL{p.void_reason && ` · ${p.void_reason}`}</span>
+                      ) : (
+                        editable && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => voidPayment(p, s)}
+                            className="text-danger hover:underline"
+                          >
+                            İptal Et
+                          </button>
+                        )
+                      )}
                     </li>
                   ))}
                 </ul>
               )}
 
-              {editable && (
+              {editable && editingId !== s.id && (
                 <div className="mt-2">
                   {payingFor === s.id ? (
                     <form onSubmit={(e) => addPayment(e, s.id)} className="flex flex-wrap items-end gap-2">
