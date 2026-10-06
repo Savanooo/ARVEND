@@ -60,8 +60,10 @@ RETURNING *;
 -- name: GetUserPermissions :many
 -- AuthorizationService.HasPermission'ın (ve /auth/me izin listesinin) tek
 -- gerçek kaynağı: (rolün izinleri − kişiye özel revoke) ∪ kişiye özel grant.
--- Sahip (owner) rolünde kişiye özel ayarlar YOK SAYILIR -- firmanın son
--- yöneticisinin kendi yetkisini kısıp kilitlenmesi mümkün olmasın.
+-- Sahip (owner) rolünde kişiye özel ayarlar YOK SAYILIR ve rol satırlarına
+-- da bakılmaz: Sahip kayıt defterindeki TÜM izinlere sahiptir -- firmanın son
+-- yöneticisinin kendi yetkisini kısıp kilitlenmesi mümkün olmasın (rolün
+-- izin kümesi webden düzenlenebildiği dönemde bu yapılabiliyordu).
 -- super_admin çağrılmamalıdır (organization_role_id her zaman NULL, JOIN
 -- hiçbir satır döndürmez) -- middleware onu zaten rol kontrolüyle daha
 -- önce muaf tutar (bkz. RequireOnboarded'daki AYNI desen).
@@ -69,10 +71,16 @@ SELECT rp.permission_code
 FROM users u
 JOIN organization_roles orole ON orole.id = u.organization_role_id
 JOIN role_permissions rp ON rp.organization_role_id = orole.id
-WHERE u.id = $1 AND u.organization_id = $2
-  AND (orole.code = 'owner' OR NOT EXISTS (
+WHERE u.id = $1 AND u.organization_id = $2 AND orole.code <> 'owner'
+  AND NOT EXISTS (
         SELECT 1 FROM user_permission_overrides o
-        WHERE o.user_id = u.id AND o.permission_code = rp.permission_code AND o.effect = 'revoke'))
+        WHERE o.user_id = u.id AND o.permission_code = rp.permission_code AND o.effect = 'revoke')
+UNION
+SELECT p.code
+FROM users u
+JOIN organization_roles orole ON orole.id = u.organization_role_id
+CROSS JOIN permissions p
+WHERE u.id = $1 AND u.organization_id = $2 AND orole.code = 'owner'
 UNION
 SELECT o.permission_code
 FROM users u

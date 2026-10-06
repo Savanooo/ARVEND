@@ -211,6 +211,32 @@ func TestUserPermissionOverrides(t *testing.T) {
 		}
 	})
 
+	t.Run("Sahip rolünün izinleri değiştirilemez; kısılmış rol satırları bile Sahip'i kilitlemez", func(t *testing.T) {
+		roles, err := authzSvc.ListOrganizationRoles(ctx, orgA.ID, false)
+		if err != nil {
+			t.Fatalf("roller: %v", err)
+		}
+		var ownerRoleID string
+		for _, r := range roles {
+			if r.Code == domain.OrgRoleOwner {
+				ownerRoleID = r.ID
+			}
+		}
+		if ownerRoleID == "" {
+			t.Fatal("Sahip rolü bulunamadı")
+		}
+		if _, err := authzSvc.SetRolePermissions(ctx, ownerRoleID, orgA.ID, []string{"projects.read"}); !errors.Is(err, domain.ErrOwnerRoleLocked) {
+			t.Fatalf("ErrOwnerRoleLocked bekleniyordu, geldi: %v", err)
+		}
+		// Kilit öncesi webden kısılmış bir Sahip rolü: etkin izinler yine tam.
+		if _, err := pool.Exec(ctx, "DELETE FROM role_permissions WHERE organization_role_id = $1 AND permission_code = 'organization.roles.manage'", ownerRoleID); err != nil {
+			t.Fatalf("ham silme: %v", err)
+		}
+		if !has(owner.ID, orgA.ID, "organization.roles.manage") {
+			t.Fatal("Sahip, rol satırı eksik olsa da tüm izinlere sahip olmalı")
+		}
+	})
+
 	t.Run("tanımsız izin kodu reddedilir", func(t *testing.T) {
 		if _, err := authzSvc.SetUserPermissions(ctx, otherField.ID, orgA.ID, owner.ID, []string{"boyle.bir.izin.yok"}); !errors.Is(err, domain.ErrUnknownPermission) {
 			t.Fatalf("ErrUnknownPermission bekleniyordu, geldi: %v", err)

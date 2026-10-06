@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -71,9 +72,13 @@ function RolePermissionsEditor({
   role: OrganizationRole;
   grouped: [string, Permission[]][];
 }) {
+  const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set(role.permissions));
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  // Sahip her zaman tüm yetkilere sahiptir; rolü kısmak firmayı kilitleyebilirdi
+  // (backend de reddeder -- mobildeki kilitle aynı kural).
+  const locked = role.code === "owner";
 
   function toggle(code: string) {
     setSelected((prev) => {
@@ -104,6 +109,9 @@ function RolePermissionsEditor({
         body: JSON.stringify({ permissions: Array.from(selected) }),
       });
       setMsg("Kaydedildi.");
+      // Sunucudan gelen rol listesi tazelenmezse başka role geçip dönünce eski
+      // izinler görünüyor, bir sonraki kayıt da onları geri yazıyordu.
+      router.refresh();
     } catch (err) {
       setMsg(err instanceof ApiError ? err.message : "Bağlantı hatası");
     } finally {
@@ -121,7 +129,7 @@ function RolePermissionsEditor({
               <span className="ml-2 text-xs font-normal normal-case text-text-muted">{role.description}</span>
             )}
           </span>
-          <Badge tone="muted">{selected.size} izin</Badge>
+          <Badge tone="muted">{locked ? "Tüm izinler" : `${selected.size} izin`}</Badge>
         </div>
       </CardHeader>
       <CardBody>
@@ -135,20 +143,23 @@ function RolePermissionsEditor({
                   <span className="text-xs font-semibold uppercase tracking-widest text-text-muted">
                     {category}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => toggleCategory(codes, allChecked)}
-                    className="text-xs text-gold hover:underline"
-                  >
-                    {allChecked ? "Tümünü Kaldır" : "Tümünü Seç"}
-                  </button>
+                  {!locked && (
+                    <button
+                      type="button"
+                      onClick={() => toggleCategory(codes, allChecked)}
+                      className="text-xs text-gold hover:underline"
+                    >
+                      {allChecked ? "Tümünü Kaldır" : "Tümünü Seç"}
+                    </button>
+                  )}
                 </div>
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
                   {perms.map((p) => (
                     <label key={p.code} className="flex items-start gap-2 text-sm">
                       <input
                         type="checkbox"
-                        checked={selected.has(p.code)}
+                        checked={locked || selected.has(p.code)}
+                        disabled={locked}
                         onChange={() => toggle(p.code)}
                         className="mt-0.5 accent-gold"
                       />
@@ -160,12 +171,18 @@ function RolePermissionsEditor({
             );
           })}
 
-          <div className="flex items-center gap-3 border-t border-border pt-4">
-            <Button onClick={save} disabled={saving}>
-              {saving ? "Kaydediliyor…" : "Kaydet"}
-            </Button>
-            {msg && <p className="text-xs text-text-muted">{msg}</p>}
-          </div>
+          {locked ? (
+            <p className="border-t border-border pt-4 text-xs text-text-muted">
+              Sahip rolü kilitlidir: firmanın kendini kilitlemesini önlemek için yetkileri değiştirilemez.
+            </p>
+          ) : (
+            <div className="flex items-center gap-3 border-t border-border pt-4">
+              <Button onClick={save} disabled={saving}>
+                {saving ? "Kaydediliyor…" : "Kaydet"}
+              </Button>
+              {msg && <p className="text-xs text-text-muted">{msg}</p>}
+            </div>
+          )}
         </div>
       </CardBody>
     </Card>

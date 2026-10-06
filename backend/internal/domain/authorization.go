@@ -279,6 +279,10 @@ var (
 	// yetki ayarlanmaya çalışıldığında döner: Sahip her zaman rolünün tüm
 	// izinlerine sahiptir (firmanın kendini kilitlemesi engellenir).
 	ErrOwnerPermissionsFixed = errors.New("Sahip her zaman tüm yetkilere sahiptir; kişiye özel yetki ayarlanamaz")
+	// ErrOwnerRoleLocked, Sahip rolünün izin kümesi değiştirilmeye
+	// çalışıldığında döner: Sahip'ten "Firma Yönetimi" kaldırılıp aynısı
+	// Yönetici'ye de yapılınca rolleri düzeltebilecek kimse kalmıyordu.
+	ErrOwnerRoleLocked = errors.New("Sahip rolü kilitlidir: firmanın kendini kilitlemesini önlemek için yetkileri değiştirilemez")
 	// ErrPermissionNeedsAdminRole, Sahip/Yönetici dışı bir kullanıcıya
 	// kullanıcı/rol/firma ayarı yönetimi izni kişiye özel eklenmeye
 	// çalışıldığında döner (bkz. IsAdminRoleOnlyPermission).

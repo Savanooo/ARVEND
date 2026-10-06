@@ -211,6 +211,12 @@ func (s *AuthorizationService) SetRolePermissions(ctx context.Context, roleID, o
 		}
 		return nil, err
 	}
+	// Sahip her zaman tüm yetkilere sahiptir (GetUserPermissions bunu
+	// rol satırlarından bağımsız uygular); rolün kendisi de düzenlenemez --
+	// mobildeki kilitle aynı kural.
+	if role.Code == domain.OrgRoleOwner {
+		return nil, domain.ErrOwnerRoleLocked
+	}
 
 	clean, err := s.cleanPermissionCodes(ctx, permissionCodes)
 	if err != nil {

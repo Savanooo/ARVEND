@@ -32,7 +32,8 @@ func (h *AuthorizationHandler) writeError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, domain.ErrCrossOrgMembership), errors.Is(err, domain.ErrPermissionNeedsAdminRole):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
-	case errors.Is(err, domain.ErrOwnerPermissionsFixed), errors.Is(err, domain.ErrUserDeleted):
+	case errors.Is(err, domain.ErrOwnerPermissionsFixed), errors.Is(err, domain.ErrOwnerRoleLocked),
+		errors.Is(err, domain.ErrUserDeleted):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
