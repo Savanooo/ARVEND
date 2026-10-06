@@ -18,9 +18,15 @@ ORDER BY full_name ASC;
 SELECT * FROM employees WHERE id = $1 AND organization_id = $2 FOR UPDATE;
 
 -- name: UpdateEmployee :one
+-- archived_at, is_active ile TUTARLI tutulur: "Pasifleştir" (ArchiveEmployee)
+-- archived_at'i dolduruyordu ama formdan yeniden "Aktif" yapılan personelde
+-- temizlenmiyor, "Aktif" işareti kaldırılınca da hiç dolmuyordu -- ana sayfa
+-- archived_at'e baktığı için aktif bir personel orada arşivli görünüyordu.
+-- Pasife alınırken mevcut arşiv zamanı korunur (ilk pasifleştirme anı).
 UPDATE employees
 SET full_name = $3, phone = $4, position = $5, salary = $6, daily_wage = $7,
-    start_date = $8, description = $9, is_active = $10, user_id = $11
+    start_date = $8, description = $9, is_active = $10, user_id = $11,
+    archived_at = CASE WHEN $10::boolean THEN NULL ELSE COALESCE(archived_at, now()) END
 WHERE id = $1 AND organization_id = $2
 RETURNING *;
 

@@ -228,7 +228,8 @@ func (q *Queries) ListEmployees(ctx context.Context, arg ListEmployeesParams) ([
 const updateEmployee = `-- name: UpdateEmployee :one
 UPDATE employees
 SET full_name = $3, phone = $4, position = $5, salary = $6, daily_wage = $7,
-    start_date = $8, description = $9, is_active = $10, user_id = $11
+    start_date = $8, description = $9, is_active = $10, user_id = $11,
+    archived_at = CASE WHEN $10::boolean THEN NULL ELSE COALESCE(archived_at, now()) END
 WHERE id = $1 AND organization_id = $2
 RETURNING id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id, user_id
 `
@@ -247,6 +248,11 @@ type UpdateEmployeeParams struct {
 	UserID         pgtype.UUID    `json:"user_id"`
 }
 
+// archived_at, is_active ile TUTARLI tutulur: "Pasifleştir" (ArchiveEmployee)
+// archived_at'i dolduruyordu ama formdan yeniden "Aktif" yapılan personelde
+// temizlenmiyor, "Aktif" işareti kaldırılınca da hiç dolmuyordu -- ana sayfa
+// archived_at'e baktığı için aktif bir personel orada arşivli görünüyordu.
+// Pasife alınırken mevcut arşiv zamanı korunur (ilk pasifleştirme anı).
 func (q *Queries) UpdateEmployee(ctx context.Context, arg UpdateEmployeeParams) (Employee, error) {
 	row := q.db.QueryRow(ctx, updateEmployee,
 		arg.ID,
