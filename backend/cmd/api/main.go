@@ -111,6 +111,7 @@ func main() {
 		Payroll:           handler.NewSalaryPaymentHandler(salaryPaymentSvc),
 		Settings:          handler.NewSettingsHandler(settingsSvc),
 		PublicOffer:       handler.NewPublicOfferHandler(offerSvc),
+		OfferPDF:          handler.NewOfferPDFHandler(service.NewOfferPDFService(offerSvc, q, secretBox)),
 		PublicChangeOrder: handler.NewPublicChangeOrderHandler(projectSvc),
 		Calc:              handler.NewCalcHandler(calcSvc),
 		Platform:          handler.NewPlatformHandler(platformSvc),

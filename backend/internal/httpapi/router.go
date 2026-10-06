@@ -32,6 +32,7 @@ type Deps struct {
 	Payroll           *handler.SalaryPaymentHandler
 	Settings          *handler.SettingsHandler
 	PublicOffer       *handler.PublicOfferHandler
+	OfferPDF          *handler.OfferPDFHandler
 	PublicChangeOrder *handler.PublicChangeOrderHandler
 	Calc              *handler.CalcHandler
 	Platform          *handler.PlatformHandler
@@ -217,6 +218,7 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/{id}/share-links", d.Offers.ListShareLinks)
 				r.Get("/{id}/events", d.Offers.ListEvents)
 				r.Get("/{id}/email-logs", d.Offers.ListEmailLogs)
+				r.Get("/{id}/pdf", d.OfferPDF.Download)
 				// Teklifin projeye dönüşüp dönüşmediği (dönüşmediyse 404) --
 				// teklif detayındaki "Projeye Dönüştür"/"Projeyi Görüntüle"
 				// ayrımı buna bakar.
@@ -780,6 +782,7 @@ func NewRouter(d Deps) http.Handler {
 		// güvenlik sınırı tahmin edilemez uuid token'ın kendisidir.
 		r.Route("/public/offers/{token}", func(r chi.Router) {
 			r.Get("/", d.PublicOffer.Get)
+			r.Get("/pdf", d.OfferPDF.PublicDownload)
 			r.Post("/respond", d.PublicOffer.Respond)
 		})
 
