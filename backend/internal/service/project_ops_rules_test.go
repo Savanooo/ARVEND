@@ -31,9 +31,9 @@ func TestProjectOpsRules(t *testing.T) {
 	t.Cleanup(func() { pool.Close() })
 
 	q := sqlc.New(pool)
-	userSvc := service.NewUserService(q)
-	employeeSvc := service.NewEmployeeService(q)
-	authzSvc := service.NewAuthorizationService(q)
+	userSvc := service.NewUserService(pool, q)
+	employeeSvc := service.NewEmployeeService(pool, q)
+	authzSvc := service.NewAuthorizationService(pool, q)
 	settingsSvc := service.NewSettingsService(q, box)
 	offerSvc := service.NewOfferService(pool, q, settingsSvc, "http://localhost:3000")
 	projectSvc := service.NewProjectService(pool, q, mustTestStore(t), settingsSvc, "http://localhost:3000")
@@ -62,7 +62,7 @@ func TestProjectOpsRules(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", username, err)
 		}
-		if _, err := authzSvc.SetUserOrganizationRole(ctx, u.ID, org.ID, roleCode); err != nil {
+		if _, err := authzSvc.SetUserOrganizationRole(ctx, u.ID, org.ID, created.Owner.ID, roleCode); err != nil {
 			t.Fatalf("%s rol: %v", username, err)
 		}
 		return u

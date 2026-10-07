@@ -87,6 +87,16 @@ func TestNotifications(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s oluşturulamadı: %v", username, err)
 		}
+		if roleCode == domain.OrgRoleOwner {
+			// Sahip rolünü yalnızca bir Sahip verebilir (guardOwnerOnlyAction);
+			// test kurulumu ek Sahip'leri doğrudan veritabanında açar.
+			if _, err := pool.Exec(ctx, `UPDATE users SET role = 'admin',
+				organization_role_id = (SELECT id FROM organization_roles WHERE organization_id = $2 AND code = 'owner')
+				WHERE id = $1`, u.ID, orgID); err != nil {
+				t.Fatalf("%s için Sahip rolü verilemedi: %v", username, err)
+			}
+			return u
+		}
 		if _, err := authzSvc.SetUserOrganizationRole(ctx, u.ID, orgID, "", roleCode); err != nil {
 			t.Fatalf("%s için rol (%s) atanamadı: %v", username, roleCode, err)
 		}
