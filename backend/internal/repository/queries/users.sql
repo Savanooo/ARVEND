@@ -70,7 +70,9 @@ SELECT u.*, orole.code AS organization_role_code, orole.name AS organization_rol
 FROM users u
 LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
 WHERE u.organization_id = $1 AND u.deleted_at IS NULL
-ORDER BY u.created_at DESC
+-- id ikincil sıralama: aynı anda oluşturulmuş kullanıcılar (ör. toplu
+-- aktarım) sayfa sınırında iki sayfada birden görünmesin / kaybolmasın.
+ORDER BY u.created_at DESC, u.id
 LIMIT $2 OFFSET $3;
 
 -- name: ListDeletedUsersWithOrganizationRole :many

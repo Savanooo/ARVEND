@@ -490,7 +490,7 @@ SELECT u.id, u.username, u.password_hash, u.full_name, u.role, u.is_active, u.cr
 FROM users u
 LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
 WHERE u.organization_id = $1 AND u.deleted_at IS NULL
-ORDER BY u.created_at DESC
+ORDER BY u.created_at DESC, u.id
 LIMIT $2 OFFSET $3
 `
 
@@ -524,6 +524,8 @@ type ListUsersWithOrganizationRoleRow struct {
 // AYNI sorguda (N+1 yok). super_admin bu listede HİÇ görünmez zaten
 // (organization_id filtresiyle doğal olarak dışarıda kalır). Silinmiş
 // kullanıcılar HER ZAMAN dışarıda -- bkz. ListDeletedUsersWithOrganizationRole.
+// id ikincil sıralama: aynı anda oluşturulmuş kullanıcılar (ör. toplu
+// aktarım) sayfa sınırında iki sayfada birden görünmesin / kaybolmasın.
 func (q *Queries) ListUsersWithOrganizationRole(ctx context.Context, arg ListUsersWithOrganizationRoleParams) ([]ListUsersWithOrganizationRoleRow, error) {
 	rows, err := q.db.Query(ctx, listUsersWithOrganizationRole, arg.OrganizationID, arg.Limit, arg.Offset)
 	if err != nil {

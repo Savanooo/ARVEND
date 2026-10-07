@@ -7,6 +7,7 @@ import { requirePagePermission } from "@/lib/auth";
 import { canAccess, PAGE_PERMISSIONS } from "@/lib/permissions";
 import type { OrganizationRole, Permission, User } from "@/lib/types";
 
+import { fetchAllUsers } from "../fetchAllUsers";
 import { NewEmployeeForm } from "./NewEmployeeForm";
 
 export default async function YeniPersonelPage() {
@@ -19,10 +20,8 @@ export default async function YeniPersonelPage() {
   const canEditAccess = canAccess(me, "organization.roles.manage");
   const canCreateLogin = canReadAccess && canEditAccess && canAccess(me, "organization.users.manage");
 
-  const [usersResult, rolesRes, catalogRes] = await Promise.all([
-    canLinkUsers
-      ? apiServer<{ users: User[]; total: number }>("/api/v1/users", cookieHeader)
-      : Promise.resolve({ users: [] as User[], total: 0 }),
+  const [users, rolesRes, catalogRes] = await Promise.all([
+    canLinkUsers ? fetchAllUsers(cookieHeader) : Promise.resolve([] as User[]),
     canReadAccess
       ? apiServer<{ roles: OrganizationRole[] }>("/api/v1/organization/roles", cookieHeader)
       : Promise.resolve({ roles: [] as OrganizationRole[] }),
@@ -36,7 +35,7 @@ export default async function YeniPersonelPage() {
       <PageHeader title="Yeni Personel" />
       <div className="p-8">
         <NewEmployeeForm
-          users={usersResult.users}
+          users={users}
           roles={rolesRes.roles}
           catalog={catalogRes.permissions}
           canLinkUsers={canLinkUsers}

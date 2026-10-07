@@ -8,6 +8,7 @@ import { requirePagePermission } from "@/lib/auth";
 import { canAccess, PAGE_PERMISSIONS } from "@/lib/permissions";
 import type { Employee, OrganizationRole, Permission, User, UserPermissions } from "@/lib/types";
 
+import { fetchAllUsers } from "../fetchAllUsers";
 import { EditEmployeeForm } from "./EditEmployeeForm";
 
 export default async function PersonelDetayPage({
@@ -34,11 +35,9 @@ export default async function PersonelDetayPage({
   const canCreateLogin =
     canReadAccess && canEditAccess && canManageEmployee && canAccess(me, "organization.users.manage");
 
-  const [employee, usersResult, rolesRes, catalogRes] = await Promise.all([
+  const [employee, users, rolesRes, catalogRes] = await Promise.all([
     apiServer<Employee>(`/api/v1/employees/${id}`, cookieHeader),
-    canReadUsers
-      ? apiServer<{ users: User[]; total: number }>("/api/v1/users", cookieHeader)
-      : Promise.resolve({ users: [] as User[], total: 0 }),
+    canReadUsers ? fetchAllUsers(cookieHeader) : Promise.resolve([] as User[]),
     canReadAccess
       ? apiServer<{ roles: OrganizationRole[] }>("/api/v1/organization/roles", cookieHeader)
       : Promise.resolve({ roles: [] as OrganizationRole[] }),
@@ -50,7 +49,7 @@ export default async function PersonelDetayPage({
     employee.user_id && canReadAccess
       ? await apiServer<UserPermissions>(`/api/v1/users/${employee.user_id}/permissions`, cookieHeader)
       : null;
-  const linkedUser = usersResult.users.find((u) => u.id === employee.user_id);
+  const linkedUser = users.find((u) => u.id === employee.user_id);
 
   return (
     <>
@@ -59,7 +58,7 @@ export default async function PersonelDetayPage({
         <EditEmployeeForm
           key={employee.user_id ?? "baglantisiz"}
           employee={employee}
-          users={usersResult.users}
+          users={users}
           canManage={canManageEmployee}
           canLinkUsers={canReadUsers}
         />
