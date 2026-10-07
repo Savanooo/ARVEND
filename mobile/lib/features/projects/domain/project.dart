@@ -449,6 +449,27 @@ class ProjectFile {
 const kPhotoStages = ['before', 'progress', 'after'];
 const kFileCategories = ['contract', 'drawing', 'invoice', 'report', 'other'];
 
+/// Fotoğrafları iş sırasına dizer: önce -> süreç -> sonra (tanınmayan
+/// aşama en sonda). Backend aşamayı ALFABETİK sıralıyor ("after" <
+/// "before" < "progress"), düz ızgarada "sonra" fotoğrafları başta
+/// görünüyordu. Aynı aşama içinde backend'in tarih sırası (çekim/yükleme
+/// anı, yeniden eskiye) korunur -- çekim anı istemciye gelmediği için
+/// burada yeniden hesaplanmaz.
+List<ProjectPhoto> sortPhotosByStage(List<ProjectPhoto> photos) {
+  int rank(String stage) {
+    final i = kPhotoStages.indexOf(stage);
+    return i < 0 ? kPhotoStages.length : i;
+  }
+
+  final indexed = [for (var i = 0; i < photos.length; i++) (i, photos[i])];
+  // Dart'ın sort'u kararlı değil: eşitlikte özgün sıra belirleyicidir.
+  indexed.sort((a, b) {
+    final byStage = rank(a.$2.stage).compareTo(rank(b.$2.stage));
+    return byStage != 0 ? byStage : a.$1.compareTo(b.$1);
+  });
+  return [for (final e in indexed) e.$2];
+}
+
 /// Backend AppConfig.maxUploadBytes ile AYNI sınırı (25 MiB) yalnızca daha
 /// hızlı geri bildirim için istemci tarafında ön-kontrol eder -- gerçek
 /// sınır her zaman backend'de (`ErrFileTooLarge`).

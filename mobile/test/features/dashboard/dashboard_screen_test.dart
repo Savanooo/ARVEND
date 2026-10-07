@@ -75,6 +75,22 @@ GoRouter _router() => GoRouter(
           path: 'satin-alma/talepler/yeni',
           builder: (_, s) => Scaffold(appBar: AppBar(), body: Text('YENİ TALEP ${s.pathParameters['id']}')),
         ),
+        // Görev formu gibi: kaydedince kendi yerine detayı koyar (push'un
+        // Future'ı hiç tamamlanmaz).
+        GoRoute(
+          path: 'gorevler/yeni',
+          builder: (context, s) => Scaffold(
+            appBar: AppBar(),
+            body: TextButton(
+              onPressed: () => context.pushReplacement('/projeler/${s.pathParameters['id']}/gorevler/t9'),
+              child: const Text('GÖREVİ KAYDET'),
+            ),
+          ),
+        ),
+        GoRoute(
+          path: 'gorevler/:taskId',
+          builder: (_, s) => Scaffold(appBar: AppBar(), body: Text('GÖREV ${s.pathParameters['taskId']}')),
+        ),
       ],
     ),
     // Diğer altındaki yönetim ekranlarının yer tutucusu: açılan tam konum
@@ -653,6 +669,61 @@ void main() {
       await tester.pumpAndSettle();
       expect(_count(adapter.calls, '/dashboard'), 2);
       expect(adapter.calls, isNot(contains('/projects')));
+    });
+
+    for (final scale in [1.0, 1.3]) {
+      testWidgets('360 dp (yazı ölçeği $scale): bütün işlemler eşit boyutta, hiçbiri kenarda kesik değil', (tester) async {
+        await _pump(tester, user: ownerUser, script: _script(fixtureJson('owner')), size: const Size(360, 1600), textScale: scale);
+
+        expect(tester.takeException(), isNull);
+        final tiles = find.byType(QuickActionButton);
+        expect(tiles, findsNWidgets(quickActionsFor(ownerUser).length));
+        final rects = [for (final e in tiles.evaluate()) tester.getRect(find.byWidget(e.widget))];
+        for (final r in rects) {
+          // Kaydırma konumundaki alt piksel farkı yüzünden yaklaşık.
+          expect(r.width, closeTo(rects.first.width, 0.01));
+          expect(r.height, closeTo(rects.first.height, 0.01));
+          expect(r.left, greaterThanOrEqualTo(16));
+          expect(r.right, lessThanOrEqualTo(360 - 16));
+        }
+      });
+    }
+
+    testWidgets('açılan sayfa kendini değiştirse de (pushReplacement) kilit çözülür; işlemler pasif kalmaz', (
+      tester,
+    ) async {
+      final owner = fixtureJson('owner');
+      await _pump(
+        tester,
+        user: ownerUser,
+        script: {
+          '/dashboard': [_ok(owner), _ok(owner)],
+          '/notifications/unread-count': [
+            _ok({'unread_count': 4}),
+          ],
+          '/dashboard/project-options': [
+            _ok({
+              'projects': [option('p1', 'Alfa Konut')],
+            }),
+          ],
+        },
+      );
+      final action = find.widgetWithText(QuickActionButton, 'Görev Ekle');
+      await tester.ensureVisible(action);
+      await tester.pumpAndSettle();
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('GÖREVİ KAYDET'));
+      await tester.pumpAndSettle();
+      expect(find.text('GÖREV t9'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      // Eski form Ana Sayfa yığınında kalmadı; hızlı işlemler yeniden açık.
+      expect(find.text('GÖREVİ KAYDET'), findsNothing);
+      for (final b in tester.widgetList<QuickActionButton>(find.byType(QuickActionButton))) {
+        expect(b.onPressed, isNotNull, reason: b.label);
+      }
     });
 
     testWidgets('tek projede "Masraf Gir" formu doğrudan açılır ve HANGİ PROJEYE girildiğini gösterir', (tester) async {

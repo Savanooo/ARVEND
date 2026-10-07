@@ -19,16 +19,21 @@ class ProjectListCard extends StatelessWidget {
     super.key,
     required this.project,
     required this.onTap,
+    required this.showFinance,
   });
   final Project project;
   final VoidCallback onTap;
+
+  /// Sözleşme bedeli ve tahsilat çubuğu yalnızca `projects.finance.read`
+  /// ile -- detay ekranının Özet'i de finans izni olmayana para göstermez.
+  final bool showFinance;
 
   @override
   Widget build(BuildContext context) {
     final contractValue =
         project.currentContractValue ?? project.contractAmount;
     final collected = project.collectedAmount;
-    final progress = (collected != null && contractValue > 0)
+    final progress = (showFinance && collected != null && contractValue > 0)
         ? (collected / contractValue).clamp(0.0, 1.0)
         : null;
 
@@ -68,12 +73,14 @@ class ProjectListCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   StatusRegistry.build(project.status, StatusRegistry.project),
-                  const SizedBox(height: 4),
-                  MoneyText(
-                    contractValue,
-                    currency: project.currency,
-                    style: AppTypography.metadata,
-                  ),
+                  if (showFinance) ...[
+                    const SizedBox(height: 4),
+                    MoneyText(
+                      contractValue,
+                      currency: project.currency,
+                      style: AppTypography.metadata,
+                    ),
+                  ],
                 ],
               ),
             ],

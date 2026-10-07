@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -18,6 +19,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_status_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/access_notices.dart';
 import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_list_card.dart';
@@ -29,12 +31,14 @@ import '../../../core/widgets/quick_action_button.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../auth/domain/user.dart';
 import '../../tasks/domain/task_filters.dart';
+import '../../tasks/presentation/task_complete_checkbox.dart';
 import '../activity/activity_routes.dart' show projectActivityPath;
 import '../budget/budget_routes.dart' show budgetSections;
 import '../budget/presentation/widgets/budget_ui.dart' show formatBudgetPercent;
 import '../contract_co/contract_co_sections.dart' show ContractCoSectionEntry, contractCoSections;
 import '../data/projects_providers.dart';
 import '../domain/project.dart';
+import '../domain/project_lock_text.dart';
 import '../finance_ledger/data/finance_ledger_providers.dart' show invalidateProjectLedger, kLedgerReadPermission;
 import '../finance_ledger/presentation/ledger_sections.dart';
 import '../finance_ledger/presentation/ledger_ui.dart' show isLedgerLocked;
@@ -106,6 +110,13 @@ const _groupParam = {
   'operasyon': 'Operasyon',
   'dokumanlar': 'Dokümanlar',
 };
+
+/// Özet'teki bir hızlı işlemin açtırmak istediği alt görünüm (ör.
+/// "Fotoğraf Ekle" -> Dokümanlar > Dosyalar). Grup sekmesi en son hangi alt
+/// görünümde bırakıldıysa (ör. Notlar) orada açılıyordu. [seq] aynı isteğin
+/// art arda tekrarını ayırt eder.
+final _subViewRequestProvider =
+    StateProvider.autoDispose.family<({String alt, int seq})?, String>((ref, projectId) => null);
 
 bool _failOpen(User? user, String permission) =>
     user == null || user.permissions.isEmpty || user.hasPermission(permission);
@@ -185,7 +196,7 @@ final List<_SubViewDef> _operasyonViews = [
     label: 'Görevler',
     navWord: 'görevler',
     visible: (user) => _failOpen(user, 'projects.tasks.read'),
-    builder: (id, p) => _OperationsTab(projectId: id),
+    builder: (id, p) => _OperationsTab(projectId: id, locked: isProjectClosed(p.status)),
   ),
   for (final s in opsTeamSections)
     _SubViewDef(
@@ -208,7 +219,7 @@ final List<_SubViewDef> _dokumanlarViews = [
     label: 'Dosyalar',
     navWord: 'dosyalar, fotoğraflar',
     visible: (user) => _failOpen(user, 'projects.operations.read'),
-    builder: (id, p) => _FilesTab(projectId: id),
+    builder: (id, p) => _FilesTab(projectId: id, locked: isProjectClosed(p.status)),
   ),
   _SubViewDef(
     alt: 'notlar',
@@ -254,6 +265,8 @@ class ProjectDetailScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final projectAsync = ref.watch(projectDetailProvider(projectId));
     final user = ref.watch(authControllerProvider).valueOrNull;
+    // Alt görünüm isteği, hedef sekme henüz kurulmamışken de yaşasın.
+    ref.listen(_subViewRequestProvider(projectId), (_, _) {});
     final visibleGroups = _groupDefs.where((g) => g.visible(user)).toList();
     final requestedLabel = _groupParam[initialGroup];
     final initialIndex = requestedLabel == null ? 0 : visibleGroups.indexWhere((g) => g.label == requestedLabel);
@@ -356,9 +369,14 @@ class _OverviewTab extends ConsumerWidget {
     final user = ref.watch(authControllerProvider).valueOrNull;
     final visibleGroups = _groupDefs.where((g) => g.visible(user)).toList();
 
-    void goToGroup(String label) {
+    void goToGroup(String label, {String? alt}) {
       final index = visibleGroups.indexWhere((g) => g.label == label);
-      if (index >= 0) DefaultTabController.of(context).animateTo(index);
+      if (index < 0) return;
+      if (alt != null) {
+        final request = ref.read(_subViewRequestProvider(projectId).notifier);
+        request.state = (alt: alt, seq: (request.state?.seq ?? 0) + 1);
+      }
+      DefaultTabController.of(context).animateTo(index);
     }
 
     final canFinance = _failOpen(user, 'projects.finance.read');
@@ -366,8 +384,12 @@ class _OverviewTab extends ConsumerWidget {
     // `projects.finance.read` yalnızca GÖRÜNTÜLEMEYİ (özet/liste) yetkilendirir,
     // ikisi backend'de AYRI iki izin kodu (bkz. router.go finans grubu).
     final canManageFinance = _failOpen(user, 'projects.finance.manage');
-    final canCreateTask = _failOpen(user, 'projects.tasks.create');
-    final canManageFiles = _failOpen(user, 'projects.operations.manage');
+    // Kapalı projede görev oluşturma ve yükleme reddedilir (backend
+    // requireOpenProject) -- hızlı işlem de gösterilmez; sekmeler nedenini
+    // söyler.
+    final closed = isProjectClosed(project.status);
+    final canCreateTask = _failOpen(user, 'projects.tasks.create') && !closed;
+    final canManageFiles = _failOpen(user, 'projects.operations.manage') && !closed;
     final canSeeCostControl = _failOpen(user, 'projects.cost_control.read');
 
     // Tamamlanmış/iptal edilmiş projede finans hareketi girilemez (backend
@@ -379,7 +401,7 @@ class _OverviewTab extends ConsumerWidget {
     final summaryAsync = canFinance ? ref.watch(projectFinancialSummaryProvider(projectId)) : null;
     final costControlAsync = canFinance && canSeeCostControl ? ref.watch(projectCostControlProvider(projectId)) : null;
 
-    final quickActions = <Widget>[
+    final quickActions = <QuickActionButton>[
       if (canAddLedger)
         QuickActionButton(
           icon: Icons.receipt_long_outlined,
@@ -402,7 +424,9 @@ class _OverviewTab extends ConsumerWidget {
         QuickActionButton(
           icon: Icons.photo_camera_outlined,
           label: 'Fotoğraf Ekle',
-          onPressed: () => goToGroup('Dokümanlar'),
+          // Dokümanlar'ın Notlar'da kalmış olabilir: doğrudan Dosyalar'ın
+          // başına (Fotoğraf Çek / Galeriden Seç) gidilir.
+          onPressed: () => goToGroup('Dokümanlar', alt: 'dosyalar'),
         ),
     ];
 
@@ -513,17 +537,7 @@ class _OverviewTab extends ConsumerWidget {
           const SizedBox(height: AppSpacing.lg),
           const AppSectionHeader(title: 'Hızlı İşlemler'),
           const SizedBox(height: AppSpacing.sm),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (var i = 0; i < quickActions.length; i++) ...[
-                  if (i > 0) const SizedBox(width: AppSpacing.sm),
-                  quickActions[i],
-                ],
-              ],
-            ),
-          ),
+          QuickActionGrid(children: quickActions),
         ],
         if (summaryAsync != null) ...[
           const SizedBox(height: AppSpacing.lg),
@@ -631,6 +645,11 @@ class _SubViewGroupTabState extends ConsumerState<_SubViewGroupTab> {
     final user = ref.watch(authControllerProvider).valueOrNull;
     final visible = widget.views.where((v) => v.visible(user)).toList();
     if (visible.isEmpty) return const SizedBox.shrink();
+    ref.listen(_subViewRequestProvider(widget.projectId), (_, next) {
+      if (next != null && visible.any((v) => v.alt == next.alt)) setState(() => _alt = next.alt);
+    });
+    final pending = ref.read(_subViewRequestProvider(widget.projectId));
+    if (_alt == null && pending != null && visible.any((v) => v.alt == pending.alt)) _alt = pending.alt;
     _alt ??= visible.any((v) => v.alt == widget.initialView) ? widget.initialView : visible.first.alt;
     // İzin kümesi sonradan değişip seçili görünüm gizlendiyse ilkine düşülür.
     final current = visible.firstWhere((v) => v.alt == _alt, orElse: () => visible.first);
@@ -1062,8 +1081,11 @@ class _PurchaseOrdersList extends ConsumerWidget {
 /// /operations-summary`den gelir (Faz 7'den beri var olan, mobilde daha
 /// önce hiç tüketilmemiş bir uç).
 class _OperationsTab extends ConsumerStatefulWidget {
-  const _OperationsTab({required this.projectId});
+  const _OperationsTab({required this.projectId, required this.locked});
   final String projectId;
+
+  /// Proje tamamlandı/iptal: yeni görev yok (mevcutlar tamamlanabilir).
+  final bool locked;
 
   @override
   ConsumerState<_OperationsTab> createState() => _OperationsTabState();
@@ -1078,7 +1100,8 @@ class _OperationsTabState extends ConsumerState<_OperationsTab> {
     final tasksAsync = ref.watch(projectTasksProvider(widget.projectId));
     final summaryAsync = ref.watch(projectOperationsSummaryProvider(widget.projectId));
     final user = ref.watch(authControllerProvider).valueOrNull;
-    final canCreate = user == null || user.permissions.isEmpty || user.hasPermission('projects.tasks.create');
+    final canCreate =
+        (user == null || user.permissions.isEmpty || user.hasPermission('projects.tasks.create')) && !widget.locked;
 
     void refreshAll() {
       ref.invalidate(projectTasksProvider(widget.projectId));
@@ -1107,6 +1130,11 @@ class _OperationsTabState extends ConsumerState<_OperationsTab> {
                 ),
             ],
           ),
+          if (widget.locked) ...[
+            const SizedBox(height: AppSpacing.sm),
+            const ReadOnlyNotice(kProjectTasksLockedText),
+            const SizedBox(height: AppSpacing.sm),
+          ],
           const SizedBox(height: 4),
           Wrap(
             spacing: 8,
@@ -1149,15 +1177,7 @@ class _OperationsTabState extends ConsumerState<_OperationsTab> {
                           margin: const EdgeInsets.only(bottom: 8),
                           child: ListTile(
                             onTap: () => context.push('/projeler/${widget.projectId}/gorevler/${t.id}'),
-                            leading: Checkbox(
-                              value: t.status == ProjectTask.statusCompleted,
-                              onChanged: t.status == ProjectTask.statusCompleted
-                                  ? null
-                                  : (_) async {
-                                      await ref.read(projectsRepositoryProvider).completeTask(widget.projectId, t.id);
-                                      refreshAll();
-                                    },
-                            ),
+                            leading: TaskCompleteCheckbox(projectId: widget.projectId, task: t),
                             title: Text(
                               t.title,
                               maxLines: 1,
@@ -1237,8 +1257,12 @@ class _StatCell extends StatelessWidget {
 }
 
 class _FilesTab extends ConsumerStatefulWidget {
-  const _FilesTab({required this.projectId});
+  const _FilesTab({required this.projectId, required this.locked});
   final String projectId;
+
+  /// Proje tamamlandı/iptal: yükleme yok (backend reddeder); silme ve
+  /// görüntüleme sürer.
+  final bool locked;
 
   @override
   ConsumerState<_FilesTab> createState() => _FilesTabState();
@@ -1248,6 +1272,13 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
   String get projectId => widget.projectId;
   bool _uploading = false;
   String? _openingFileId;
+  final _scroll = ScrollController();
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
 
   bool get _canManage {
     final user = ref.read(authControllerProvider).valueOrNull;
@@ -1260,7 +1291,7 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
     final file = File(picked.path);
     final size = await file.length();
     if (exceedsMaxUploadBytes(size, AppConfig.maxUploadBytes)) {
-      _showError('Fotoğraf 25 MiB sınırını aşıyor (${(size / 1024 / 1024).toStringAsFixed(1)} MB).');
+      _showError('Fotoğraf 25 MiB sınırını aşıyor (${Formatters.fileSize(size)}).');
       return;
     }
     final meta = await _promptPhotoMeta();
@@ -1287,7 +1318,7 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
     final picked = result?.files.single;
     if (picked == null || picked.path == null) return;
     if (exceedsMaxUploadBytes(picked.size, AppConfig.maxUploadBytes)) {
-      _showError('Dosya 25 MiB sınırını aşıyor (${(picked.size / 1024 / 1024).toStringAsFixed(1)} MB).');
+      _showError('Dosya 25 MiB sınırını aşıyor (${Formatters.fileSize(picked.size)}).');
       return;
     }
     final meta = await _promptFileMeta();
@@ -1413,6 +1444,7 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
     if (!await _confirm('Fotoğrafı Sil', 'Bu fotoğraf silinsin mi?')) return;
     try {
       await ref.read(projectsRepositoryProvider).deletePhoto(projectId, photo.id);
+      unawaited(ref.read(projectPhotoCacheProvider).remove(photo.id));
       ref.invalidate(projectPhotosProvider(projectId));
     } on ApiException catch (e) {
       _showError(e.message);
@@ -1475,132 +1507,270 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
     final photosAsync = ref.watch(projectPhotosProvider(projectId));
     final filesAsync = ref.watch(projectFilesProvider(projectId));
     final canManage = _canManage;
+    // Kapalı projede yükleme reddedilir; silme backend'de serbest.
+    final canUpload = canManage && !widget.locked;
+    // "Fotoğraf Ekle" (Özet): yükleme düğmelerinin olduğu başa dön.
+    ref.listen(_subViewRequestProvider(projectId), (_, next) {
+      if (next?.alt == 'dosyalar' && _scroll.hasClients) {
+        _scroll.animateTo(0, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+      }
+    });
 
+    // Fotoğraf ızgarası TEMBEL (SliverGrid): yalnızca ekrandaki kutucuklar
+    // kurulur, bayt ister ve küçük boyutta çözülür. Eskiden shrinkWrap bir
+    // GridView'du -- Dökümanlar her açıldığında 60 fotoğrafın HEPSİ tam
+    // boyutta indirilip çözülüyordu (takılma, bellek taşması riski). Yükleme
+    // düğmeleri ve dosya listesi fotoğraflardan ÖNCE: onlara ulaşmak için
+    // bütün fotoğrafların üzerinden kaydırmak gerekmez.
     return RefreshIndicator(
       onRefresh: () async {
         ref.invalidate(projectPhotosProvider(projectId));
         ref.invalidate(projectFilesProvider(projectId));
       },
-      child: ListView(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        children: [
-          if (_uploading) const LinearProgressIndicator(),
-          if (_uploading) const SizedBox(height: AppSpacing.sm),
-          const AppSectionHeader(title: 'Şantiye Fotoğrafları'),
-          if (canManage) ...[
-            const SizedBox(height: AppSpacing.sm),
-            Row(
-              children: [
-                Expanded(
-                  child: SecondaryButton(
-                    icon: Icons.photo_camera_outlined,
-                    label: 'Fotoğraf Çek',
-                    onPressed: _uploading ? null : () => _pickAndUploadPhoto(ImageSource.camera),
+      child: CustomScrollView(
+        controller: _scroll,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, 0),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                if (_uploading) ...[
+                  const LinearProgressIndicator(),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
+                if (widget.locked) ...[
+                  const ReadOnlyNotice(kProjectUploadsLockedText),
+                  const SizedBox(height: AppSpacing.md),
+                ],
+                if (canUpload) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SecondaryButton(
+                          icon: Icons.photo_camera_outlined,
+                          label: 'Fotoğraf Çek',
+                          onPressed: _uploading ? null : () => _pickAndUploadPhoto(ImageSource.camera),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: SecondaryButton(
+                          icon: Icons.photo_library_outlined,
+                          label: 'Galeriden Seç',
+                          onPressed: _uploading ? null : () => _pickAndUploadPhoto(ImageSource.gallery),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  SizedBox(
+                    width: double.infinity,
+                    child: SecondaryButton(
+                      icon: Icons.upload_file_outlined,
+                      label: 'Dosya Seç',
+                      onPressed: _uploading ? null : _pickAndUploadFile,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
+                const AppSectionHeader(title: 'Dosyalar'),
+                const SizedBox(height: AppSpacing.sm),
+                AsyncStateView(
+                  value: filesAsync,
+                  onRetry: () async => ref.invalidate(projectFilesProvider(projectId)),
+                  isEmpty: (l) => l.isEmpty,
+                  emptyBuilder: (_) => const EmptyStateView(message: 'Dosya yok.', icon: Icons.insert_drive_file_outlined),
+                  data: (context, files) => Column(
+                    children: [
+                      for (final f in files)
+                        _FileRow(
+                          file: f,
+                          type: _fileType(f.originalName),
+                          opening: _openingFileId == f.id,
+                          onTap: _openingFileId != null ? null : () => _openFile(f),
+                          onDelete: canManage ? () => _deleteFile(f) : null,
+                        ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: SecondaryButton(
-                    icon: Icons.photo_library_outlined,
-                    label: 'Galeriden Seç',
-                    onPressed: _uploading ? null : () => _pickAndUploadPhoto(ImageSource.gallery),
+                const SizedBox(height: AppSpacing.xl),
+                AppSectionHeader(
+                  title: [
+                    'Şantiye Fotoğrafları',
+                    if (photosAsync.valueOrNull?.isNotEmpty ?? false) '(${photosAsync.valueOrNull!.length})',
+                  ].join(' '),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+              ]),
+            ),
+          ),
+          ...photosAsync.when(
+            data: (photos) => [
+              if (photos.isEmpty)
+                const SliverToBoxAdapter(
+                  child: EmptyStateView(message: 'Fotoğraf yok.', icon: Icons.photo_camera_outlined),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.lg),
+                  sliver: SliverGrid.builder(
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      mainAxisSpacing: AppSpacing.sm,
+                      crossAxisSpacing: AppSpacing.sm,
+                    ),
+                    itemCount: photos.length,
+                    itemBuilder: (context, i) {
+                      final photo = photos[i];
+                      return _PhotoTile(
+                        key: ValueKey('proje-foto-${photo.id}'),
+                        projectId: projectId,
+                        photo: photo,
+                        onTap: () => _openPhotoViewer(photo),
+                        onLongPress: canManage ? () => _deletePhoto(photo) : null,
+                      );
+                    },
                   ),
+                ),
+            ],
+            loading: () => const [SliverToBoxAdapter(child: LoadingState())],
+            error: (e, _) => [
+              SliverToBoxAdapter(
+                child: ErrorState(error: e, onRetry: () async => ref.invalidate(projectPhotosProvider(projectId))),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Dosya satırı: ad, açıklama (varsa, 2 satıra kadar -- eskiden hiç
+/// gösterilmiyordu), tür · tarih · boyut, kategori rozeti ve silme.
+class _FileRow extends StatelessWidget {
+  const _FileRow({
+    required this.file,
+    required this.type,
+    required this.opening,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  final ProjectFile file;
+  final String type;
+  final bool opening;
+  final VoidCallback? onTap;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final description = file.description.trim();
+    return AppCard(
+      onTap: onTap,
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+      child: Row(
+        children: [
+          opening
+              ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5))
+              : const Icon(Icons.insert_drive_file_outlined, color: AppColors.textMuted),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(file.originalName, style: AppTypography.cardTitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+                if (description.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(description, style: AppTypography.body, maxLines: 2, overflow: TextOverflow.ellipsis),
+                ],
+                const SizedBox(height: 2),
+                Text(
+                  '$type · ${Formatters.date(file.createdAt)} · ${Formatters.fileSize(file.sizeBytes)}',
+                  style: AppTypography.metadata,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
-          ],
-          const SizedBox(height: AppSpacing.sm),
-          AsyncStateView(
-            value: photosAsync,
-            isEmpty: (l) => l.isEmpty,
-            emptyBuilder: (_) => const EmptyStateView(message: 'Fotoğraf yok.', icon: Icons.photo_camera_outlined),
-            data: (context, photos) => GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: photos.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                mainAxisSpacing: AppSpacing.sm,
-                crossAxisSpacing: AppSpacing.sm,
-              ),
-              itemBuilder: (context, i) {
-                final photo = photos[i];
-                final bytesAsync = ref.watch(projectPhotoBytesProvider((projectId: projectId, photoId: photo.id)));
-                return GestureDetector(
-                  onTap: () => _openPhotoViewer(photo),
-                  onLongPress: canManage ? () => _deletePhoto(photo) : null,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.control),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        bytesAsync.when(
-                          data: (bytes) => Image.memory(bytes, fit: BoxFit.cover),
-                          loading: () => const ColoredBox(
-                            color: AppColors.background,
-                            child: Center(
-                              child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                            ),
-                          ),
-                          error: (e, st) => const ColoredBox(
-                            color: AppColors.background,
-                            child: Icon(Icons.broken_image_outlined, color: AppColors.textMuted),
-                          ),
-                        ),
-                        Positioned(
-                          left: 4,
-                          bottom: 4,
-                          child: StatusRegistry.build(photo.stage, StatusRegistry.photoStage),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          StatusRegistry.build(file.category, StatusRegistry.fileCategory),
+          if (onDelete != null)
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 20),
+              tooltip: 'Dosyayı sil',
+              onPressed: onDelete,
             ),
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          AppSectionHeader(
-            title: 'Dosyalar',
-            trailing: canManage
-                ? SecondaryButton(
-                    icon: Icons.upload_file_outlined,
-                    label: 'Dosya Seç',
-                    onPressed: _uploading ? null : _pickAndUploadFile,
-                  )
-                : null,
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          AsyncStateView(
-            value: filesAsync,
-            isEmpty: (l) => l.isEmpty,
-            emptyBuilder: (_) => const EmptyStateView(message: 'Dosya yok.', icon: Icons.insert_drive_file_outlined),
-            data: (context, files) => Column(
-              children: files
-                  .map((f) => AppListCard(
-                        onTap: _openingFileId != null ? null : () => _openFile(f),
-                        leading: _openingFileId == f.id
-                            ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5))
-                            : const Icon(Icons.insert_drive_file_outlined, color: AppColors.textMuted),
-                        title: f.originalName,
-                        subtitle:
-                            '${_fileType(f.originalName)} · ${Formatters.date(f.createdAt)} · ${(f.sizeBytes / 1024).toStringAsFixed(0)} KB',
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            StatusRegistry.build(f.category, StatusRegistry.fileCategory),
-                            if (canManage)
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline, size: 20),
-                                onPressed: () => _deleteFile(f),
-                              ),
-                          ],
-                        ),
-                      ))
-                  .toList(),
-            ),
-          ),
         ],
+      ),
+    );
+  }
+}
+
+/// Izgaradaki tek fotoğraf: bayt yalnızca kutucuk kurulunca (ekrandayken)
+/// istenir ve kutucuk boyutunda çözülür (`cacheWidth`) -- 12 MP'lik bir
+/// fotoğraf ~100 dp'lik kutucuk için tam çözünürlükte belleğe açılmaz.
+class _PhotoTile extends ConsumerWidget {
+  const _PhotoTile({
+    super.key,
+    required this.projectId,
+    required this.photo,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  final String projectId;
+  final ProjectPhoto photo;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final bytesAsync = ref.watch(projectPhotoBytesProvider((projectId: projectId, photoId: photo.id)));
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    return GestureDetector(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.control),
+        child: LayoutBuilder(
+          builder: (context, constraints) => Stack(
+            fit: StackFit.expand,
+            children: [
+              bytesAsync.when(
+                data: (bytes) => Image.memory(
+                  bytes,
+                  fit: BoxFit.cover,
+                  cacheWidth: (constraints.maxWidth * dpr).ceil(),
+                  gaplessPlayback: true,
+                  errorBuilder: (_, _, _) => const ColoredBox(
+                    color: AppColors.background,
+                    child: Icon(Icons.broken_image_outlined, color: AppColors.textMuted),
+                  ),
+                ),
+                loading: () => const ColoredBox(
+                  color: AppColors.background,
+                  child: Center(
+                    child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                  ),
+                ),
+                error: (e, st) => const ColoredBox(
+                  color: AppColors.background,
+                  child: Icon(Icons.broken_image_outlined, color: AppColors.textMuted),
+                ),
+              ),
+              Positioned(
+                left: 4,
+                bottom: 4,
+                child: StatusRegistry.build(photo.stage, StatusRegistry.photoStage),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1612,53 +1782,103 @@ class _PhotoViewerScreen extends ConsumerWidget {
   final ProjectPhoto photo;
   final bool canManage;
 
+  Future<void> _delete(BuildContext context, WidgetRef ref) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Fotoğrafı Sil'),
+        content: const Text('Bu fotoğraf silinsin mi?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Vazgeç')),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Sil')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ref.read(projectsRepositoryProvider).deletePhoto(projectId, photo.id);
+      unawaited(ref.read(projectPhotoCacheProvider).remove(photo.id));
+      ref.invalidate(projectPhotosProvider(projectId));
+      if (context.mounted) Navigator.of(context).pop();
+    } on ApiException catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final bytesAsync = ref.watch(projectPhotoBytesProvider((projectId: projectId, photoId: photo.id)));
+    final description = photo.description.trim();
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        title: Text(
-          photo.description.isEmpty ? photo.originalName : photo.description,
-          style: const TextStyle(fontSize: 14),
-        ),
+        title: Text(photo.originalName, style: const TextStyle(fontSize: 14)),
         actions: [
           if (canManage)
             IconButton(
               icon: const Icon(Icons.delete_outline),
-              onPressed: () async {
-                final ok = await showDialog<bool>(
-                  context: context,
-                  builder: (dialogContext) => AlertDialog(
-                    title: const Text('Fotoğrafı Sil'),
-                    content: const Text('Bu fotoğraf silinsin mi?'),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Vazgeç')),
-                      TextButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Sil')),
-                    ],
-                  ),
-                );
-                if (ok != true) return;
-                try {
-                  await ref.read(projectsRepositoryProvider).deletePhoto(projectId, photo.id);
-                  ref.invalidate(projectPhotosProvider(projectId));
-                  if (context.mounted) Navigator.of(context).pop();
-                } on ApiException catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-                  }
-                }
-              },
+              tooltip: 'Fotoğrafı sil',
+              onPressed: () => _delete(context, ref),
             ),
         ],
       ),
       body: Center(
         child: bytesAsync.when(
-          data: (bytes) => InteractiveViewer(child: Image.memory(bytes)),
+          // Tam ekran: ekranın ~2 katı genişlikte çözülür (yakınlaştırmaya
+          // yeter; 12 MP'yi tam açıp yüzlerce MB harcamaz).
+          data: (bytes) => InteractiveViewer(
+            child: Image.memory(
+              bytes,
+              cacheWidth: (MediaQuery.sizeOf(context).width * MediaQuery.devicePixelRatioOf(context) * 2).ceil(),
+            ),
+          ),
           loading: () => const CircularProgressIndicator(color: Colors.white),
           error: (e, st) => const Icon(Icons.broken_image_outlined, color: Colors.white, size: 48),
+        ),
+      ),
+      // Aşama, tarih, tam açıklama ve görünür bir "Sil" -- silme eskiden
+      // yalnızca ızgarada uzun basışla (keşfedilemez) ya da etiketsiz bir
+      // simgeyle yapılabiliyordu.
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.sm, AppSpacing.sm),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              StatusRegistry.build(photo.stage, StatusRegistry.photoStage),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (description.isNotEmpty)
+                      Text(
+                        description,
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    Text(
+                      Formatters.dateTime(photo.createdAt),
+                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              if (canManage)
+                TextButton.icon(
+                  style: TextButton.styleFrom(foregroundColor: Colors.white),
+                  onPressed: () => _delete(context, ref),
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: const Text('Sil'),
+                ),
+            ],
+          ),
         ),
       ),
     );

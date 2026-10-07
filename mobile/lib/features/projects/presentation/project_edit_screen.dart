@@ -136,6 +136,25 @@ class _ProjectEditFormState extends ConsumerState<ProjectEditForm> {
       );
       if (ok != true || !mounted) return;
     }
+    // Tamamlanmış projeyi yeniden açmak bilinçli bir karar olmalı: kilitli
+    // finans hareketleri, görev ve dosya yüklemeleri yeniden açılır.
+    if (p.status == 'completed' && _status == 'active') {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Projeyi Yeniden Aç'),
+          content: const Text(
+            'Tamamlanmış proje yeniden “Aktif” olacak; masraf, tahsilat, görev ve dosya girişleri yeniden açılır. '
+            'Devam etmek istiyor musun?',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Vazgeç')),
+            TextButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Yeniden Aç')),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+    }
 
     setState(() {
       _saving = true;
@@ -217,7 +236,9 @@ class _ProjectEditFormState extends ConsumerState<ProjectEditForm> {
                     labelText: 'Durum',
                     helperText: options.length == 1
                         ? '${_statusLabel(p.status)} durumundaki bir proje yeniden açılamaz.'
-                        : null,
+                        : p.status == 'completed'
+                            ? 'Yeniden açmak için “Aktif”i seçin.'
+                            : null,
                     helperMaxLines: 2,
                   ),
                   items: [for (final s in options) DropdownMenuItem(value: s, child: Text(_statusLabel(s)))],

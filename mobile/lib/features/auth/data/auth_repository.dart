@@ -1,4 +1,5 @@
 import '../../../core/api/api_client.dart';
+import '../../../core/errors/api_exception.dart';
 import '../domain/user.dart';
 
 /// bkz. mobile/API_CONTRACT.md#auth - tüm gövdeler doğrulanmış.
@@ -22,11 +23,21 @@ class AuthRepository {
 
   Future<void> logout() => _client.post<void>('/auth/logout');
 
+  /// Oturum yoksa (401/403) null. Ağ yok / zaman aşımı / sunucu hatası
+  /// "giriş yapılmamış" DEĞİLDİR -- `ApiException` olarak fırlatılır ki
+  /// AuthController şantiyede çekmeyen telefonu giriş ekranına atmasın.
   Future<User?> me() async {
+    final Map<String, dynamic> json;
     try {
-      final json = await _client.get<Map<String, dynamic>>('/auth/me');
+      json = await _client.get<Map<String, dynamic>>('/auth/me');
+    } on ApiException catch (e) {
+      if (e.isAuthError || e.isForbidden) return null;
+      rethrow;
+    }
+    try {
       return User.fromJson(json);
     } on Object {
+      // Beklenmeyen gövde: eskisi gibi oturum yok sayılır.
       return null;
     }
   }

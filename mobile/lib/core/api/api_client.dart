@@ -67,6 +67,12 @@ class ApiClient {
   /// AuthController.login) tekrar açılır.
   bool _accountBlockNotified = false;
 
+  /// Oturum açıkken bir uç "önce şifrenizi değiştirin" / "önce firma
+  /// kurulumunu tamamlayın" (403, `isAccountSetupGate`) döndü. Oturum
+  /// DÜŞÜRÜLMEZ; AuthController kullanıcıyı tazeler ve router zorunlu
+  /// ekrana yönlendirir (bkz. main.dart).
+  void Function()? onAccountSetupRequired;
+
   void resetAccountAccessGuard() => _accountBlockNotified = false;
 
   Future<void> _notifyAccountAccessBlocked(AccountAccessIssue issue) async {
@@ -308,6 +314,13 @@ class ApiClient {
           await _notifyAccountAccessBlocked(issue);
           return handler.next(error);
         }
+        if (isAccountSetupGate(
+          statusCode: error.response?.statusCode,
+          rawMessage: _extractError(error.response?.data),
+        )) {
+          onAccountSetupRequired?.call();
+          return handler.next(error);
+        }
 
         final path = error.requestOptions.path;
         final alreadyRetried = error.requestOptions.extra['_retried'] == true;
@@ -324,6 +337,13 @@ class ApiClient {
         try {
           final retryOptions = error.requestOptions;
           retryOptions.extra['_retried'] = true;
+          // Multipart gövde (dosya/fotoğraf yükleme) ilk gönderimde
+          // "finalize" edildi; aynı FormData ikinci kez gönderilemez (Dio
+          // StateError atar ve kullanıcı "Bağlantı kurulamadı" görürdü --
+          // 15 dk boşta kalınca ilk yükleme hep böyle düşüyordu). Klon aynı
+          // sınırı (boundary) ve dosyaları baştan okuyan yeni akışları taşır.
+          final data = retryOptions.data;
+          if (data is FormData) retryOptions.data = data.clone();
           final response = await _dio.fetch(retryOptions);
           return handler.resolve(response);
         } on DioException catch (retryError) {

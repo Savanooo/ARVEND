@@ -38,12 +38,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     // AYRICA temizlenir ki ekran yeniden build olduğunda mesaj tekrarlamasın.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final issue = ref.read(accountAccessIssueProvider);
-      if (issue == AccountAccessIssue.userBlocked) {
-        setState(() => _errorMessage = 'Hesabınıza erişiminiz kapatılmıştır. Bilgi için yöneticinizle görüşün.');
-      }
+      _showUserBlockedIfNeeded(ref.read(accountAccessIssueProvider));
       ref.read(accountAccessIssueProvider.notifier).state = null;
+      _showSessionCheckError(ref.read(authControllerProvider));
     });
+  }
+
+  /// Açılışta oturum ağ yüzünden doğrulanamadıysa (ve bilinen kullanıcı da
+  /// yoksa) sebebi söyle -- yoksa kullanıcı neden giriş ekranında olduğunu
+  /// anlamaz ("Bağlantı kurulamadı..."). Çerezler silinmedi; bağlantı
+  /// gelince giriş yapmak yeterli.
+  void _showSessionCheckError(AsyncValue<Object?> auth) {
+    final error = auth.hasError ? auth.error : null;
+    if (_errorMessage == null && error is ApiException) setState(() => _errorMessage = error.message);
+  }
+
+  void _showUserBlockedIfNeeded(AccountAccessIssue? issue) {
+    if (issue != AccountAccessIssue.userBlocked) return;
+    setState(() => _errorMessage = 'Hesabınıza erişiminiz kapatılmıştır. Bilgi için yöneticinizle görüşün.');
   }
 
   @override
@@ -73,6 +85,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Soğuk açılışta bu ekran /auth/me sonuçlanmadan ÖNCE kurulur (ilk rota
+    // /giris); "kullanıcı pasif" sebebi ancak sonra yazılır ve ekran zaten
+    // açık olduğu için initState onu hiç görmezdi. Sebep bir sonraki
+    // girişte temizlenir (AuthController.login).
+    ref.listen<AccountAccessIssue?>(accountAccessIssueProvider, (_, next) => _showUserBlockedIfNeeded(next));
+    ref.listen(authControllerProvider, (_, next) => _showSessionCheckError(next));
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(

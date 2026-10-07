@@ -32,17 +32,27 @@ abstract class PushMessaging {
 
 /// Bildirimin uygulamanın ilgilendiği kısmı (backend PushService.pushMessage).
 class PushMessage {
-  const PushMessage({this.title = '', this.body = '', this.actionTarget = '', this.type = ''});
+  const PushMessage({
+    this.title = '',
+    this.body = '',
+    this.actionTarget = '',
+    this.type = '',
+    this.notificationId = '',
+  });
 
   factory PushMessage.fromData({String? title, String? body, required Map<String, dynamic> data}) => PushMessage(
         title: title ?? '',
         body: body ?? '',
         actionTarget: data['action_target'] as String? ?? '',
         type: data['type'] as String? ?? '',
+        notificationId: data['notification_id'] as String? ?? '',
       );
 
   final String title;
   final String body;
+
+  /// Zildeki bildirimin kimliği -- dokununca okundu işaretlemek için.
+  final String notificationId;
 
   /// Uygulama içi rota (ör. `/projeler/<id>/gorevler/<id>`); boş olabilir.
   final String actionTarget;

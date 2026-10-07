@@ -63,7 +63,8 @@ void main() {
 
       expect(find.text('Kullanıcı adı gerekli'), findsOneWidget);
       expect(find.text('Şifre gerekli'), findsOneWidget);
-      expect(adapter.calls, isEmpty);
+      // Ekran açılıştaki oturum denetimini (/auth/me) izler; giriş isteği yok.
+      expect(adapter.calls, isNot(contains('/auth/login')));
     });
 
     testWidgets('320px dar ekranda taşma yok', (tester) async {

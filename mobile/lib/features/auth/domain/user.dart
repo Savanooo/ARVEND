@@ -87,4 +87,22 @@ class User {
                 .toSet() ??
             const {},
       );
+
+  /// `fromJson`'un tersi (backend alan adlarıyla) -- yalnızca son bilinen
+  /// kullanıcıyı telefonda saklamak için (bkz. LastUserStore).
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'organization_id': organizationId,
+        'username': username,
+        'full_name': fullName,
+        'role': role.wireValue,
+        'is_active': isActive,
+        'must_change_password': mustChangePassword,
+        'onboarding_completed': onboardingCompleted,
+        'onboarding_step': onboardingStep,
+        'organization_name': organizationName,
+        'organization_role_code': organizationRoleCode,
+        'organization_role_name': organizationRoleName,
+        'permissions': permissions.toList(),
+      };
 }

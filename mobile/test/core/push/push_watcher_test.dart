@@ -11,6 +11,7 @@ import 'package:arvend/core/auth/auth_controller.dart';
 import 'package:arvend/core/push/push_messaging.dart';
 import 'package:arvend/core/push/push_watcher.dart';
 import 'package:arvend/features/auth/domain/user.dart';
+import 'package:arvend/features/notifications/data/notifications_providers.dart';
 
 import '../../test_utils/fake_api_client.dart';
 
@@ -48,10 +49,13 @@ class _Auth extends AuthController {
   final User? _user;
   @override
   Future<User?> build() async => _user;
+
+  void signIn(User user) => state = AsyncData(user);
+  void signOut() => state = const AsyncData(null);
 }
 
-User _user() => User.fromJson({
-      'id': 'u1',
+User _user({String id = 'u1'}) => User.fromJson({
+      'id': id,
       'organization_id': 'org1',
       'username': 'ali',
       'full_name': 'Ali Usta',
@@ -63,7 +67,7 @@ User _user() => User.fromJson({
       'permissions': <String>[],
     });
 
-Future<({FakeHttpClientAdapter adapter, ProviderContainer container})> _pump(
+Future<({FakeHttpClientAdapter adapter, ProviderContainer container, GoRouter router})> _pump(
   WidgetTester tester,
   _FakePush push, {
   User? user,
@@ -99,7 +103,7 @@ Future<({FakeHttpClientAdapter adapter, ProviderContainer container})> _pump(
     ),
   );
   await tester.pumpAndSettle();
-  return (adapter: adapter, container: container);
+  return (adapter: adapter, container: container, router: router);
 }
 
 void main() {
@@ -178,5 +182,103 @@ void main() {
     // Kayıt silme, oturum kapanmadan önce.
     expect(i, lessThan(r.adapter.calls.indexOf('/auth/logout')));
     expect(push.deletes, 1);
+  });
+
+  group('dokunulan bildirim', () {
+    test('notification_id korunur', () {
+      final m = PushMessage.fromData(title: 'x', data: {
+        'notification_id': 'n-42',
+        'action_target': '/projeler/p1/gorevler/t1',
+        'type': 'task_assigned',
+      });
+      expect(m.notificationId, 'n-42');
+    });
+
+    testWidgets('okundu işaretlenir ve hedef açılır', (tester) async {
+      final push = _FakePush();
+      final r = await _pump(tester, push, user: _user(), extra: {
+        '/notifications/n-42/read': [(status: 200, body: {'ok': true})],
+        '/notifications/unread-count': [for (var i = 0; i < 3; i++) (status: 200, body: {'unread_count': 0})],
+      });
+      push.opened.add(const PushMessage(title: 'x', actionTarget: '/projeler/p1/gorevler/t1', notificationId: 'n-42'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('görev ekranı'), findsOneWidget);
+      expect(r.adapter.calls, contains('/notifications/n-42/read'));
+    });
+
+    testWidgets('oturum yokken dokunuldu, BAŞKA biri giriş yaptı: bildirim ona açılmaz', (tester) async {
+      final push = _FakePush();
+      final r = await _pump(tester, push, user: _user(id: 'u1'));
+      final auth = r.container.read(authControllerProvider.notifier) as _Auth;
+      auth.signOut();
+      await tester.pumpAndSettle();
+
+      push.opened.add(const PushMessage(title: 'x', actionTarget: '/projeler/p1/gorevler/t1', notificationId: 'n-1'));
+      await tester.pumpAndSettle();
+      auth.signIn(_user(id: 'u2'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('görev ekranı'), findsNothing);
+      expect(r.adapter.calls, isNot(contains('/notifications/n-1/read')));
+    });
+
+    testWidgets('oturum yokken dokunuldu, AYNI kişi giriş yaptı: hedef açılır', (tester) async {
+      final push = _FakePush();
+      final r = await _pump(tester, push, user: _user(id: 'u1'), extra: {
+        '/notifications/n-1/read': [(status: 200, body: {'ok': true})],
+        '/notifications/unread-count': [for (var i = 0; i < 3; i++) (status: 200, body: {'unread_count': 0})],
+      });
+      final auth = r.container.read(authControllerProvider.notifier) as _Auth;
+      auth.signOut();
+      await tester.pumpAndSettle();
+
+      push.opened.add(const PushMessage(title: 'x', actionTarget: '/projeler/p1/gorevler/t1', notificationId: 'n-1'));
+      await tester.pumpAndSettle();
+      expect(find.text('görev ekranı'), findsNothing);
+
+      auth.signIn(_user(id: 'u1'));
+      await tester.pumpAndSettle();
+      expect(find.text('görev ekranı'), findsOneWidget);
+      expect(r.adapter.calls, contains('/notifications/n-1/read'));
+    });
+
+    testWidgets('hedef zaten açık ekransa ikinci kopyası açılmaz', (tester) async {
+      final push = _FakePush();
+      final r = await _pump(tester, push, user: _user());
+      final before = r.router.routerDelegate.currentConfiguration.matches.length;
+      push.opened.add(const PushMessage(title: 'Duyuru', actionTarget: '/'));
+      await tester.pumpAndSettle();
+      expect(r.router.routerDelegate.currentConfiguration.matches.length, before);
+    });
+  });
+
+  testWidgets('uygulama öne gelince zil sayacı tazelenir', (tester) async {
+    final push = _FakePush();
+    final r = await _pump(tester, push, user: _user(), extra: {
+      '/notifications/unread-count': [for (var i = 0; i < 3; i++) (status: 200, body: {'unread_count': 2})],
+    });
+    // Sayaç bir ekranda izleniyormuş gibi canlı tutulur.
+    final sub = r.container.listen(unreadNotificationCountProvider, (_, _) {});
+    addTearDown(sub.close);
+    await tester.pumpAndSettle();
+    final before = r.adapter.calls.where((c) => c == '/notifications/unread-count').length;
+
+    for (final s in [
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+      AppLifecycleState.hidden,
+      AppLifecycleState.inactive,
+      AppLifecycleState.resumed,
+    ]) {
+      tester.binding.handleAppLifecycleStateChanged(s);
+    }
+    // Ekran sayacı yeniden okuduğunda (geçersiz kılındığı için) yeni istek.
+    final count = r.container.read(unreadNotificationCountProvider.future);
+    await tester.pumpAndSettle();
+
+    expect(await count, 2);
+    expect(r.adapter.calls.where((c) => c == '/notifications/unread-count').length, before + 1);
   });
 }
