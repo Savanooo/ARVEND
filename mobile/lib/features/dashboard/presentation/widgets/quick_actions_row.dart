@@ -15,6 +15,7 @@ import '../../data/dashboard_providers.dart';
 import '../../domain/dashboard_registry.dart';
 import 'project_picker_sheet.dart';
 import '../../../projects/presentation/form_project_banner.dart';
+import '../../../../core/widgets/app_sheet.dart';
 
 /// Şu an çalışan hızlı işlem (yoksa null) ve proje listesinin yüklenip
 /// yüklenmediği. Aynı anda tek işlem: proje listesi yavaş gelirken ikinci
@@ -111,7 +112,7 @@ Future<void> _runQuickAction(
       openPage('/diger/metraj', refresh: false);
       return;
     case QuickActionKey.customer:
-      await showModalBottomSheet<void>(
+      await showAppSheet<void>(
         context: context,
         isScrollControlled: true,
         useSafeArea: true,
