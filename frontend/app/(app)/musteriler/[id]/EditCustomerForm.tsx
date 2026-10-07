@@ -24,23 +24,36 @@ export function EditCustomerForm({ customer, canManage }: { customer: Customer; 
   const [saving, setSaving] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  // Vergi no/telefon başka bir müşteriyle çakışırsa backend 409 döner
+  // (müşteri uçlarında 409 yalnızca bu durumdur); kullanıcı bilerek
+  // "Yine de Kaydet" diyebilir.
+  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function save(allowDuplicate: boolean) {
     setSaving(true);
     setMessage(null);
+    setDuplicateWarning(null);
     try {
       await apiClient(`/api/v1/customers/${customer.id}`, {
         method: "PUT",
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, allow_duplicate: allowDuplicate }),
       });
       setMessage("Kaydedildi.");
       router.refresh();
     } catch (err) {
-      setMessage(err instanceof ApiError ? err.message : "Bağlantı hatası");
+      if (err instanceof ApiError && err.status === 409) {
+        setDuplicateWarning(err.message);
+      } else {
+        setMessage(err instanceof ApiError ? err.message : "Bağlantı hatası");
+      }
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    void save(false);
   }
 
   async function handleArchive() {
@@ -126,6 +139,14 @@ export function EditCustomerForm({ customer, canManage }: { customer: Customer; 
             Aktif
           </label>
           {message && <p className="text-xs text-text-muted">{message}</p>}
+          {duplicateWarning && (
+            <div className="flex flex-col gap-2 rounded-md border border-gold/40 bg-gold-soft p-3 text-xs">
+              <p>{duplicateWarning}. Yine de kaydetmek istiyor musunuz?</p>
+              <Button type="button" variant="secondary" className="w-fit" disabled={saving} onClick={() => save(true)}>
+                Yine de Kaydet
+              </Button>
+            </div>
+          )}
           {canManage && (
             <div className="flex items-center gap-3">
               <Button type="submit" disabled={saving}>

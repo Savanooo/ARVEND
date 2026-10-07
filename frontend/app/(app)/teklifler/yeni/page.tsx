@@ -13,7 +13,12 @@ export default async function YeniTeklifPage() {
   return (
     <>
       <PageHeader title="Yeni Teklif" />
-      <OfferForm canManageInternalPricing={canManageInternalPricing} />
+      <OfferForm
+        canManageInternalPricing={canManageInternalPricing}
+        canReadCustomers={hasPermission(user.permissions, "customers.read")}
+        canManageCustomers={hasPermission(user.permissions, "customers.manage")}
+        canReadProducts={hasPermission(user.permissions, "products.read")}
+      />
     </>
   );
 }

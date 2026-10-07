@@ -88,6 +88,9 @@ type upsertCustomerRequest struct {
 	TaxNumber string `json:"tax_number"`
 	Notes     string `json:"notes"`
 	IsActive  bool   `json:"is_active"`
+	// AllowDuplicate: 409 duplicate_customer uyarısından sonra kullanıcı
+	// "yine de kaydet" dediğinde true gönderilir.
+	AllowDuplicate bool `json:"allow_duplicate"`
 }
 
 func (req upsertCustomerRequest) toInput() service.CustomerInput {
@@ -100,6 +103,8 @@ func (req upsertCustomerRequest) toInput() service.CustomerInput {
 		TaxNumber: req.TaxNumber,
 		Notes:     req.Notes,
 		IsActive:  req.IsActive,
+
+		AllowDuplicate: req.AllowDuplicate,
 	}
 }
 
@@ -144,9 +149,23 @@ func (h *CustomerHandler) Archive(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *CustomerHandler) writeError(w http.ResponseWriter, err error) {
+	var dup *service.DuplicateCustomerError
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "müşteri bulunamadı")
+	case errors.As(err, &dup):
+		// 409 + mevcut müşterinin kimliği: istemci adı gösterip ona
+		// yönlendirebilir ya da allow_duplicate=true ile yine de kaydedebilir.
+		httpjson.Write(w, http.StatusConflict, map[string]any{
+			"error": dup.Error(),
+			"code":  "duplicate_customer",
+			"field": dup.Field,
+			"existing_customer": map[string]any{
+				"id": dup.Existing.ID, "name": dup.Existing.Name, "is_active": dup.Existing.IsActive,
+			},
+		})
+	case isInternalError(err):
+		writeInternalError(w, err)
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}

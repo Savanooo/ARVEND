@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
@@ -12,10 +11,13 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { DateInput } from "@/components/ui/DateInput";
 import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
+import { Modal } from "@/components/ui/Modal";
 import { apiClient, ApiError } from "@/lib/api";
 import { formatTL } from "@/lib/format";
 import { fetchAllProducts, type ProductPage } from "@/lib/products";
 import type { CalcSnapshot, Customer, Offer, OfferItemPricingMode, Product } from "@/lib/types";
+
+import { CustomerCreateForm } from "../musteriler/yeni/NewCustomerForm";
 
 interface ItemRow {
   // Düzenlenen taslakta satırın karşılık geldiği mevcut kalemin id'si (yeni
@@ -110,16 +112,26 @@ function todayISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-// Hem yeni teklif oluşturma hem taslak düzenleme için ortak form --
-// müşteri seçimi datalist üzerinden: bilinen bir müşteri adı seçilirse
-// customer_id o karta bağlanır ve iletişim bilgileri o karttan otomatik
-// dolar (salt-okunur); tanınmayan bir ad yazılırsa serbest metin olarak
-// kalır (customer_id null).
+// Hem yeni teklif oluşturma hem taslak düzenleme için ortak form.
+// Müşteri seçimi KİMLİK ile yapılır: ad alanına yazarken kayıtlı
+// müşteriler (ad, telefon, vergi no, e-postada) eşleşen öneriler olarak
+// listelenir, birine tıklanınca customer_id o karta bağlanır ve iletişim
+// bilgileri o karttan dolar (salt-okunur). Eskiden datalist ADI kartla
+// eşliyordu -- aynı adlı iki müşteriden yalnızca biri seçilebiliyordu.
+// Öneri seçilmezse ad serbest metin kalır (customer_id null).
 export function OfferForm({
   offer,
   canManageInternalPricing = false,
+  canReadCustomers = true,
+  canManageCustomers = false,
+  canReadProducts = true,
 }: {
   offer?: Offer;
+  // Yalnızca UX: izin yoksa ilgili liste hiç istenmez (403 hatası
+  // gösterilmez), "+ Yeni Müşteri" yalnızca customers.manage ile görünür.
+  canReadCustomers?: boolean;
+  canManageCustomers?: boolean;
+  canReadProducts?: boolean;
   // Sunucu bileşeninden (bkz. yeni/duzenle page.tsx) hesaplanıp geçirilir --
   // offers.internal_pricing.manage izni yoksa İç Fiyatlama bölümü hiç
   // RENDER EDİLMEZ (ekstra bir istemci-taraflı izin kontrolü değil, tek
@@ -148,37 +160,68 @@ export function OfferForm({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [metrajOpen, setMetrajOpen] = useState(false);
+  const [newCustomerOpen, setNewCustomerOpen] = useState(false);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  // Ürün/müşteri listesi yüklenemezse bunu söyleriz -- eskiden hata
+  // yutuluyordu ve kullanıcı boş öneri listesini "kayıt yok" sanıyordu.
+  const [loadErrors, setLoadErrors] = useState<string[]>([]);
 
   useEffect(() => {
-    fetchAllProducts((path) => apiClient<ProductPage>(path))
-      .then(setProducts)
-      .catch(() => {});
-    apiClient<{ customers: Customer[] }>("/api/v1/customers?filter=aktif")
-      .then((res) => setCustomers(res.customers))
-      .catch(() => {});
-  }, []);
-
-  const customerByName = useMemo(() => {
-    const map = new Map<string, Customer>();
-    for (const c of customers) map.set(c.name, c);
-    return map;
-  }, [customers]);
-
-  function handleCustomerName(name: string) {
-    const match = customerByName.get(name);
-    if (match) {
-      setCustomerId(match.id);
-      setCustomer({
-        customer_name: match.name,
-        customer_phone: match.phone,
-        customer_email: match.email,
-        customer_address: match.address,
-        notes: customer.notes,
-      });
-    } else {
-      setCustomerId(null);
-      setCustomer((prev) => ({ ...prev, customer_name: name }));
+    const fail = (what: string) => (err: unknown) => {
+      const detail = err instanceof ApiError ? err.message : "bağlantı hatası";
+      setLoadErrors((prev) => [...prev, `${what} yüklenemedi (${detail}). Sayfayı yenileyip tekrar deneyin.`]);
+    };
+    if (canReadProducts) {
+      fetchAllProducts((path) => apiClient<ProductPage>(path))
+        .then(setProducts)
+        .catch(fail("Ürün listesi"));
     }
+    if (canReadCustomers) {
+      apiClient<{ customers: Customer[] }>("/api/v1/customers?filter=aktif")
+        .then((res) => setCustomers(res.customers))
+        .catch(fail("Müşteri listesi"));
+    }
+  }, [canReadCustomers, canReadProducts]);
+
+  // Ad alanındaki metnin eşleştiği kayıtlı müşteriler (ad, telefon
+  // rakamları, vergi no, e-posta) -- en çok 8 öneri.
+  const customerSuggestions = useMemo(() => {
+    const q = customer.customer_name.trim().toLocaleLowerCase("tr-TR");
+    if (!q || customerId) return [];
+    const digits = q.replace(/\D/g, "").replace(/^0+/, "");
+    return customers
+      .filter((c) => {
+        const hay = `${c.name} ${c.tax_number} ${c.email}`.toLocaleLowerCase("tr-TR");
+        if (hay.includes(q)) return true;
+        return digits.length >= 3 && c.phone.replace(/\D/g, "").includes(digits);
+      })
+      .slice(0, 8);
+  }, [customers, customer.customer_name, customerId]);
+
+  function selectCustomer(match: Customer) {
+    setCustomerId(match.id);
+    setSuggestOpen(false);
+    setCustomer((prev) => ({
+      customer_name: match.name,
+      customer_phone: match.phone,
+      customer_email: match.email,
+      customer_address: match.address,
+      notes: prev.notes,
+    }));
+  }
+
+  // Bağlı bir müşterinin adı elle değiştirilirse bağlantı kaldırılır --
+  // ad artık o kartı göstermiyor; iletişim bilgileri düzenlenebilir kalır.
+  function handleCustomerName(name: string) {
+    setCustomerId(null);
+    setSuggestOpen(true);
+    setCustomer((prev) => ({ ...prev, customer_name: name }));
+  }
+
+  function handleCustomerCreated(created: Customer) {
+    setCustomers((prev) => [...prev.filter((c) => c.id !== created.id), created]);
+    selectCustomer(created);
+    setNewCustomerOpen(false);
   }
 
   function updateItem(index: number, patch: Partial<ItemRow>) {
@@ -291,31 +334,72 @@ export function OfferForm({
   return (
     <div className="flex flex-col gap-6 p-8 lg:flex-row">
       <form onSubmit={handleSubmit} className="flex flex-1 flex-col gap-6">
+        {loadErrors.length > 0 && (
+          <div role="alert" className="rounded-md border border-danger/40 bg-danger-soft p-3 text-sm text-danger">
+            {loadErrors.map((m) => (
+              <p key={m}>{m}</p>
+            ))}
+          </div>
+        )}
         <Card>
           <CardHeader className="flex items-center justify-between">
             <span>Müşteri</span>
-            <Link href="/musteriler/yeni" className="text-gold hover:underline normal-case">
-              + Yeni Müşteri
-            </Link>
+            {canManageCustomers && (
+              <button
+                type="button"
+                onClick={() => setNewCustomerOpen(true)}
+                className="text-gold hover:underline normal-case"
+              >
+                + Yeni Müşteri
+              </button>
+            )}
           </CardHeader>
           <CardBody className="grid grid-cols-2 gap-4">
-            <datalist id="musteri-listesi">
-              {customers.map((c) => (
-                <option key={c.id} value={c.name} />
-              ))}
-            </datalist>
-            <div className="col-span-2">
+            <div className="relative col-span-2">
               <Input
                 label="Müşteri Adı"
-                list="musteri-listesi"
                 required
+                autoComplete="off"
                 value={customer.customer_name}
                 onChange={(e) => handleCustomerName(e.target.value)}
-                placeholder="Kayıtlı müşteri seçin veya yeni ad yazın"
+                onFocus={() => setSuggestOpen(true)}
+                onBlur={() => setTimeout(() => setSuggestOpen(false), 150)}
+                placeholder="Kayıtlı müşteri arayın (ad, telefon, vergi no) veya yeni ad yazın"
               />
+              {suggestOpen && customerSuggestions.length > 0 && (
+                <ul
+                  role="listbox"
+                  className="absolute left-0 right-0 z-20 mt-1 max-h-64 overflow-y-auto rounded-md border border-border bg-surface shadow-lg"
+                >
+                  {customerSuggestions.map((c) => (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={false}
+                        // onMouseDown: input blur olmadan seçim yapılsın.
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          selectCustomer(c);
+                        }}
+                        className="flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-surface-hover"
+                      >
+                        <span className="font-medium">{c.name}</span>
+                        <span className="text-xs text-text-muted">
+                          {[c.phone, c.tax_number && `VKN ${c.tax_number}`, c.email].filter(Boolean).join(" · ") ||
+                            "İletişim bilgisi yok"}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
               {customerIsLinked && (
                 <p className="mt-1 text-xs text-text-muted">
-                  Kayıtlı müşteri kartına bağlı — iletişim bilgileri o karttan alınır.
+                  Kayıtlı müşteri kartına bağlı — iletişim bilgileri o karttan alınır.{" "}
+                  <button type="button" className="text-gold hover:underline" onClick={() => setCustomerId(null)}>
+                    Bağlantıyı kaldır
+                  </button>
                 </p>
               )}
             </div>
@@ -507,6 +591,19 @@ export function OfferForm({
           {loading ? "Kaydediliyor…" : isEdit ? "Değişiklikleri Kaydet" : "Teklifi Oluştur"}
         </Button>
       </form>
+
+      {/* Formun DIŞINDA (iç içe <form> olmasın): yeni müşteri sayfa
+          değiştirmeden oluşturulur, teklif taslağı korunur ve oluşturulan
+          müşteri doğrudan seçilir. */}
+      <Modal open={newCustomerOpen} onClose={() => setNewCustomerOpen(false)} title="Yeni Müşteri">
+        {newCustomerOpen && (
+          <CustomerCreateForm
+            initialName={customerIsLinked ? "" : customer.customer_name}
+            onCreated={handleCustomerCreated}
+            onCancel={() => setNewCustomerOpen(false)}
+          />
+        )}
+      </Modal>
 
       <Card className="h-fit w-full lg:w-72">
         <CardHeader>Özet</CardHeader>

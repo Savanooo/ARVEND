@@ -45,8 +45,8 @@ export default async function MusterilerPage({
         }
       />
       <div className="flex flex-col gap-4 p-8">
-        <form className="max-w-xs">
-          <Input name="q" defaultValue={q} placeholder="Müşteri adında ara…" />
+        <form className="max-w-sm">
+          <Input name="q" defaultValue={q} placeholder="Ad, telefon, vergi no veya e-posta ara…" />
         </form>
         <Card>
           <Table>

@@ -30,7 +30,11 @@ class _CustomerPickerSheetState extends ConsumerState<_CustomerPickerSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final query = (q: _query, filter: '');
+    // Yalnızca AKTİF müşteriler: arşivlenmiş bir müşteri listede hiçbir
+    // işaret olmadan çıkıyor ve yeni teklife bağlanabiliyordu (web formu da
+    // yalnızca aktifleri önerir). Arama ad, telefon, vergi no ve e-postada
+    // sunucuda yapılır.
+    final query = (q: _query, filter: 'aktif');
     final customersAsync = ref.watch(customersListProvider(query));
 
     return SizedBox(
@@ -44,7 +48,7 @@ class _CustomerPickerSheetState extends ConsumerState<_CustomerPickerSheet> {
             TextField(
               autofocus: true,
               decoration: const InputDecoration(
-                hintText: 'İsim, telefon veya e-posta ara',
+                hintText: 'İsim, telefon, vergi no veya e-posta ara',
                 prefixIcon: Icon(Icons.search),
                 isDense: true,
               ),
