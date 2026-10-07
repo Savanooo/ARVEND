@@ -76,14 +76,20 @@ class CalcGroupsScreen extends ConsumerWidget {
             )
           else
             for (final g in groups)
-              // Backend yalnızca aktif grupları listeler: "Aktif" rozeti bilgi
-              // taşımıyordu. Slug/sıra iç veridir, detay kartında kalır; alt
-              // satırda kullanıcıya anlamlı açıklama gösterilir.
+              // Liste pasif grupları da içerir: yalnızca pasifler rozetlenir
+              // (yeniden aktifleştirmek için açılabilir). Slug/sıra iç veridir,
+              // detay kartında kalır.
               AppListCard(
                 title: g.name,
                 subtitle: g.description.isEmpty ? null : g.description,
-                leading: const Icon(Icons.folder_outlined, color: AppColors.gold),
-                trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
+                leading: Icon(Icons.folder_outlined, color: g.isActive ? AppColors.gold : AppColors.textMuted),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (!g.isActive) calcActiveBadge(false),
+                    const Icon(Icons.chevron_right, color: AppColors.textMuted),
+                  ],
+                ),
                 onTap: () => context.push('$kCalcAdminBasePath/${g.id}'),
               ),
         ],

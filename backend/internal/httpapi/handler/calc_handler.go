@@ -46,9 +46,17 @@ func toCalcGroupResponse(g domain.CalcGroup) calcGroupResponse {
 	return calcGroupResponse{ID: g.ID, Slug: g.Slug, Name: g.Name, Description: g.Description, SortOrder: g.SortOrder, IsActive: g.IsActive}
 }
 
+// includeInactiveParam: ?include_inactive=1|true -- yönetim ekranları
+// (web/mobil Metraj Reçeteleri) pasif grup/kategorileri de görür. Parametresiz
+// istek eskisi gibi yalnızca aktifleri döner (eski istemciler etkilenmez).
+func includeInactiveParam(r *http.Request) bool {
+	v := r.URL.Query().Get("include_inactive")
+	return v == "1" || v == "true"
+}
+
 func (h *CalcHandler) ListGroups(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	groups, err := h.svc.ListGroups(r.Context(), orgID)
+	groups, err := h.svc.ListGroups(r.Context(), orgID, includeInactiveParam(r))
 	if err != nil {
 		httpjson.Error(w, http.StatusInternalServerError, "gruplar alınamadı")
 		return
@@ -145,7 +153,7 @@ type calcGroupWithCategoriesResponse struct {
 func (h *CalcHandler) ListCategories(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	if groupID := r.URL.Query().Get("group_id"); groupID != "" {
-		cats, err := h.svc.ListCategoriesByGroup(r.Context(), groupID, orgID)
+		cats, err := h.svc.ListCategoriesByGroup(r.Context(), groupID, orgID, includeInactiveParam(r))
 		if err != nil {
 			h.writeError(w, err)
 			return

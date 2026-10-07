@@ -157,7 +157,9 @@ void main() {
       expect(body, {'slug': 'petek-tavanlar', 'name': 'Petek Tavanlar', 'description': '', 'sort_order': 0});
     });
 
-    test('categories() uses the flat ?group_id= shape', () async {
+    // include_inactive: yönetim ekranı pasif kategorileri de görür (yeniden
+    // aktifleştirebilmek için).
+    test('categories() uses the flat ?group_id= shape and asks for inactive rows too', () async {
       final adapter = FakeHttpClientAdapter(script: {
         '/calculations/categories': [
           (
@@ -173,7 +175,26 @@ void main() {
       final repo = CalcAdminRepository(await buildFakeApiClient(adapter));
       final cats = await repo.categories('g1');
       expect(cats.single.name, 'N');
-      expect(adapter.requestQueries.single, {'group_id': 'g1'});
+      expect(adapter.requestQueries.single, {'group_id': 'g1', 'include_inactive': 1});
+    });
+
+    test('groups() asks for inactive groups too (admin list)', () async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/calculations/groups': [
+          (
+            status: 200,
+            body: {
+              'groups': [
+                {'id': 'g1', 'slug': 's', 'name': 'Pasif Grup', 'description': '', 'sort_order': 1, 'is_active': false},
+              ],
+            }
+          ),
+        ],
+      });
+      final repo = CalcAdminRepository(await buildFakeApiClient(adapter));
+      final groups = await repo.groups();
+      expect(groups.single.isActive, isFalse);
+      expect(adapter.requestQueries.single, {'include_inactive': 1});
     });
 
     test('updateCategory keeps the existing image_file_id (no image editing on mobile)', () async {

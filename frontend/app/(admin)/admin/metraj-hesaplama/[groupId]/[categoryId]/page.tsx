@@ -19,9 +19,11 @@ import { RecipeItemsEditor } from "./RecipeItemsEditor";
 async function fetchData(groupId: string, categoryId: string, canReadProducts: boolean) {
   const cookieHeader = (await cookies()).toString();
   const [{ groups }, { categories }, { items }, { products }] = await Promise.all([
-    apiServer<{ groups: CalcGroup[] }>("/api/v1/calculations/groups", cookieHeader),
+    // include_inactive: pasif grup/kategori sayfası da açılır (yeniden
+    // aktifleştirmek için) -- eskiden 404 veriyordu.
+    apiServer<{ groups: CalcGroup[] }>("/api/v1/calculations/groups?include_inactive=1", cookieHeader),
     apiServer<{ categories: CalcCategory[] }>(
-      `/api/v1/calculations/categories?group_id=${groupId}`,
+      `/api/v1/calculations/categories?group_id=${encodeURIComponent(groupId)}&include_inactive=1`,
       cookieHeader
     ),
     apiServer<{ items: CalcRecipeItem[] }>(
@@ -66,6 +68,13 @@ export default async function CategoryDetailPage({
         }
       />
       <div className="flex flex-col gap-6 p-8">
+        {(!category.is_active || !group.is_active) && (
+          <p className="rounded-md border border-border bg-surface-hover p-3 text-sm text-text-muted">
+            {!category.is_active
+              ? "Bu hesaplama türü pasif: Metraj Hesapla panelinde görünmez."
+              : "Bu hesaplama türünün grubu pasif: grup yeniden aktifleştirilene kadar Metraj Hesapla panelinde görünmez."}
+          </p>
+        )}
         <EditCategoryForm category={category} groupId={group.id} canManage={canManage} />
         <RecipeItemsEditor
           categoryId={category.id}

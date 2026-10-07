@@ -11,9 +11,8 @@ library;
 
 import 'package:intl/intl.dart';
 
-/// `GET /calculations/groups` satırı. Backend yalnızca AKTİF grupları
-/// döner (bkz. calc.sql ListCalcGroups) -- pasifleştirilen grup listeden
-/// düşer, web ile aynı davranış.
+/// `GET /calculations/groups?include_inactive=1` satırı -- yönetim ekranı
+/// pasif grupları da alır (bkz. calc.sql ListCalcGroupsAdmin), web ile aynı.
 class CalcAdminGroup {
   final String id;
   final String slug;

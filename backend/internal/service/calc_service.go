@@ -33,12 +33,20 @@ func NewCalcService(q *sqlc.Queries) *CalcService {
 
 // ---------- Gruplar ----------
 
-func (s *CalcService) ListGroups(ctx context.Context, organizationID string) ([]domain.CalcGroup, error) {
+// ListGroups: includeInactive yalnızca yönetim ekranları içindir (pasif
+// grubu görüp yeniden aktifleştirebilmek); Metraj Hesapla akışı yalnızca
+// aktifleri görür.
+func (s *CalcService) ListGroups(ctx context.Context, organizationID string, includeInactive bool) ([]domain.CalcGroup, error) {
 	orgID, err := repository.StringToUUID(organizationID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	rows, err := s.q.ListCalcGroups(ctx, orgID)
+	var rows []sqlc.CalcGroup
+	if includeInactive {
+		rows, err = s.q.ListCalcGroupsAdmin(ctx, orgID)
+	} else {
+		rows, err = s.q.ListCalcGroups(ctx, orgID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -128,12 +136,17 @@ func (s *CalcService) ListCategoriesForOrg(ctx context.Context, organizationID s
 	return out, nil
 }
 
-func (s *CalcService) ListCategoriesByGroup(ctx context.Context, groupID, organizationID string) ([]domain.CalcCategory, error) {
+func (s *CalcService) ListCategoriesByGroup(ctx context.Context, groupID, organizationID string, includeInactive bool) ([]domain.CalcCategory, error) {
 	gid, orgID, err := twoUUIDs(groupID, organizationID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	rows, err := s.q.ListCalcCategoriesByGroup(ctx, sqlc.ListCalcCategoriesByGroupParams{GroupID: gid, OrganizationID: orgID})
+	var rows []sqlc.CalcCategory
+	if includeInactive {
+		rows, err = s.q.ListCalcCategoriesByGroupAdmin(ctx, sqlc.ListCalcCategoriesByGroupAdminParams{GroupID: gid, OrganizationID: orgID})
+	} else {
+		rows, err = s.q.ListCalcCategoriesByGroup(ctx, sqlc.ListCalcCategoriesByGroupParams{GroupID: gid, OrganizationID: orgID})
+	}
 	if err != nil {
 		return nil, err
 	}

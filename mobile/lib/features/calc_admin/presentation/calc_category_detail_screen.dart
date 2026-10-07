@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -70,14 +69,15 @@ class CalcCategoryDetailScreen extends ConsumerWidget {
         },
       );
       if (!saved || !context.mounted) return;
-      // Backend yalnızca aktif kategorileri listeler -- pasifleştirilen
-      // kategori artık açılamaz, gruba dönülür.
+      // Pasif kategori yönetim listesinde kalır (rozetle) ve buradan
+      // yeniden aktifleştirilebilir -- ekran kapatılmaz.
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(deactivated ? 'Kategori pasifleştirildi; pasif kategoriler listede görünmez.' : 'Kaydedildi.'),
+          content: Text(
+            deactivated ? 'Kategori pasifleştirildi; Metraj Hesapla panelinde görünmez.' : 'Kaydedildi.',
+          ),
         ),
       );
-      if (deactivated && context.canPop()) context.pop();
     }
 
     Future<void> openItem(CalcRecipeItem? item) async {
@@ -136,7 +136,7 @@ class CalcCategoryDetailScreen extends ConsumerWidget {
               Padding(
                 padding: EdgeInsets.only(top: AppSpacing.xxl),
                 child: EmptyStateView(
-                  message: 'Kategori bulunamadı. Pasifleştirilen kategoriler listede görünmez.',
+                  message: 'Kategori bulunamadı.',
                   icon: Icons.search_off_outlined,
                 ),
               ),
