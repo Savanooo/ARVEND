@@ -137,6 +137,15 @@ class FinancialSummary {
       );
 }
 
+/// Masraf onay durumları (backend migration 0060). Her masraf `pending`
+/// başlar; para toplamlarına yalnızca `approved` (ve iptal edilmemiş) girer.
+const kExpensePending = 'pending';
+const kExpenseApproved = 'approved';
+const kExpenseRejected = 'rejected';
+
+/// Masraf onaylama/reddetme izni (backend domain.PermProjectsExpensesApprove).
+const kExpenseApprovePermission = 'projects.expenses.approve';
+
 class Expense {
   final String id;
   final String category;
@@ -157,6 +166,14 @@ class Expense {
   final String? costCodeId;
   final String? budgetLineId;
 
+  /// `pending|approved|rejected`. Alan gelmezse (onay akışından önceki
+  /// sunucu) `approved` -- o sunucu her masrafı zaten sayıyordu.
+  final String approvalStatus;
+  final String? decidedAt;
+
+  /// Ret gerekçesi (onayda boş).
+  final String decisionNote;
+
   const Expense({
     required this.id,
     required this.category,
@@ -173,9 +190,20 @@ class Expense {
     this.changeOrderId,
     this.costCodeId,
     this.budgetLineId,
+    this.approvalStatus = kExpenseApproved,
+    this.decidedAt,
+    this.decisionNote = '',
   });
 
   bool get isVoided => voidedAt != null;
+  bool get isApproved => approvalStatus == kExpenseApproved;
+  bool get isRejected => approvalStatus == kExpenseRejected;
+
+  /// Onay bekleyen (iptal edilmemiş) masraf -- Onayla/Reddet yalnızca bunda.
+  bool get isPending => !isVoided && approvalStatus == kExpensePending;
+
+  /// Para toplamlarına girer mi (backend toplamlarıyla aynı kural).
+  bool get countsInTotals => !isVoided && isApproved;
 
   factory Expense.fromJson(Map<String, dynamic> json) => Expense(
         id: json['id'] as String,
@@ -193,6 +221,9 @@ class Expense {
         changeOrderId: _nonEmptyId(json['change_order_id'] as String?),
         costCodeId: _nonEmptyId(json['cost_code_id'] as String?),
         budgetLineId: _nonEmptyId(json['budget_line_id'] as String?),
+        approvalStatus: json['approval_status'] as String? ?? kExpenseApproved,
+        decidedAt: json['decided_at'] as String?,
+        decisionNote: json['decision_note'] as String? ?? '',
       );
 }
 

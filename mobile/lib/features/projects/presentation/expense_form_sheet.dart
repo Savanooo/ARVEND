@@ -102,7 +102,14 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
             costCodeId: _costCodeId ?? '',
             idempotencyKey: _idempotencyKey,
           );
-      if (mounted) Navigator.of(context).pop(expense);
+      if (!mounted) return;
+      // Masraf onay bekleyerek doğar (backend migration 0060): toplamda hemen
+      // görünmemesinin nedeni burada söylenir. Mesaj formda verilir ki her
+      // açılış yeri (Finans, proje Özeti, ana sayfa hızlı işlemi) aynı şeyi
+      // göstersin.
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      Navigator.of(context).pop(expense);
+      messenger?.showSnackBar(const SnackBar(content: Text('Masraf onaya gönderildi.')));
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {

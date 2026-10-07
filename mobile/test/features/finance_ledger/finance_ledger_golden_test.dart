@@ -44,13 +44,26 @@ void main() {
         ],
       );
 
-  Future<void> pumpAt(WidgetTester tester, {required User user, required Widget home, Project? project}) async {
+  Future<void> pumpAt(
+    WidgetTester tester, {
+    required User user,
+    required Widget home,
+    Project? project,
+    List<Expense>? expenses,
+  }) async {
     tester.view.devicePixelRatio = 2.0;
     tester.view.physicalSize = const Size(360, 800) * 2.0;
     addTearDown(tester.view.reset);
     debugDisableShadows = false;
     await tester.pumpWidget(
-      buildLedgerApp(user: user, client: offline, project: project, home: home, theme: cc.goldenTheme()),
+      buildLedgerApp(
+        user: user,
+        client: offline,
+        project: project,
+        expenses: expenses,
+        home: home,
+        theme: cc.goldenTheme(),
+      ),
     );
     await tester.pumpAndSettle();
   }
@@ -100,6 +113,21 @@ void main() {
       await tester.enterText(find.byType(TextField).last, 'Banka iadesi');
       await tester.pumpAndSettle();
       await expectGolden(tester, 'collection_void_dialog_360x800');
+    });
+
+    // Masraf onayı: bekleyen/reddedilen rozetleri, ret gerekçesi, üstte not.
+    testWidgets('onay bekleyen ve reddedilen masraflar (onaylayıcı)', (tester) async {
+      final project = cc.sampleProject();
+      await pumpAt(tester, user: ledgerApprover, expenses: approvalExpenses, home: page(sections(project)));
+      await expectGolden(tester, 'ledger_sections_approval_360x800');
+    });
+
+    testWidgets('onay bekleyen masraf ayrıntısı + Onayla/Reddet', (tester) async {
+      final project = cc.sampleProject();
+      await pumpAt(tester, user: ledgerApprover, expenses: approvalExpenses, home: page(sections(project)));
+      await tester.tap(find.byKey(const ValueKey('masraf-e3')));
+      await tester.pumpAndSettle();
+      await expectGolden(tester, 'expense_detail_sheet_pending_approver_360x800');
     });
   });
 

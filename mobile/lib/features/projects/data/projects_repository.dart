@@ -81,6 +81,15 @@ class ProjectsRepository {
   Future<void> voidExpense(String projectId, String expenseId, {String reason = ''}) => _client
       .post<void>('/projects/$projectId/expenses/$expenseId/void', data: {'reason': reason});
 
+  /// Onay bekleyen masrafı onaylar (`projects.expenses.approve`; kapalı
+  /// projede 409, zaten karar verilmişse 409).
+  Future<void> approveExpense(String projectId, String expenseId) =>
+      _client.post<void>('/projects/$projectId/expenses/$expenseId/approve');
+
+  /// Onay bekleyen masrafı reddeder; gerekçe ZORUNLU (sunucu boşta 400).
+  Future<void> rejectExpense(String projectId, String expenseId, {required String reason}) =>
+      _client.post<void>('/projects/$projectId/expenses/$expenseId/reject', data: {'reason': reason});
+
   Future<List<Collection>> collections(String projectId) async {
     final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/collections');
     return (json['collections'] as List).cast<Map<String, dynamic>>().map(Collection.fromJson).toList();

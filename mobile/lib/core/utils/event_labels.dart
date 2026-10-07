@@ -21,6 +21,8 @@ const kProjectEventLabels = <String, String>{
   'expense_added': 'Masraf eklendi',
   'expense_updated': 'Masraf güncellendi',
   'expense_voided': 'Masraf iptal edildi',
+  'expense_approved': 'Masraf onaylandı',
+  'expense_rejected': 'Masraf reddedildi',
   'invoice_created': 'Fatura eklendi',
   'invoice_status_changed': 'Fatura durumu değişti',
   'subcontractor_added': 'Taşeron eklendi',

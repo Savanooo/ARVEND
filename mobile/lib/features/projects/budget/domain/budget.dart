@@ -381,6 +381,7 @@ class ActualExpense {
     this.costCodeId,
     this.budgetLineId,
     this.voidedAt,
+    this.approvalStatus = 'approved',
   });
 
   final String id;
@@ -392,7 +393,17 @@ class ActualExpense {
   final String? budgetLineId;
   final String? voidedAt;
 
+  /// Masraf onayı (backend migration 0060); alan gelmezse `approved`.
+  final String approvalStatus;
+
   bool get isVoided => voidedAt != null;
+
+  /// Gerçekleşen maliyete girer mi: yalnızca onaylı ve iptal edilmemiş
+  /// (backend actual_cost ile aynı kural).
+  bool get countsAsActual => !isVoided && approvalStatus == 'approved';
+
+  /// Onay bekleyen (iptal edilmemiş) masraf.
+  bool get isPending => !isVoided && approvalStatus == 'pending';
 
   factory ActualExpense.fromJson(Map<String, dynamic> json) => ActualExpense(
     id: json['id'] as String,
@@ -403,6 +414,7 @@ class ActualExpense {
     costCodeId: json['cost_code_id'] as String?,
     budgetLineId: json['budget_line_id'] as String?,
     voidedAt: json['voided_at'] as String?,
+    approvalStatus: json['approval_status'] as String? ?? 'approved',
   );
 }
 

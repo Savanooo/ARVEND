@@ -142,7 +142,7 @@ void main() {
       '/projects/p1/expenses': [
         (
           status: 201,
-          body: {'id': 'e1', 'category': 'material', 'description': 'Alçıpan', 'amount': 1250.5, 'currency': 'TRY', 'expense_date': '2026-09-29', 'created_at': '2026-09-29T08:00:00Z'},
+          body: {'id': 'e1', 'category': 'material', 'description': 'Alçıpan', 'amount': 1250.5, 'currency': 'TRY', 'expense_date': '2026-09-29', 'created_at': '2026-09-29T08:00:00Z', 'approval_status': 'pending'},
         ),
       ],
     });
@@ -181,6 +181,8 @@ void main() {
     expect(body['cost_code_id'], 'cc2');
     expect(body['notes'], 'Depoya teslim');
     expect(body['idempotency_key'], startsWith('exp-'));
+    // Masraf onay bekleyerek doğar: form kapanınca bunu söyler.
+    expect(find.text('Masraf onaya gönderildi.'), findsOneWidget);
   });
 
   testWidgets('masraf: izin yoksa bağlantı seçicileri yüklenmez (gereksiz 403 yok)', (tester) async {

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/auth/auth_controller.dart';
 import '../../../../core/auth/permissions.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_status_colors.dart';
 import '../../../../core/theme/app_typography.dart';
@@ -11,6 +12,7 @@ import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/access_notices.dart';
 import '../../../../core/widgets/app_section_header.dart';
 import '../../../../core/widgets/async_state_view.dart';
+import '../../../../core/widgets/status_badge.dart';
 import '../../budget/domain/budget.dart' show kCostCodesReadPermission;
 import '../../data/projects_providers.dart';
 import '../../domain/project.dart';
@@ -84,6 +86,11 @@ class LedgerLockedNotice extends ConsumerWidget {
 /// ayrıntı + "İptal Et". Altında geçerli masraf toplamı ve çift sayım notu.
 /// Görünüm `projects.finance.read` ile açılır (proje detayı gizler);
 /// "Masraf Ekle" / "İptal Et" `projects.finance.manage` + açık proje.
+///
+/// Masraf onayı (backend migration 0060): onay bekleyen/reddedilen satır
+/// rozet taşır, tutarı soluk ve toplama girmez (onaylı satır -- olağan
+/// durum -- rozetsizdir); bekleyen varsa üstte "N masraf onay bekliyor"
+/// notu. Onayla/Reddet ayrıntıda: `projects.expenses.approve` + açık proje.
 class ExpensesLedgerSection extends ConsumerWidget {
   const ExpensesLedgerSection({super.key, required this.project});
 
@@ -94,6 +101,8 @@ class ExpensesLedgerSection extends ConsumerWidget {
     final projectId = project.id;
     final user = ref.watch(authControllerProvider).valueOrNull;
     final canManage = user.can(kLedgerManagePermission) && !isLedgerLocked(project.status);
+    // Katı kontrol: Onayla/Reddet yalnızca izni GERÇEKTEN olana görünür.
+    final canApprove = user.canAccess(kExpenseApprovePermission) && !isLedgerLocked(project.status);
     final expensesAsync = ref.watch(projectExpensesProvider(projectId));
     final expenses = expensesAsync.valueOrNull ?? const <Expense>[];
 
@@ -128,7 +137,10 @@ class ExpensesLedgerSection extends ConsumerWidget {
       return 'Maliyet kodu';
     }
 
-    final validTotal = expenses.where((e) => !e.isVoided).fold<double>(0, (sum, e) => sum + e.amount);
+    // Yalnızca onaylı masraf sayılır (backend toplamlarıyla aynı kural).
+    final validTotal = expenses.where((e) => e.countsInTotals).fold<double>(0, (sum, e) => sum + e.amount);
+    final pending = expenses.where((e) => e.isPending).toList();
+    final pendingTotal = pending.fold<double>(0, (sum, e) => sum + e.amount);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -154,6 +166,11 @@ class ExpensesLedgerSection extends ConsumerWidget {
           data: (context, list) => Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (pending.isNotEmpty)
+                _PendingExpensesNote(
+                  count: pending.length,
+                  total: Formatters.money(pendingTotal, currency: project.currency),
+                ),
               for (final e in list)
                 _LedgerRow(
                   key: ValueKey('masraf-${e.id}'),
@@ -167,12 +184,18 @@ class ExpensesLedgerSection extends ConsumerWidget {
                   amount: Formatters.money(e.amount, currency: e.currency.isEmpty ? project.currency : e.currency),
                   voided: e.isVoided,
                   voidReason: e.voidReason,
+                  badge: e.isApproved || e.isVoided
+                      ? null
+                      : StatusRegistry.build(e.approvalStatus, StatusRegistry.expenseApproval),
+                  note: e.isRejected && !e.isVoided && e.decisionNote.isNotEmpty ? 'Red nedeni: ${e.decisionNote}' : null,
+                  uncounted: !e.countsInTotals,
                   onTap: () => showExpenseDetailSheet(
                     context,
                     projectId: projectId,
                     expense: e,
                     currency: project.currency,
                     canVoid: canManage,
+                    canDecide: canApprove,
                     changeOrderLabel: changeOrderLabel(e.changeOrderId),
                     costCodeLabel: costCodeLabel(e.costCodeId),
                   ),
@@ -281,6 +304,43 @@ class CollectionsLedgerSection extends ConsumerWidget {
   }
 }
 
+/// "N masraf onay bekliyor (toplam X)" -- bekleyenler neden toplamda yok.
+class _PendingExpensesNote extends StatelessWidget {
+  const _PendingExpensesNote({required this.count, required this.total});
+
+  final int count;
+  final String total;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(top: AppSpacing.sm),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.info.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(AppRadius.control),
+        border: Border.all(color: AppColors.info.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 1),
+            child: Icon(Icons.hourglass_empty, size: 16, color: AppColors.info),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              '$count masraf onay bekliyor (toplam $total). Onaylanana kadar toplamlara ve kâra girmez.',
+              style: AppTypography.helper.copyWith(color: AppColors.info, height: 1.35),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Tek defter satırı (kart): başlık + tek satır ayrıntı, sağda tutar; iptal
 /// edilen kayıt soluk, tutarı üstü çizili, altında kırmızı "İPTAL · gerekçe".
 class _LedgerRow extends StatelessWidget {
@@ -293,6 +353,9 @@ class _LedgerRow extends StatelessWidget {
     required this.voidReason,
     required this.onTap,
     this.amountColor,
+    this.badge,
+    this.note,
+    this.uncounted = false,
   });
 
   final String title;
@@ -303,6 +366,15 @@ class _LedgerRow extends StatelessWidget {
   final String voidReason;
   final VoidCallback onTap;
 
+  /// Başlığın yanında durum rozeti (masrafta "Onay bekliyor"/"Reddedildi").
+  final Widget? badge;
+
+  /// Satır altında kırmızı not (ret gerekçesi).
+  final String? note;
+
+  /// Toplama girmeyen (onaysız) kayıt: tutar soluk yazılır.
+  final bool uncounted;
+
   @override
   Widget build(BuildContext context) {
     return Opacity(
@@ -311,7 +383,15 @@ class _LedgerRow extends StatelessWidget {
         margin: const EdgeInsets.only(top: AppSpacing.sm),
         child: ListTile(
           onTap: onTap,
-          title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          title: badge == null
+              ? Text(title, maxLines: 1, overflow: TextOverflow.ellipsis)
+              : Row(
+                  children: [
+                    Flexible(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                    const SizedBox(width: AppSpacing.sm),
+                    badge!,
+                  ],
+                ),
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -323,6 +403,13 @@ class _LedgerRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: AppTypography.metadata.copyWith(color: AppColors.danger, fontWeight: FontWeight.w600),
                 ),
+              if (note != null)
+                Text(
+                  note!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.metadata.copyWith(color: AppColors.danger),
+                ),
             ],
           ),
           trailing: Text(
@@ -330,7 +417,7 @@ class _LedgerRow extends StatelessWidget {
             style: TextStyle(
               decoration: voided ? TextDecoration.lineThrough : null,
               fontWeight: FontWeight.w600,
-              color: voided ? AppColors.textMuted : amountColor,
+              color: voided || uncounted ? AppColors.textMuted : amountColor,
             ),
           ),
         ),
