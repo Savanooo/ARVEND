@@ -24,6 +24,24 @@ var ErrDuplicateWBSCode = errors.New("bu WBS kodu bu projede zaten kullanılıyo
 // okunabilir hata mesajlı tespitidir.
 var ErrInvalidWBSParent = errors.New("üst WBS düğümü bu projede bulunamadı")
 
+// ErrArchivedWBSParent: arşivlenmiş bir düğümün altına yeni düğüm
+// eklenmek istendi. Arşiv "artık kullanılmıyor" demektir; altına yeni iş
+// açmak arşivi anlamsızlaştırırdı.
+var ErrArchivedWBSParent = errors.New("arşivlenmiş bir WBS düğümünün altına yeni düğüm eklenemez")
+
+// ErrInvalidWBSNodeRef / ErrArchivedWBSNodeRef: bütçe kalemine bağlanan
+// WBS düğümü bu projede yok / arşivlenmiş. (Bütçe kalemi bir "üst" düğüm
+// seçmez; eskiden ErrInvalidWBSParent'ın "üst WBS düğümü" metni
+// gösteriliyordu.)
+var (
+	ErrInvalidWBSNodeRef  = errors.New("seçilen WBS düğümü bu projede bulunamadı")
+	ErrArchivedWBSNodeRef = errors.New("arşivlenmiş bir WBS düğümüne bütçe kalemi bağlanamaz")
+)
+
+// ErrWBSHasActiveChildren: aktif alt düğümleri olan bir düğüm arşivlenmek
+// istendi (bkz. ArchiveWBSNode notu).
+var ErrWBSHasActiveChildren = errors.New("bu WBS düğümünün aktif alt düğümleri var; önce onları arşivleyin")
+
 type WBSNodeInput struct {
 	ParentID  string // boşsa kök düğüm
 	Code      string
@@ -69,6 +87,39 @@ func resolveWBSParentRef(ctx context.Context, q *sqlc.Queries, parentID string, 
 	return parent, nil
 }
 
+// resolveActiveWBSNode: id boşsa NULL; doluysa düğümün bu proje+
+// organizasyona ait olduğunu (resolveWBSParentRef ile aynı IDOR-güvenli
+// sorgu) ve -- keep ile aynı değilse -- arşivlenmemiş olduğunu doğrular.
+// keep: kaydın ZATEN bağlı olduğu düğüm; sonradan arşivlenmiş olsa bile
+// kayıt başka alanları için düzenlenebilsin diye kabul edilir.
+func resolveActiveWBSNode(ctx context.Context, q *sqlc.Queries, id string, pid, orgID, keep pgtype.UUID, notFound, archived error) (pgtype.UUID, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return pgtype.UUID{}, nil
+	}
+	nid, err := repository.StringToUUID(id)
+	if err != nil {
+		return pgtype.UUID{}, notFound
+	}
+	node, err := q.GetWBSNode(ctx, sqlc.GetWBSNodeParams{ID: nid, OrganizationID: orgID, ProjectID: pid})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pgtype.UUID{}, notFound
+		}
+		return pgtype.UUID{}, err
+	}
+	if !node.IsActive && !(keep.Valid && keep == nid) {
+		return pgtype.UUID{}, archived
+	}
+	return nid, nil
+}
+
+// resolveBudgetLineWBSRef: bütçe kaleminin WBS düğümü (boş = WBS'siz).
+// current: güncellemede kalemin mevcut düğümü (yoksa geçersiz UUID).
+func resolveBudgetLineWBSRef(ctx context.Context, q *sqlc.Queries, id string, pid, orgID, current pgtype.UUID) (pgtype.UUID, error) {
+	return resolveActiveWBSNode(ctx, q, id, pid, orgID, current, ErrInvalidWBSNodeRef, ErrArchivedWBSNodeRef)
+}
+
 func validateWBSInput(in WBSNodeInput) error {
 	if in.Code == "" {
 		return errors.New("WBS kodu zorunludur")
@@ -103,7 +154,7 @@ func (s *ProjectService) CreateWBSNode(ctx context.Context, projectID, organizat
 	if _, err := s.requireOpenProjectForOps(ctx, txq, pid, orgID); err != nil {
 		return nil, err
 	}
-	parentID, err := resolveWBSParentRef(ctx, txq, in.ParentID, pid, orgID)
+	parentID, err := resolveActiveWBSNode(ctx, txq, in.ParentID, pid, orgID, pgtype.UUID{}, ErrInvalidWBSParent, ErrArchivedWBSParent)
 	if err != nil {
 		return nil, err
 	}
@@ -181,6 +232,13 @@ func (s *ProjectService) UpdateWBSNode(ctx context.Context, projectID, nodeID, o
 // ArchiveWBSNode, HARD DELETE DEĞİLDİR -- mevcut bütçe kalemleri
 // wbs_node_id ile bu düğüme referans veriyor olabilir (bkz. migration
 // 0035 project_budget_lines.wbs_node_id ON DELETE değil, nullable FK).
+//
+// Aktif alt düğümü olan düğüm arşivlenmez (ErrWBSHasActiveChildren) --
+// alt ağaç otomatik ARŞİVLENMEZ: arşivden geri alma ucu yok; tek tıkla
+// bütün bir alt ağacı geri dönüşsüz kapatmak yerine kullanıcı neyi
+// kapattığını tek tek görür. Arşivlenen düğüm artık üst düğüm ya da
+// bütçe kalemi hedefi olarak seçilemez (resolveActiveWBSNode); mevcut
+// bağlar korunur.
 func (s *ProjectService) ArchiveWBSNode(ctx context.Context, projectID, nodeID, organizationID, userID string) error {
 	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
@@ -198,6 +256,13 @@ func (s *ProjectService) ArchiveWBSNode(ctx context.Context, projectID, nodeID, 
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	children, err := txq.CountActiveWBSChildren(ctx, sqlc.CountActiveWBSChildrenParams{ParentID: nid, OrganizationID: orgID, ProjectID: pid})
+	if err != nil {
+		return err
+	}
+	if children > 0 {
+		return ErrWBSHasActiveChildren
+	}
 	rows, err := txq.ArchiveWBSNode(ctx, sqlc.ArchiveWBSNodeParams{ID: nid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		return err

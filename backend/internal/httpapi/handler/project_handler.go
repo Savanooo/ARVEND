@@ -284,8 +284,13 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrCommitmentNotActive):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrInvalidWBSParent),
+		errors.Is(err, service.ErrArchivedWBSParent),
+		errors.Is(err, service.ErrInvalidWBSNodeRef),
+		errors.Is(err, service.ErrArchivedWBSNodeRef),
 		errors.Is(err, service.ErrInvalidBudgetLineCostCode):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, service.ErrWBSHasActiveChildren):
+		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrContractNotFound):
 		httpjson.Error(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, service.ErrContractAlreadyExists),

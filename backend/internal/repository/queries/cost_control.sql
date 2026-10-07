@@ -73,6 +73,13 @@ RETURNING *;
 -- name: ArchiveWBSNode :execrows
 UPDATE project_wbs_nodes SET is_active = false WHERE id = $1 AND organization_id = $2 AND project_id = $3;
 
+-- name: CountActiveWBSChildren :one
+-- Arşivleme kapısı: aktif alt düğümü olan bir düğüm arşivlenmez (bkz.
+-- ArchiveWBSNode servis notu -- arşivden geri alma ucu olmadığı için
+-- alt ağacı sessizce arşivlemek geri döndürülemez olurdu).
+SELECT count(*)::bigint FROM project_wbs_nodes
+WHERE parent_id = $1 AND organization_id = $2 AND project_id = $3 AND is_active = true;
+
 -- ============ Proje Bütçesi ============
 
 -- name: CreateProjectBudget :one
