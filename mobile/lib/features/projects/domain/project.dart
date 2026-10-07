@@ -321,6 +321,13 @@ class ProjectTask {
   final String? completedAt;
   final bool isOverdue;
 
+  /// Yalnızca global görev listelerinde (/tasks/mine, /tasks/team): görevin
+  /// projesi tamamlandı/iptal edildi mi. Kapalı projenin görevi sunucuda
+  /// "gecikmiş" sayılmaz; ekran "Proje kapalı" diye işaretler. Proje
+  /// içindeki listelerde alan gelmez (false).
+  final bool projectClosed;
+  final String? projectStatus;
+
   const ProjectTask({
     required this.id,
     required this.scheduleItemId,
@@ -333,6 +340,8 @@ class ProjectTask {
     required this.dueDate,
     required this.completedAt,
     required this.isOverdue,
+    this.projectClosed = false,
+    this.projectStatus,
   });
 
   factory ProjectTask.fromJson(Map<String, dynamic> json) => ProjectTask(
@@ -347,6 +356,8 @@ class ProjectTask {
         dueDate: json['due_date'] as String?,
         completedAt: json['completed_at'] as String?,
         isOverdue: json['is_overdue'] as bool? ?? false,
+        projectClosed: json['project_closed'] as bool? ?? false,
+        projectStatus: json['project_status'] as String?,
       );
 
   static const statusTodo = 'todo';

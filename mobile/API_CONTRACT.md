@@ -217,6 +217,7 @@ write action here without checking the matching permission first.
 
 ### Operations sub-resources (all under `/projects/{id}/...`)
 - `members` (GET/POST/DELETE-end), `schedule` (GET/POST/PUT, no DELETE), `tasks` (GET/POST/PUT/POST .../complete, no DELETE, **no cross-project endpoint — gap**), `photos` (GET/POST multipart field `file`/GET .../content/DELETE), `files` (same pattern, .../download has Content-Disposition), `notes` (GET/POST only — no PUT/DELETE despite SQL existing), `events` (GET, shared timeline with finance), `operations-summary` (GET — `task_completion_ratio` is ALREADY ×100, a percentage).
+- Cross-project task lists (Görevler tab): `GET /tasks/mine?status=` → `{tasks, linked_employee}` and `GET /tasks/team?status=&assignee=` → `{tasks, total, truncated}` (list capped at 500; `truncated` = more exist, `total` = real count — mobile shows "İlk N görev gösteriliyor"). Each row = task fields + `project_id`, `project_name`, `project_status`, `project_closed` (completed/cancelled project; `is_overdue` is then false) — mobile shows a "Proje kapalı" chip.
 - Upload: multipart field name `file` for both files and photos. 25 MiB hard cap (`ErrFileTooLarge` after write+delete). Content-type sniffed server-side, client header ignored. Photos: `stage` (before|progress|after), `taken_at` send date-only, get back full RFC3339. Files: `category` (contract|drawing|invoice|report|other).
 - Task priority: `low|normal|high|urgent`. Task status: `todo|in_progress|completed|cancelled`. Create cannot set status=completed directly.
 

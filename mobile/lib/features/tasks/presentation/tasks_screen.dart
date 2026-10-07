@@ -262,6 +262,8 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    if (isTeam && page.truncated)
+                      _TruncatedNotice(shown: allItems.length, total: page.total),
                     // Proje ve kişi yan yana: telefonda filtreler listeyi
                     // ekranın altına itmesin (sahada görevlerin yalnızca
                     // biri görünüyordu).
@@ -291,6 +293,37 @@ class _TasksScreenState extends ConsumerState<TasksScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// "Ekip" listesi sunucuda üst sınırda kesildi: kalan görevler yok değil,
+/// yalnızca gösterilmiyor. Proje/kişi/arama filtreleri de yalnızca
+/// gösterilenler üzerinde çalışır -- kullanıcı bunu bilmeli.
+class _TruncatedNotice extends StatelessWidget {
+  const _TruncatedNotice({required this.shown, this.total});
+  final int shown;
+  final int? total;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      key: const Key('gorev-liste-kesildi'),
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline, size: 16, color: AppColors.warning),
+          const SizedBox(width: AppSpacing.xs),
+          Expanded(
+            child: Text(
+              'İlk $shown görev gösteriliyor${total != null ? ' (toplam $total)' : ''}. '
+              'Filtreler yalnızca bunlara uygulanır; durum seçimiyle (Açık/Tamamlanan) listeyi daralt.',
+              style: AppTypography.helper,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -371,6 +404,14 @@ class _TaskRow extends ConsumerWidget {
       subtitle: showAssignee
           ? '$projectName · ${task.assignedName.isNotEmpty ? task.assignedName : 'Atanmamış'}'
           : projectName,
+      // Proje tamamlandı/iptal: görev açık görünse de üzerinde çalışılmıyor
+      // olabilir; sunucu onu gecikmiş de saymaz.
+      footer: task.projectClosed
+          ? Align(
+              alignment: Alignment.centerLeft,
+              child: StatusBadge(key: Key('proje-kapali-${task.id}'), label: 'Proje kapalı', tone: StatusTone.muted),
+            )
+          : null,
       trailing: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.end,
