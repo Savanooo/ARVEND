@@ -561,6 +561,13 @@ type ExpenseInput struct {
 	// tutar KDV hariç kâra tamamıyla maliyet olarak girer. Düzenlemede de
 	// nil "belirtilmedi" demektir (PUT satırı bütünüyle yeniden yazar).
 	VATRate *float64
+	// OwnOnly: yazan kişi projects.finance.manage TAŞIMIYOR (yalnızca
+	// projects.expenses.create, migration 0066) -- finans bağları yazılamaz,
+	// düzenleme yalnızca KENDİ bekleyen/reddedilen masrafında (bkz.
+	// project_expense_own.go). HTTP katmanı bunu her istekte izinden
+	// doldurur; sıfır değer (false) bugünkü tam yetkidir ve yalnızca
+	// iç çağıranlara (aktarım aracı, testler) kalır.
+	OwnOnly bool
 }
 
 // ErrInvalidExpenseVATRate: masraf KDV oranı aralık dışı.
@@ -592,6 +599,11 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 	}
 	if !domain.ValidExpenseVATRate(in.VATRate) {
 		return nil, ErrInvalidExpenseVATRate
+	}
+	if in.OwnOnly {
+		if err := checkOwnExpenseLinks(in, nil); err != nil {
+			return nil, err
+		}
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -749,15 +761,29 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 		return nil, err
 	}
 
-	// Ek iş bağı da yeniden yazılır (önceden düzenleme onu sessizce yok
-	// sayıyordu); başka projenin ek işine bağlanamaz.
-	changeOrderID, err := resolveChangeOrderRef(ctx, txq, in.ChangeOrderID, pid, orgID)
-	if err != nil {
-		return nil, err
-	}
-	costCodeID, budgetLineID, err := resolveCostAllocation(ctx, txq, in.CostCodeID, in.BudgetLineID, pid, orgID)
-	if err != nil {
-		return nil, err
+	var changeOrderID, costCodeID, budgetLineID pgtype.UUID
+	if in.OwnOnly {
+		// Kısıtlı yazar: yalnızca kendi bekleyen/reddedilen masrafı; finans
+		// bağları kayıttaki haliyle kalır (yeniden doğrulanmaz -- finansın
+		// bağladığı ek iş sonradan iptal edilmiş olsa bile sahadaki tutar
+		// düzeltmesi bu yüzden reddedilmemeli).
+		existing, err := ownWritableExpense(ctx, txq, eid, pid, orgID, in.UserID)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkOwnExpenseLinks(in, &existing); err != nil {
+			return nil, err
+		}
+		changeOrderID, costCodeID, budgetLineID = existing.ChangeOrderID, existing.CostCodeID, existing.BudgetLineID
+	} else {
+		// Ek iş bağı da yeniden yazılır (önceden düzenleme onu sessizce yok
+		// sayıyordu); başka projenin ek işine bağlanamaz.
+		if changeOrderID, err = resolveChangeOrderRef(ctx, txq, in.ChangeOrderID, pid, orgID); err != nil {
+			return nil, err
+		}
+		if costCodeID, budgetLineID, err = resolveCostAllocation(ctx, txq, in.CostCodeID, in.BudgetLineID, pid, orgID); err != nil {
+			return nil, err
+		}
 	}
 	// Sorgu masrafı yeniden onay bekler hale getirir (bkz. UpdateExpense SQL).
 	row, err := txq.UpdateExpense(ctx, sqlc.UpdateExpenseParams{

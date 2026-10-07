@@ -365,8 +365,14 @@ func buildDashFinance(ctx context.Context, r *dashRun) (*sectionPayload, error) 
 	}
 	// --- expense_approval (migration 0060): yalnızca onaylayabilen izleyicide ---
 	if r.wantsAttention(domain.AttnExpenseApproval) {
+		// İzleyicinin kendi masrafı gündeme girmez -- karar veremez (Sahip
+		// hariç, bkz. ErrOwnExpenseDecision).
+		var exclude pgtype.UUID
+		if r.authz == nil || r.authz.RoleCode != domain.OrgRoleOwner {
+			exclude = r.userID
+		}
 		totals, err := r.q.DashboardPendingExpensesTotals(ctx, sqlc.DashboardPendingExpensesTotalsParams{
-			OrgID: r.orgID, RestrictToUserID: r.restrict,
+			OrgID: r.orgID, RestrictToUserID: r.restrict, ExcludeCreatedBy: exclude,
 		})
 		if err != nil {
 			return nil, err
@@ -376,7 +382,7 @@ func buildDashFinance(ctx context.Context, r *dashRun) (*sectionPayload, error) 
 		})
 		if g, ok := r.aggGroup(domain.AttnExpenseApproval, agg); ok {
 			items, err := r.q.DashboardPendingExpensesTop(ctx, sqlc.DashboardPendingExpensesTopParams{
-				OrgID: r.orgID, RestrictToUserID: r.restrict,
+				OrgID: r.orgID, RestrictToUserID: r.restrict, ExcludeCreatedBy: exclude,
 			})
 			if err != nil {
 				return nil, err

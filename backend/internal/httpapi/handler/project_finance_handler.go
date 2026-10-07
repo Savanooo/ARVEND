@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -266,18 +267,27 @@ func (h *ProjectHandler) VoidCollection(w http.ResponseWriter, r *http.Request) 
 // ---------- Masraflar ----------
 
 type expenseResponse struct {
-	ID            string  `json:"id"`
-	Category      string  `json:"category"`
-	Description   string  `json:"description"`
-	Amount        float64 `json:"amount"`
-	Currency      string  `json:"currency"`
-	ExpenseDate   string  `json:"expense_date"`
-	SupplierName  string  `json:"supplier_name"`
-	InvoiceNo     string  `json:"invoice_no"`
-	Notes         string  `json:"notes"`
-	VoidedAt      *string `json:"voided_at"`
-	VoidReason    string  `json:"void_reason"`
-	CreatedAt     string  `json:"created_at"`
+	ID string `json:"id"`
+	// ProjectID: "Masraflarım" projeler arası listelediği için satır kendi
+	// projesini taşır (proje içi listelerde URL'dekiyle aynı).
+	ProjectID    string  `json:"project_id"`
+	Category     string  `json:"category"`
+	Description  string  `json:"description"`
+	Amount       float64 `json:"amount"`
+	Currency     string  `json:"currency"`
+	ExpenseDate  string  `json:"expense_date"`
+	SupplierName string  `json:"supplier_name"`
+	InvoiceNo    string  `json:"invoice_no"`
+	Notes        string  `json:"notes"`
+	VoidedAt     *string `json:"voided_at"`
+	VoidReason   string  `json:"void_reason"`
+	CreatedAt    string  `json:"created_at"`
+	// CreatedBy: istemci Onayla/Reddet'i kişinin KENDİ masrafında gizler
+	// (Sahip hariç) ve kendi bekleyen/reddedilen masrafında Düzenle/Geri çek
+	// gösterir -- sunucu yine kendisi denetler (migration 0066).
+	// VoidedBy: iptali kim yaptı -- giren kişiyse "geri çekildi".
+	CreatedBy     *string `json:"created_by"`
+	VoidedBy      *string `json:"voided_by"`
 	ChangeOrderID *string `json:"change_order_id,omitempty"`
 	CostCodeID    *string `json:"cost_code_id,omitempty"`
 	BudgetLineID  *string `json:"budget_line_id,omitempty"`
@@ -297,10 +307,11 @@ type expenseResponse struct {
 
 func toExpenseResponse(e domain.Expense) expenseResponse {
 	return expenseResponse{
-		ID: e.ID, Category: e.Category, Description: e.Description, Amount: e.Amount,
+		ID: e.ID, ProjectID: e.ProjectID, Category: e.Category, Description: e.Description, Amount: e.Amount,
 		Currency: e.Currency, ExpenseDate: e.ExpenseDate.Format(dateLayout),
 		SupplierName: e.SupplierName, InvoiceNo: e.InvoiceNo, Notes: e.Notes,
 		VoidedAt: tsStrPtr(e.VoidedAt), VoidReason: e.VoidReason, CreatedAt: e.CreatedAt.Format(rfc3339),
+		CreatedBy: e.CreatedBy, VoidedBy: e.VoidedBy,
 		ChangeOrderID: e.ChangeOrderID, CostCodeID: e.CostCodeID, BudgetLineID: e.BudgetLineID,
 		ApprovalStatus: e.ApprovalStatus, DecidedBy: e.DecidedBy, DecidedAt: tsStrPtr(e.DecidedAt),
 		DecisionNote: e.DecisionNote,
@@ -329,15 +340,24 @@ type expenseRequest struct {
 	VATRate *float64 `json:"vat_rate"`
 }
 
-func (r expenseRequest) toInput(userID string, expenseDate time.Time) service.ExpenseInput {
+func (r expenseRequest) toInput(userID string, expenseDate time.Time, ownOnly bool) service.ExpenseInput {
 	return service.ExpenseInput{
 		Category: r.Category, Description: r.Description, Amount: r.Amount, Currency: r.Currency,
 		ExpenseDate: expenseDate, SupplierName: r.SupplierName,
 		InvoiceNo: r.InvoiceNo, Notes: r.Notes, IdempotencyKey: r.IdempotencyKey,
 		ChangeOrderID: r.ChangeOrderID, UserID: userID,
 		CostCodeID: r.CostCodeID, BudgetLineID: r.BudgetLineID,
-		VATRate: r.VATRate,
+		VATRate: r.VATRate, OwnOnly: ownOnly,
 	}
+}
+
+// expenseOwnOnly: istek sahibi projects.finance.manage TAŞIMIYOR mu --
+// taşımıyorsa (yalnızca projects.expenses.create ile geldiyse) yalnızca
+// kendi masrafına, temel alanlarla yazar (bkz. service.ExpenseInput.OwnOnly).
+// Yetki bağlamı okunamazsa kısıtlı sayılır (deny-by-default).
+func expenseOwnOnly(r *http.Request) bool {
+	authz, ok := middleware.AuthzContextFromRequest(r.Context())
+	return !ok || !authz.HasPermission(domain.PermProjectsFinanceManage)
 }
 
 func (h *ProjectHandler) ListExpenses(w http.ResponseWriter, r *http.Request) {
@@ -354,6 +374,46 @@ func (h *ProjectHandler) ListExpenses(w http.ResponseWriter, r *http.Request) {
 	httpjson.Write(w, http.StatusOK, map[string]any{"expenses": out})
 }
 
+// myExpenseResponse: masraf + girildiği proje ("Masraflarım" satırı).
+type myExpenseResponse struct {
+	expenseResponse
+	ProjectName   string `json:"project_name"`
+	ProjectNo     string `json:"project_no"`
+	ProjectStatus string `json:"project_status"`
+}
+
+// ListMyExpenses: GET /expenses/mine[?project_id=] (projects.expenses.
+// create). Yalnızca çağıranın girdiği masraflar, erişebildiği projelerde
+// (üyelikle sınırlı rolde yalnızca üyesi olduğu projeler), en yeni giriş
+// önce, en fazla domain.MyExpensesLimit. Toplam/özet DÖNMEZ: finans okuma
+// izni olmayan kişi yalnızca kendi kayıtlarının durumunu görür.
+func (h *ProjectHandler) ListMyExpenses(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	var restrictToUserID string
+	if authz, ok := middleware.AuthzContextFromRequest(r.Context()); !ok || !authz.BypassesProjectMembership() {
+		restrictToUserID = userID
+	}
+	projectID := strings.TrimSpace(r.URL.Query().Get("project_id"))
+	rows, err := h.svc.ListMyExpenses(r.Context(), orgID, userID, projectID, restrictToUserID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) && projectID != "" {
+			httpjson.Error(w, http.StatusBadRequest, "geçersiz proje kimliği")
+			return
+		}
+		h.writeError(w, err)
+		return
+	}
+	out := make([]myExpenseResponse, len(rows))
+	for i, e := range rows {
+		out[i] = myExpenseResponse{
+			expenseResponse: toExpenseResponse(e.Expense),
+			ProjectName:     e.ProjectName, ProjectNo: e.ProjectNo, ProjectStatus: e.ProjectStatus,
+		}
+	}
+	httpjson.Write(w, http.StatusOK, map[string]any{"expenses": out, "limit": domain.MyExpensesLimit})
+}
+
 func (h *ProjectHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 	var req expenseRequest
 	if err := httpjson.Decode(r, &req); err != nil {
@@ -366,7 +426,7 @@ func (h *ProjectHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	e, err := h.svc.CreateExpense(r.Context(), chi.URLParam(r, "id"), orgID, req.toInput(userID, expenseDate))
+	e, err := h.svc.CreateExpense(r.Context(), chi.URLParam(r, "id"), orgID, req.toInput(userID, expenseDate, expenseOwnOnly(r)))
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -386,7 +446,7 @@ func (h *ProjectHandler) UpdateExpense(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	e, err := h.svc.UpdateExpense(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "expenseId"), orgID, req.toInput(userID, expenseDate))
+	e, err := h.svc.UpdateExpense(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "expenseId"), orgID, req.toInput(userID, expenseDate, expenseOwnOnly(r)))
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -394,12 +454,20 @@ func (h *ProjectHandler) UpdateExpense(w http.ResponseWriter, r *http.Request) {
 	httpjson.Write(w, http.StatusOK, toExpenseResponse(*e))
 }
 
+// VoidExpense: POST /projects/{id}/expenses/{expenseId}/void {reason}.
+// projects.finance.manage her masrafı iptal eder; yalnızca projects.
+// expenses.create taşıyan kişi KENDİ bekleyen/reddedilen masrafını geri
+// çeker (aynı uç, aynı iz -- bkz. service.WithdrawOwnExpense).
 func (h *ProjectHandler) VoidExpense(w http.ResponseWriter, r *http.Request) {
 	var req voidRequest
 	_ = httpjson.Decode(r, &req)
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	e, err := h.svc.VoidExpense(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "expenseId"), orgID, userID, req.Reason)
+	void := h.svc.VoidExpense
+	if expenseOwnOnly(r) {
+		void = h.svc.WithdrawOwnExpense
+	}
+	e, err := void(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "expenseId"), orgID, userID, req.Reason)
 	if err != nil {
 		h.writeError(w, err)
 		return

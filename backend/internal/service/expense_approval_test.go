@@ -21,12 +21,15 @@ import (
 
 // createApprovedExpense, masrafı girip onaylar: toplamları sınayan testler
 // "girilmiş ve onaylanmış" masraf kurar (onay bekleyen masraf sayılmaz).
+// Onay aktörsüz verilir: kimse kendi masrafına karar veremez (Sahip hariç,
+// migration 0066) ve bu testlerin konusu onaylayan değil, toplamlardır --
+// kural expense_own_test.go'da.
 func createApprovedExpense(ctx context.Context, svc *service.ProjectService, projectID, orgID string, in service.ExpenseInput) (*domain.Expense, error) {
 	e, err := svc.CreateExpense(ctx, projectID, orgID, in)
 	if err != nil {
 		return nil, err
 	}
-	return svc.ApproveExpense(ctx, projectID, e.ID, orgID, in.UserID)
+	return svc.ApproveExpense(ctx, projectID, e.ID, orgID, "")
 }
 
 func TestExpenseApproval(t *testing.T) {
@@ -386,7 +389,8 @@ func TestExpenseApproval(t *testing.T) {
 		}
 	})
 
-	t.Run("10_self_approval_allowed_without_self_notices", func(t *testing.T) {
+	// Sahip muaftır (üstünde kimse yok); diğerleri için yasak expense_own_test.go'da.
+	t.Run("10_owner_may_approve_own_without_self_notices", func(t *testing.T) {
 		p := newProject(t, orgA.ID)
 		ownerPendingBefore := len(notices(t, owner.ID, domain.NotificationExpensePendingApproval))
 		e := expense(t, p, owner.ID, 400)
@@ -395,7 +399,7 @@ func TestExpenseApproval(t *testing.T) {
 		}
 		approvedBefore := len(notices(t, owner.ID, domain.NotificationExpenseApproved))
 		if _, err := projectSvc.ApproveExpense(ctx, p.ID, e.ID, orgA.ID, owner.ID); err != nil {
-			t.Fatalf("onaylayan kendi masrafını onaylayabilmeli: %v", err)
+			t.Fatalf("Sahip kendi masrafını onaylayabilmeli: %v", err)
 		}
 		if n := len(notices(t, owner.ID, domain.NotificationExpenseApproved)); n != approvedBefore {
 			t.Errorf("kendi kararı kendine bildirilmemeli")

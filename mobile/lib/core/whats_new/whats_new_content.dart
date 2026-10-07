@@ -44,6 +44,27 @@ class WhatsNewRelease {
 
 /// En yeni sürüm en üstte.
 const kWhatsNewReleases = <WhatsNewRelease>[
+  // Masrafı herkes girer, onayı en üst yönetim verir (backend migration
+  // 0066). pubspec henüz 1.5.9+15: sürümü ürün sahibi yükseltir.
+  WhatsNewRelease(
+    build: 16,
+    version: '1.5.10',
+    items: [
+      WhatsNewItem(
+        icon: Icons.receipt_long_outlined,
+        title: 'Herkes masraf girebilir',
+        body: 'Masrafını gir, onay durumunu Masraflarım\'dan takip et.',
+        // Hızlı işlem, proje ekranı ve Masraflarım bu izinle açılır.
+        permission: 'projects.expenses.create',
+      ),
+      WhatsNewItem(
+        icon: Icons.verified_user_outlined,
+        title: 'Masraf onayı yönetimde',
+        body: 'Masrafları yalnızca Sahip ve Yönetici onaylar; kimse kendi masrafını onaylamaz.',
+        permission: 'projects.expenses.approve',
+      ),
+    ],
+  ),
   // 1.5.8 kullanıcıya not göstermeden çıktı; bu kayıt 1.5.7'den beri
   // gelenleri anlatır.
   WhatsNewRelease(

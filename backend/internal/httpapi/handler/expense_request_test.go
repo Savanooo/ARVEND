@@ -32,7 +32,7 @@ func TestExpenseRequestVATRateOptional(t *testing.T) {
 			if err := httpjson.Decode(r, &req); err != nil {
 				t.Fatalf("gövde reddedildi: %v", err)
 			}
-			got := req.toInput("u1", time.Now()).VATRate
+			got := req.toInput("u1", time.Now(), false).VATRate
 			if (got == nil) != (c.want == nil) || (got != nil && *got != *c.want) {
 				t.Fatalf("vat_rate: %v, beklenen %v", got, c.want)
 			}

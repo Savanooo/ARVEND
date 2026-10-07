@@ -731,7 +731,11 @@ String? scopeLine(DashboardViewer v) {
 enum QuickActionKey {
   offer('Teklif Oluştur', Icons.description_outlined, ['offers.create'], needsProject: false),
   collection('Tahsilat Gir', Icons.payments_outlined, ['projects.finance.manage']),
-  expense('Masraf Gir', Icons.receipt_long_outlined, ['projects.finance.manage']),
+  // Herkes masraf girer, onay bekler (backend migration 0066); finans
+  // izni gerekmez. "Masraf Takibi" Masraflarım ekranını açar -- kısa ad:
+  // 360 dp'lik telefonda "Masraflarım" kutucukta hecesinden bölünüyordu.
+  expense('Masraf Gir', Icons.receipt_long_outlined, ['projects.expenses.create']),
+  myExpenses('Masraf Takibi', Icons.fact_check_outlined, ['projects.expenses.create'], needsProject: false),
   attendance('Mesai Gir', Icons.more_time, ['attendance.manage', 'employees.read'], needsProject: false),
   // Kısa ad: eşit genişlikli kutucukta "Satın Alma Talebi" "Satın Alma Ta…" diye kesiliyordu.
   purchaseRequest('Satın Alma', Icons.shopping_cart_outlined, ['projects.procurement.manage']),

@@ -394,17 +394,30 @@ class _OverviewTab extends ConsumerWidget {
     // Tamamlanmış/iptal edilmiş projede finans hareketi girilemez (backend
     // 409, web `locked`) -- hızlı işlem de gösterilmez.
     final canAddLedger = canManageFinance && !isLedgerLocked(project.status);
+    // Masrafı herkes girer (backend 0066): finans izni değil masraf girme
+    // izni. Finans görünümünü göremeyen kişi girdiği masrafların durumunu
+    // "Masraflarım"da (bu projeyle süzülmüş) izler.
+    final canEnterExpense = _failOpen(user, kExpenseCreatePermission);
+    final canAddExpense = canEnterExpense && !isLedgerLocked(project.status);
+    final canSeeMyExpenses = canEnterExpense && !canFinance;
     final canReadOffers = _failOpen(user, 'offers.read');
     final canReadCustomers = _failOpen(user, 'customers.read');
 
     final summaryAsync = canFinance ? ref.watch(projectFinancialSummaryProvider(projectId)) : null;
 
     final quickActions = <QuickActionButton>[
-      if (canAddLedger)
+      if (canAddExpense)
         QuickActionButton(
           icon: Icons.receipt_long_outlined,
           label: 'Masraf Ekle',
           onPressed: () => addProjectExpense(context, project),
+        ),
+      if (canSeeMyExpenses)
+        QuickActionButton(
+          icon: Icons.fact_check_outlined,
+          // Ana sayfadaki hızlı işlemle aynı kısa ad (kutucukta bölünmesin).
+          label: 'Masraf Takibi',
+          onPressed: () => context.push('/diger/masraflarim?proje=${Uri.encodeQueryComponent(projectId)}'),
         ),
       if (canAddLedger)
         QuickActionButton(

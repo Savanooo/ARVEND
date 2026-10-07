@@ -51,6 +51,8 @@ const kAllPermissions = <String>[
   'projects.cost_control.manage',
   'projects.cost_control.read',
   'projects.create',
+  'projects.expenses.approve',
+  'projects.expenses.create',
   'projects.finance.manage',
   'projects.finance.read',
   'projects.operations.manage',
@@ -73,8 +75,10 @@ const kAllPermissions = <String>[
   'projects.update',
 ];
 
-/// Saha rolünün varsayılan izinleri (spec §8.3).
+/// Saha rolünün varsayılan izinleri (spec §8.3; masraf girme backend
+/// migration 0066 ile her role verildi).
 const kFieldPermissions = <String>[
+  'projects.expenses.create',
   'projects.read',
   'projects.tasks.read',
   'projects.tasks.update',
@@ -84,8 +88,10 @@ const kFieldPermissions = <String>[
   'notifications.read',
 ];
 
-/// Finans rolünün varsayılan izinleri (spec §8.4).
+/// Finans rolünün varsayılan izinleri (spec §8.4; 0066: masraf girer,
+/// onaylamaz).
 const kFinancePermissions = <String>[
+  'projects.expenses.create',
   'projects.read',
   'projects.finance.read',
   'projects.finance.manage',

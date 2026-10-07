@@ -1481,6 +1481,133 @@ func (q *Queries) ListInvoices(ctx context.Context, arg ListInvoicesParams) ([]P
 	return items, nil
 }
 
+const listMyExpenses = `-- name: ListMyExpenses :many
+SELECT e.id, e.organization_id, e.project_id, e.category, e.description, e.amount, e.currency, e.expense_date, e.supplier_name, e.invoice_no, e.notes, e.created_by, e.created_at, e.updated_at, e.voided_at, e.voided_by, e.void_reason, e.idempotency_key, e.change_order_id, e.cost_code_id, e.budget_line_id, e.approval_status, e.decided_by, e.decided_at, e.decision_note, e.vat_rate, e.vat_amount, p.name AS project_name, p.project_no, p.status AS project_status
+FROM project_expenses e
+INNER JOIN projects p ON p.id = e.project_id AND p.organization_id = e.organization_id
+WHERE e.organization_id = $1::uuid
+  AND e.created_by = $2::uuid
+  AND ($3::uuid IS NULL OR e.project_id = $3::uuid)
+  AND (
+    $4::uuid IS NULL
+    OR EXISTS (
+      SELECT 1 FROM project_users pu
+      WHERE pu.project_id = e.project_id
+        AND pu.user_id = $4::uuid
+    )
+  )
+ORDER BY e.created_at DESC, e.id DESC
+LIMIT $5::int
+`
+
+type ListMyExpensesParams struct {
+	OrganizationID   pgtype.UUID `json:"organization_id"`
+	CreatedBy        pgtype.UUID `json:"created_by"`
+	ProjectID        pgtype.UUID `json:"project_id"`
+	RestrictToUserID pgtype.UUID `json:"restrict_to_user_id"`
+	RowLimit         int32       `json:"row_limit"`
+}
+
+type ListMyExpensesRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	Category       string             `json:"category"`
+	Description    string             `json:"description"`
+	Amount         pgtype.Numeric     `json:"amount"`
+	Currency       string             `json:"currency"`
+	ExpenseDate    pgtype.Date        `json:"expense_date"`
+	SupplierName   string             `json:"supplier_name"`
+	InvoiceNo      string             `json:"invoice_no"`
+	Notes          string             `json:"notes"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	VoidedAt       pgtype.Timestamptz `json:"voided_at"`
+	VoidedBy       pgtype.UUID        `json:"voided_by"`
+	VoidReason     string             `json:"void_reason"`
+	IdempotencyKey *string            `json:"idempotency_key"`
+	ChangeOrderID  pgtype.UUID        `json:"change_order_id"`
+	CostCodeID     pgtype.UUID        `json:"cost_code_id"`
+	BudgetLineID   pgtype.UUID        `json:"budget_line_id"`
+	ApprovalStatus string             `json:"approval_status"`
+	DecidedBy      pgtype.UUID        `json:"decided_by"`
+	DecidedAt      pgtype.Timestamptz `json:"decided_at"`
+	DecisionNote   string             `json:"decision_note"`
+	VatRate        pgtype.Numeric     `json:"vat_rate"`
+	VatAmount      pgtype.Numeric     `json:"vat_amount"`
+	ProjectName    string             `json:"project_name"`
+	ProjectNo      string             `json:"project_no"`
+	ProjectStatus  string             `json:"project_status"`
+}
+
+// "Masraflarım" (GET /expenses/mine, migration 0066): kişinin KENDİ girdiği
+// masraflar, projeler arası, en yeni giriş önce. Finans okuma izni olmayan
+// (sahadaki) kişi başkasının masrafını ve hiçbir toplamı görmez -- tek
+// süzgeç created_by'dır, satırlar istemciye para toplamı olarak dönmez.
+// restrict_to_user_id: ListMyTasks ile AYNI proje erişimi kuralı (NULL =
+// owner/admin/legacy_user, tüm projeler) -- üyelikten çıkarılan kişi o
+// projedeki masraflarını da artık görmez, tıpkı proje ekranı gibi.
+// project_id opsiyonel: proje ekranındaki "Masraflarım" süzgeci. İptal
+// edilen (geri çekilen) masraflar da döner: kişi neyin iptal edildiğini
+// görebilmeli.
+func (q *Queries) ListMyExpenses(ctx context.Context, arg ListMyExpensesParams) ([]ListMyExpensesRow, error) {
+	rows, err := q.db.Query(ctx, listMyExpenses,
+		arg.OrganizationID,
+		arg.CreatedBy,
+		arg.ProjectID,
+		arg.RestrictToUserID,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMyExpensesRow
+	for rows.Next() {
+		var i ListMyExpensesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.ProjectID,
+			&i.Category,
+			&i.Description,
+			&i.Amount,
+			&i.Currency,
+			&i.ExpenseDate,
+			&i.SupplierName,
+			&i.InvoiceNo,
+			&i.Notes,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.VoidedAt,
+			&i.VoidedBy,
+			&i.VoidReason,
+			&i.IdempotencyKey,
+			&i.ChangeOrderID,
+			&i.CostCodeID,
+			&i.BudgetLineID,
+			&i.ApprovalStatus,
+			&i.DecidedBy,
+			&i.DecidedAt,
+			&i.DecisionNote,
+			&i.VatRate,
+			&i.VatAmount,
+			&i.ProjectName,
+			&i.ProjectNo,
+			&i.ProjectStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPaymentPlanItems = `-- name: ListPaymentPlanItems :many
 SELECT p.id, p.organization_id, p.project_id, p.sort_order, p.name, p.percentage, p.planned_amount, p.due_date, p.status, p.notes, p.created_by, p.created_at, p.updated_at,
        COALESCE((SELECT sum(c.amount) FROM project_collections c

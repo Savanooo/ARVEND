@@ -219,7 +219,15 @@ const kExpenseApproved = 'approved';
 const kExpenseRejected = 'rejected';
 
 /// Masraf onaylama/reddetme izni (backend domain.PermProjectsExpensesApprove).
+/// Migration 0066'dan beri varsayılan olarak yalnızca Sahip + Yönetici.
 const kExpenseApprovePermission = 'projects.expenses.approve';
+
+/// Masraf girme izni (backend domain.PermProjectsExpensesCreate, migration
+/// 0066): varsayılan olarak HERKES. Finans yönetme izni olmadan girilen
+/// masraf yalnızca temel alanları taşır; kişi yalnızca kendi bekleyen/
+/// reddedilen masrafını düzeltir/geri çeker ve "Masraflarım"da yalnızca
+/// kendi masraflarını görür.
+const kExpenseCreatePermission = 'projects.expenses.create';
 
 /// Masraf formunda sunulan KDV oranları (%); "Belirtilmedi" ayrıca (null).
 /// Sunucu 0-100 arası her oranı kabul eder.
@@ -227,6 +235,10 @@ const kExpenseVatRates = <double>[0, 1, 10, 20];
 
 class Expense {
   final String id;
+
+  /// Masrafın projesi (backend 0066'dan beri her satırda; "Masraflarım"
+  /// projeler arası listeler). Eski sunucuda boş.
+  final String projectId;
   final String category;
   final String description;
   final double amount;
@@ -261,8 +273,16 @@ class Expense {
   final double? vatAmount;
   final double? netAmount;
 
+  /// Masrafı giren ve iptal eden (backend 0066). Onaylayıcı kendi
+  /// masrafında Onayla/Reddet görmez (Sahip hariç); giren kişi kendi
+  /// bekleyen/reddedilen masrafını düzeltir. İptal eden giren kişiyse
+  /// masraf "geri çekildi". Eski sunucuda null.
+  final String? createdBy;
+  final String? voidedBy;
+
   const Expense({
     required this.id,
+    this.projectId = '',
     required this.category,
     required this.description,
     required this.amount,
@@ -283,9 +303,18 @@ class Expense {
     this.vatRate,
     this.vatAmount,
     this.netAmount,
+    this.createdBy,
+    this.voidedBy,
   });
 
   bool get isVoided => voidedAt != null;
+
+  /// [userId] bu masrafı girdi mi (oturum bilinmiyorsa ya da sunucu alanı
+  /// göndermiyorsa hayır).
+  bool isCreatedBy(String? userId) => userId != null && userId.isNotEmpty && createdBy == userId;
+
+  /// Giren kişi kendisi geri çekti (iptal eden = giren).
+  bool get isWithdrawn => isVoided && createdBy != null && voidedBy == createdBy;
   bool get isApproved => approvalStatus == kExpenseApproved;
   bool get isRejected => approvalStatus == kExpenseRejected;
 
@@ -297,6 +326,7 @@ class Expense {
 
   factory Expense.fromJson(Map<String, dynamic> json) => Expense(
         id: json['id'] as String,
+        projectId: json['project_id'] as String? ?? '',
         category: json['category'] as String,
         description: json['description'] as String? ?? '',
         amount: (json['amount'] as num).toDouble(),
@@ -317,6 +347,8 @@ class Expense {
         vatRate: (json['vat_rate'] as num?)?.toDouble(),
         vatAmount: (json['vat_amount'] as num?)?.toDouble(),
         netAmount: (json['net_amount'] as num?)?.toDouble(),
+        createdBy: _nonEmptyId(json['created_by'] as String?),
+        voidedBy: _nonEmptyId(json['voided_by'] as String?),
       );
 }
 

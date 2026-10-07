@@ -5,6 +5,7 @@ import '../../activity/data/project_activity_providers.dart';
 import '../../budget/data/budget_providers.dart';
 import '../../data/projects_providers.dart';
 import '../../finance_plan/data/finance_plan_providers.dart';
+import '../../my_expenses/data/my_expenses_repository.dart';
 import '../domain/legacy_subcontractor.dart';
 import 'finance_ledger_repository.dart';
 
@@ -29,10 +30,11 @@ final legacySubcontractorPaymentsProvider =
 /// etkilenen TÜM okumalar: listeler, finans özeti (gerçekleşen maliyet,
 /// tahsil edilen), ödeme planı (kalemin "Tahsil Edilen"i tahsilat bağından
 /// hesaplanır), maliyet kontrolü (masraflar gerçekleşen maliyete girer) ve
-/// proje hareketleri. autoDispose oldukları için yalnızca izlenenler yeniden
-/// istek atar.
+/// proje hareketleri, kişinin "Masraflarım" listesi. autoDispose oldukları
+/// için yalnızca izlenenler yeniden istek atar.
 void invalidateProjectLedger(void Function(ProviderOrFamily provider) invalidate, String projectId) {
   invalidate(projectExpensesProvider(projectId));
+  invalidate(myExpensesProvider);
   invalidate(projectCollectionsProvider(projectId));
   invalidate(projectFinancialSummaryProvider(projectId));
   invalidate(projectPaymentPlanProvider(projectId));

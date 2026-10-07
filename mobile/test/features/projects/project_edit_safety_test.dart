@@ -87,6 +87,23 @@ void main() {
       expect(find.text('Hızlı İşlemler'), findsOneWidget);
       expect(find.text('Masraf Ekle'), findsOneWidget);
       expect(find.text('Görev Ekle'), findsOneWidget);
+      // Finans görünümü olan kişi masraflarını Finans'ta görür.
+      expect(find.text('Masraf Takibi'), findsNothing);
+    });
+
+    testWidgets('sahadaki kişi (finans izni yok): Masraf Ekle + Masraf Takibi, tahsilat yok (backend 0066)', (
+      tester,
+    ) async {
+      final field = projectUser(permissions: const ['projects.read', 'projects.expenses.create']);
+      await _pump(
+        tester,
+        projectEditApp(user: field, repo: FakeProjectEditRepository(), offlineClient: offline, location: '/projeler/p1'),
+      );
+      expect(find.text('Hızlı İşlemler'), findsOneWidget);
+      expect(find.text('Masraf Ekle'), findsOneWidget);
+      expect(find.text('Masraf Takibi'), findsOneWidget);
+      expect(find.text('Tahsilat Ekle'), findsNothing);
+      expect(find.text('Masraf & Tahsilat'), findsNothing, reason: 'Finans görünümü yine kapalı');
     });
   });
 }

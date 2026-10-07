@@ -90,6 +90,9 @@ func NewRouter(d Deps) http.Handler {
 	projPerm := func(code string) func(http.Handler) http.Handler {
 		return appmw.RequireProjectPermission(d.AuthorizationSvc, code)
 	}
+	projAnyPerm := func(codes ...string) func(http.Handler) http.Handler {
+		return appmw.RequireProjectAnyPermission(d.AuthorizationSvc, codes...)
+	}
 
 	// Kimlik doğrulamasız, bağımlılık kontrolü yapmayan liveness ucu
 	// (systemd/gateway sağlık kontrolü). /api/v1 dışında olduğu için
@@ -286,9 +289,6 @@ func NewRouter(d Deps) http.Handler {
 				r.Delete("/{id}/payment-plan/{itemId}", d.Projects.CancelPaymentPlanItem)
 				r.Post("/{id}/collections", d.Projects.CreateCollection)
 				r.Post("/{id}/collections/{collectionId}/void", d.Projects.VoidCollection)
-				r.Post("/{id}/expenses", d.Projects.CreateExpense)
-				r.Put("/{id}/expenses/{expenseId}", d.Projects.UpdateExpense)
-				r.Post("/{id}/expenses/{expenseId}/void", d.Projects.VoidExpense)
 				r.Post("/{id}/invoices", d.Projects.CreateInvoice)
 				r.Put("/{id}/invoices/{invoiceId}/status", d.Projects.UpdateInvoiceStatus)
 				r.Post("/{id}/subcontractors", d.Projects.CreateSubcontractor)
@@ -302,8 +302,22 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/change-orders/{changeOrderId}/revise", d.Projects.ReviseChangeOrder)
 				r.Post("/{id}/change-orders/{changeOrderId}/cancel", d.Projects.CancelChangeOrder)
 			})
+			// Masraf girme (migration 0066): finance.manage DEĞİL -- o izin
+			// tahsilat/ödeme planı/ek işi de açar, sahadakine verilemez.
+			// "Herkes girer, onay bekler": projects.expenses.create (varsayılan
+			// bütün roller). Düzenleme/iptal iki kapsamdan biriyle: finance.
+			// manage her masrafta (bugünkü hak), expenses.create yalnızca
+			// kişinin KENDİ bekleyen/reddedilen masrafında -- ayrım handler'da
+			// (ExpenseInput.OwnOnly / WithdrawOwnExpense).
+			r.With(projPerm(domain.PermProjectsExpensesCreate)).Post("/{id}/expenses", d.Projects.CreateExpense)
+			r.Group(func(r chi.Router) {
+				r.Use(projAnyPerm(domain.PermProjectsFinanceManage, domain.PermProjectsExpensesCreate))
+				r.Put("/{id}/expenses/{expenseId}", d.Projects.UpdateExpense)
+				r.Post("/{id}/expenses/{expenseId}/void", d.Projects.VoidExpense)
+			})
 			// Masraf onayı (migration 0060): finance.manage'den AYRI izin --
-			// masrafı giren onu onaylayamasın. Kapalı proje kilidi serviste.
+			// masrafı giren onu onaylayamasın (0066: yalnızca Sahip/Yönetici;
+			// kendi masrafına karar yasağı serviste). Kapalı proje kilidi serviste.
 			r.Group(func(r chi.Router) {
 				r.Use(projPerm(domain.PermProjectsExpensesApprove))
 				r.Post("/{id}/expenses/{expenseId}/approve", d.Projects.ApproveExpense)
@@ -569,6 +583,13 @@ func NewRouter(d Deps) http.Handler {
 				r.Delete("/{id}/access/{userId}", d.Authorization.RemoveProjectUser)
 			})
 		})
+
+		// "Masraflarım" (migration 0066): kişinin KENDİ girdiği masraflar,
+		// projeler arası (?project_id= ile tek proje). Finans okuma izni
+		// gerekmez -- yalnızca created_by = çağıran döner; proje üyeliği
+		// süzgeci handler'da (ListMyTasks ile aynı).
+		r.With(requireAuth, requireTenant, requireOnboarded, loadAuthorization, perm(domain.PermProjectsExpensesCreate)).
+			Get("/expenses/mine", d.Projects.ListMyExpenses)
 
 		// Cross-project "benim gorevlerim" -- proje dongusu yerine tek sorgu.
 		// Org-seviyesinde projects.tasks.read; proje uyelik filtresi handler icinde.

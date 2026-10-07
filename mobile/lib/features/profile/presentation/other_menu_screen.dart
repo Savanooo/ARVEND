@@ -63,6 +63,13 @@ class OtherMenuScreen extends ConsumerWidget {
     bool canSee(String code) => noPermissionData || user.hasPermission(code);
 
     final toolItems = [
+      // Herkes masraf girer (backend 0066); kendi masraflarının durumu burada.
+      if (canSee('projects.expenses.create'))
+        _MenuItem(
+          icon: Icons.receipt_long_outlined,
+          label: 'Masraflarım',
+          onTap: () => context.push('/diger/masraflarim'),
+        ),
       if (canSee('customers.read'))
         _MenuItem(
           icon: Icons.people_outline,

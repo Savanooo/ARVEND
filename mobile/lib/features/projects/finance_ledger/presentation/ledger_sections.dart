@@ -15,6 +15,7 @@ import '../../../../core/widgets/async_state_view.dart';
 import '../../../../core/widgets/status_badge.dart';
 import '../../budget/domain/budget.dart' show kCostCodesReadPermission;
 import '../../data/projects_providers.dart';
+import '../../domain/expense_actions.dart';
 import '../../domain/project.dart';
 import '../../domain/subcontract.dart' show OrgCostCode;
 import '../../finance_plan/data/finance_plan_providers.dart';
@@ -85,13 +86,17 @@ class LedgerLockedNotice extends ConsumerWidget {
 /// edilenler soluk + üstü çizili + "İPTAL · gerekçe". Satıra dokununca
 /// ayrıntı (KDV dahil) + "Düzenle" / "İptal Et". Altında geçerli masraf
 /// toplamı ve çift sayım notu.
-/// Görünüm `projects.finance.read` ile açılır (proje detayı gizler);
-/// "Masraf Ekle" / "İptal Et" `projects.finance.manage` + açık proje.
+/// Görünüm `projects.finance.read` ile açılır (proje detayı gizler).
+/// "Masraf Ekle" `projects.expenses.create` + açık proje (backend 0066:
+/// herkes girer); ayrıntıdaki Düzenle / İptal Et / Geri Çek / Onayla-Reddet
+/// `expenseActionsFor` ile (finans yöneticisi her masrafta, diğerleri kendi
+/// bekleyen/reddedilen masrafında; kimse kendi masrafına karar vermez,
+/// Sahip hariç).
 ///
 /// Masraf onayı (backend migration 0060): onay bekleyen/reddedilen satır
 /// rozet taşır, tutarı soluk ve toplama girmez (onaylı satır -- olağan
 /// durum -- rozetsizdir); bekleyen varsa üstte "N masraf onay bekliyor"
-/// notu. Onayla/Reddet ayrıntıda: `projects.expenses.approve` + açık proje.
+/// notu.
 class ExpensesLedgerSection extends ConsumerWidget {
   const ExpensesLedgerSection({super.key, required this.project});
 
@@ -101,9 +106,8 @@ class ExpensesLedgerSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final projectId = project.id;
     final user = ref.watch(authControllerProvider).valueOrNull;
-    final canManage = user.can(kLedgerManagePermission) && !isLedgerLocked(project.status);
-    // Katı kontrol: Onayla/Reddet yalnızca izni GERÇEKTEN olana görünür.
-    final canApprove = user.canAccess(kExpenseApprovePermission) && !isLedgerLocked(project.status);
+    final open = !isLedgerLocked(project.status);
+    final canAdd = user.can(kExpenseCreatePermission) && open;
     final expensesAsync = ref.watch(projectExpensesProvider(projectId));
     final expenses = expensesAsync.valueOrNull ?? const <Expense>[];
 
@@ -148,7 +152,7 @@ class ExpensesLedgerSection extends ConsumerWidget {
       children: [
         AppSectionHeader(
           title: 'Masraflar',
-          trailing: canManage
+          trailing: canAdd
               ? TextButton.icon(
                   icon: const Icon(Icons.add, size: 18),
                   label: const Text('Masraf Ekle'),
@@ -185,23 +189,28 @@ class ExpensesLedgerSection extends ConsumerWidget {
                   amount: Formatters.money(e.amount, currency: e.currency.isEmpty ? project.currency : e.currency),
                   voided: e.isVoided,
                   voidReason: e.voidReason,
+                  voidedLabel: e.isWithdrawn ? 'GERİ ÇEKİLDİ' : 'İPTAL',
                   badge: e.isApproved || e.isVoided
                       ? null
                       : StatusRegistry.build(e.approvalStatus, StatusRegistry.expenseApproval),
                   note: e.isRejected && !e.isVoided && e.decisionNote.isNotEmpty ? 'Red nedeni: ${e.decisionNote}' : null,
                   uncounted: !e.countsInTotals,
-                  onTap: () => showExpenseDetailSheet(
-                    context,
-                    projectId: projectId,
-                    expense: e,
-                    currency: project.currency,
-                    canVoid: canManage,
-                    canDecide: canApprove,
-                    // Düzenleme de finance.manage + açık proje (backend aynı kapı).
-                    canEdit: canManage,
-                    changeOrderLabel: changeOrderLabel(e.changeOrderId),
-                    costCodeLabel: costCodeLabel(e.costCodeId),
-                  ),
+                  onTap: () {
+                    final actions = expenseActionsFor(user, e, open: open);
+                    showExpenseDetailSheet(
+                      context,
+                      projectId: projectId,
+                      expense: e,
+                      currency: project.currency,
+                      canVoid: actions.canVoid,
+                      canDecide: actions.canDecide,
+                      canEdit: actions.canEdit,
+                      canWithdraw: actions.canWithdraw,
+                      ownDecisionBlocked: actions.ownDecisionBlocked,
+                      changeOrderLabel: changeOrderLabel(e.changeOrderId),
+                      costCodeLabel: costCodeLabel(e.costCodeId),
+                    );
+                  },
                 ),
               const SizedBox(height: AppSpacing.sm),
               Row(
@@ -355,6 +364,7 @@ class _LedgerRow extends StatelessWidget {
     required this.voided,
     required this.voidReason,
     required this.onTap,
+    this.voidedLabel = 'İPTAL',
     this.amountColor,
     this.badge,
     this.note,
@@ -367,6 +377,9 @@ class _LedgerRow extends StatelessWidget {
   final Color? amountColor;
   final bool voided;
   final String voidReason;
+
+  /// "İPTAL"; giren kişinin geri çektiği masrafta "GERİ ÇEKİLDİ".
+  final String voidedLabel;
   final VoidCallback onTap;
 
   /// Başlığın yanında durum rozeti (masrafta "Onay bekliyor"/"Reddedildi").
@@ -401,7 +414,7 @@ class _LedgerRow extends StatelessWidget {
               Text(parts.join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis),
               if (voided)
                 Text(
-                  voidReason.isEmpty ? 'İPTAL' : 'İPTAL · $voidReason',
+                  voidReason.isEmpty ? voidedLabel : '$voidedLabel · $voidReason',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppTypography.metadata.copyWith(color: AppColors.danger, fontWeight: FontWeight.w600),

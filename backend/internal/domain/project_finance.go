@@ -241,6 +241,20 @@ type Expense struct {
 	VATAmount *float64
 }
 
+// MyExpense: "Masraflarım" satırı (GET /expenses/mine) -- kişinin kendi
+// masrafı ve hangi projeye girildiği. Proje durumu, istemcinin kapalı
+// projede Düzenle/Geri çek göstermemesi içindir (sunucu yine reddeder).
+type MyExpense struct {
+	Expense
+	ProjectName   string
+	ProjectNo     string
+	ProjectStatus string
+}
+
+// MyExpensesLimit: "Masraflarım" en yeni bu kadar girişi döner -- kişinin
+// takip ettiği şey son girdikleridir; eski, kapanmış kayıtlar Finans'ta.
+const MyExpensesLimit = 200
+
 // NetAmount: KDV hariç tutar (kuruşa yuvarlı); KDV belirtilmemişse nil --
 // bilinmeyen KDV'yi sıfır saymak "KDV hariç" diye yanlış bir rakam olurdu.
 func (e Expense) NetAmount() *float64 {
