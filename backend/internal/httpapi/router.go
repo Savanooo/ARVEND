@@ -325,6 +325,12 @@ func NewRouter(d Deps) http.Handler {
 				r.Put("/{id}/budget/lines/{lineId}", d.Projects.UpdateBudgetLine)
 				r.Delete("/{id}/budget/lines/{lineId}", d.Projects.DeleteBudgetLine)
 				r.Post("/{id}/budget/adjustments", d.Projects.CreateBudgetAdjustment)
+			})
+			// Revizyon kararı oluşturmadan AYRI izin (migration 0062): öneren
+			// kişi kendi revizyonunu onaylamasın. Kendi revizyonuna karar
+			// verme yasağı (Sahip hariç) serviste.
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsBudgetApprove))
 				r.Post("/{id}/budget/adjustments/{adjustmentId}/approve", d.Projects.ApproveBudgetAdjustment)
 				r.Post("/{id}/budget/adjustments/{adjustmentId}/reject", d.Projects.RejectBudgetAdjustment)
 			})

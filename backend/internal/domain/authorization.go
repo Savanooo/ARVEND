@@ -119,6 +119,11 @@ const (
 	PermProjectsCostControlManage   = "projects.cost_control.manage"
 	PermOrganizationCostCodesRead   = "organization.cost_codes.read"
 	PermOrganizationCostCodesManage = "organization.cost_codes.manage"
+	// Bütçe revizyonunu onaylama/reddetme (migration 0062) -- manage'den
+	// AYRI: revizyonu öneren kişi onu kendisi onaylamasın. Varsayılan
+	// Sahip/Yönetici/Finans; kendi revizyonuna karar vermeyi servis ayrıca
+	// engeller (Sahip hariç).
+	PermProjectsBudgetApprove = "projects.budget.approve"
 
 	// Sprint 3 -- Proje Sözleşmesi (Contract, gelir/revenue tarafı --
 	// Sprint 2'nin budget/cost_control'ünden [maliyet tarafı] AYRI).

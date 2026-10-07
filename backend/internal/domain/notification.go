@@ -54,6 +54,10 @@ const (
 	NotificationRFQAwarded                      = "rfq_awarded"
 	NotificationPurchaseOrderApproved           = "purchase_order_approved"
 	NotificationPurchaseOrderCancelled          = "purchase_order_cancelled"
+	// Bütçe revizyonu oluşturuldu (migration 0062): projede
+	// projects.budget.approve taşıyanlara -- oluşturan hariç (kendi
+	// revizyonuna zaten karar veremez).
+	NotificationBudgetAdjustmentSubmitted = "budget_adjustment_submitted"
 	// Planlama aşamasına sorumlu atandı (migration 0052): o personele.
 	NotificationScheduleAssigned = "schedule_assigned"
 	// Projeye fotoğraf/dosya yüklendi: projenin yöneticilerine (yükleyen
@@ -73,6 +77,7 @@ const (
 	NotificationEntityPurchaseRequest        = "purchase_request"
 	NotificationEntityRFQ                    = "rfq"
 	NotificationEntityPurchaseOrder          = "purchase_order"
+	NotificationEntityBudgetAdjustment       = "budget_adjustment"
 	NotificationEntityScheduleItem           = "schedule_item"
 	NotificationEntityProjectPhoto           = "project_photo"
 	NotificationEntityProjectFile            = "project_file"

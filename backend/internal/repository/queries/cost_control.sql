@@ -153,6 +153,23 @@ ORDER BY created_at DESC;
 -- name: GetBudgetAdjustmentForUpdate :one
 SELECT * FROM project_budget_adjustments WHERE id = $1 AND organization_id = $2 AND project_id = $3 FOR UPDATE;
 
+-- BudgetAdjustmentApprovalWouldGoNegative: bu revizyon onaylanırsa kalemin
+-- revize bütçesi (original + onaylı revizyonlar, ListCostControlLines ile
+-- AYNI formül) sıfırın altına düşer mi? Karşılaştırma tamamen numeric'te
+-- (ChangeOrderApprovalWouldGoNegative ile aynı gerekçe: float64 gürültüsü
+-- tam sıfıra inen bir azaltımı yanlışlıkla reddetmesin). Çağıran proje
+-- satırını kilitlemiş olmalı -- aynı kaleme eşzamanlı iki azaltım onayı
+-- böylece sıraya girer.
+-- name: BudgetAdjustmentApprovalWouldGoNegative :one
+SELECT (bl.original_amount
+        + COALESCE((SELECT sum(a.amount) FROM project_budget_adjustments a
+                    WHERE a.budget_line_id = bl.id AND a.organization_id = adj.organization_id
+                      AND a.status = 'approved'), 0)
+        + adj.amount) < 0 AS would_go_negative
+FROM project_budget_adjustments adj
+JOIN project_budget_lines bl ON bl.id = adj.budget_line_id AND bl.organization_id = adj.organization_id
+WHERE adj.id = $1 AND adj.organization_id = $2 AND adj.project_id = $3;
+
 -- ApproveBudgetAdjustment/RejectBudgetAdjustment, status='draft' koşuluyla
 -- korunur -- eşzamanlı iki onay/redden yalnızca biri satır döndürür
 -- (project_change_orders'daki RespondChangeOrder ile AYNI ilke).
