@@ -173,6 +173,11 @@ const (
 	// Varsayılan olarak yalnızca owner/admin'de.
 	PermPayrollRead   = "payroll.read"
 	PermPayrollManage = "payroll.manage"
+
+	// Masraf onayı (bkz. migration 0060): finance.manage'den AYRI -- masraf
+	// giren onu kendisi onaylayamamalı. Onay bekleyen/reddedilen masraf para
+	// toplamlarına girmez. Varsayılan: Sahip, Yönetici, Finans.
+	PermProjectsExpensesApprove = "projects.expenses.approve"
 )
 
 // adminRoleOnlyPermissions, uçları izne EK OLARAK kaba requireAdmin

@@ -32,11 +32,12 @@ SELECT * FROM project_change_orders WHERE id = $1 AND organization_id = $2 AND p
 -- ListChangeOrders, her kaydın taşeron/masraf kayıtlarından GERÇEKLEŞEN
 -- ve TAAHHÜT maliyetini de (change_order_id ile etiketlenmiş kayıtlardan)
 -- AYNI sorguda getirir -- N+1 yok. Bu, proje toplamına zaten bir kez giren
--- AYNI kayıtların filtrelenmiş bir görünümüdür (çift sayım yok).
+-- AYNI kayıtların filtrelenmiş bir görünümüdür (çift sayım yok). Masraf
+-- tarafı yalnızca ONAYLI masrafları sayar (migration 0060).
 -- name: ListChangeOrders :many
 SELECT co.*,
     COALESCE((SELECT sum(e.amount) FROM project_expenses e
-              WHERE e.change_order_id = co.id AND e.voided_at IS NULL), 0)::numeric(18,2)
+              WHERE e.change_order_id = co.id AND e.voided_at IS NULL AND e.approval_status = 'approved'), 0)::numeric(18,2)
         AS realized_expense_cost,
     COALESCE((SELECT sum(sp.amount) FROM project_subcontractor_payments sp
               JOIN project_subcontractors s ON s.id = sp.subcontractor_id

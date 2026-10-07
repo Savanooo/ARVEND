@@ -550,6 +550,11 @@ type ExpenseInput struct {
 	CostCodeID   string
 	BudgetLineID string
 	UserID       string
+	// PreApproved: YALNIZCA geçmiş veriyi aktaran araç içindir (cmd/
+	// migrate-byz-proje) -- eski sistemde zaten harcanmış ve sayılmış masraf
+	// onaylı yazılır, onaylayıcılara bildirim gitmez. HTTP isteği bunu
+	// ayarlayamaz (handler eşlemez): kullanıcı girişi her zaman onay bekler.
+	PreApproved bool
 }
 
 func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizationID string, in ExpenseInput) (*domain.Expense, error) {
@@ -610,6 +615,10 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 	if err != nil {
 		return nil, err
 	}
+	approvalStatus := domain.ExpenseApprovalPending
+	if in.PreApproved {
+		approvalStatus = domain.ExpenseApprovalApproved
+	}
 	row, err := txq.CreateExpense(ctx, sqlc.CreateExpenseParams{
 		OrganizationID: orgID,
 		ProjectID:      pid,
@@ -626,6 +635,7 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 		ChangeOrderID:  changeOrderID,
 		CostCodeID:     costCodeID,
 		BudgetLineID:   budgetLineID,
+		ApprovalStatus: approvalStatus,
 	})
 	if err != nil {
 		// bkz. CreateCollection: eşzamanlı aynı anahtarlı istek kazandıysa
@@ -644,6 +654,12 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventExpenseAdded, actorUUID(in.UserID),
 		map[string]any{"expense_id": row.ID.String(), "amount": in.Amount, "category": in.Category}); err != nil {
 		return nil, err
+	}
+	// Masraf onay bekleyerek doğar (migration 0060): onaylayıcılara haber ver.
+	if !in.PreApproved {
+		if err := notifyExpensePendingApproval(ctx, txq, project, row, actorUUID(in.UserID)); err != nil {
+			return nil, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -700,7 +716,8 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 
 	// Tamamlanmış/iptal edilmiş projenin rakamları değişmez (bkz.
 	// requireOpenProject; tamamlanan proje yeniden aktife alınarak açılır).
-	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+	project, err := s.requireOpenProject(ctx, txq, pid, orgID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -708,6 +725,7 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 	if err != nil {
 		return nil, err
 	}
+	// Sorgu masrafı yeniden onay bekler hale getirir (bkz. UpdateExpense SQL).
 	row, err := txq.UpdateExpense(ctx, sqlc.UpdateExpenseParams{
 		ID:             eid,
 		OrganizationID: orgID,
@@ -730,6 +748,9 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 	}
 	if err := logProjectEvent(ctx, txq, orgID, row.ProjectID, domain.ProjectEventExpenseUpdated, actorUUID(in.UserID),
 		map[string]any{"expense_id": expenseID, "amount": in.Amount}); err != nil {
+		return nil, err
+	}
+	if err := notifyExpensePendingApproval(ctx, txq, project, row, actorUUID(in.UserID)); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {

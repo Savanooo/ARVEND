@@ -116,11 +116,14 @@ RETURNING id, amount;
 -- migration 0035) -- ikisi de NULL bırakılabilir (bkz. o migration'ın
 -- geriye dönük uyumluluk notu); servis katmanı budget_line_id verilmişse
 -- cost_code_id'yi o kalemden DOĞRULAR/TÜRETİR (bkz. ExpenseService notu).
+-- approval_status (migration 0060): kim girerse girsin masraf 'pending'
+-- başlar; tek istisna geçmiş veriyi aktaran araç (bkz.
+-- ExpenseInput.PreApproved).
 INSERT INTO project_expenses (
     organization_id, project_id, category, description, amount, currency,
     expense_date, supplier_name, invoice_no, notes, idempotency_key, created_by, change_order_id,
-    cost_code_id, budget_line_id
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+    cost_code_id, budget_line_id, approval_status
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 RETURNING *;
 
 -- GetExpense, void durumundan BAĞIMSIZ okur (bkz. GetCollection notu).
@@ -140,10 +143,25 @@ ORDER BY expense_date DESC, created_at DESC;
 -- name: UpdateExpense :one
 -- project_id EKLENDİ (bkz. GetPaymentPlanItem notu). cost_code_id/
 -- budget_line_id, Cost Control sprint'i (migration 0035) -- opsiyonel.
+-- Düzenlenen masraf YENİDEN onay bekler (migration 0060): onaylanmış bir
+-- tutar onaysız değiştirilip toplamlarda kalamaz. Önceki karar temizlenir
+-- (izi project_events'te).
 UPDATE project_expenses
 SET category = $3, description = $4, amount = $5, expense_date = $6,
-    supplier_name = $7, invoice_no = $8, notes = $9, cost_code_id = $11, budget_line_id = $12
+    supplier_name = $7, invoice_no = $8, notes = $9, cost_code_id = $11, budget_line_id = $12,
+    approval_status = 'pending', decided_by = NULL, decided_at = NULL, decision_note = ''
 WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL AND project_id = $10
+RETURNING *;
+
+-- name: DecideExpense :one
+-- Onay/ret: yalnızca iptal edilmemiş ve ONAY BEKLEYEN masraf -- eşzamanlı
+-- iki karardan yalnızca biri satır döndürür (ApproveBudgetAdjustment ile
+-- aynı ilke). Satır dönmezse servis nedenini GetExpense ile ayırır.
+UPDATE project_expenses
+SET approval_status = sqlc.arg(approval_status), decided_by = sqlc.narg(decided_by),
+    decided_at = now(), decision_note = sqlc.arg(decision_note)
+WHERE id = sqlc.arg(id) AND organization_id = sqlc.arg(organization_id) AND project_id = sqlc.arg(project_id)
+  AND voided_at IS NULL AND approval_status = 'pending'
 RETURNING *;
 
 -- name: VoidExpense :one
@@ -287,8 +305,10 @@ planned AS (
     FROM project_payment_plan_items WHERE project_id = $1 AND status <> 'cancelled'
 ),
 expense_total AS (
+    -- Yalnızca ONAYLI masraflar (migration 0060): onay bekleyen/reddedilen
+    -- kayıt gerçekleşen maliyete ve kâra girmez.
     SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
-    FROM project_expenses WHERE project_id = $1 AND voided_at IS NULL
+    FROM project_expenses WHERE project_id = $1 AND voided_at IS NULL AND approval_status = 'approved'
 ),
 subpay AS (
     SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total

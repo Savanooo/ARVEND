@@ -60,6 +60,11 @@ const (
 	// hariç). Gruplanır -- art arda yüklemeler tek bildirimde sayılır.
 	NotificationPhotoUploaded = "photo_uploaded"
 	NotificationFileUploaded  = "file_uploaded"
+	// Masraf onayı (migration 0060): yeni/düzenlenen masraf projenin
+	// onaylayıcılarına (gruplanır, giren hariç); karar masrafı girene.
+	NotificationExpensePendingApproval = "expense_pending_approval"
+	NotificationExpenseApproved        = "expense_approved"
+	NotificationExpenseRejected        = "expense_rejected"
 )
 
 // Varlık türleri -- mobil/web istemcinin ActionTarget'ı yorumlamadan,
@@ -76,4 +81,5 @@ const (
 	NotificationEntityScheduleItem           = "schedule_item"
 	NotificationEntityProjectPhoto           = "project_photo"
 	NotificationEntityProjectFile            = "project_file"
+	NotificationEntityProjectExpense         = "project_expense"
 )

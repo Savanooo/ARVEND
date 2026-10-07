@@ -505,7 +505,7 @@ func TestProjectChangeOrders(t *testing.T) {
 		token := activeLinkToken(t, orgA.ID, sent.ID)
 		projectSvc.RespondChangeOrderByShareLinkToken(ctx, token, domain.ChangeOrderApproved, "", "")
 
-		if _, err := projectSvc.CreateExpense(ctx, p.ID, orgA.ID, service.ExpenseInput{
+		if _, err := createApprovedExpense(ctx, projectSvc, p.ID, orgA.ID, service.ExpenseInput{
 			Category: "material", Description: "Ek iş malzemesi", Amount: 8000, Currency: "TRY",
 			ExpenseDate: time.Now(), ChangeOrderID: co.ID,
 		}); err != nil {

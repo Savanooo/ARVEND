@@ -691,6 +691,10 @@ type ProjectExpense struct {
 	ChangeOrderID  pgtype.UUID        `json:"change_order_id"`
 	CostCodeID     pgtype.UUID        `json:"cost_code_id"`
 	BudgetLineID   pgtype.UUID        `json:"budget_line_id"`
+	ApprovalStatus string             `json:"approval_status"`
+	DecidedBy      pgtype.UUID        `json:"decided_by"`
+	DecidedAt      pgtype.Timestamptz `json:"decided_at"`
+	DecisionNote   string             `json:"decision_note"`
 }
 
 type ProjectFile struct {

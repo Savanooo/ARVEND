@@ -614,7 +614,7 @@ func (q *Queries) ListChangeOrderItems(ctx context.Context, arg ListChangeOrderI
 const listChangeOrders = `-- name: ListChangeOrders :many
 SELECT co.id, co.organization_id, co.project_id, co.sequence_no, co.change_type, co.title, co.description, co.status, co.subtotal, co.vat_rate, co.vat_amount, co.grand_total, co.currency, co.internal_notes, co.customer_notes, co.created_by, co.created_at, co.updated_at, co.sent_at, co.responded_at, co.approved_at, co.rejected_at, co.cancelled_at, co.supersedes_change_order_id,
     COALESCE((SELECT sum(e.amount) FROM project_expenses e
-              WHERE e.change_order_id = co.id AND e.voided_at IS NULL), 0)::numeric(18,2)
+              WHERE e.change_order_id = co.id AND e.voided_at IS NULL AND e.approval_status = 'approved'), 0)::numeric(18,2)
         AS realized_expense_cost,
     COALESCE((SELECT sum(sp.amount) FROM project_subcontractor_payments sp
               JOIN project_subcontractors s ON s.id = sp.subcontractor_id
@@ -680,7 +680,8 @@ type ListChangeOrdersRow struct {
 // ListChangeOrders, her kaydın taşeron/masraf kayıtlarından GERÇEKLEŞEN
 // ve TAAHHÜT maliyetini de (change_order_id ile etiketlenmiş kayıtlardan)
 // AYNI sorguda getirir -- N+1 yok. Bu, proje toplamına zaten bir kez giren
-// AYNI kayıtların filtrelenmiş bir görünümüdür (çift sayım yok).
+// AYNI kayıtların filtrelenmiş bir görünümüdür (çift sayım yok). Masraf
+// tarafı yalnızca ONAYLI masrafları sayar (migration 0060).
 func (q *Queries) ListChangeOrders(ctx context.Context, arg ListChangeOrdersParams) ([]ListChangeOrdersRow, error) {
 	rows, err := q.db.Query(ctx, listChangeOrders, arg.ProjectID, arg.OrganizationID)
 	if err != nil {

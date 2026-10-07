@@ -38,8 +38,9 @@ ORDER BY created_at DESC LIMIT 1;
 SELECT p.*, o.offer_no, r.revision_no,
     COALESCE((SELECT sum(c.amount) FROM project_collections c
               WHERE c.project_id = p.id AND c.voided_at IS NULL), 0)::numeric(18,2) AS collected_amount,
+    -- Yalnızca onaylı masraflar (migration 0060; GetProjectFinancialSummary ile aynı).
     COALESCE((SELECT sum(e.amount) FROM project_expenses e
-              WHERE e.project_id = p.id AND e.voided_at IS NULL), 0)::numeric(18,2) AS total_expenses,
+              WHERE e.project_id = p.id AND e.voided_at IS NULL AND e.approval_status = 'approved'), 0)::numeric(18,2) AS total_expenses,
     COALESCE((SELECT sum(sp.amount) FROM project_subcontractor_payments sp
               WHERE sp.project_id = p.id AND sp.voided_at IS NULL), 0)::numeric(18,2) AS subcontractor_paid,
     COALESCE((SELECT sum(GREATEST(s.contract_amount - COALESCE((
