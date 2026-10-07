@@ -71,6 +71,29 @@ kararıyla web en sona bırakıldı. Her maddede davranışın kaynağı mobil e
 - Mobildeki gibi: güncellemeden sonraki ilk girişte bir kez çıkan kısa
   "Yenilikler" penceresi + menüde tekrar açma.
 
+## 8. Masrafı herkes girer, onayı yalnızca Sahip/Yönetici verir (migration 0066)
+Kurallar: `mobile/API_CONTRACT.md` "Expense entry for everyone". Backend ve
+mobil hazır; web şu an çalışmaya devam ediyor ama aşağıdakiler eksik.
+- "Masraf Ekle" düğmesi `projects.finance.manage` yerine
+  `projects.expenses.create` iznine bağlanmalı (`FinanceSections.tsx`, hızlı
+  işlemler `lib/dashboard.ts`). Finans sekmesini göremeyen kişi için proje
+  sayfasında ayrı bir giriş gerekir. finance.manage yoksa formda Ek İş /
+  Bütçe Kalemi / Maliyet Kodu gösterilmez (sunucu doluysa 403 döner).
+- "Masraflarım" sayfası: `GET /expenses/mine` (projeler arası, isteğe bağlı
+  `?project_id=`); durum rozeti (Onay bekliyor / Onaylandı / Reddedildi + ret
+  nedeni / Geri çekildi), kendi bekleyen/reddedilen masrafta Düzenle ve
+  Geri çek (`POST .../void`). Yalnızca kendi masrafı, toplam yok.
+- Onayla/Reddet kişinin kendi masrafında (`created_by` = oturumdaki kişi)
+  gizlenmeli, Sahip hariç; kısa not: "Bu masrafı sen girdin; başka bir
+  yöneticinin onaylaması gerekir." Sunucu 409 ile reddediyor, mesajı olduğu
+  gibi göster.
+- Onay düğmeleri `projects.expenses.approve` ile görünür; Finans rolünde
+  artık yok (kişiye özel verilmediyse).
+- Bildirim linki: `/diger/masraflarim?masraf={id}` (finans göremeyen kişinin
+  masraf kararı bildirimi) `webHrefForActionTarget`'ta Masraflarım'a
+  eşlenmeli; şu an `null` döner, bildirim web'de tıklanmaz.
+- `lib/types.ts` Expense: `project_id`, `created_by`, `voided_by`.
+
 ## Bilinen tutarsızlıklar (web + backend)
 - Maliyet kontrol gerçekleşenleri, proje listesi kârı, ek iş kârlılığı ve ana
   sayfa hâlâ masrafları KDV DAHİL topluyor; yalnızca finans özeti KDV'yi

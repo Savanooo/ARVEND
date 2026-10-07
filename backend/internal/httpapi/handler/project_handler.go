@@ -445,8 +445,16 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrChangeOrderNotRevisable),
 		errors.Is(err, service.ErrChangeOrderNotRespondable),
 		errors.Is(err, service.ErrChangeOrderWouldGoNegative),
-		errors.Is(err, service.ErrExpenseNotPending):
+		errors.Is(err, service.ErrExpenseNotPending),
+		// Kayda bağlı kurallar (migration 0066) -- 403 değil 409, bkz.
+		// ErrOwnAdjustmentDecision notu: mesaj ne yapılacağını söylüyor.
+		errors.Is(err, service.ErrOwnExpenseDecision),
+		errors.Is(err, service.ErrExpenseNotOwn),
+		errors.Is(err, service.ErrExpenseApprovedLocked):
 		httpjson.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrExpenseFinanceLinkForbidden):
+		// Gerçek bir izin eksikliği (finance.manage), kayda bağlı değil.
+		httpjson.Error(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, service.ErrExpenseRejectReasonRequired),
 		errors.Is(err, service.ErrExpenseRejectReasonTooLong):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())

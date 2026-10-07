@@ -141,6 +141,34 @@ SELECT * FROM project_expenses
 WHERE project_id = $1 AND organization_id = $2
 ORDER BY expense_date DESC, created_at DESC;
 
+-- name: ListMyExpenses :many
+-- "Masraflarım" (GET /expenses/mine, migration 0066): kişinin KENDİ girdiği
+-- masraflar, projeler arası, en yeni giriş önce. Finans okuma izni olmayan
+-- (sahadaki) kişi başkasının masrafını ve hiçbir toplamı görmez -- tek
+-- süzgeç created_by'dır, satırlar istemciye para toplamı olarak dönmez.
+-- restrict_to_user_id: ListMyTasks ile AYNI proje erişimi kuralı (NULL =
+-- owner/admin/legacy_user, tüm projeler) -- üyelikten çıkarılan kişi o
+-- projedeki masraflarını da artık görmez, tıpkı proje ekranı gibi.
+-- project_id opsiyonel: proje ekranındaki "Masraflarım" süzgeci. İptal
+-- edilen (geri çekilen) masraflar da döner: kişi neyin iptal edildiğini
+-- görebilmeli.
+SELECT e.*, p.name AS project_name, p.project_no, p.status AS project_status
+FROM project_expenses e
+INNER JOIN projects p ON p.id = e.project_id AND p.organization_id = e.organization_id
+WHERE e.organization_id = sqlc.arg(organization_id)::uuid
+  AND e.created_by = sqlc.arg(created_by)::uuid
+  AND (sqlc.narg(project_id)::uuid IS NULL OR e.project_id = sqlc.narg(project_id)::uuid)
+  AND (
+    sqlc.narg(restrict_to_user_id)::uuid IS NULL
+    OR EXISTS (
+      SELECT 1 FROM project_users pu
+      WHERE pu.project_id = e.project_id
+        AND pu.user_id = sqlc.narg(restrict_to_user_id)::uuid
+    )
+  )
+ORDER BY e.created_at DESC, e.id DESC
+LIMIT sqlc.arg(row_limit)::int;
+
 -- name: UpdateExpense :one
 -- project_id EKLENDİ (bkz. GetPaymentPlanItem notu). cost_code_id/
 -- budget_line_id, Cost Control sprint'i (migration 0035) -- opsiyonel.

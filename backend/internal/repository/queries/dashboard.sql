@@ -386,6 +386,9 @@ ORDER BY flows.currency, flows.m;
 -- Onay bekleyen masraflar (migration 0060), projenin para biriminde. Kapalı
 -- (tamamlanmış/iptal) projelerde karar verilemez (finans kilidi) -- gündeme
 -- girmez. idx_expenses_pending bu kümeyi tarar.
+-- exclude_created_by (migration 0066): izleyicinin KENDİ girdiği masraflar
+-- -- Sahip dışında kimse kendi masrafına karar veremez, onun gündemine iş
+-- olarak düşmemeli (servis Sahip için NULL geçer).
 WITH ap AS (
     SELECT p.* FROM projects p
     WHERE p.organization_id = @org_id::uuid
@@ -399,6 +402,7 @@ SELECT ap.currency::text AS currency, count(*)::int AS cnt,
 FROM project_expenses e
 JOIN ap ON ap.id = e.project_id AND ap.status IN ('planned', 'active', 'paused')
 WHERE e.organization_id = @org_id::uuid AND e.approval_status = 'pending' AND e.voided_at IS NULL
+  AND (sqlc.narg('exclude_created_by')::uuid IS NULL OR e.created_by IS DISTINCT FROM sqlc.narg('exclude_created_by')::uuid)
 GROUP BY ap.currency
 ORDER BY ap.currency;
 
@@ -416,6 +420,7 @@ SELECT e.id, e.project_id, e.description, ap.name AS project_name, ap.currency::
 FROM project_expenses e
 JOIN ap ON ap.id = e.project_id AND ap.status IN ('planned', 'active', 'paused')
 WHERE e.organization_id = @org_id::uuid AND e.approval_status = 'pending' AND e.voided_at IS NULL
+  AND (sqlc.narg('exclude_created_by')::uuid IS NULL OR e.created_by IS DISTINCT FROM sqlc.narg('exclude_created_by')::uuid)
 ORDER BY e.created_at ASC, e.id
 LIMIT 3;
 

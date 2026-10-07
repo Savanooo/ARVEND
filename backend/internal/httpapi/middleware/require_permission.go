@@ -82,13 +82,29 @@ func RequirePermission(code string) func(http.Handler) http.Handler {
 // MUAFTIR (bkz. AuthzContext.BypassesProjectMembership); diğerleri
 // yalnızca project_users'ta üye iseler geçer -- TEK ek sorgu (EXISTS).
 func RequireProjectPermission(authzSvc *service.AuthorizationService, code string) func(http.Handler) http.Handler {
+	return RequireProjectAnyPermission(authzSvc, code)
+}
+
+// RequireProjectAnyPermission: RequireProjectPermission'ın "kodlardan EN AZ
+// BİRİ" varyantı -- aynı uçta iki farklı kapsamın buluştuğu yerler içindir
+// (ör. masraf düzenleme: projects.finance.manage her masrafta, projects.
+// expenses.create yalnızca kişinin kendi masrafında; hangisinin geçerli
+// olduğunu handler/servis ayırır). Hiç kod verilmezse herkes reddedilir.
+func RequireProjectAnyPermission(authzSvc *service.AuthorizationService, codes ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if rejectPlatformAccount(w, r) {
 				return
 			}
 			authz, ok := AuthzContextFromRequest(r.Context())
-			if !ok || !authz.HasPermission(code) {
+			allowed := false
+			for _, code := range codes {
+				if ok && authz.HasPermission(code) {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
 				writePermissionDenied(w)
 				return
 			}

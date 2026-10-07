@@ -19,7 +19,12 @@ import (
 // girerse girsin -- onay bekleyerek başlar; projects.expenses.approve
 // sahibi onaylar ya da gerekçeyle reddeder. Para toplamlarına yalnızca
 // onaylı masraf girer (SQL toplamları approval_status = 'approved' ile
-// süzülür). Onaylayan kendi masrafını onaylayabilir.
+// süzülür).
+//
+// Migration 0066 (2026-10-07): onay yalnızca en üst yönetimde (Sahip +
+// Yönetici) ve kimse KENDİ girdiği masrafa karar veremez -- Sahip hariç,
+// çünkü onun üstünde onaylayacak kimse yok (bütçe revizyonuyla aynı kural,
+// bkz. ErrOwnAdjustmentDecision).
 
 var (
 	ErrExpenseNotFound error = &NotFoundError{What: "masraf bu projede"}
@@ -31,6 +36,9 @@ var (
 	// bilmeden düzeltemez.
 	ErrExpenseRejectReasonRequired = errors.New("ret gerekçesi zorunludur")
 	ErrExpenseRejectReasonTooLong  = fmt.Errorf("ret gerekçesi en fazla %d karakter olabilir", domain.ExpenseDecisionNoteMaxLen)
+	// ErrOwnExpenseDecision: kişi KENDİ girdiği masrafı onaylamaya/
+	// reddetmeye çalıştı (dört göz ilkesi). Firmanın Sahibi muaftır.
+	ErrOwnExpenseDecision = errors.New("kendi girdiğiniz masrafı onaylayamaz veya reddedemezsiniz; başka bir yöneticinin karar vermesi gerekir")
 )
 
 // ApproveExpense: onay bekleyen masrafı onaylar -- masraf bu andan itibaren
@@ -83,6 +91,26 @@ func (s *ProjectService) decideExpense(ctx context.Context, projectID, expenseID
 	}
 
 	actor := actorUUID(userID)
+	// Kendi masrafına karar yasağı. Proje satırı kilitli: masrafın gireni
+	// bu okumayla karar arasında değişemez. Durum (bekliyor mu, iptal mi)
+	// aşağıda DecideExpense'in koşuluyla ayrıca denetlenir; burada kayıt
+	// yoksa ya da başkasınınsa o yola bırakılır.
+	if actor.Valid {
+		current, err := txq.GetExpense(ctx, sqlc.GetExpenseParams{ID: eid, OrganizationID: orgID, ProjectID: pid})
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+		if err == nil && current.CreatedBy == actor && current.ApprovalStatus == domain.ExpenseApprovalPending && !current.VoidedAt.Valid {
+			owner, err := isOrganizationOwner(ctx, txq, actor, orgID)
+			if err != nil {
+				return nil, err
+			}
+			if !owner {
+				return nil, ErrOwnExpenseDecision
+			}
+		}
+	}
+
 	row, err := txq.DecideExpense(ctx, sqlc.DecideExpenseParams{
 		ApprovalStatus: status, DecidedBy: actor, DecisionNote: reason,
 		ID: eid, OrganizationID: orgID, ProjectID: pid,
@@ -128,6 +156,32 @@ func expenseFinanceTarget(projectID pgtype.UUID) string {
 	return "/projeler/" + projectID.String() + "?grup=finans&alt=finans"
 }
 
+// myExpenseTarget: mobil "Masraflarım" ekranı, ilgili masrafın ayrıntısı
+// açık. Finans okuma izni olmayan kişi (masrafı sahadan giren) projenin
+// Finans görünümünü göremez; kararın bildirimi onu ret nedenini görüp
+// düzeltebileceği yere götürmeli. Web bu yolu henüz tanımıyor (bildirim
+// orada tıklanmaz) -- bkz. docs/web-yapilacaklar.md.
+func myExpenseTarget(expenseID pgtype.UUID) string {
+	return "/diger/masraflarim?masraf=" + expenseID.String()
+}
+
+// expenseDecisionTarget: kararın bildirimi masrafı girene nereyi açsın --
+// finans okuyabiliyorsa bugünkü gibi Finans görünümü, okuyamıyorsa
+// Masraflarım. İzin, bildirim anındaki haliyle (rol + kişiye özel ayar)
+// okunur.
+func expenseDecisionTarget(ctx context.Context, txq *sqlc.Queries, orgID, userID pgtype.UUID, row sqlc.ProjectExpense) (string, error) {
+	perms, err := txq.GetUserPermissions(ctx, sqlc.GetUserPermissionsParams{ID: userID, OrganizationID: orgID})
+	if err != nil {
+		return "", err
+	}
+	for _, code := range perms {
+		if code == domain.PermProjectsFinanceRead {
+			return expenseFinanceTarget(row.ProjectID), nil
+		}
+	}
+	return myExpenseTarget(row.ID), nil
+}
+
 func expensePendingTitle(n int) string {
 	if n <= 1 {
 		return "Onay bekleyen masraf"
@@ -137,13 +191,25 @@ func expensePendingTitle(n int) string {
 
 // notifyExpensePendingApproval: yeni ya da düzenlenip yeniden onaya düşen
 // masraf için projenin onaylayıcılarına (projects.expenses.approve + proje
-// erişimi, bkz. resolveProjectApprovers) gruplu bildirim -- masrafı giren
-// hariç (kendi girdiğini zaten biliyor; listede "Onay bekliyor" görür).
+// erişimi, bkz. resolveProjectApprovers) gruplu bildirim -- işlemi yapan
+// ve masrafı giren hariç: giren kendi girdiğini zaten biliyor (Masraflarım'da
+// "Onay bekliyor" görür) ve Sahip değilse ona karar da veremez; başkası
+// düzenlediğinde de "N masraf onay bekliyor" ona iş çıkarmamalı.
 // Tutar ve tedarikçi bildirime yazılmaz (bkz. domain.Notification notu).
 func notifyExpensePendingApproval(ctx context.Context, txq *sqlc.Queries, project sqlc.Project, row sqlc.ProjectExpense, actor pgtype.UUID) error {
-	approvers, err := resolveProjectApprovers(ctx, txq, project.OrganizationID, project.ID, domain.PermProjectsExpensesApprove)
-	if err != nil || len(approvers) == 0 {
+	all, err := resolveProjectApprovers(ctx, txq, project.OrganizationID, project.ID, domain.PermProjectsExpensesApprove)
+	if err != nil {
 		return err
+	}
+	approvers := all[:0:0]
+	for _, uid := range all {
+		if row.CreatedBy.Valid && uid == row.CreatedBy {
+			continue
+		}
+		approvers = append(approvers, uid)
+	}
+	if len(approvers) == 0 {
+		return nil
 	}
 	who := ""
 	if actor.Valid {
@@ -160,11 +226,16 @@ func notifyExpensePendingApproval(ctx context.Context, txq *sqlc.Queries, projec
 }
 
 // notifyExpenseDecision: kararı masrafı girene bildirir (ret gerekçesiyle).
-// Kendi masrafını onaylayan kendine bildirim almaz; giren kişinin hesabı
-// silinmişse (created_by NULL) createNotification sessizce atlar.
+// Kendi masrafını onaylayan (yalnızca Sahip) kendine bildirim almaz; giren
+// kişinin hesabı silinmişse (created_by NULL) createNotification sessizce
+// atlar. Hedef: bkz. expenseDecisionTarget.
 func notifyExpenseDecision(ctx context.Context, txq *sqlc.Queries, project sqlc.Project, row sqlc.ProjectExpense, actor pgtype.UUID) error {
 	if !row.CreatedBy.Valid || (actor.Valid && row.CreatedBy == actor) {
 		return nil
+	}
+	target, err := expenseDecisionTarget(ctx, txq, project.OrganizationID, row.CreatedBy, row)
+	if err != nil {
+		return err
 	}
 	notifType, title := domain.NotificationExpenseApproved, "Masraf onaylandı"
 	body := joinNonEmpty(" · ", project.Name, truncateRunes(row.Description, 80))
@@ -176,6 +247,6 @@ func notifyExpenseDecision(ctx context.Context, txq *sqlc.Queries, project sqlc.
 		OrganizationID: project.OrganizationID, UserID: row.CreatedBy, Type: notifType,
 		Title: title, Body: truncateRunes(body, 500),
 		EntityType: domain.NotificationEntityProjectExpense, EntityID: row.ID, ProjectID: project.ID,
-		ActionTarget: expenseFinanceTarget(project.ID),
+		ActionTarget: target,
 	})
 }

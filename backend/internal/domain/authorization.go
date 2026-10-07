@@ -187,8 +187,16 @@ const (
 
 	// Masraf onayı (bkz. migration 0060): finance.manage'den AYRI -- masraf
 	// giren onu kendisi onaylayamamalı. Onay bekleyen/reddedilen masraf para
-	// toplamlarına girmez. Varsayılan: Sahip, Yönetici, Finans.
+	// toplamlarına girmez. Varsayılan (migration 0066): yalnızca Sahip ve
+	// Yönetici. Kendi masrafına karar yasağı (Sahip hariç) serviste.
 	PermProjectsExpensesApprove = "projects.expenses.approve"
+	// Masraf girme (bkz. migration 0066, ürün sahibi kararı: "masrafı herkes
+	// girsin ama onay beklesin"). finance.manage tahsilat/ödeme planı/ek işi
+	// de açtığı için sahadakine verilemez; bu izin YALNIZCA masraf girmeyi,
+	// kişinin kendi bekleyen/reddedilen masrafını düzeltmesini ya da geri
+	// çekmesini ve kendi masraflarını görmesini (GET /expenses/mine) açar.
+	// Varsayılan: bütün roller.
+	PermProjectsExpensesCreate = "projects.expenses.create"
 )
 
 // adminRoleOnlyPermissions, uçları izne EK OLARAK kaba requireAdmin
