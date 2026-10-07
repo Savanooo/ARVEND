@@ -84,6 +84,43 @@ type userResponse struct {
 	TrialEndsOn        *string `json:"trial_ends_on,omitempty"`
 	TrialDaysLeft      *int    `json:"trial_days_left,omitempty"`
 	TrialExpired       *bool   `json:"trial_expired,omitempty"`
+	// EmployeeID/-FullName/-IsActive: hesabın bağlı olduğu personel kaydı
+	// ("kişi = tek kayıt", bkz. service/user_employee_link.go). Yalnızca
+	// kullanıcı listesi/detayı ve hesap açma cevaplarında dolar; yoksa
+	// alanlar hiç gelmez.
+	EmployeeID       *string `json:"employee_id,omitempty"`
+	EmployeeFullName string  `json:"employee_full_name,omitempty"`
+	EmployeeIsActive *bool   `json:"employee_is_active,omitempty"`
+}
+
+// employeeLinkResponse, hesap açma cevabındaki personel adımının sonucudur
+// (status: created | linked | linked_same_name | skipped | ambiguous_name |
+// no_permission). message, istemcinin olduğu gibi gösterebileceği Türkçe
+// özet.
+type employeeLinkResponse struct {
+	Status         string `json:"status"`
+	EmployeeID     string `json:"employee_id,omitempty"`
+	EmployeeName   string `json:"employee_full_name,omitempty"`
+	EmployeeActive bool   `json:"employee_is_active,omitempty"`
+	Message        string `json:"message,omitempty"`
+}
+
+// createdUserResponse: userResponse'un alanları + employee_link (gömülü
+// struct, JSON'da düz alanlar olarak çıkar -- eski istemciler aynen okur).
+type createdUserResponse struct {
+	userResponse
+	EmployeeLink *employeeLinkResponse `json:"employee_link,omitempty"`
+}
+
+func toCreatedUserResponse(u domain.User, link *service.EmployeeLinkResult) createdUserResponse {
+	resp := createdUserResponse{userResponse: toUserResponse(u)}
+	if link != nil {
+		resp.EmployeeLink = &employeeLinkResponse{
+			Status: string(link.Status), EmployeeID: link.EmployeeID, EmployeeName: link.EmployeeName,
+			EmployeeActive: link.EmployeeActive, Message: link.Message(),
+		}
+	}
+	return resp
 }
 
 // toUserResponse, organizasyon (onboarding) bağlamı olmayan çağrı
@@ -107,6 +144,12 @@ func toUserResponse(u domain.User) userResponse {
 	if u.DeletedAt != nil {
 		s := u.DeletedAt.Format("2006-01-02T15:04:05Z07:00")
 		resp.DeletedAt = &s
+	}
+	if u.LinkedEmployeeID != nil {
+		active := u.LinkedEmployeeActive
+		resp.EmployeeID = u.LinkedEmployeeID
+		resp.EmployeeFullName = u.LinkedEmployeeName
+		resp.EmployeeIsActive = &active
 	}
 	return resp
 }

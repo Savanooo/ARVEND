@@ -269,6 +269,7 @@ type provisionOrganizationUserRequest struct {
 	FullName             string `json:"full_name"`
 	TemporaryPassword    string `json:"temporary_password"`
 	OrganizationRoleCode string `json:"organization_role_code"`
+	personnelRequest
 }
 
 func (h *PlatformHandler) ProvisionOrganizationUser(w http.ResponseWriter, r *http.Request) {
@@ -278,15 +279,18 @@ func (h *PlatformHandler) ProvisionOrganizationUser(w http.ResponseWriter, r *ht
 		return
 	}
 	actorID, _ := middleware.UserIDFromContext(r.Context())
-	user, err := h.svc.ProvisionOrganizationUser(r.Context(), service.ProvisionOrganizationUserInput{
+	// Süper Admin firmanın tüm verisini yönetir: personel adımı için ayrıca
+	// bir tenant izni aranmaz.
+	user, link, err := h.svc.ProvisionOrganizationUser(r.Context(), service.ProvisionOrganizationUserInput{
 		OrganizationID: chi.URLParam(r, "id"), Username: req.Username, FullName: req.FullName,
 		TemporaryPassword: req.TemporaryPassword, RoleCode: req.OrganizationRoleCode, ActorUserID: actorID,
+		Personnel: req.personnelRequest.options(true),
 	})
 	if err != nil {
 		h.writePlatformError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusCreated, toUserResponse(*user))
+	httpjson.Write(w, http.StatusCreated, toCreatedUserResponse(*user, link))
 }
 
 func (h *PlatformHandler) DeactivateOrganizationUser(w http.ResponseWriter, r *http.Request) {
@@ -430,7 +434,8 @@ func (h *PlatformHandler) writePlatformError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusConflict, "bu kullanıcı adı zaten kullanılıyor")
 	case errors.Is(err, domain.ErrLastOwner), errors.Is(err, domain.ErrInvalidOrgStatusTransition),
 		errors.Is(err, domain.ErrAlreadyDeleted), errors.Is(err, domain.ErrNotDeleted),
-		errors.Is(err, domain.ErrOrganizationDeleted), errors.Is(err, domain.ErrUserDeleted):
+		errors.Is(err, domain.ErrOrganizationDeleted), errors.Is(err, domain.ErrUserDeleted),
+		errors.Is(err, service.ErrEmployeeHasOtherUser):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())

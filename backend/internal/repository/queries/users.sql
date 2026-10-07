@@ -66,9 +66,17 @@ WHERE id = $1 AND organization_id = $2 AND must_change_password = true;
 -- AYNI sorguda (N+1 yok). super_admin bu listede HİÇ görünmez zaten
 -- (organization_id filtresiyle doğal olarak dışarıda kalır). Silinmiş
 -- kullanıcılar HER ZAMAN dışarıda -- bkz. ListDeletedUsersWithOrganizationRole.
-SELECT u.*, orole.code AS organization_role_code, orole.name AS organization_role_name
+--
+-- Bağlı personel kaydı (varsa) da aynı satırda: "kişi = tek kayıt"
+-- (bkz. queries/employees.sql) -- kullanıcı ekranı hesabın hangi
+-- personele bağlı olduğunu (ya da hiç bağlı olmadığını) gösterir. Bir hesap
+-- en fazla bir personele bağlanabildiği için (idx_employees_user_id) JOIN
+-- satır çoğaltmaz.
+SELECT u.*, orole.code AS organization_role_code, orole.name AS organization_role_name,
+       emp.id AS employee_id, emp.full_name AS employee_full_name, emp.is_active AS employee_is_active
 FROM users u
 LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
+LEFT JOIN employees emp ON emp.user_id = u.id AND emp.organization_id = u.organization_id
 WHERE u.organization_id = $1 AND u.deleted_at IS NULL
 -- id ikincil sıralama: aynı anda oluşturulmuş kullanıcılar (ör. toplu
 -- aktarım) sayfa sınırında iki sayfada birden görünmesin / kaybolmasın.
@@ -89,9 +97,12 @@ LIMIT $2 OFFSET $3;
 SELECT count(*) FROM users WHERE organization_id = $1 AND deleted_at IS NOT NULL;
 
 -- name: GetUserWithOrganizationRole :one
-SELECT u.*, orole.code AS organization_role_code, orole.name AS organization_role_name
+-- Bağlı personel kaydı ListUsersWithOrganizationRole ile aynı gerekçeyle.
+SELECT u.*, orole.code AS organization_role_code, orole.name AS organization_role_name,
+       emp.id AS employee_id, emp.full_name AS employee_full_name, emp.is_active AS employee_is_active
 FROM users u
 LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
+LEFT JOIN employees emp ON emp.user_id = u.id AND emp.organization_id = u.organization_id
 WHERE u.id = $1 AND u.organization_id = $2;
 
 -- name: GetOnboardingGateStatus :one

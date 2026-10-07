@@ -317,6 +317,15 @@ type Assignee struct {
 
 // ListAssignees: projenin firmasındaki aktif personel (projeyi
 // doğrulayarak; başka firmanın projesi ErrNotFound).
+//
+// Kişi başına TEK satır ("kişi = tek kayıt", bkz. user_employee_link.go):
+// seçici yalnızca personel kayıtlarını listeler -- giriş hesapları ayrı
+// satır olarak HİÇ gelmez; hesabı olan kişi, bağlı olduğu personel
+// satırında "has_account" ile görünür. Bir hesap en fazla bir personele
+// bağlanabildiği için (idx_employees_user_id) aynı hesap iki satırda
+// olamaz; aşağıdaki user_id tekilleştirmesi bu sözleşmeyi uçta da
+// açıkça uygular (sorgu ileride bir JOIN'le genişlerse satır çoğalmasın).
+// Bağlantısız personel "hesabı yok" olarak listede kalır.
 func (s *ProjectService) ListAssignees(ctx context.Context, projectID, organizationID string) ([]Assignee, error) {
 	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
@@ -332,12 +341,19 @@ func (s *ProjectService) ListAssignees(ctx context.Context, projectID, organizat
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Assignee, len(rows))
-	for i, e := range rows {
-		out[i] = Assignee{
+	out := make([]Assignee, 0, len(rows))
+	seenUsers := make(map[pgtype.UUID]bool, len(rows))
+	for _, e := range rows {
+		if e.UserID.Valid {
+			if seenUsers[e.UserID] {
+				continue
+			}
+			seenUsers[e.UserID] = true
+		}
+		out = append(out, Assignee{
 			ID: e.ID.String(), FullName: e.FullName, Position: e.Position, HasAccount: e.HasAccount,
 			HasProjectAccess: e.HasAccount && (domain.RoleBypassesProjectMembership(e.OrganizationRoleCode) || e.IsProjectMember),
-		}
+		})
 	}
 	return out, nil
 }

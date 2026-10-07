@@ -349,7 +349,7 @@ LIMIT sqlc.arg(row_limit)::int;
 -- üyelik) döner; "bypass rolü mü" kararı Go'da verilir
 -- (domain.RoleBypassesProjectMembership -- tek kaynak, SQL'de tekrar
 -- yazılmaz).
-SELECT e.id, e.full_name, e.position,
+SELECT e.id, e.full_name, e.position, e.user_id,
        (u.id IS NOT NULL AND u.is_active)::boolean AS has_account,
        COALESCE(orole.code, '')::text AS organization_role_code,
        (pu.id IS NOT NULL)::boolean AS is_project_member

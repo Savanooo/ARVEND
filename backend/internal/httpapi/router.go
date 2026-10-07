@@ -675,6 +675,10 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/", d.Employees.Create)
 				r.Put("/{id}", d.Employees.Update)
 				r.Delete("/{id}", d.Employees.Archive)
+				// Hesap <-> personel eşleşme önerileri hesap adlarını da
+				// gösterir: personel yönetimine EK OLARAK kullanıcı listesini
+				// görme izni ister.
+				r.With(perm(domain.PermOrganizationUsersRead)).Get("/link-suggestions", d.Employees.LinkSuggestions)
 			})
 		})
 

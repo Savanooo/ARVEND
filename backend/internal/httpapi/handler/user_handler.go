@@ -84,6 +84,28 @@ type createUserRequest struct {
 	Password             string `json:"password"`
 	FullName             string `json:"full_name"`
 	OrganizationRoleCode string `json:"organization_role_code"`
+	personnelRequest
+}
+
+// personnelRequest, hesap açan iki ucun (tenant POST /users, Süper Admin
+// POST /platform/organizations/{id}/users) ortak personel alanlarıdır.
+// Hepsi opsiyonel ve pointer: alan HİÇ gönderilmezse varsayılan (personel
+// kaydı oluştur / aynı adlıya bağla) uygulanır -- dondurulmuş web bu
+// alanları bilmeden yeni davranışı alır. Bkz. service.PersonnelOptions.
+type personnelRequest struct {
+	CreateEmployee *bool   `json:"create_employee"`
+	EmployeeID     *string `json:"employee_id"`
+	LinkSameName   *bool   `json:"link_same_name"`
+}
+
+func (p personnelRequest) options(canManageEmployees bool) service.PersonnelOptions {
+	opts := service.PersonnelOptions{
+		CreateEmployee: p.CreateEmployee, LinkSameName: p.LinkSameName, CanManageEmployees: canManageEmployees,
+	}
+	if p.EmployeeID != nil {
+		opts.EmployeeID = strings.TrimSpace(*p.EmployeeID)
+	}
+	return opts
 }
 
 // Create, tenant self-servis "Yeni Kullanıcı" ucudur (Süper Admin'in AYRI
@@ -106,12 +128,16 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	actorID, _ := middleware.UserIDFromContext(r.Context())
-	user, err := h.svc.CreateMember(r.Context(), orgID, actorID, req.Username, req.Password, req.FullName, req.OrganizationRoleCode)
+	// Personel kaydı açmak/bağlamak employees.manage ister (personel
+	// ekranındaki ile aynı sınır); izin yoksa hesap yine açılır, personel
+	// adımı atlanır (employee_link.status = no_permission).
+	user, link, err := h.svc.CreateMember(r.Context(), orgID, actorID, req.Username, req.Password, req.FullName,
+		req.OrganizationRoleCode, req.personnelRequest.options(canSeeEmployeeWages(r)))
 	if err != nil {
 		h.writeUserError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusCreated, toUserResponse(*user))
+	httpjson.Write(w, http.StatusCreated, toCreatedUserResponse(*user, link))
 }
 
 type updateUserRequest struct {
@@ -240,8 +266,12 @@ func (h *UserHandler) writeUserError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusBadRequest, "mevcut şifre hatalı")
 	case errors.Is(err, domain.ErrLastOwner), errors.Is(err, domain.ErrInitialPasswordAlreadySet):
 		httpjson.Error(w, http.StatusConflict, err.Error())
-	case errors.Is(err, domain.ErrOwnerOnlyAction):
+	case errors.Is(err, domain.ErrOwnerOnlyAction), errors.Is(err, service.ErrEmployeeLinkNotPermitted):
 		httpjson.Error(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, service.ErrEmployeeHasOtherUser):
+		httpjson.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrLinkEmployeeNotFound):
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, domain.ErrCannotAssignSuperAdmin), errors.Is(err, domain.ErrCrossOrgMembership),
 		errors.Is(err, domain.ErrPasswordTooShort):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())

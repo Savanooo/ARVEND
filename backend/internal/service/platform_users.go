@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -29,6 +30,12 @@ type ProvisionOrganizationUserInput struct {
 	TemporaryPassword string
 	RoleCode          string // organization_roles.code -- legacy_user ATANAMAZ
 	ActorUserID       string
+	// Personnel: hesabın personel kaydı (bkz. user_employee_link.go).
+	// Tenant "Yeni Kullanıcı" ile aynı varsayılan: alan boşsa personel
+	// kaydı oluşturulur/aynı adlıya bağlanır. Süper Admin'in employees.manage
+	// gibi bir tenant izni yoktur ama firmanın verisini zaten yönetir --
+	// CanManageEmployees burada her zaman true sayılır.
+	Personnel PersonnelOptions
 }
 
 // ListOrganizationRoles, firmanın atanabilir organizasyon rollerini döner
@@ -57,35 +64,37 @@ func (s *PlatformService) ListOrganizationRoles(ctx context.Context, organizatio
 // girişte zorunlu değiştirilir (CreateOrganizationWithOwner ile AYNI akış).
 // Genel "admin" kullanıcı adı reddedilir; kaba users.role organizasyon
 // rolünden türetilir (owner/admin -> admin, diğerleri -> kullanici).
-func (s *PlatformService) ProvisionOrganizationUser(ctx context.Context, in ProvisionOrganizationUserInput) (*domain.User, error) {
+// Personel kaydı tenant "Yeni Kullanıcı" ile aynı kuralla, aynı
+// transaction'da (attachEmployeeToNewUser).
+func (s *PlatformService) ProvisionOrganizationUser(ctx context.Context, in ProvisionOrganizationUserInput) (*domain.User, *EmployeeLinkResult, error) {
 	username := strings.TrimSpace(in.Username)
 	fullName := strings.TrimSpace(in.FullName)
 	roleCode := strings.TrimSpace(in.RoleCode)
 	if username == "" || fullName == "" || in.TemporaryPassword == "" || roleCode == "" {
-		return nil, errors.New("kullanıcı adı, ad soyad, geçici şifre ve organizasyon rolü zorunludur")
+		return nil, nil, errors.New("kullanıcı adı, ad soyad, geçici şifre ve organizasyon rolü zorunludur")
 	}
 	if isReservedUsername(username) {
-		return nil, domain.ErrReservedUsername
+		return nil, nil, domain.ErrReservedUsername
 	}
 	if len(in.TemporaryPassword) < 8 {
-		return nil, errors.New("geçici şifre en az 8 karakter olmalı")
+		return nil, nil, errors.New("geçici şifre en az 8 karakter olmalı")
 	}
 	if roleCode == domain.OrgRoleLegacyUser {
-		return nil, domain.ErrRoleNotAssignable
+		return nil, nil, domain.ErrRoleNotAssignable
 	}
 	if _, err := s.requireLiveOrganization(ctx, in.OrganizationID); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	orgID, _ := repository.StringToUUID(in.OrganizationID)
 
 	hash, err := auth.HashPassword(in.TemporaryPassword)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
@@ -93,9 +102,9 @@ func (s *PlatformService) ProvisionOrganizationUser(ctx context.Context, in Prov
 	role, err := txq.GetOrganizationRoleByCode(ctx, sqlc.GetOrganizationRoleByCodeParams{OrganizationID: orgID, Code: roleCode})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
+			return nil, nil, domain.ErrNotFound
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	userRow, err := txq.CreateUserWithOptions(ctx, sqlc.CreateUserWithOptionsParams{
 		OrganizationID:     orgID,
@@ -108,28 +117,35 @@ func (s *PlatformService) ProvisionOrganizationUser(ctx context.Context, in Prov
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return nil, domain.ErrDuplicateUsername
+			return nil, nil, domain.ErrDuplicateUsername
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	userRow, err = txq.UpdateUserOrganizationRole(ctx, sqlc.UpdateUserOrganizationRoleParams{
 		ID: userRow.ID, OrganizationID: orgID, OrganizationRoleID: role.ID,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	personnel := in.Personnel
+	personnel.CanManageEmployees = true
+	link, err := attachEmployeeToNewUser(ctx, txq, orgID, userRow, personnel, istanbulToday(time.Now()), in.ActorUserID)
+	if err != nil {
+		return nil, nil, err
 	}
 	if err := s.writeAuditEvent(ctx, txq, in.ActorUserID, domain.AuditActionUserProvisioned, &orgID, &userRow.ID, map[string]any{
-		"username": username, "role_code": role.Code,
+		"username": username, "role_code": role.Code, "employee_link": string(link.Status),
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	u := repository.ToDomainUser(userRow)
 	u.OrganizationRoleCode = role.Code
 	u.OrganizationRoleName = role.Name
-	return &u, nil
+	applyLinkedEmployee(&u, link)
+	return &u, link, nil
 }
 
 func (s *PlatformService) DeactivateOrganizationUser(ctx context.Context, organizationID, userID, actorUserID string) error {

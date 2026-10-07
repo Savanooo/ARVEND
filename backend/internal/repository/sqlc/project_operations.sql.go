@@ -984,7 +984,7 @@ func (q *Queries) ListMyTasks(ctx context.Context, arg ListMyTasksParams) ([]Lis
 
 const listProjectAssignees = `-- name: ListProjectAssignees :many
 
-SELECT e.id, e.full_name, e.position,
+SELECT e.id, e.full_name, e.position, e.user_id,
        (u.id IS NOT NULL AND u.is_active)::boolean AS has_account,
        COALESCE(orole.code, '')::text AS organization_role_code,
        (pu.id IS NOT NULL)::boolean AS is_project_member
@@ -1005,6 +1005,7 @@ type ListProjectAssigneesRow struct {
 	ID                   pgtype.UUID `json:"id"`
 	FullName             string      `json:"full_name"`
 	Position             string      `json:"position"`
+	UserID               pgtype.UUID `json:"user_id"`
 	HasAccount           bool        `json:"has_account"`
 	OrganizationRoleCode string      `json:"organization_role_code"`
 	IsProjectMember      bool        `json:"is_project_member"`
@@ -1031,6 +1032,7 @@ func (q *Queries) ListProjectAssignees(ctx context.Context, arg ListProjectAssig
 			&i.ID,
 			&i.FullName,
 			&i.Position,
+			&i.UserID,
 			&i.HasAccount,
 			&i.OrganizationRoleCode,
 			&i.IsProjectMember,

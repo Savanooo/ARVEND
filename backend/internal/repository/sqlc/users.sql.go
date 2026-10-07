@@ -307,9 +307,11 @@ func (q *Queries) GetUserGateStatus(ctx context.Context, id pgtype.UUID) (GetUse
 }
 
 const getUserWithOrganizationRole = `-- name: GetUserWithOrganizationRole :one
-SELECT u.id, u.username, u.password_hash, u.full_name, u.role, u.is_active, u.created_at, u.updated_at, u.last_login_at, u.organization_id, u.must_change_password, u.organization_role_id, u.deleted_at, u.deleted_by, orole.code AS organization_role_code, orole.name AS organization_role_name
+SELECT u.id, u.username, u.password_hash, u.full_name, u.role, u.is_active, u.created_at, u.updated_at, u.last_login_at, u.organization_id, u.must_change_password, u.organization_role_id, u.deleted_at, u.deleted_by, orole.code AS organization_role_code, orole.name AS organization_role_name,
+       emp.id AS employee_id, emp.full_name AS employee_full_name, emp.is_active AS employee_is_active
 FROM users u
 LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
+LEFT JOIN employees emp ON emp.user_id = u.id AND emp.organization_id = u.organization_id
 WHERE u.id = $1 AND u.organization_id = $2
 `
 
@@ -335,8 +337,12 @@ type GetUserWithOrganizationRoleRow struct {
 	DeletedBy            pgtype.UUID        `json:"deleted_by"`
 	OrganizationRoleCode *string            `json:"organization_role_code"`
 	OrganizationRoleName *string            `json:"organization_role_name"`
+	EmployeeID           pgtype.UUID        `json:"employee_id"`
+	EmployeeFullName     *string            `json:"employee_full_name"`
+	EmployeeIsActive     *bool              `json:"employee_is_active"`
 }
 
+// Bağlı personel kaydı ListUsersWithOrganizationRole ile aynı gerekçeyle.
 func (q *Queries) GetUserWithOrganizationRole(ctx context.Context, arg GetUserWithOrganizationRoleParams) (GetUserWithOrganizationRoleRow, error) {
 	row := q.db.QueryRow(ctx, getUserWithOrganizationRole, arg.ID, arg.OrganizationID)
 	var i GetUserWithOrganizationRoleRow
@@ -357,6 +363,9 @@ func (q *Queries) GetUserWithOrganizationRole(ctx context.Context, arg GetUserWi
 		&i.DeletedBy,
 		&i.OrganizationRoleCode,
 		&i.OrganizationRoleName,
+		&i.EmployeeID,
+		&i.EmployeeFullName,
+		&i.EmployeeIsActive,
 	)
 	return i, err
 }
@@ -486,9 +495,11 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 }
 
 const listUsersWithOrganizationRole = `-- name: ListUsersWithOrganizationRole :many
-SELECT u.id, u.username, u.password_hash, u.full_name, u.role, u.is_active, u.created_at, u.updated_at, u.last_login_at, u.organization_id, u.must_change_password, u.organization_role_id, u.deleted_at, u.deleted_by, orole.code AS organization_role_code, orole.name AS organization_role_name
+SELECT u.id, u.username, u.password_hash, u.full_name, u.role, u.is_active, u.created_at, u.updated_at, u.last_login_at, u.organization_id, u.must_change_password, u.organization_role_id, u.deleted_at, u.deleted_by, orole.code AS organization_role_code, orole.name AS organization_role_name,
+       emp.id AS employee_id, emp.full_name AS employee_full_name, emp.is_active AS employee_is_active
 FROM users u
 LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
+LEFT JOIN employees emp ON emp.user_id = u.id AND emp.organization_id = u.organization_id
 WHERE u.organization_id = $1 AND u.deleted_at IS NULL
 ORDER BY u.created_at DESC, u.id
 LIMIT $2 OFFSET $3
@@ -517,6 +528,9 @@ type ListUsersWithOrganizationRoleRow struct {
 	DeletedBy            pgtype.UUID        `json:"deleted_by"`
 	OrganizationRoleCode *string            `json:"organization_role_code"`
 	OrganizationRoleName *string            `json:"organization_role_name"`
+	EmployeeID           pgtype.UUID        `json:"employee_id"`
+	EmployeeFullName     *string            `json:"employee_full_name"`
+	EmployeeIsActive     *bool              `json:"employee_is_active"`
 }
 
 // "Kullanıcılar" ekranının RBAC/Project Membership sprint'iyle
@@ -524,6 +538,12 @@ type ListUsersWithOrganizationRoleRow struct {
 // AYNI sorguda (N+1 yok). super_admin bu listede HİÇ görünmez zaten
 // (organization_id filtresiyle doğal olarak dışarıda kalır). Silinmiş
 // kullanıcılar HER ZAMAN dışarıda -- bkz. ListDeletedUsersWithOrganizationRole.
+//
+// Bağlı personel kaydı (varsa) da aynı satırda: "kişi = tek kayıt"
+// (bkz. queries/employees.sql) -- kullanıcı ekranı hesabın hangi
+// personele bağlı olduğunu (ya da hiç bağlı olmadığını) gösterir. Bir hesap
+// en fazla bir personele bağlanabildiği için (idx_employees_user_id) JOIN
+// satır çoğaltmaz.
 // id ikincil sıralama: aynı anda oluşturulmuş kullanıcılar (ör. toplu
 // aktarım) sayfa sınırında iki sayfada birden görünmesin / kaybolmasın.
 func (q *Queries) ListUsersWithOrganizationRole(ctx context.Context, arg ListUsersWithOrganizationRoleParams) ([]ListUsersWithOrganizationRoleRow, error) {
@@ -552,6 +572,9 @@ func (q *Queries) ListUsersWithOrganizationRole(ctx context.Context, arg ListUse
 			&i.DeletedBy,
 			&i.OrganizationRoleCode,
 			&i.OrganizationRoleName,
+			&i.EmployeeID,
+			&i.EmployeeFullName,
+			&i.EmployeeIsActive,
 		); err != nil {
 			return nil, err
 		}

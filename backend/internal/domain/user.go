@@ -47,6 +47,14 @@ type User struct {
 	// kullanıcı silinmiş OLMAYABİLİR.
 	DeletedAt *time.Time
 	DeletedBy *string
+	// LinkedEmployee*, hesabın bağlı olduğu personel kaydıdır ("kişi = tek
+	// kayıt", bkz. service/user_employee_link.go). YALNIZCA bunu JOIN'le
+	// dolduran sorgularla (AuthorizationService.ListUsersWithRoles/
+	// GetUserWithRole) ve hesap açma yollarıyla gelir; nil = bağlı personel
+	// yok (ya da sorgu doldurmadı).
+	LinkedEmployeeID     *string
+	LinkedEmployeeName   string
+	LinkedEmployeeActive bool
 }
 
 func (u User) IsDeleted() bool { return u.DeletedAt != nil }

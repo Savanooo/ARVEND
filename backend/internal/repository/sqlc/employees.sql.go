@@ -78,6 +78,49 @@ func (q *Queries) CreateEmployee(ctx context.Context, arg CreateEmployeeParams) 
 	return i, err
 }
 
+const deleteUntouchedAutoEmployee = `-- name: DeleteUntouchedAutoEmployee :execrows
+DELETE FROM employees e
+USING users u
+WHERE e.id = $1::uuid
+  AND e.organization_id = $2::uuid
+  AND u.id = e.user_id
+  AND e.created_at = u.created_at
+  AND e.updated_at = e.created_at
+  AND e.salary IS NULL AND e.daily_wage IS NULL
+  AND NOT EXISTS (SELECT 1 FROM employee_wage_history w
+                  WHERE w.employee_id = e.id AND (w.salary IS NOT NULL OR w.daily_wage IS NOT NULL))
+  AND NOT EXISTS (SELECT 1 FROM attendance_logs a WHERE a.employee_id = e.id)
+  AND NOT EXISTS (SELECT 1 FROM salary_payments sp WHERE sp.employee_id = e.id)
+  AND NOT EXISTS (SELECT 1 FROM project_members pm WHERE pm.employee_id = e.id)
+  AND NOT EXISTS (SELECT 1 FROM project_tasks t WHERE t.assigned_employee_id = e.id)
+  AND NOT EXISTS (SELECT 1 FROM project_schedule_items si WHERE si.assigned_employee_id = e.id)
+`
+
+type DeleteUntouchedAutoEmployeeParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+// Hesapla birlikte OTOMATİK açılmış ve hiç kullanılmamış personel kaydını
+// siler: yönetici aynı hesabı açıkça BAŞKA bir personele bağlarken
+// (ör. otomatik açılan "batu" kaydı yerine "Batuhan İnci"ye) sistemin
+// kendi açtığı boş kayıt yönetici kararına yol verir.
+//
+// "Otomatik açılmış" işareti created_at eşitliğidir: hesap ve personel tek
+// transaction'da yazılır, ikisinin de created_at'i aynı now() değeridir;
+// elle açılıp sonradan bağlanan bir personelde bu eşitlik oluşmaz.
+// "Hiç kullanılmamış": sonradan hiç düzenlenmemiş (updated_at), ücret
+// tanımlanmamış ve hiçbir geçmiş kayda (mesai, ödeme, ekip, görev, plan)
+// konu olmamış. Bunlardan biri bile varsa SİLİNMEZ (0 satır) ve çağıran
+// eski kuralı uygular: hesap zaten bir personele bağlı -> ret.
+func (q *Queries) DeleteUntouchedAutoEmployee(ctx context.Context, arg DeleteUntouchedAutoEmployeeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUntouchedAutoEmployee, arg.ID, arg.OrganizationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getEmployeeByID = `-- name: GetEmployeeByID :one
 SELECT id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id, user_id FROM employees WHERE id = $1 AND organization_id = $2
 `
@@ -178,6 +221,87 @@ func (q *Queries) GetEmployeeForUpdate(ctx context.Context, arg GetEmployeeForUp
 	return i, err
 }
 
+const linkEmployeeToUser = `-- name: LinkEmployeeToUser :one
+UPDATE employees SET user_id = $1::uuid
+WHERE id = $2::uuid AND organization_id = $3::uuid AND user_id IS NULL
+RETURNING id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id, user_id
+`
+
+type LinkEmployeeToUserParams struct {
+	UserID         pgtype.UUID `json:"user_id"`
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+// Personeli bir giriş hesabına bağlar -- YALNIZCA hâlâ bağlantısızsa.
+// "user_id IS NULL" koşulu yarış güvencesidir: aynı anda iki hesap aynı
+// personele bağlanmaya çalışırsa ikincisi satır kilidini bekler, koşulu
+// yeniden değerlendirir ve 0 satır alır (başkasının kaydı ezilmez).
+func (q *Queries) LinkEmployeeToUser(ctx context.Context, arg LinkEmployeeToUserParams) (Employee, error) {
+	row := q.db.QueryRow(ctx, linkEmployeeToUser, arg.UserID, arg.ID, arg.OrganizationID)
+	var i Employee
+	err := row.Scan(
+		&i.ID,
+		&i.FullName,
+		&i.Phone,
+		&i.Position,
+		&i.Salary,
+		&i.DailyWage,
+		&i.StartDate,
+		&i.IsActive,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ArchivedAt,
+		&i.OrganizationID,
+		&i.UserID,
+	)
+	return i, err
+}
+
+const listEmployeeLogins = `-- name: ListEmployeeLogins :many
+SELECT e.id AS employee_id, u.username, u.is_active,
+       (u.deleted_at IS NOT NULL)::boolean AS deleted
+FROM employees e
+JOIN users u ON u.id = e.user_id
+WHERE e.organization_id = $1
+`
+
+type ListEmployeeLoginsRow struct {
+	EmployeeID pgtype.UUID `json:"employee_id"`
+	Username   string      `json:"username"`
+	IsActive   bool        `json:"is_active"`
+	Deleted    bool        `json:"deleted"`
+}
+
+// Personel listesinde/detayında bağlı giriş hesabını göstermek için
+// (kullanıcı adı + durum). Firma başına tek sorgu; yalnızca bağlı
+// personel döner.
+func (q *Queries) ListEmployeeLogins(ctx context.Context, organizationID pgtype.UUID) ([]ListEmployeeLoginsRow, error) {
+	rows, err := q.db.Query(ctx, listEmployeeLogins, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEmployeeLoginsRow
+	for rows.Next() {
+		var i ListEmployeeLoginsRow
+		if err := rows.Scan(
+			&i.EmployeeID,
+			&i.Username,
+			&i.IsActive,
+			&i.Deleted,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEmployees = `-- name: ListEmployees :many
 SELECT id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id, user_id FROM employees
 WHERE organization_id = $1
@@ -215,6 +339,86 @@ func (q *Queries) ListEmployees(ctx context.Context, arg ListEmployeesParams) ([
 			&i.OrganizationID,
 			&i.UserID,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnlinkedActiveEmployees = `-- name: ListUnlinkedActiveEmployees :many
+
+SELECT id, full_name, position FROM employees
+WHERE organization_id = $1 AND is_active = true AND user_id IS NULL
+ORDER BY full_name, id
+`
+
+type ListUnlinkedActiveEmployeesRow struct {
+	ID       pgtype.UUID `json:"id"`
+	FullName string      `json:"full_name"`
+	Position string      `json:"position"`
+}
+
+// ---------- Kişi = tek kayıt (giriş hesabı <-> personel) ----------
+// Ürün kararı (2026-10): "kullanıcı oluşturunca direkt personel de
+// oluştururuz". Giriş hesabı (users) ve personel (employees) aynı kişinin
+// iki ayrı kaydıydı; bağ yalnızca biri employees.user_id'yi elle
+// doldurursa kuruluyordu. Sahada "batu" hesabı ile "Batuhan İnci" personeli
+// bağlanmadığı için görev seçicisinde iki ayrı kişi göründü ve personele
+// atanan görevin bildirimi kimseye gitmedi. Bkz. service/user_employee_link.go.
+// Yeni giriş hesabı açılırken "aynı adlı bağlantısız personel var mı"
+// aramasının adayları. Ad karşılaştırması Go'da yapılır
+// (domain.NormalizePersonName): Türkçe İ/I katlaması SQL lower()'ın
+// veritabanı yereline bağlı davranışına bırakılmaz. Başka bir hesaba
+// (silinmiş olsa bile) bağlı personel ASLA aday değildir.
+func (q *Queries) ListUnlinkedActiveEmployees(ctx context.Context, organizationID pgtype.UUID) ([]ListUnlinkedActiveEmployeesRow, error) {
+	rows, err := q.db.Query(ctx, listUnlinkedActiveEmployees, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUnlinkedActiveEmployeesRow
+	for rows.Next() {
+		var i ListUnlinkedActiveEmployeesRow
+		if err := rows.Scan(&i.ID, &i.FullName, &i.Position); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUsersWithoutEmployee = `-- name: ListUsersWithoutEmployee :many
+SELECT u.id, u.username, u.full_name FROM users u
+WHERE u.organization_id = $1 AND u.deleted_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM employees e WHERE e.user_id = u.id)
+ORDER BY u.full_name, u.id
+`
+
+type ListUsersWithoutEmployeeRow struct {
+	ID       pgtype.UUID `json:"id"`
+	Username string      `json:"username"`
+	FullName string      `json:"full_name"`
+}
+
+// "Bağlantı önerileri": personel kaydı olmayan (silinmemiş) giriş
+// hesapları. Eşleştirme Go'da, yalnızca birebir aynı normalize adla.
+func (q *Queries) ListUsersWithoutEmployee(ctx context.Context, organizationID pgtype.UUID) ([]ListUsersWithoutEmployeeRow, error) {
+	rows, err := q.db.Query(ctx, listUsersWithoutEmployee, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUsersWithoutEmployeeRow
+	for rows.Next() {
+		var i ListUsersWithoutEmployeeRow
+		if err := rows.Scan(&i.ID, &i.Username, &i.FullName); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -285,4 +489,21 @@ func (q *Queries) UpdateEmployee(ctx context.Context, arg UpdateEmployeeParams) 
 		&i.UserID,
 	)
 	return i, err
+}
+
+const updateEmployeeFullName = `-- name: UpdateEmployeeFullName :exec
+UPDATE employees SET full_name = $3 WHERE id = $1 AND organization_id = $2
+`
+
+type UpdateEmployeeFullNameParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	FullName       string      `json:"full_name"`
+}
+
+// Kullanıcının adı değişince bağlı personelin adını eşitler (yalnızca
+// ikisi önceden aynı addaysa -- karar Go'da, bkz. UserService.Update).
+func (q *Queries) UpdateEmployeeFullName(ctx context.Context, arg UpdateEmployeeFullNameParams) error {
+	_, err := q.db.Exec(ctx, updateEmployeeFullName, arg.ID, arg.OrganizationID, arg.FullName)
+	return err
 }
