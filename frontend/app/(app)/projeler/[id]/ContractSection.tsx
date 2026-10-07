@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useReasonDialog } from "@/components/ui/ReasonDialog";
 import { DateInput } from "@/components/ui/DateInput";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -62,15 +63,25 @@ export function ContractSection({
   contract,
   changeOrders,
   locked,
+  canManage,
+  canLifecycle,
 }: {
   project: Project;
   contract: ProjectContract | null;
   changeOrders: ChangeOrder[];
   locked: boolean;
+  // Üç katmanlı izin (bkz. router.go): oluşturma/taslak/not =
+  // projects.contracts.manage; aktifleştir/tamamla/iptal/feshet =
+  // projects.contracts.lifecycle. Proje Yöneticisi manage'e sahip ama
+  // lifecycle'a sahip değil -- izni olmayan düğme gösterilmez (eskiden
+  // tıklayınca 403 alıyordu).
+  canManage: boolean;
+  canLifecycle: boolean;
 }) {
   const { busy, error, run } = useContractAction(locked);
   const toast = useToast();
   const { confirm, dialog } = useConfirmDialog();
+  const { askReason, dialog: reasonDialog } = useReasonDialog();
 
   const [form, setForm] = useState({
     scope: contract?.scope ?? "",
@@ -92,7 +103,8 @@ export function ContractSection({
         title="Bu proje için henüz bir sözleşme yok"
         description="Sözleşme oluşturduktan sonra kapsam/ödeme koşullarını doldurabilir ve aktifleştirebilirsiniz."
         action={
-          !locked && (
+          !locked &&
+          canManage && (
             <Button onClick={createContract} disabled={busy}>
               Sözleşme Oluştur
             </Button>
@@ -104,7 +116,7 @@ export function ContractSection({
 
   const isDraft = contract.status === "draft";
   const isActive = contract.status === "active";
-  const notesEditable = isDraft || isActive;
+  const notesEditable = (isDraft || isActive) && canManage;
 
   async function saveDraftFields(e: FormEvent) {
     e.preventDefault();
@@ -158,14 +170,15 @@ export function ContractSection({
   }
 
   async function cancelContract() {
-    const ok = await confirm({
+    const reason = await askReason({
       title: "Sözleşmeyi İptal Et",
       message: "Bu taslak sözleşme iptal edilecek. Bu işlem GERİ ALINAMAZ.",
+      label: "İptal nedeni",
       confirmLabel: "İptal Et",
       danger: true,
+      required: true,
     });
-    if (!ok) return;
-    const reason = prompt("İptal nedeni:") ?? "";
+    if (reason === null) return;
     const done = await run(() =>
       apiClient(`/api/v1/projects/${project.id}/contract/cancel`, { method: "POST", body: JSON.stringify({ reason }) })
     );
@@ -173,14 +186,15 @@ export function ContractSection({
   }
 
   async function terminateContract() {
-    const ok = await confirm({
+    const reason = await askReason({
       title: "Sözleşmeyi Feshet",
       message: "Aktif sözleşme erken feshedilecek. Bu işlem GERİ ALINAMAZ.",
+      label: "Fesih nedeni",
       confirmLabel: "Feshet",
       danger: true,
+      required: true,
     });
-    if (!ok) return;
-    const reason = prompt("Fesih nedeni:") ?? "";
+    if (reason === null) return;
     const done = await run(() =>
       apiClient(`/api/v1/projects/${project.id}/contract/terminate`, { method: "POST", body: JSON.stringify({ reason }) })
     );
@@ -201,7 +215,7 @@ export function ContractSection({
               `Feshedildi${contract.termination_reason ? ` — ${contract.termination_reason}` : ""}.`}
           </span>
         </div>
-        {!locked && (
+        {!locked && canLifecycle && (
           <div className="flex gap-2">
             {isDraft && (
               <>
@@ -227,7 +241,7 @@ export function ContractSection({
         )}
       </div>
 
-      {isDraft ? (
+      {isDraft && canManage ? (
         <form onSubmit={saveDraftFields} className="flex flex-col gap-3 rounded-md border border-border p-3">
           <Textarea
             label="Kapsam"
@@ -272,9 +286,11 @@ export function ContractSection({
         </form>
       ) : (
         <div className="flex flex-col gap-3 rounded-md border border-border p-3 text-sm">
-          <p className="text-xs text-text-muted">
-            Aktivasyon sonrası ticari şartlar kilitlidir — değişiklik için resmi bir Ek İş gereklidir.
-          </p>
+          {!isDraft && (
+            <p className="text-xs text-text-muted">
+              Aktivasyon sonrası ticari şartlar kilitlidir — değişiklik için resmi bir Ek İş gereklidir.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             <Field label="Yürürlük Tarihi" value={formatDate(contract.effective_date)} />
             <Field label="Planlanan Bitiş" value={formatDate(contract.planned_completion_date)} />
@@ -339,6 +355,7 @@ export function ContractSection({
       </div>
 
       {dialog}
+      {reasonDialog}
     </div>
   );
 }

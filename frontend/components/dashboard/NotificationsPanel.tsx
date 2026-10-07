@@ -6,7 +6,13 @@ import { useState, useTransition } from "react";
 
 import { FOCUS_RING, LABEL } from "@/components/ui/styles";
 import { apiClient } from "@/lib/api";
-import { COPY, NOTIFICATIONS_READ_ALL_PATH, webHrefForActionTarget, type DashboardResponse } from "@/lib/dashboard";
+import {
+  COPY,
+  NOTIFICATIONS_READ_ALL_PATH,
+  notificationReadPath,
+  webHrefForActionTarget,
+  type DashboardResponse,
+} from "@/lib/dashboard";
 import { formatRelativeTime } from "@/lib/format";
 
 import { Chip } from "./Chip";
@@ -15,7 +21,12 @@ type Notifications = NonNullable<DashboardResponse["sections"]["notifications"]>
 
 // "Bildirimler" (zil ile aynı anlam: yalnızca izleyicinin kendi kayıtları).
 // Bildirim hedefi mobil yoludur; web karşılığı yoksa satır düz metindir.
-// Web'de ayrı bildirim sayfası yok (üst çubuktaki zil hâlâ "yakında").
+// Bağlantılı okunmamış satıra tıklamak onu okundu işaretler (mobil ve
+// üst çubuktaki zil ile aynı); istek navigasyonu beklemez.
+function markRead(id: string) {
+  void apiClient(notificationReadPath(id), { method: "POST", keepalive: true }).catch(() => {});
+}
+
 export function NotificationsPanel({ notifications, nowIso }: { notifications: Notifications; nowIso: string }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -78,7 +89,11 @@ export function NotificationsPanel({ notifications, nowIso }: { notifications: N
             return (
               <li key={n.id}>
                 {href ? (
-                  <Link href={href} className={`${cls} transition-colors hover:bg-gold-soft/30 ${FOCUS_RING}`}>
+                  <Link
+                    href={href}
+                    onClick={unread ? () => markRead(n.id) : undefined}
+                    className={`${cls} transition-colors hover:bg-gold-soft/30 ${FOCUS_RING}`}
+                  >
                     {content}
                   </Link>
                 ) : (

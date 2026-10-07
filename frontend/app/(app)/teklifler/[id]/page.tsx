@@ -10,6 +10,7 @@ import { apiServer, ApiError } from "@/lib/api";
 import { requirePagePermission } from "@/lib/auth";
 import { formatTL } from "@/lib/format";
 import { hasPermission, PAGE_PERMISSIONS } from "@/lib/permissions";
+import { orNotFound } from "@/lib/server-data";
 import { OFFER_STATUS } from "@/lib/status";
 import type {
   Offer,
@@ -34,13 +35,16 @@ export default async function TeklifDetayPage({
   const canCreateProject = hasPermission(user.permissions, "projects.create");
   const { id } = await params;
   const cookieHeader = (await cookies()).toString();
-  const [offer, { revisions }, { share_links }, { events }, { email_logs }] = await Promise.all([
-    apiServer<Offer>(`/api/v1/offers/${id}`, cookieHeader),
-    apiServer<{ revisions: OfferRevision[] }>(`/api/v1/offers/${id}/revisions`, cookieHeader),
-    apiServer<{ share_links: OfferShareLink[] }>(`/api/v1/offers/${id}/share-links`, cookieHeader),
-    apiServer<{ events: OfferEvent[] }>(`/api/v1/offers/${id}/events`, cookieHeader),
-    apiServer<{ email_logs: OfferEmailLog[] }>(`/api/v1/offers/${id}/email-logs`, cookieHeader),
-  ]);
+  // Silinmiş teklife giden bayat bağlantı (ör. bildirim) 404 -> "Kayıt bulunamadı".
+  const [offer, { revisions }, { share_links }, { events }, { email_logs }] = await orNotFound(
+    Promise.all([
+      apiServer<Offer>(`/api/v1/offers/${id}`, cookieHeader),
+      apiServer<{ revisions: OfferRevision[] }>(`/api/v1/offers/${id}/revisions`, cookieHeader),
+      apiServer<{ share_links: OfferShareLink[] }>(`/api/v1/offers/${id}/share-links`, cookieHeader),
+      apiServer<{ events: OfferEvent[] }>(`/api/v1/offers/${id}/events`, cookieHeader),
+      apiServer<{ email_logs: OfferEmailLog[] }>(`/api/v1/offers/${id}/email-logs`, cookieHeader),
+    ])
+  );
   const revisionNoById: Record<string, number> = Object.fromEntries(
     revisions.map((r) => [r.id, r.revision_no])
   );

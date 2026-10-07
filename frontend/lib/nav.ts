@@ -50,6 +50,11 @@ const ADMIN_ITEMS: GatedNavItem[] = [
   { href: "/admin/tedarikciler", label: "Tedarikçiler", permission: PAGE_PERMISSIONS.suppliers },
   { href: "/admin/firma-ayarlari", label: "Firma Ayarları" },
   { href: "/admin/ayarlar", label: "Ayarlar", permission: PAGE_PERMISSIONS.smtpSettings },
+  // Kendi şifresini değiştirme sayfası (PATCH /users/me/password) -- (panel)
+  // kabuğunda ama Sahip/Yönetici'ye de açık; eskiden menüde yalnızca
+  // kullanici görüyordu, yöneticiler şifresini nereden değiştireceğini
+  // bulamıyordu.
+  { href: "/panel/profil", label: "Profilim" },
 ];
 
 // Yönetim bölümlerinden yalnızca izne bağlı olanlar (lib/route-policy.ts

@@ -86,7 +86,13 @@ describe("getNavItems — Roller & Yetkiler izin süzmesi", () => {
 
   it("Firma Ayarları backend'de yalnızca kaba requireAdmin ile korunur: izin kümesinden bağımsız görünür", () => {
     const hrefs = getNavItems("admin", []).map((i) => i.href);
-    assert.deepEqual(hrefs, ["/admin", "/admin/firma-ayarlari"]);
+    assert.deepEqual(hrefs, ["/admin", "/admin/firma-ayarlari", "/panel/profil"]);
+  });
+
+  it("Sahip/Yönetici de Profilim'i (şifre değiştirme) her zaman görür ve oraya yönlendirilmeden girer", () => {
+    const hrefs = getNavItems("admin", ALL_PAGE_PERMISSIONS).map((i) => i.href);
+    assert.ok(hrefs.includes("/panel/profil"));
+    assert.equal(resolveRoleRedirect("/panel/profil", "admin"), null);
   });
 
   it("döndürülen öğeler dahili izin alanını SIZDIRMAZ (Sidebar'a yalnızca href/label gider)", () => {

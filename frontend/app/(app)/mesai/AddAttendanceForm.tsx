@@ -6,33 +6,50 @@ import { FormEvent, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { useToast } from "@/components/ui/Toast";
 import { apiClient, ApiError } from "@/lib/api";
+import { initialTimes, resolveWorkHours, statusHasHours } from "@/lib/attendance";
+import { istanbulDate } from "@/lib/format";
 import type { AttendanceLog, AttendanceStatus, Employee } from "@/lib/types";
+
+import { AttendanceTimeFields } from "./AttendanceTimeFields";
 
 const STATUSES: AttendanceStatus[] = ["geldi", "yarım gün", "gelmedi", "izinli"];
 
+// "Bugün" İstanbul takvim günüdür (UTC değil: 00:00-03:00 arası dünü
+// önermesin). Puantaj ileri tarihe girilmez.
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return istanbulDate(new Date());
 }
 
 export function AddAttendanceForm({ employees }: { employees: Employee[] }) {
   const router = useRouter();
+  const toast = useToast();
   const [form, setForm] = useState({
     employee_id: employees[0]?.id ?? "",
     date: todayISO(),
-    check_in: "",
-    check_out: "",
-    work_hours: "",
     status: "geldi" as AttendanceStatus,
     note: "",
   });
+  const [times, setTimes] = useState(() => initialTimes());
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const hasHours = statusHasHours(form.status);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!form.employee_id) {
       setError("Önce aktif personel eklemelisiniz.");
+      return;
+    }
+    if (form.date > todayISO()) {
+      setError("İleri bir tarihe mesai girilemez.");
+      return;
+    }
+    const workHours = hasHours ? resolveWorkHours(times) : 0;
+    if (hasHours && !(workHours > 0 && workHours <= 24)) {
+      setError("Çalışılan saat 0 ile 24 arasında olmalı; giriş-çıkış saatlerini ya da saati kontrol edin.");
       return;
     }
     setError(null);
@@ -43,14 +60,18 @@ export function AddAttendanceForm({ employees }: { employees: Employee[] }) {
         body: JSON.stringify({
           employee_id: form.employee_id,
           date: form.date,
-          check_in: form.check_in,
-          check_out: form.check_out,
-          work_hours: form.work_hours ? parseFloat(form.work_hours) : 0,
+          // Gelmedi/izinli günde giriş-çıkış ve saat anlamsız (mobil ile aynı).
+          check_in: hasHours ? times.check_in : "",
+          check_out: hasHours ? times.check_out : "",
+          work_hours: workHours,
           status: form.status,
           note: form.note,
         }),
       });
-      setForm({ ...form, check_in: "", check_out: "", work_hours: "", note: "" });
+      const name = employees.find((emp) => emp.id === form.employee_id)?.full_name;
+      toast.success(`${name ? `${name} için ` : ""}${form.date} mesai kaydı eklendi.`);
+      setForm({ ...form, note: "" });
+      setTimes(initialTimes());
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
@@ -83,6 +104,7 @@ export function AddAttendanceForm({ employees }: { employees: Employee[] }) {
             label="Tarih"
             type="date"
             required
+            max={todayISO()}
             value={form.date}
             onChange={(e) => setForm({ ...form, date: e.target.value })}
           />
@@ -102,27 +124,7 @@ export function AddAttendanceForm({ employees }: { employees: Employee[] }) {
               ))}
             </select>
           </div>
-          <Input
-            label="Giriş"
-            type="time"
-            value={form.check_in}
-            onChange={(e) => setForm({ ...form, check_in: e.target.value })}
-          />
-          <Input
-            label="Çıkış"
-            type="time"
-            value={form.check_out}
-            onChange={(e) => setForm({ ...form, check_out: e.target.value })}
-          />
-          <Input
-            label="Saat"
-            type="number"
-            step="0.5"
-            min={0}
-            className="w-20"
-            value={form.work_hours}
-            onChange={(e) => setForm({ ...form, work_hours: e.target.value })}
-          />
+          {hasHours && <AttendanceTimeFields value={times} onChange={setTimes} idPrefix="new_attendance" />}
           <Input
             label="Not"
             className="w-40"

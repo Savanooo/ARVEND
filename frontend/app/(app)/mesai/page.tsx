@@ -9,7 +9,7 @@ import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import { requirePagePermission } from "@/lib/auth";
-import { formatTL } from "@/lib/format";
+import { formatTL, istanbulDate } from "@/lib/format";
 import { hasPermission, PAGE_PERMISSIONS } from "@/lib/permissions";
 import type {
   AttendanceLog,
@@ -60,9 +60,10 @@ function shiftMonth(month: string, delta: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+// İstanbul'un ayı -- sunucu saati UTC olsa da ayın ilk gecesi 00:00-03:00
+// arası geçen ay açılmasın.
 function currentMonth(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  return istanbulDate(new Date()).slice(0, 7);
 }
 
 // Personel listesi YALNIZCA "Mesai Ekle" formunun personel seçicisi içindir

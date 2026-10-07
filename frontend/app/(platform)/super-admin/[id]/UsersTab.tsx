@@ -59,6 +59,10 @@ export function UsersTab({
   const [filter, setFilter] = useState<ViewFilter>("active");
 
   const base = `/api/v1/platform/organizations/${organization.id}/users`;
+  // Silinmiş firmada backend HER kullanıcı işlemini 409 ile reddeder
+  // (PlatformService.requireLiveOrganization): işlemler gizlenir, önce firma
+  // Genel sekmesinden geri yüklenmelidir. Listeler salt okunur kalır.
+  const orgDeleted = Boolean(organization.deleted_at);
 
   const visibleUsers = useMemo(() => {
     if (filter === "deleted") return deletedUsers;
@@ -131,12 +135,21 @@ export function UsersTab({
         <p className="text-xs text-text-muted">
           {users.length} kullanıcı · {activeOwnerCount} aktif Sahip
         </p>
-        <Button type="button" onClick={() => setModal({ kind: "provision" })}>
-          + Kullanıcı Oluştur
-        </Button>
+        {!orgDeleted && (
+          <Button type="button" onClick={() => setModal({ kind: "provision" })}>
+            + Kullanıcı Oluştur
+          </Button>
+        )}
       </div>
 
-      {activeOwnerCount === 0 && (
+      {orgDeleted && (
+        <div className="rounded-md border border-danger/40 bg-danger/5 px-4 py-3 text-sm">
+          Bu firma <strong>silinmiş</strong>; kullanıcılar yalnızca görüntülenebilir. Kullanıcı oluşturmak, rol/şifre
+          değiştirmek, pasife almak, silmek veya geri yüklemek için önce firmayı Genel sekmesinden geri yükleyin.
+        </div>
+      )}
+
+      {activeOwnerCount === 0 && !orgDeleted && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-danger/40 bg-danger/5 px-4 py-3 text-sm">
           <span>
             Bu firmanın <strong>aktif bir Sahibi yok</strong>. Firma ayarlarını ve kullanıcılarını yönetebilmesi için bir
@@ -223,7 +236,7 @@ export function UsersTab({
                     )}
                   </Td>
                   <Td className="text-right">
-                    {deleted ? (
+                    {orgDeleted ? null : deleted ? (
                       <Button
                         type="button"
                         variant="secondary"

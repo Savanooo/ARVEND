@@ -49,6 +49,11 @@ export function MetrajHesaplaPanel({
   const [width, setWidth] = useState("");
   const [height, setHeight] = useState("");
   const [area, setArea] = useState("");
+  // Çevre (m): çevreye bağlı reçete kalemleri (perimeter_based) için.
+  // En × Boy modunda boşsa backend en/boydan hesaplar; Doğrudan Alan
+  // modunda girilmezse o kalemler 0 çıkar ve teklife eklenmez (mobil ile
+  // aynı alan).
+  const [perimeter, setPerimeter] = useState("");
   const [pitchDeg, setPitchDeg] = useState("");
   const [sectionLabel, setSectionLabel] = useState("");
   const [result, setResult] = useState<CalcRunResult | null>(null);
@@ -84,6 +89,7 @@ export function MetrajHesaplaPanel({
     setWidth("");
     setHeight("");
     setArea("");
+    setPerimeter("");
     setPitchDeg("");
     setSectionLabel("");
     setResult(null);
@@ -126,6 +132,11 @@ export function MetrajHesaplaPanel({
       setError("En ve Boy girin.");
       return;
     }
+    const perimeterValue = perimeter.trim().replace(",", ".");
+    if (perimeterValue && !(Number(perimeterValue) > 0)) {
+      setError("Çevre (m) sıfırdan büyük bir sayı olmalı.");
+      return;
+    }
     setCalculating(true);
     setError(null);
     try {
@@ -136,6 +147,7 @@ export function MetrajHesaplaPanel({
         body.width = width.trim().replace(",", ".");
         body.height = height.trim().replace(",", ".");
       }
+      if (perimeterValue) body.perimeter = perimeterValue;
       if (showPitch && pitchDeg.trim()) body.pitch_deg = pitchDeg.trim().replace(",", ".");
       const res = await apiClient<CalcRunResult>("/api/v1/calculations/run", {
         method: "POST",
@@ -268,6 +280,15 @@ export function MetrajHesaplaPanel({
                 onChange={(e) => setArea(e.target.value)}
               />
             )}
+            <Input
+              label="Çevre (m)"
+              type="number"
+              step="0.01"
+              min={0}
+              placeholder={mode === "olcu" ? "Boşsa En × Boy'dan" : "opsiyonel"}
+              value={perimeter}
+              onChange={(e) => setPerimeter(e.target.value)}
+            />
             {showPitch && (
               <Input
                 label="Çatı Eğimi (°)"
@@ -286,6 +307,11 @@ export function MetrajHesaplaPanel({
               onChange={(e) => setSectionLabel(e.target.value)}
             />
           </div>
+
+          <p className="text-xs text-text-muted">
+            Çevre opsiyoneldir: En × Boy modunda boş bırakılırsa en ve boydan hesaplanır; Doğrudan
+            Alan modunda çevreye bağlı kalemler (süpürgelik, köşe profili vb.) için girilmelidir.
+          </p>
 
           <Button type="button" onClick={handleCalculate} loading={calculating} className="w-fit">
             Hesapla

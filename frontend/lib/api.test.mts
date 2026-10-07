@@ -120,9 +120,9 @@ describe("apiClient oturum yenileme", () => {
     assert.equal(assign.mock.callCount(), 0);
   });
 
-  it("refresh 401 dönerse /giris'e yönlendirir, retry yapmaz", async (t) => {
+  it("refresh 401 dönerse istek bir kez yeniden denenir, o da 401 ise /giris?next=... (ikinci refresh yok)", async (t) => {
     const { calls, impl } = scriptedFetch({
-      "/api/v1/offers": [unauthorized],
+      "/api/v1/offers": [unauthorized, unauthorized],
       [REFRESH]: [json(401, { error: "refresh token yok" })],
     });
     t.mock.method(globalThis, "fetch", impl);
@@ -134,21 +134,85 @@ describe("apiClient oturum yenileme", () => {
     });
     assert.deepEqual(
       calls.map((c) => c.path),
-      ["/api/v1/offers", REFRESH]
+      ["/api/v1/offers", REFRESH, "/api/v1/offers"]
     );
     assert.equal(assign.mock.callCount(), 1);
-    assert.deepEqual(assign.mock.calls[0].arguments, ["/giris"]);
+    assert.deepEqual(assign.mock.calls[0].arguments, ["/giris?next=%2Fteklifler"]);
   });
 
-  it("refresh 403 (pasif kullanıcı) da /giris akışına gider", async (t) => {
-    const { impl } = scriptedFetch({
+  it("refresh yarışı kaybedilse de çerezler başka yerde yenilendiyse oturum düşmez", async (t) => {
+    // Başka bir sekme / sunucu tarafı yenileme aynı refresh token'ı önce
+    // harcadı: bizim refresh 401 alır ama tarayıcıdaki çerezler artık yeni.
+    const { calls, impl } = scriptedFetch({
+      "/api/v1/offers": [unauthorized, json(200, { offers: [] })],
+      [REFRESH]: [json(401, { error: "oturum geçersiz veya süresi dolmuş" })],
+    });
+    t.mock.method(globalThis, "fetch", impl);
+
+    assert.deepEqual(await apiClient("/api/v1/offers"), { offers: [] });
+    assert.equal(calls.length, 3);
+    assert.equal(assign.mock.callCount(), 0);
+  });
+
+  it("refresh 403 (pasif kullanıcı) doğrudan /giris akışına gider, tekrar denemez", async (t) => {
+    const { calls, impl } = scriptedFetch({
       "/api/v1/offers": [unauthorized],
       [REFRESH]: [json(403, { error: "kullanıcı pasif durumda" })],
     });
     t.mock.method(globalThis, "fetch", impl);
 
     await assert.rejects(apiClient("/api/v1/offers"), ApiError);
+    assert.equal(calls.length, 2);
     assert.equal(assign.mock.callCount(), 1);
+  });
+
+  it("başka sekme istek gönderildikten SONRA yenilediyse refresh tekrar harcanmaz", async (t) => {
+    const store = new Map<string, string>();
+    (globalThis as { window?: unknown }).window = {
+      location: { pathname: "/teklifler", assign },
+      localStorage: {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => void store.set(k, v),
+      },
+    };
+    const { calls, impl } = scriptedFetch({
+      "/api/v1/offers": [
+        () => {
+          // İstek yoldayken diğer sekme refresh'i tamamladı.
+          store.set("arvend:session-refreshed-at", String(Date.now() + 1));
+          return unauthorized();
+        },
+        json(200, { offers: [] }),
+      ],
+    });
+    t.mock.method(globalThis, "fetch", impl);
+
+    assert.deepEqual(await apiClient("/api/v1/offers"), { offers: [] });
+    assert.deepEqual(
+      calls.map((c) => c.path),
+      ["/api/v1/offers", "/api/v1/offers"],
+      "refresh çağrılmadan yalnızca istek tekrarlanır"
+    );
+  });
+
+  it("başarılı refresh diğer sekmeler için zaman damgası bırakır", async (t) => {
+    const store = new Map<string, string>();
+    (globalThis as { window?: unknown }).window = {
+      location: { pathname: "/teklifler", assign },
+      localStorage: {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => void store.set(k, v),
+      },
+    };
+    const { impl } = scriptedFetch({
+      "/api/v1/offers": [unauthorized, json(200, { offers: [] })],
+      [REFRESH]: [json(200, { id: "u1" })],
+    });
+    t.mock.method(globalThis, "fetch", impl);
+
+    const before = Date.now();
+    await apiClient("/api/v1/offers");
+    assert.ok(Number(store.get("arvend:session-refreshed-at")) >= before);
   });
 
   it("retry de 401 dönerse ikinci bir refresh başlatılmaz (sonsuz döngü yok)", async (t) => {
@@ -228,13 +292,50 @@ describe("apiClient oturum yenileme", () => {
       location: { pathname: "/giris", assign },
     };
     const { impl } = scriptedFetch({
-      "/api/v1/offers": [unauthorized],
+      "/api/v1/offers": [unauthorized, unauthorized],
       [REFRESH]: [json(401, { error: "refresh token yok" })],
     });
     t.mock.method(globalThis, "fetch", impl);
 
     await assert.rejects(apiClient("/api/v1/offers"), ApiError);
     assert.equal(assign.mock.callCount(), 0);
+  });
+
+  it("JSON olmayan hata gövdesi (502 HTML) SyntaxError değil ApiError olur", async (t) => {
+    const { impl } = scriptedFetch({
+      "/api/v1/offers": [() => new Response("<html>Bad Gateway</html>", { status: 502 })],
+    });
+    t.mock.method(globalThis, "fetch", impl);
+
+    await assert.rejects(apiClient("/api/v1/offers"), (err: unknown) => {
+      assert.ok(err instanceof ApiError);
+      assert.equal(err.status, 502);
+      assert.match(err.message, /ulaşılamıyor/);
+      return true;
+    });
+  });
+
+  it("JSON olmayan 4xx gövdesinde genel mesaj, JSON hata gövdesinde backend mesajı", async (t) => {
+    const { impl } = scriptedFetch({
+      "/api/v1/offers": [
+        () => new Response("not found", { status: 404 }),
+        json(404, { error: "kayıt bulunamadı" }),
+      ],
+    });
+    t.mock.method(globalThis, "fetch", impl);
+
+    await assert.rejects(apiClient("/api/v1/offers"), { name: "Error", message: "Beklenmeyen bir hata oluştu" });
+    await assert.rejects(apiClient("/api/v1/offers"), { message: "kayıt bulunamadı" });
+  });
+
+  it("2xx ama JSON olmayan gövde ApiError olur, boş gövde null döner", async (t) => {
+    const { impl } = scriptedFetch({
+      "/api/v1/offers": [() => new Response("<html></html>", { status: 200 }), () => new Response(null, { status: 204 })],
+    });
+    t.mock.method(globalThis, "fetch", impl);
+
+    await assert.rejects(apiClient("/api/v1/offers"), ApiError);
+    assert.equal(await apiClient("/api/v1/offers"), null);
   });
 
   it("fetchWithSession multipart gövdeyi tekrar gönderebilir (upload yolu)", async (t) => {
