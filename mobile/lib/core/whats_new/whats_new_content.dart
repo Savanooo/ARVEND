@@ -57,6 +57,13 @@ const kWhatsNewReleases = <WhatsNewRelease>[
         // (offers.create taşıyan varsayılan rollerin hepsinde var).
         permission: 'offers.create',
       ),
+      WhatsNewItem(
+        icon: Icons.badge_outlined,
+        title: 'Kişi tek kayıt',
+        body: 'Yeni kullanıcı açınca personel kaydı da açılır; görev atayınca bildirim doğrudan telefonuna gider.',
+        // Kullanıcı açabilen görür (Kişiler > Yeni Kullanıcı).
+        permission: 'organization.users.manage',
+      ),
     ],
   ),
   // Masrafı herkes girer, onayı en üst yönetim verir (backend migration

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -19,12 +20,13 @@ import (
 type UserService struct {
 	pool *pgxpool.Pool
 	q    *sqlc.Queries
+	now  func() time.Time
 }
 
 // pool: pasifleştirme/şifre sıfırlama gibi birden çok yazımın (ve son-Sahip
 // kilidinin, bkz. guardLastActiveOwner) tek transaction'da yapılması için.
 func NewUserService(pool *pgxpool.Pool, q *sqlc.Queries) *UserService {
-	return &UserService{pool: pool, q: q}
+	return &UserService{pool: pool, q: q, now: time.Now}
 }
 
 type ListResult struct {
@@ -82,12 +84,13 @@ func (s *UserService) Get(ctx context.Context, id, organizationID string) (*doma
 	return &u, nil
 }
 
-// Create iki farklı çağıran arasında PAYLAŞILIR: cmd/api'nin SEED_ADMIN_*
-// bootstrap yolu (organizationRoleCode="" verir, aşağıdaki ESKİ varsayım
-// zincirine düşer -- organization_roles henüz seed edilmemiş olabileceği
-// bir bootstrap anıdır, bu yüzden BİLEREK dokunulmadı) ve tenant self-servis
-// "Yeni Kullanıcı" HTTP ucu (organizationRoleCode HER ZAMAN dolu verir, bkz.
-// UserHandler.Create). organizationRoleCode dolu olduğunda `role` parametresi
+// Create, cmd/api'nin SEED_ADMIN_* bootstrap yolu (organizationRoleCode=""
+// verir, aşağıdaki ESKİ varsayım zincirine düşer -- organization_roles henüz
+// seed edilmemiş olabileceği bir bootstrap anıdır, bu yüzden BİLEREK
+// dokunulmadı) ve testlerin hesap açma yardımcısıdır. Personel kaydı AÇMAZ
+// (bkz. user_employee_link.go "kapsam dışı"): tenant "Yeni Kullanıcı" ucu
+// artık CreateMember'ın kendi transaction'ından geçer (hesap + rol +
+// personel birlikte). organizationRoleCode dolu olduğunda `role` parametresi
 // YOK SAYILIR -- kaba users.role, seçilen organizasyon rolünden TÜRETİLİR
 // (coarseRoleForOrgRole, tam olarak PlatformService.ProvisionOrganizationUser
 // ile AYNI desen), "legacy_user" bir atama HEDEFİ olarak KESİNLİKLE reddedilir
@@ -194,15 +197,89 @@ func (s *UserService) Create(ctx context.Context, organizationID, username, pass
 // Sahip rolüyle kullanıcı açmak yalnızca bir Sahip'in işidir -- aksi hâlde
 // bir Yönetici kendine ikinci bir Sahip hesabı açıp asıl Sahibi
 // düşürebilirdi (bkz. domain.ErrOwnerOnlyAction).
-func (s *UserService) CreateMember(ctx context.Context, organizationID, actorUserID, username, password, fullName, organizationRoleCode string) (*domain.User, error) {
+//
+// Hesap, rolü ve personel kaydı ("kişi = tek kayıt", bkz.
+// user_employee_link.go) TEK transaction'da yazılır: hesap açılıp personel
+// adımı yarıda kalırsa aynı kişi yine iki ilgisiz kayıt olurdu. Bu yüzden
+// Create'in bootstrap'a özgü "rol bulunamazsa yine de aç" esnekliği burada
+// yok -- organizationRoleCode zorunlu (uç da zaten zorunlu tutuyor).
+func (s *UserService) CreateMember(ctx context.Context, organizationID, actorUserID, username, password, fullName, organizationRoleCode string, personnel PersonnelOptions) (*domain.User, *EmployeeLinkResult, error) {
 	orgID, err := repository.StringToUUID(organizationID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, nil, domain.ErrNotFound
 	}
-	if err := guardOwnerOnlyAction(ctx, s.q, actorUserID, pgtype.UUID{}, orgID, organizationRoleCode); err != nil {
-		return nil, err
+	username = strings.TrimSpace(username)
+	fullName = strings.TrimSpace(fullName)
+	organizationRoleCode = strings.TrimSpace(organizationRoleCode)
+	if username == "" || password == "" || fullName == "" {
+		return nil, nil, errors.New("kullanıcı adı, şifre ve ad soyad zorunludur")
 	}
-	return s.Create(ctx, organizationID, username, password, fullName, "", organizationRoleCode)
+	if organizationRoleCode == "" {
+		return nil, nil, errors.New("organizasyon rolü zorunludur")
+	}
+	if !domain.ValidPasswordLength(password) {
+		return nil, nil, domain.ErrPasswordTooShort
+	}
+	if organizationRoleCode == domain.OrgRoleLegacyUser {
+		return nil, nil, domain.ErrRoleNotAssignable
+	}
+	// bcrypt transaction'ı açık tutmasın diye önce.
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	if err := guardOwnerOnlyAction(ctx, txq, actorUserID, pgtype.UUID{}, orgID, organizationRoleCode); err != nil {
+		return nil, nil, err
+	}
+	orgRole, err := txq.GetOrganizationRoleByCode(ctx, sqlc.GetOrganizationRoleByCodeParams{
+		OrganizationID: orgID, Code: organizationRoleCode,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, domain.ErrNotFound
+		}
+		return nil, nil, err
+	}
+	row, err := txq.CreateUser(ctx, sqlc.CreateUserParams{
+		OrganizationID: orgID,
+		Username:       username,
+		PasswordHash:   hash,
+		FullName:       fullName,
+		Role:           string(coarseRoleForOrgRole(orgRole.Code)),
+	})
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation
+			return nil, nil, domain.ErrDuplicateUsername
+		}
+		return nil, nil, err
+	}
+	row, err = txq.UpdateUserOrganizationRole(ctx, sqlc.UpdateUserOrganizationRoleParams{
+		ID: row.ID, OrganizationID: orgID, OrganizationRoleID: orgRole.ID,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	link, err := attachEmployeeToNewUser(ctx, txq, orgID, row, personnel, istanbulToday(s.now()), actorUserID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, err
+	}
+	u := repository.ToDomainUser(row)
+	u.OrganizationRoleCode = orgRole.Code
+	u.OrganizationRoleName = orgRole.Name
+	applyLinkedEmployee(&u, link)
+	return &u, link, nil
 }
 
 // Update, kullanıcının profilini (ad soyad + aktiflik) değiştirir. Kaba
@@ -258,10 +335,11 @@ func (s *UserService) Update(ctx context.Context, id, organizationID, actorUserI
 		// AYNI kural; bu, tenant tarafının reaktivasyon yoludur).
 		return nil, domain.ErrUserDeleted
 	}
+	fullName = strings.TrimSpace(fullName)
 	row, err := txq.UpdateUserProfile(ctx, sqlc.UpdateUserProfileParams{
 		ID:             uid,
 		OrganizationID: orgID,
-		FullName:       strings.TrimSpace(fullName),
+		FullName:       fullName,
 		IsActive:       isActive,
 	})
 	if err != nil {
@@ -271,9 +349,19 @@ func (s *UserService) Update(ctx context.Context, id, organizationID, actorUserI
 		return nil, err
 	}
 	if !isActive {
+		// Personel kaydına BİLEREK dokunulmaz (ne silinir ne bağı koparılır
+		// ne pasife alınır): pasif hesap "uygulamaya giremez" demektir,
+		// "işten ayrıldı" değil -- yevmiyeli çalışmaya devam eden birinin
+		// hesabı kapatılabilir. Mesai/maaş geçmişi personelde kalır; bağ
+		// durduğu için hesap yeniden açılınca kişi yine tek kayıttır.
+		// Görev seçicisi pasif hesabı zaten "uygulaması yok" sayar
+		// (ListProjectAssignees: u.is_active).
 		if err := endUserAccess(ctx, txq, uid); err != nil {
 			return nil, err
 		}
+	}
+	if err := syncLinkedEmployeeName(ctx, txq, uid, orgID, current.FullName, fullName); err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -470,4 +558,32 @@ func (s *UserService) Deactivate(ctx context.Context, id, organizationID, actorU
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// syncLinkedEmployeeName: hesabın adı değişince bağlı personelin adı da
+// değişir -- YALNIZCA ikisi önceden aynı addaysa (domain.SamePersonName).
+// Aynıysalar ikisi tek kişinin tek adıdır; birini düzeltip diğerini eski
+// bırakmak "kişi = tek kayıt"ı bozardı. Farklıysalar (hesap "batu",
+// personel "Batuhan İnci") fark bilinçlidir -- personel adı bordroda/mesai
+// listesinde resmî ad olarak durur, kısa hesap adı onu ezmemeli.
+//
+// Ters yön (personel adı -> hesap adı) BİLEREK yok: personeli düzenlemek
+// employees.manage ister, hesabı düzenlemek Sahip/Yönetici'ye özel
+// (organization.users.manage + requireAdmin); personel ekranı hesap
+// verisini değiştirmemeli.
+func syncLinkedEmployeeName(ctx context.Context, txq *sqlc.Queries, uid, orgID pgtype.UUID, oldName, newName string) error {
+	if oldName == newName || newName == "" {
+		return nil
+	}
+	emp, err := txq.GetEmployeeByUserID(ctx, sqlc.GetEmployeeByUserIDParams{UserID: uid, OrganizationID: orgID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if !domain.SamePersonName(emp.FullName, oldName) || emp.FullName == newName {
+		return nil
+	}
+	return txq.UpdateEmployeeFullName(ctx, sqlc.UpdateEmployeeFullNameParams{ID: emp.ID, OrganizationID: orgID, FullName: newName})
 }

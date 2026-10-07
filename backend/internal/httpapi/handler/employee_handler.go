@@ -35,13 +35,22 @@ type employeeResponse struct {
 	// web alanının okuma yönü, bkz. docs/... GET /tasks/mine'ın tek
 	// kaynağı (migration 0041).
 	UserID *string `json:"user_id"`
+	// UserUsername/UserIsActive/UserDeleted: bağlı giriş hesabının özeti
+	// (personel ekranında bağ görünsün diye). YALNIZCA kullanıcı listesini
+	// görebilene (organization.users.read) döner: hesap listesi Sahip/
+	// Yönetici'ye özel, personel listesi ise mesai giren herkese açık --
+	// personel ekranı hesap adlarını o sınırın dışına taşımamalı. Diğerleri
+	// yalnızca user_id'den "hesabı var" bilgisini alır.
+	UserUsername *string `json:"user_username,omitempty"`
+	UserIsActive *bool   `json:"user_is_active,omitempty"`
+	UserDeleted  bool    `json:"user_deleted,omitempty"`
 }
 
 // toEmployeeResponse: ücretler (maaş/yevmiye) yalnızca employees.manage
 // sahibine döner. employees.read mesai girişi için de verilir ve kişiye
 // özel yetkilerle Sahip/Yönetici dışındaki üyelere açılabilir -- personel
 // listesini görmek maaşları görmek anlamına gelmemeli.
-func toEmployeeResponse(e domain.Employee, showWages bool) employeeResponse {
+func toEmployeeResponse(e domain.Employee, showWages bool, showLogin bool) employeeResponse {
 	resp := employeeResponse{
 		ID:          e.ID,
 		FullName:    e.FullName,
@@ -55,6 +64,12 @@ func toEmployeeResponse(e domain.Employee, showWages bool) employeeResponse {
 		resp.Salary = e.Salary
 		resp.DailyWage = e.DailyWage
 	}
+	if showLogin && e.UserID != nil && e.LoginUsername != "" {
+		username, active := e.LoginUsername, e.LoginActive
+		resp.UserUsername = &username
+		resp.UserIsActive = &active
+		resp.UserDeleted = e.LoginDeleted
+	}
 	if e.StartDate != nil {
 		s := e.StartDate.Format("2006-01-02")
 		resp.StartDate = &s
@@ -65,6 +80,11 @@ func toEmployeeResponse(e domain.Employee, showWages bool) employeeResponse {
 func canSeeEmployeeWages(r *http.Request) bool {
 	authz, ok := middleware.AuthzContextFromRequest(r.Context())
 	return ok && authz.HasPermission(domain.PermEmployeesManage)
+}
+
+func canSeeEmployeeLogins(r *http.Request) bool {
+	authz, ok := middleware.AuthzContextFromRequest(r.Context())
+	return ok && authz.HasPermission(domain.PermOrganizationUsersRead)
 }
 
 func (h *EmployeeHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -83,10 +103,10 @@ func (h *EmployeeHandler) List(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusInternalServerError, "personel listesi alınamadı")
 		return
 	}
-	showWages := canSeeEmployeeWages(r)
+	showWages, showLogins := canSeeEmployeeWages(r), canSeeEmployeeLogins(r)
 	out := make([]employeeResponse, len(employees))
 	for i, e := range employees {
-		out[i] = toEmployeeResponse(e, showWages)
+		out[i] = toEmployeeResponse(e, showWages, showLogins)
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"employees": out})
 }
@@ -98,7 +118,37 @@ func (h *EmployeeHandler) Get(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toEmployeeResponse(*e, canSeeEmployeeWages(r)))
+	httpjson.Write(w, http.StatusOK, toEmployeeResponse(*e, canSeeEmployeeWages(r), canSeeEmployeeLogins(r)))
+}
+
+// LinkSuggestions, GET /employees/link-suggestions -- personel kaydı
+// olmayan hesaplar ile bağlantısız personelin BİREBİR aynı adı taşıdığı
+// çiftler (bkz. service.EmployeeService.LinkSuggestions). Hiçbir şeyi
+// bağlamaz; yönetici öneriyi onaylarsa istemci PUT /employees/{id} ile
+// bağlar.
+func (h *EmployeeHandler) LinkSuggestions(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	rows, err := h.svc.LinkSuggestions(r.Context(), orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	type suggestion struct {
+		UserID           string `json:"user_id"`
+		Username         string `json:"username"`
+		UserFullName     string `json:"user_full_name"`
+		EmployeeID       string `json:"employee_id"`
+		EmployeeFullName string `json:"employee_full_name"`
+		EmployeePosition string `json:"employee_position"`
+	}
+	out := make([]suggestion, len(rows))
+	for i, s := range rows {
+		out[i] = suggestion{
+			UserID: s.UserID, Username: s.Username, UserFullName: s.UserFullName,
+			EmployeeID: s.EmployeeID, EmployeeFullName: s.EmployeeName, EmployeePosition: s.EmployeePosition,
+		}
+	}
+	httpjson.Write(w, http.StatusOK, map[string]any{"suggestions": out})
 }
 
 type upsertEmployeeRequest struct {
@@ -156,7 +206,7 @@ func (h *EmployeeHandler) Create(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusCreated, toEmployeeResponse(*e, canSeeEmployeeWages(r)))
+	httpjson.Write(w, http.StatusCreated, toEmployeeResponse(*e, canSeeEmployeeWages(r), canSeeEmployeeLogins(r)))
 }
 
 func (h *EmployeeHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -177,7 +227,7 @@ func (h *EmployeeHandler) Update(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toEmployeeResponse(*e, canSeeEmployeeWages(r)))
+	httpjson.Write(w, http.StatusOK, toEmployeeResponse(*e, canSeeEmployeeWages(r), canSeeEmployeeLogins(r)))
 }
 
 func (h *EmployeeHandler) Archive(w http.ResponseWriter, r *http.Request) {

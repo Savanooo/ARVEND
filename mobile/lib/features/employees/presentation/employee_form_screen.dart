@@ -235,11 +235,15 @@ class _EmployeeFormBodyState extends ConsumerState<_EmployeeFormBody> {
 
     if (wasCreate) {
       try {
+        // Personeli bu form kendisi açıp hesabı ona bağlıyor: sunucu hesapla
+        // birlikte ayrıca bir personel açmasın / aynı adlı başka bir kayda
+        // bağlamasın.
         final created = await accessRepo.createUser(
           username: _username.text.trim(),
           password: _password.text,
           fullName: _fullName.text.trim(),
           organizationRoleCode: access.roleCode,
+          createEmployee: false,
         );
         userId = created.id;
         roleBaseline = access.roleCode;
@@ -435,7 +439,10 @@ class _EmployeeFormBodyState extends ConsumerState<_EmployeeFormBody> {
                 for (final u in users)
                   DropdownMenuItem(
                     value: u.id,
-                    child: Text('${u.fullName} (${u.username})', overflow: TextOverflow.ellipsis),
+                    child: Text(
+                      userOptionLabel(u, selfEmployeeId: widget.existing?.id),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
               ],
               onChanged: _submitting ? null : (v) => setState(() => _linkedUserId = v ?? ''),
@@ -559,7 +566,7 @@ class _EmployeeFormBodyState extends ConsumerState<_EmployeeFormBody> {
             for (final u in known)
               DropdownMenuItem(
                 value: u.id,
-                child: Text('${u.fullName} (${u.username})', overflow: TextOverflow.ellipsis),
+                child: Text(userOptionLabel(u), overflow: TextOverflow.ellipsis),
               ),
           ],
           onChanged: _submitting ? null : (v) => _selectExisting(v ?? '', canReadAccess: canReadAccess),
@@ -671,4 +678,15 @@ class _DateField extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Hesap seçicisinin satırı: hesap BAŞKA bir personel kaydına bağlıysa
+/// hangisine bağlı olduğu da yazılır -- seçmek o bağı taşır (sunucu yalnızca
+/// hesapla otomatik açılmış boş kaydı kendiliğinden kaldırır; kullanılmış
+/// kayıtta 409 ile hangi personel olduğunu söyler).
+String userOptionLabel(OrgUser u, {String? selfEmployeeId}) {
+  final base = '${u.fullName} (${u.username})';
+  final other = u.employeeId;
+  if (other == null || other == selfEmployeeId) return base;
+  return '$base · personel: ${u.employeeFullName.isEmpty ? 'başka kayıt' : u.employeeFullName}';
 }

@@ -164,11 +164,15 @@ class _CreateLoginFormState extends ConsumerState<_CreateLoginForm> {
     var created = _created;
     if (created == null) {
       try {
+        // Hesap BU personele, hesapla aynı işlemde bağlanır (employee_id):
+        // sunucu kendi kuralıyla yeni bir personel açmaz ya da aynı adlı
+        // başka bir kayda bağlamaz.
         created = await accessRepo.createUser(
           username: _username.text.trim(),
           password: _password.text,
           fullName: e.fullName,
           organizationRoleCode: access.roleCode,
+          employeeId: e.id,
         );
         _created = created;
         _createdRoleCode = access.roleCode;
@@ -185,9 +189,12 @@ class _CreateLoginFormState extends ConsumerState<_CreateLoginForm> {
     }
 
     try {
-      // Kayıt employees.manage ile okundu -> ücretler dolu gelir ve aynen
-      // geri yazılır (backend tam-güncelleme yapar).
-      await employeesRepo.update(e.id, EmployeeInput.fromRecord(e, userId: created.id));
+      // Sunucu bağı onayladıysa ikinci istek gerekmez. Onaylamadıysa (eski
+      // sunucu) eski yol: kayıt employees.manage ile okundu -> ücretler dolu
+      // gelir ve aynen geri yazılır (backend tam-güncelleme yapar).
+      if (created.employeeId != e.id) {
+        await employeesRepo.update(e.id, EmployeeInput.fromRecord(e, userId: created.id));
+      }
     } on ApiException catch (err) {
       if (mounted) {
         setState(() {

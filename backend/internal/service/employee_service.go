@@ -91,11 +91,36 @@ func (s *EmployeeService) List(ctx context.Context, organizationID string, activ
 	if err != nil {
 		return nil, err
 	}
+	logins, err := s.q.ListEmployeeLogins(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	byEmployee := make(map[pgtype.UUID]sqlc.ListEmployeeLoginsRow, len(logins))
+	for _, l := range logins {
+		byEmployee[l.EmployeeID] = l
+	}
 	out := make([]domain.Employee, len(rows))
 	for i, r := range rows {
 		out[i] = repository.ToDomainEmployee(r)
+		if l, ok := byEmployee[r.ID]; ok {
+			out[i].LoginUsername, out[i].LoginActive, out[i].LoginDeleted = l.Username, l.IsActive, l.Deleted
+		}
 	}
 	return out, nil
+}
+
+// withLogin, tek personelin bağlı hesap özetini doldurur (Get/Create/
+// Update cevabı listeyle aynı şekilde olsun diye). Hesap okunamazsa
+// özet boş kalır -- personel cevabı bunun yüzünden düşmez.
+func (s *EmployeeService) withLogin(ctx context.Context, row sqlc.Employee) domain.Employee {
+	e := repository.ToDomainEmployee(row)
+	if !row.UserID.Valid {
+		return e
+	}
+	if u, err := s.q.GetUserByIDInOrg(ctx, sqlc.GetUserByIDInOrgParams{ID: row.UserID, OrganizationID: row.OrganizationID}); err == nil {
+		e.LoginUsername, e.LoginActive, e.LoginDeleted = u.Username, u.IsActive, u.DeletedAt.Valid
+	}
+	return e
 }
 
 func (s *EmployeeService) Get(ctx context.Context, id, organizationID string) (*domain.Employee, error) {
@@ -114,7 +139,7 @@ func (s *EmployeeService) Get(ctx context.Context, id, organizationID string) (*
 		}
 		return nil, err
 	}
-	e := repository.ToDomainEmployee(row)
+	e := s.withLogin(ctx, row)
 	return &e, nil
 }
 
@@ -139,6 +164,9 @@ func (s *EmployeeService) Create(ctx context.Context, organizationID string, in 
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	if err := prepareUserLink(ctx, txq, orgID, linkedUserID, pgtype.UUID{}); err != nil {
+		return nil, err
+	}
 	row, err := txq.CreateEmployee(ctx, sqlc.CreateEmployeeParams{
 		OrganizationID: orgID,
 		FullName:       in.FullName,
@@ -152,7 +180,7 @@ func (s *EmployeeService) Create(ctx context.Context, organizationID string, in 
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
-			return nil, ErrEmployeeUserAlreadyLinked
+			return nil, linkedEmployeeConflict(ctx, s.q, orgID, linkedUserID)
 		}
 		return nil, err
 	}
@@ -179,7 +207,7 @@ func (s *EmployeeService) Create(ctx context.Context, organizationID string, in 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	e := repository.ToDomainEmployee(row)
+	e := s.withLogin(ctx, row)
 	return &e, nil
 }
 
@@ -227,6 +255,11 @@ func (s *EmployeeService) Update(ctx context.Context, id, organizationID string,
 		}
 		return nil, err
 	}
+	if linkedUserID != old.UserID {
+		if err := prepareUserLink(ctx, txq, orgID, linkedUserID, uid); err != nil {
+			return nil, err
+		}
+	}
 	newSalary := repository.FloatPtrToNumeric(in.Salary)
 	newDailyWage := repository.FloatPtrToNumeric(in.DailyWage)
 	wageChanged := !sameNumeric(old.Salary, newSalary) || !sameNumeric(old.DailyWage, newDailyWage)
@@ -260,7 +293,7 @@ func (s *EmployeeService) Update(ctx context.Context, id, organizationID string,
 			return nil, domain.ErrNotFound
 		}
 		if isUniqueViolation(err) {
-			return nil, ErrEmployeeUserAlreadyLinked
+			return nil, linkedEmployeeConflict(ctx, s.q, orgID, linkedUserID)
 		}
 		return nil, err
 	}
@@ -282,7 +315,7 @@ func (s *EmployeeService) Update(ctx context.Context, id, organizationID string,
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	e := repository.ToDomainEmployee(row)
+	e := s.withLogin(ctx, row)
 	return &e, nil
 }
 

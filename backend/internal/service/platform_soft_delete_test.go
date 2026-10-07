@@ -53,7 +53,7 @@ func TestSoftDeleteUser(t *testing.T) {
 	owner1 := created.Owner
 	t.Cleanup(func() { cleanupPlatformOrg(t, pool, org.ID) })
 
-	field, err := platformSvc.ProvisionOrganizationUser(ctx, service.ProvisionOrganizationUserInput{
+	field, _, err := platformSvc.ProvisionOrganizationUser(ctx, service.ProvisionOrganizationUserInput{
 		OrganizationID: org.ID, Username: "sd_field", FullName: "Saha Elemanı", TemporaryPassword: "GecicSifre123!", RoleCode: domain.OrgRoleField,
 	})
 	if err != nil {
@@ -78,7 +78,7 @@ func TestSoftDeleteUser(t *testing.T) {
 
 	var owner2 *domain.User
 	t.Run("second_owner_unlocks_deletion", func(t *testing.T) {
-		owner2, err = platformSvc.ProvisionOrganizationUser(ctx, service.ProvisionOrganizationUserInput{
+		owner2, _, err = platformSvc.ProvisionOrganizationUser(ctx, service.ProvisionOrganizationUserInput{
 			OrganizationID: org.ID, Username: "sd_owner_2", FullName: "İkinci Sahip", TemporaryPassword: "GecicSifre123!", RoleCode: domain.OrgRoleOwner,
 		})
 		if err != nil {
@@ -197,7 +197,7 @@ func TestSoftDeleteUser(t *testing.T) {
 		// kalır -- yeniden kullanılamaz (global UNIQUE kısıtı deleted_at'ten
 		// bağımsızdır). Bu, tarihçe/denetim referanslarında ("bu işlemi
 		// sd_owner_1 yaptı") ASLA bir belirsizlik oluşmamasını garanti eder.
-		_, err := platformSvc.ProvisionOrganizationUser(ctx, service.ProvisionOrganizationUserInput{
+		_, _, err := platformSvc.ProvisionOrganizationUser(ctx, service.ProvisionOrganizationUserInput{
 			OrganizationID: org.ID, Username: "sd_owner_1", FullName: "Başka Biri", TemporaryPassword: "GecicSifre123!", RoleCode: domain.OrgRoleField,
 		})
 		if !errors.Is(err, domain.ErrDuplicateUsername) {

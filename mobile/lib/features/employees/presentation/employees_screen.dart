@@ -16,6 +16,7 @@ import '../../access/presentation/widgets/access_state_views.dart';
 import '../data/employees_providers.dart';
 import '../domain/employee_record.dart';
 import '../employees_paths.dart';
+import 'employee_link_suggestions_card.dart';
 
 const kEmployeesNoAccessText = 'Personeli görmek için rolünde "Personeli görüntüleme" izni olmalı.';
 const kEmployeesReadOnlyText =
@@ -46,6 +47,12 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
     }
     final canManage = me.canAccess('employees.manage');
     final listAsync = ref.watch(employeesListProvider(_filter));
+    // Öneriler hesap adlarını da gösterir: personel yönetimi + kullanıcı
+    // listesini görme (sunucuyla aynı kapı). Ekran düzeyinde izlenir ki
+    // filtre değişip liste yeniden yüklenirken öneriler tekrar istenmesin.
+    final suggestions = canManage && me.canAccess('organization.users.read')
+        ? ref.watch(employeeLinkSuggestionsProvider).valueOrNull
+        : null;
     final filter = _filter;
     Future<void> refresh() =>
         refreshAndWait(ref, [employeesListProvider(filter)], () => ref.read(employeesListProvider(filter).future));
@@ -89,7 +96,12 @@ class _EmployeesScreenState extends ConsumerState<EmployeesScreen> {
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, 88),
                   children: [
-                    if (!canManage) ...[const ReadOnlyNotice(kEmployeesReadOnlyText), const SizedBox(height: AppSpacing.md)],
+                    if (!canManage) ...[
+                      const ReadOnlyNotice(kEmployeesReadOnlyText),
+                      const SizedBox(height: AppSpacing.md),
+                    ],
+                    if (suggestions != null && suggestions.isNotEmpty)
+                      EmployeeLinkSuggestionsCard(suggestions: suggestions),
                     Padding(
                       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                       child: Text('${employees.length} kişi', style: AppTypography.metadata),
@@ -154,11 +166,30 @@ class EmployeeListTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],
+                // Bağlı giriş hesabı ("kişi = tek kayıt"): kullanıcı adı
+                // yalnızca kullanıcı listesini görebilene gelir.
+                if (e.userUsername != null) ...[
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      const Icon(Icons.key_outlined, size: 12, color: AppColors.textMuted),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          e.loginDisabled ? '${e.userUsername} · giriş kapalı' : e.userUsername!,
+                          style: AppTypography.metadata,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
-          if (e.hasLogin)
+          if (e.hasLogin && e.userUsername == null)
             const Padding(
               padding: EdgeInsets.only(right: AppSpacing.xs),
               child: Tooltip(

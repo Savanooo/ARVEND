@@ -116,6 +116,33 @@ kuralla çalışır (web değişmeden faydalanır).
   bağlanıyor. Öneri kimlikle (id) seçilmeli; ad sonra değiştirilirse
   `product_id` düşmeli (mobil böyle).
 
+## 10. Kişi = tek kayıt (giriş hesabı + personel)
+Kurallar: `mobile/API_CONTRACT.md` "Person = one record". Backend varsayılanı
+web değişmeden çalışıyor: web'in "Yeni Kullanıcı" formu artık personel kaydı da
+açıyor (ya da aynı adlı tek bağlantısız personele bağlıyor). Eksikler:
+- "Yeni Kullanıcı" (`admin/kullanicilar/yeni/NewUserForm.tsx`): mobildeki gibi
+  "Personel kaydı da oluştur" anahtarı (`create_employee`) + bağlantısız
+  personel seçimi (`employee_id`; aynı adlı varsa o önceden seçili; "yeni kayıt
+  aç" seçilirse `link_same_name:false`). Cevaptaki `employee_link.message`
+  gösterilmeli (ör. "Aynı adlı mevcut personel kaydına bağlandı").
+- "Giriş hesabı aç" (`components/permissions/CreateLoginCard.tsx`): `POST /users`
+  gövdesine `employee_id: employee.id` eklenmeli; ardından gelen
+  `PUT /employees/{id}` gereksizleşir. Şu an da çalışıyor (backend aynı adlı
+  personele bağlıyor ya da hesapla açtığı boş kaydı bağlamada siliyor), ama
+  aynı adlı İKİ bağlantısız personel varken gereksiz bir tur atıyor.
+- "Yeni Personel + Yeni giriş hesabı" (`admin/personel/yeni/NewEmployeeForm.tsx`):
+  `POST /users`'a `create_employee: false` eklenmeli (personeli form kendisi
+  açıyor). Eklenmezse: aynı adlı bağlantısız personel varsa hesap ona bağlanır
+  ve form ikinci kaydı açarken 409 alır ("…zaten "X" personel kaydına bağlı")
+  — mükerrer kayıt yine oluşmaz ama form hata gösterir.
+- Kullanıcı listesi/detayı: `employee_id`/`employee_full_name` ile bağlı
+  personel (link) ya da "Personel kaydı yok" + oluştur/bağla.
+- Personel listesi/detayı: `user_username` / `user_is_active` ile bağlı hesap.
+- Süper Admin "Kullanıcı ekle" (`super-admin/[id]/UsersTab.tsx`): aynı alanlar
+  (`create_employee` vb.) ve sonucun gösterimi; şu an varsayılan uygulanıyor.
+- İsteğe bağlı: `GET /employees/link-suggestions` önerilerini Personel
+  sayfasında "Bağla" düğmesiyle göstermek.
+
 ## Bilinen tutarsızlıklar (web + backend)
 - Katalog fiyatı TL; teklifin para birimi TL değilse (firma varsayılanı
   USD/EUR) katalogdan seçilen fiyat çevrilmeden yazılıyor — web ve mobil

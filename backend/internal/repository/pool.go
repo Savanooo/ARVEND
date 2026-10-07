@@ -145,7 +145,24 @@ func ToDomainUserWithRole(u sqlc.ListUsersWithOrganizationRoleRow) domain.User {
 	if u.OrganizationRoleName != nil {
 		du.OrganizationRoleName = *u.OrganizationRoleName
 	}
+	setLinkedEmployee(&du, u.EmployeeID, u.EmployeeFullName, u.EmployeeIsActive)
 	return du
+}
+
+// setLinkedEmployee, kullanıcı satırına LEFT JOIN'le gelen bağlı personeli
+// (yoksa hepsi NULL) domain.User'a yazar.
+func setLinkedEmployee(du *domain.User, id pgtype.UUID, name *string, active *bool) {
+	if !id.Valid {
+		return
+	}
+	s := id.String()
+	du.LinkedEmployeeID = &s
+	if name != nil {
+		du.LinkedEmployeeName = *name
+	}
+	if active != nil {
+		du.LinkedEmployeeActive = *active
+	}
 }
 
 // ToDomainDeletedUserWithRole, ListDeletedUsersWithOrganizationRoleRow İÇİN
@@ -180,6 +197,7 @@ func ToDomainSingleUserWithRole(u sqlc.GetUserWithOrganizationRoleRow) domain.Us
 	if u.OrganizationRoleName != nil {
 		du.OrganizationRoleName = *u.OrganizationRoleName
 	}
+	setLinkedEmployee(&du, u.EmployeeID, u.EmployeeFullName, u.EmployeeIsActive)
 	return du
 }
 

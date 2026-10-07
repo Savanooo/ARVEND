@@ -31,11 +31,21 @@ class AccessRepository {
 
   /// `organization_role_code` ZORUNLU (backend 400 döner) -- yeni üye
   /// "Eski Sistem" rolüne düşmesin diye.
+  ///
+  /// Personel kaydı ("kişi = tek kayıt") hesapla aynı işlemde: [employeeId]
+  /// verilirse o personele bağlanır; [createEmployee] false ise hiç
+  /// dokunulmaz; aksi halde yeni kayıt açılır ya da aynı adlı TEK
+  /// bağlantısız personele bağlanır ([linkSameName] false bunu kapatır).
+  /// null alanlar GÖNDERİLMEZ -- backend varsayılanı uygular. Sonuç
+  /// [OrgUser.employeeLink]'te.
   Future<OrgUser> createUser({
     required String username,
     required String password,
     required String fullName,
     required String organizationRoleCode,
+    bool? createEmployee,
+    String? employeeId,
+    bool? linkSameName,
   }) async {
     final json = await _client.post<Map<String, dynamic>>(
       '/users',
@@ -44,6 +54,9 @@ class AccessRepository {
         'password': password,
         'full_name': fullName,
         'organization_role_code': organizationRoleCode,
+        'create_employee': ?createEmployee,
+        'employee_id': ?employeeId,
+        'link_same_name': ?linkSameName,
       },
     );
     return OrgUser.fromJson(json);

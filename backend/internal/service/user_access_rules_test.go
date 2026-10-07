@@ -55,11 +55,11 @@ func TestUserAccessRules(t *testing.T) {
 	owner := created.Owner
 	t.Cleanup(func() { cleanupPlatformOrg(t, pool, org.ID) })
 
-	admin, err := userSvc.CreateMember(ctx, org.ID, owner.ID, "uar_admin", "GeciciSifre123!", "Yönetici", domain.OrgRoleAdmin)
+	admin, _, err := userSvc.CreateMember(ctx, org.ID, owner.ID, "uar_admin", "GeciciSifre123!", "Yönetici", domain.OrgRoleAdmin, service.PersonnelOptions{})
 	if err != nil {
 		t.Fatalf("yönetici: %v", err)
 	}
-	field, err := userSvc.CreateMember(ctx, org.ID, admin.ID, "uar_field", "GeciciSifre123!", "Saha", domain.OrgRoleField)
+	field, _, err := userSvc.CreateMember(ctx, org.ID, admin.ID, "uar_field", "GeciciSifre123!", "Saha", domain.OrgRoleField, service.PersonnelOptions{})
 	if err != nil {
 		t.Fatalf("saha: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestUserAccessRules(t *testing.T) {
 		if _, err := authzSvc.SetUserOrganizationRole(ctx, admin.ID, org.ID, admin.ID, domain.OrgRoleOwner); !errors.Is(err, domain.ErrOwnerOnlyAction) {
 			t.Errorf("kendini Sahip yapma: %v", err)
 		}
-		if _, err := userSvc.CreateMember(ctx, org.ID, admin.ID, "uar_wannabe", "GeciciSifre123!", "Sahte Sahip", domain.OrgRoleOwner); !errors.Is(err, domain.ErrOwnerOnlyAction) {
+		if _, _, err := userSvc.CreateMember(ctx, org.ID, admin.ID, "uar_wannabe", "GeciciSifre123!", "Sahte Sahip", domain.OrgRoleOwner, service.PersonnelOptions{}); !errors.Is(err, domain.ErrOwnerOnlyAction) {
 			t.Errorf("Sahip rolüyle hesap açma: %v", err)
 		}
 		// Sahip'in adını düzeltmek serbest.
@@ -149,7 +149,7 @@ func TestUserAccessRules(t *testing.T) {
 	})
 
 	t.Run("Asgari şifre uzunluğu oluşturmada da geçerli", func(t *testing.T) {
-		if _, err := userSvc.CreateMember(ctx, org.ID, owner.ID, "uar_short", "1234567", "Kısa", domain.OrgRoleField); !errors.Is(err, domain.ErrPasswordTooShort) {
+		if _, _, err := userSvc.CreateMember(ctx, org.ID, owner.ID, "uar_short", "1234567", "Kısa", domain.OrgRoleField, service.PersonnelOptions{}); !errors.Is(err, domain.ErrPasswordTooShort) {
 			t.Errorf("7 karakterlik şifre reddedilmeli: %v", err)
 		}
 	})
@@ -186,7 +186,7 @@ func TestUserAccessRules(t *testing.T) {
 	})
 
 	t.Run("İki Sahip aynı anda birbirini pasifleştiremez", func(t *testing.T) {
-		owner2, err := userSvc.CreateMember(ctx, org.ID, owner.ID, "uar_owner2", "GeciciSifre123!", "İkinci Sahip", domain.OrgRoleOwner)
+		owner2, _, err := userSvc.CreateMember(ctx, org.ID, owner.ID, "uar_owner2", "GeciciSifre123!", "İkinci Sahip", domain.OrgRoleOwner, service.PersonnelOptions{})
 		if err != nil {
 			t.Fatalf("Sahip ikinci Sahip'i açabilmeli: %v", err)
 		}

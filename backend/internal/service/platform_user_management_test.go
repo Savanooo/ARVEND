@@ -104,7 +104,7 @@ func TestPlatformUserManagement(t *testing.T) {
 		if err := pool.QueryRow(ctx, "SELECT count(*) FROM organizations WHERE slug = $1", slug+"-admin").Scan(&n); err != nil || n != 0 {
 			t.Errorf("reddedilen provisioning firma satırı bıraktı (n=%d, err=%v)", n, err)
 		}
-		_, err = platformSvc.ProvisionOrganizationUser(ctx, service.ProvisionOrganizationUserInput{
+		_, _, err = platformSvc.ProvisionOrganizationUser(ctx, service.ProvisionOrganizationUserInput{
 			OrganizationID: org.ID, Username: "Admin", FullName: "Genel", TemporaryPassword: "GecicSifre123!", RoleCode: domain.OrgRoleOwner,
 		})
 		if !errors.Is(err, domain.ErrReservedUsername) {
@@ -141,7 +141,7 @@ func TestPlatformUserManagement(t *testing.T) {
 		if _, err := platformSvc.SetOrganizationUserRole(ctx, org.ID, owner1.ID, domain.OrgRoleLegacyUser, ""); !errors.Is(err, domain.ErrRoleNotAssignable) {
 			t.Errorf("err = %v, want ErrRoleNotAssignable", err)
 		}
-		if _, err := platformSvc.ProvisionOrganizationUser(ctx, service.ProvisionOrganizationUserInput{
+		if _, _, err := platformSvc.ProvisionOrganizationUser(ctx, service.ProvisionOrganizationUserInput{
 			OrganizationID: org.ID, Username: "um_legacy", FullName: "Eski", TemporaryPassword: "GecicSifre123!", RoleCode: domain.OrgRoleLegacyUser,
 		}); !errors.Is(err, domain.ErrRoleNotAssignable) {
 			t.Errorf("provision legacy err = %v, want ErrRoleNotAssignable", err)
@@ -150,7 +150,7 @@ func TestPlatformUserManagement(t *testing.T) {
 
 	var owner2 *domain.User
 	t.Run("provision_second_owner", func(t *testing.T) {
-		u, err := platformSvc.ProvisionOrganizationUser(ctx, service.ProvisionOrganizationUserInput{
+		u, _, err := platformSvc.ProvisionOrganizationUser(ctx, service.ProvisionOrganizationUserInput{
 			OrganizationID: org.ID, Username: "um_owner_2", FullName: "İkinci Sahip",
 			TemporaryPassword: "GecicSifre123!", RoleCode: domain.OrgRoleOwner, ActorUserID: "",
 		})
@@ -212,7 +212,7 @@ func TestPlatformUserManagement(t *testing.T) {
 		if _, err := authSvc.Login(ctx, "um_owner_1", "GecicSifre123!"); !errors.Is(err, domain.ErrInactiveUser) {
 			t.Errorf("pasif kullanıcı login err = %v, want ErrInactiveUser", err)
 		}
-		field, err := platformSvc.ProvisionOrganizationUser(ctx, service.ProvisionOrganizationUserInput{
+		field, _, err := platformSvc.ProvisionOrganizationUser(ctx, service.ProvisionOrganizationUserInput{
 			OrganizationID: org.ID, Username: "um_field", FullName: "Saha", TemporaryPassword: "GecicSifre123!", RoleCode: domain.OrgRoleField,
 		})
 		if err != nil {

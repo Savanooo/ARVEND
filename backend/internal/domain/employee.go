@@ -21,6 +21,12 @@ type Employee struct {
 	// bağlanır (bkz. EmployeeService.Create/Update). GET /tasks/mine'ın
 	// "bana ATANAN görevler" anlamının TEK kaynağıdır.
 	UserID *string
+	// Login*, bağlı giriş hesabının özetidir (kullanıcı adı, aktif mi,
+	// silinmiş mi) -- personel ekranında bağın görünmesi için. Yalnızca
+	// EmployeeService.List/Get doldurur, UserID nil ise boştur.
+	LoginUsername string
+	LoginActive   bool
+	LoginDeleted  bool
 }
 
 const (

@@ -150,7 +150,8 @@ void main() {
       before: (tester) async {
         await tester.enterText(find.widgetWithText(TextFormField, 'Ad Soyad *'), 'Selin Ak');
         await tester.enterText(find.widgetWithText(TextFormField, 'Kullanıcı Adı *'), 'selin.ak');
-        await tester.tap(find.byType(DropdownButtonFormField<String>));
+        // İlk seçici rol; altındaki "Personel kaydı" seçicisi.
+        await tester.tap(find.byType(DropdownButtonFormField<String>).first);
         await tester.pumpAndSettle();
         await tester.tap(find.text('Finans').last);
         await tester.pumpAndSettle();
