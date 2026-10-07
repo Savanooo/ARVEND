@@ -54,7 +54,7 @@ type ProgressClaimInput struct {
 }
 
 func (s *ProjectService) generateSubcontractProgressClaimNo(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID) (string, error) {
-	year := time.Now().Year()
+	year := IstanbulToday().Year()
 	seq, err := q.NextSubcontractProgressClaimSeq(ctx, sqlc.NextSubcontractProgressClaimSeqParams{OrganizationID: orgID, Year: int32(year)})
 	if err != nil {
 		return "", err

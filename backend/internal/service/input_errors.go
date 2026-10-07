@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"time"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 )
@@ -45,6 +46,16 @@ var (
 	ErrSourceQuotationNotFound    error = &NotFoundError{What: "kaynak teklif bu projede"}
 	ErrPurchaseRequestRefNotFound error = &NotFoundError{What: "seçilen satın alma talebi bu projede"}
 )
+
+// IstanbulToday, İstanbul takvimine göre bugünün gece yarısıdır. Sunucu
+// UTC'de çalışır: time.Now() 00:00-03:00 arasında bir önceki günü (ve 1
+// Ocak'ta önceki yılı) verirdi -- taahhüt tarihleri ve belge numaralarının
+// yılı (PO-2026-...) bu yüzden yanlış güne/yıla düşebiliyordu. date
+// kolonuna yazılan değer, bu anın KENDİ takvim günüdür (pgtype.Date).
+func IstanbulToday() time.Time {
+	n := IstanbulNow(time.Now())
+	return time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, IstanbulLocation())
+}
 
 // validatePercent, 0-100 aralığındaki bir oranı doğrular.
 func validatePercent(v float64, errOut error) error {

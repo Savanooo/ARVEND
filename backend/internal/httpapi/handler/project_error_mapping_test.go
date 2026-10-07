@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -55,5 +56,29 @@ func TestProjectErrorMapping(t *testing.T) {
 				t.Fatalf("ham veritabanı metni sızmamalı: %q", msg)
 			}
 		})
+	}
+}
+
+// Zorunlu tarih alanları: çözülemeyen tarih sessizce "bugün" olmamalı (400),
+// boş tarih İstanbul takvimine göre bugün olmalı.
+func TestParseDateOrToday(t *testing.T) {
+	if _, err := parseDateOrToday("06.10.2026"); err == nil {
+		t.Fatalf("GG.AA.YYYY biçimi hata vermeli")
+	}
+	got, err := parseDateOrToday("2026-10-06")
+	if err != nil || got.Format(dateLayout) != "2026-10-06" {
+		t.Fatalf("geçerli tarih aynen dönmeli, geldi %v err=%v", got, err)
+	}
+	today, err := parseDateOrToday("  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := service.IstanbulNow(time.Now()).Format(dateLayout); today.Format(dateLayout) != want {
+		t.Fatalf("boş tarih İstanbul bugünü (%s) olmalı, geldi %s", want, today.Format(dateLayout))
+	}
+
+	rec := httptest.NewRecorder()
+	if _, ok := requestDate(rec, "31/12/2026"); ok || rec.Code != http.StatusBadRequest {
+		t.Fatalf("çözülemeyen tarih 400 dönmeli, geldi ok=%v kod=%d", ok, rec.Code)
 	}
 }

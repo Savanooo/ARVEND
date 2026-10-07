@@ -77,7 +77,7 @@ type PurchaseOrderInput struct {
 }
 
 func (s *ProjectService) generatePONo(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID) (string, error) {
-	year := time.Now().Year()
+	year := IstanbulToday().Year()
 	seq, err := q.NextPurchaseOrderSeq(ctx, sqlc.NextPurchaseOrderSeqParams{OrganizationID: orgID, Year: int32(year)})
 	if err != nil {
 		return "", err
@@ -411,7 +411,7 @@ func (s *ProjectService) ApprovePurchaseOrder(ctx context.Context, projectID, po
 		return nil, err
 	}
 
-	now := repository.TimeToDate(time.Now())
+	now := repository.TimeToDate(IstanbulToday())
 	for _, it := range items {
 		desc := fmt.Sprintf("PO %s — %s", row.PoNo, it.Description)
 		if _, err := txq.CreateCommitmentFromSource(ctx, sqlc.CreateCommitmentFromSourceParams{

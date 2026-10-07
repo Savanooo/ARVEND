@@ -64,7 +64,7 @@ type SubcontractInput struct {
 }
 
 func (s *ProjectService) generateSubcontractNo(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID) (string, error) {
-	year := time.Now().Year()
+	year := IstanbulToday().Year()
 	seq, err := q.NextSubcontractSeq(ctx, sqlc.NextSubcontractSeqParams{OrganizationID: orgID, Year: int32(year)})
 	if err != nil {
 		return "", err
@@ -434,7 +434,7 @@ func (s *ProjectService) syncSubcontractCommitments(
 	}); err != nil {
 		return err
 	}
-	now := repository.TimeToDate(time.Now())
+	now := repository.TimeToDate(IstanbulToday())
 	for _, t := range targets {
 		if t.Amount <= 0 {
 			continue

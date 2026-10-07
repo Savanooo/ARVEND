@@ -105,16 +105,21 @@ func (req progressClaimRequest) toInput(userID string) service.ProgressClaimInpu
 	for i, it := range req.Items {
 		items[i] = service.ProgressClaimItemInput{SubcontractItemID: it.SubcontractItemID, CurrentProgressAmount: it.CurrentProgressAmount}
 	}
-	periodEnd := parseDateParam(&req.PeriodEnd)
 	in := service.ProgressClaimInput{
 		PeriodStart: parseDateParam(req.PeriodStart), RetentionPercent: req.RetentionPercent,
 		AdvanceRecoveryAmount: req.AdvanceRecoveryAmount, OtherDeductions: req.OtherDeductions,
 		Notes: req.Notes, Items: items, UserID: userID,
 	}
-	if periodEnd != nil {
-		in.PeriodEnd = *periodEnd
-	}
 	return in
+}
+
+// toInputWithDates, toInput'a zorunlu dönem sonu tarihini ekler; tarih
+// çözülemezse 400 yazar ve false döner.
+func (req progressClaimRequest) toInputWithDates(w http.ResponseWriter, userID string) (service.ProgressClaimInput, bool) {
+	in := req.toInput(userID)
+	periodEnd, ok := requestDate(w, req.PeriodEnd)
+	in.PeriodEnd = periodEnd
+	return in, ok
 }
 
 func (h *ProjectHandler) ListSubcontractProgressClaims(w http.ResponseWriter, r *http.Request) {
@@ -139,7 +144,11 @@ func (h *ProjectHandler) CreateSubcontractProgressClaim(w http.ResponseWriter, r
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	pc, err := h.svc.CreateProgressClaim(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "subcontractId"), orgID, req.toInput(userID))
+	in, ok := req.toInputWithDates(w, userID)
+	if !ok {
+		return
+	}
+	pc, err := h.svc.CreateProgressClaim(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "subcontractId"), orgID, in)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -175,7 +184,11 @@ func (h *ProjectHandler) UpdateSubcontractProgressClaim(w http.ResponseWriter, r
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	pc, err := h.svc.UpdateProgressClaimDraft(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "claimId"), orgID, req.toInput(userID))
+	in, ok := req.toInputWithDates(w, userID)
+	if !ok {
+		return
+	}
+	pc, err := h.svc.UpdateProgressClaimDraft(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "claimId"), orgID, in)
 	if err != nil {
 		h.writeError(w, err)
 		return

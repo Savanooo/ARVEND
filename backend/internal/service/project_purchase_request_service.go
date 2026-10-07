@@ -58,7 +58,7 @@ type PurchaseRequestInput struct {
 }
 
 func (s *ProjectService) generatePRNo(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID) (string, error) {
-	year := time.Now().Year()
+	year := IstanbulToday().Year()
 	seq, err := q.NextPurchaseRequestSeq(ctx, sqlc.NextPurchaseRequestSeqParams{OrganizationID: orgID, Year: int32(year)})
 	if err != nil {
 		return "", err

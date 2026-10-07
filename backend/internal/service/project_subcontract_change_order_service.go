@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -50,7 +49,7 @@ type SubcontractChangeOrderInput struct {
 }
 
 func (s *ProjectService) generateSubcontractChangeOrderNo(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID) (string, error) {
-	year := time.Now().Year()
+	year := IstanbulToday().Year()
 	seq, err := q.NextSubcontractChangeOrderSeq(ctx, sqlc.NextSubcontractChangeOrderSeqParams{OrganizationID: orgID, Year: int32(year)})
 	if err != nil {
 		return "", err

@@ -62,7 +62,7 @@ type RFQInput struct {
 }
 
 func (s *ProjectService) generateRFQNo(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID) (string, error) {
-	year := time.Now().Year()
+	year := IstanbulToday().Year()
 	seq, err := q.NextRfqSeq(ctx, sqlc.NextRfqSeqParams{OrganizationID: orgID, Year: int32(year)})
 	if err != nil {
 		return "", err

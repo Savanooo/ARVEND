@@ -391,9 +391,13 @@ func (h *ProjectHandler) CreateCommitment(w http.ResponseWriter, r *http.Request
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
+	committedAt, ok := requestDate(w, req.CommittedAt)
+	if !ok {
+		return
+	}
 	c, err := h.svc.CreateCommitment(r.Context(), chi.URLParam(r, "id"), orgID, service.CommitmentInput{
 		CostCodeID: req.CostCodeID, BudgetLineID: req.BudgetLineID, Description: req.Description,
-		CommittedAmount: req.CommittedAmount, CommittedAt: parseDateOrToday(req.CommittedAt),
+		CommittedAmount: req.CommittedAmount, CommittedAt: committedAt,
 		IdempotencyKey: req.IdempotencyKey, UserID: userID,
 	})
 	if err != nil {
