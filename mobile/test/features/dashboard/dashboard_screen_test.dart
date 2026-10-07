@@ -214,15 +214,21 @@ void main() {
       }
     });
 
-    testWidgets('saha: Nakit Akışı yok, Görevlerim var, BÖLÜMLER, yalnızca "Not Ekle", hiç para yok', (tester) async {
+    testWidgets('saha: Nakit Akışı yok, Görevlerim var, BÖLÜMLER, yalnızca masraf + "Not Ekle", hiç para yok', (
+      tester,
+    ) async {
       await _pump(tester, user: fieldUser, script: _script(fixtureJson('field')));
 
       expect(find.text('Nakit Akışı'), findsNothing);
       expect(find.text('Görevlerim'), findsOneWidget);
       expect(find.text('BÖLÜMLER'), findsOneWidget);
       expect(find.text('NAKİT & SATIŞ'), findsNothing);
-      expect(find.text('Not Ekle'), findsOneWidget);
-      for (final a in QuickActionKey.values.where((a) => a != QuickActionKey.note)) {
+      // Masrafı herkes girer (backend 0066); finans izni olmadan.
+      const fieldActions = {QuickActionKey.expense, QuickActionKey.myExpenses, QuickActionKey.note};
+      for (final a in fieldActions) {
+        expect(find.text(a.label), findsOneWidget, reason: a.label);
+      }
+      for (final a in QuickActionKey.values.where((a) => !fieldActions.contains(a))) {
         expect(find.text(a.label), findsNothing, reason: a.label);
       }
       final money = RegExp(r'(\bTL\b|\$|€)');

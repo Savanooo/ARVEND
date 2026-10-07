@@ -7,6 +7,7 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/app_buttons.dart';
+import '../../../../core/widgets/access_notices.dart';
 import '../../../../core/widgets/app_data_row.dart';
 import '../../../../core/widgets/status_badge.dart';
 import '../../../../core/widgets/unsaved_changes_scope.dart';
@@ -14,6 +15,7 @@ import '../../contract_co/presentation/widgets/contract_co_ui.dart' show showRea
 import '../../data/projects_providers.dart';
 import '../../presentation/destructive_action_button.dart';
 import '../../presentation/expense_form_sheet.dart';
+import '../../domain/expense_actions.dart' show kExpenseOwnDecisionText;
 import '../../domain/project.dart';
 import '../data/finance_ledger_providers.dart';
 import '../../../../core/widgets/app_sheet.dart';
@@ -34,8 +36,15 @@ import '../domain/legacy_subcontractor.dart';
 ///
 /// KDV (backend migration 0065): oran, tutarın içindeki KDV ve KDV hariç
 /// tutar (sunucunun hesabı); oran girilmemişse "Belirtilmedi". [canEdit]
-/// (`projects.finance.manage` + açık proje) ve masraf iptal edilmemişse
-/// "Düzenle" aynı formu dolu açar -- reddedilen masrafın tek düzeltme yolu.
+/// ve masraf iptal edilmemişse "Düzenle" aynı formu dolu açar -- reddedilen
+/// masrafın tek düzeltme yolu.
+///
+/// Masrafı herkes girer (backend migration 0066): bayrakları çağıran
+/// `expenseActionsFor` ile hesaplar. [canWithdraw]: finans yöneticisi
+/// olmayan kişi KENDİ bekleyen/reddedilen masrafını "Geri Çek"er (gerekçe
+/// istenmez; iz sunucuda: iptal eden = giren). [ownDecisionBlocked]:
+/// onaylayıcı kendi masrafında düğme yerine nedenini görür (Sahip hariç).
+/// [projectLabel]: "Masraflarım"da masrafın hangi projeye girildiği.
 Future<bool?> showExpenseDetailSheet(
   BuildContext context, {
   required String projectId,
@@ -44,6 +53,9 @@ Future<bool?> showExpenseDetailSheet(
   required bool canVoid,
   bool canDecide = false,
   bool canEdit = false,
+  bool canWithdraw = false,
+  bool ownDecisionBlocked = false,
+  String? projectLabel,
   String? changeOrderLabel,
   String? costCodeLabel,
 }) {
@@ -53,6 +65,7 @@ Future<bool?> showExpenseDetailSheet(
       label: 'Durum',
       trailing: StatusRegistry.build(expense.approvalStatus, StatusRegistry.expenseApproval),
     ),
+    if (projectLabel != null) AppDataRow(label: 'Proje', value: projectLabel, multiline: true),
     if (expense.decidedAt != null)
       AppDataRow(
         label: expense.isRejected ? 'Reddedilme' : 'Onaylanma',
@@ -85,7 +98,9 @@ Future<bool?> showExpenseDetailSheet(
     amount: Formatters.money(expense.amount, currency: moneyCurrency),
     voided: expense.isVoided,
     voidReason: expense.voidReason,
+    voidedLabel: expense.isWithdrawn ? 'GERİ ÇEKİLDİ' : 'İPTAL',
     rows: rows,
+    notice: ownDecisionBlocked && !expense.isVoided ? kExpenseOwnDecisionText : null,
     canVoid: canVoid,
     voidTitle: 'Masrafı İptal Et',
     voidMessage: 'Masraf iptal edilir, gerçekleşen maliyetten düşer. Kayıt silinmez; listede üstü çizili kalır.',
@@ -94,6 +109,12 @@ Future<bool?> showExpenseDetailSheet(
       await container.read(projectsRepositoryProvider).voidExpense(projectId, expense.id, reason: reason);
       invalidateProjectLedger(container.invalidate, projectId);
     },
+    onWithdraw: canWithdraw && !expense.isVoided
+        ? (container) async {
+            await container.read(projectsRepositoryProvider).voidExpense(projectId, expense.id);
+            invalidateProjectLedger(container.invalidate, projectId);
+          }
+        : null,
     onApprove: canDecide && expense.isPending
         ? (container) async {
             await container.read(projectsRepositoryProvider).approveExpense(projectId, expense.id);
@@ -200,12 +221,15 @@ Future<bool?> _showLedgerSheet(
   required String amount,
   required bool voided,
   required String voidReason,
+  String voidedLabel = 'İPTAL',
   required List<Widget> rows,
+  String? notice,
   required bool canVoid,
   required String voidTitle,
   required String voidMessage,
   required String doneMessage,
   required Future<void> Function(ProviderContainer container, String reason) onVoid,
+  Future<void> Function(ProviderContainer container)? onWithdraw,
   Future<void> Function(ProviderContainer container)? onApprove,
   Future<void> Function(ProviderContainer container, String reason)? onReject,
   Future<bool> Function(BuildContext sheetContext, ProviderContainer container)? onEdit,
@@ -220,12 +244,15 @@ Future<bool?> _showLedgerSheet(
       amount: amount,
       voided: voided,
       voidReason: voidReason,
+      voidedLabel: voidedLabel,
       rows: rows,
+      notice: notice,
       canVoid: canVoid && !voided,
       voidTitle: voidTitle,
       voidMessage: voidMessage,
       doneMessage: doneMessage,
       onVoid: onVoid,
+      onWithdraw: voided ? null : onWithdraw,
       onApprove: onApprove,
       onReject: onReject,
       onEdit: voided ? null : onEdit,
@@ -233,7 +260,7 @@ Future<bool?> _showLedgerSheet(
   );
 }
 
-enum _SheetAction { voiding, approving, rejecting }
+enum _SheetAction { voiding, withdrawing, approving, rejecting }
 
 class _LedgerSheet extends ConsumerStatefulWidget {
   const _LedgerSheet({
@@ -242,12 +269,15 @@ class _LedgerSheet extends ConsumerStatefulWidget {
     required this.amount,
     required this.voided,
     required this.voidReason,
+    this.voidedLabel = 'İPTAL',
     required this.rows,
+    this.notice,
     required this.canVoid,
     required this.voidTitle,
     required this.voidMessage,
     required this.doneMessage,
     required this.onVoid,
+    this.onWithdraw,
     this.onApprove,
     this.onReject,
     this.onEdit,
@@ -258,7 +288,13 @@ class _LedgerSheet extends ConsumerStatefulWidget {
   final String amount;
   final bool voided;
   final String voidReason;
+
+  /// İptal satırının etiketi ("İPTAL"; giren kişi geri çektiyse "GERİ ÇEKİLDİ").
+  final String voidedLabel;
   final List<Widget> rows;
+
+  /// Düğmelerin üstünde bilgi notu (ör. onaylayıcının kendi masrafı).
+  final String? notice;
   final bool canVoid;
   final String voidTitle;
   final String voidMessage;
@@ -267,6 +303,9 @@ class _LedgerSheet extends ConsumerStatefulWidget {
   /// Kapsayıcıyla çalışır (sayfanın `ref`'iyle DEĞİL): istek sürerken sayfa
   /// kapanırsa `WidgetRef` StateError atar ve tazeleme kaybolurdu.
   final Future<void> Function(ProviderContainer container, String reason) onVoid;
+
+  /// Masrafı giren kişinin "Geri Çek"i (gerekçesiz onay penceresi).
+  final Future<void> Function(ProviderContainer container)? onWithdraw;
 
   /// Masraf onayı: yalnızca onay bekleyen masrafta ve onaylayıcıya dolu.
   final Future<void> Function(ProviderContainer container)? onApprove;
@@ -296,6 +335,23 @@ class _LedgerSheetState extends ConsumerState<_LedgerSheet> {
     );
     if (reason == null || !mounted) return;
     await _run(_SheetAction.voiding, (container) => widget.onVoid(container, reason), widget.doneMessage);
+  }
+
+  Future<void> _withdraw() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Masrafı Geri Çek'),
+        content: const Text('Masraf onaydan çekilir ve iptal edilir. Kayıt silinmez; Masraflarım\'da "Geri çekildi" '
+            'olarak kalır.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
+          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Geri Çek')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _run(_SheetAction.withdrawing, (container) => widget.onWithdraw!(container), 'Masraf geri çekildi.');
   }
 
   Future<void> _approve() async {
@@ -398,12 +454,16 @@ class _LedgerSheetState extends ConsumerState<_LedgerSheet> {
               if (widget.voided) ...[
                 const SizedBox(height: AppSpacing.sm),
                 Text(
-                  widget.voidReason.isEmpty ? 'İPTAL' : 'İPTAL · ${widget.voidReason}',
+                  widget.voidReason.isEmpty ? widget.voidedLabel : '${widget.voidedLabel} · ${widget.voidReason}',
                   style: AppTypography.metadata.copyWith(color: AppColors.danger, fontWeight: FontWeight.w600),
                 ),
               ],
               const SizedBox(height: AppSpacing.md),
               ...widget.rows,
+              if (widget.notice case final notice?) ...[
+                const SizedBox(height: AppSpacing.md),
+                ReadOnlyNotice(notice),
+              ],
               if (_error != null) ...[const SizedBox(height: AppSpacing.md), Text(_error!, style: AppTypography.error)],
               if (widget.onApprove != null && widget.onReject != null) ...[
                 const SizedBox(height: AppSpacing.lg),
@@ -436,6 +496,16 @@ class _LedgerSheetState extends ConsumerState<_LedgerSheet> {
                   label: 'Düzenle',
                   icon: Icons.edit_outlined,
                   onPressed: _busy ? null : _edit,
+                ),
+              ],
+              if (widget.onWithdraw != null) ...[
+                const SizedBox(height: AppSpacing.lg),
+                DestructiveActionButton(
+                  key: const ValueKey('masraf-geri-cek'),
+                  label: 'Geri Çek',
+                  icon: Icons.undo,
+                  loading: _running == _SheetAction.withdrawing,
+                  onPressed: _busy ? null : _withdraw,
                 ),
               ],
               if (widget.canVoid) ...[

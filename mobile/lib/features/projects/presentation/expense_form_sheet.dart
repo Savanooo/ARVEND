@@ -13,7 +13,9 @@ import '../../../core/widgets/unsaved_changes_scope.dart';
 import '../budget/data/budget_providers.dart';
 import '../budget/domain/budget.dart' show formatTrDecimalInput, kBudgetReadPermission, kCostCodesReadPermission;
 import '../data/projects_providers.dart';
+import '../domain/expense_actions.dart' show kExpenseFinanceManagePermission;
 import '../domain/project.dart';
+import '../my_expenses/data/my_expenses_repository.dart';
 import '../finance_plan/domain/finance_dates.dart' show parseAmountInput, parseApiDate;
 import 'form_project_banner.dart';
 import '../../../core/widgets/app_sheet.dart';
@@ -30,6 +32,11 @@ import '../../../core/widgets/app_sheet.dart';
 /// formun göstermediği/kullanıcının değiştirmediği alanlar (bağlar, not,
 /// tarih…) aynen geri gider. Düzenlenen masraf yeniden onay bekler --
 /// reddedilen masraf ancak böyle düzeltilebilir.
+///
+/// Masrafı herkes girer (backend migration 0066): `projects.finance.manage`
+/// olmayan kişide bağ seçicileri HİÇ görünmez ve bağlar boş gider -- sunucu
+/// dolu bağı 403 ile reddeder, boş bağ düzenlemede "kayıttakini koru"
+/// demektir (finansın eklediği bağ sahadaki düzeltmede kaybolmaz).
 Future<Expense?> showExpenseFormSheet(
   BuildContext context,
   String projectId, {
@@ -130,6 +137,10 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
       _error = null;
     });
     final repo = ref.read(projectsRepositoryProvider);
+    final user = ref.read(authControllerProvider).valueOrNull;
+    // Bağ yazma yetkisi yoksa üçü de boş gider (bkz. sınıf notu).
+    final canLink = user.can(kExpenseFinanceManagePermission);
+    String link(String? id) => canLink ? (id ?? '') : '';
     final description = _descriptionController.text.trim();
     // Türkçe giriş: "64.000" = altmış dört bin, "1.250,50" kabul edilir.
     final amount = parseAmountInput(_amountController.text)!;
@@ -148,9 +159,9 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
           supplierName: _supplierController.text.trim(),
           invoiceNo: _invoiceController.text.trim(),
           notes: _notesController.text.trim(),
-          changeOrderId: _changeOrderId ?? '',
-          budgetLineId: _budgetLineId ?? '',
-          costCodeId: _costCodeId ?? '',
+          changeOrderId: link(_changeOrderId),
+          budgetLineId: link(_budgetLineId),
+          costCodeId: link(_costCodeId),
           vatRate: _vatRate,
           idempotencyKey: _idempotencyKey,
         );
@@ -166,9 +177,9 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
           supplierName: _supplierController.text.trim(),
           invoiceNo: _invoiceController.text.trim(),
           notes: _notesController.text.trim(),
-          changeOrderId: _changeOrderId ?? '',
-          budgetLineId: _budgetLineId ?? '',
-          costCodeId: _costCodeId ?? '',
+          changeOrderId: link(_changeOrderId),
+          budgetLineId: link(_budgetLineId),
+          costCodeId: link(_costCodeId),
           vatRate: _vatRate,
         );
       }
@@ -177,6 +188,9 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
       // (backend migration 0060): toplamda hemen görünmemesinin nedeni burada
       // söylenir. Mesaj formda verilir ki her açılış yeri (Finans, proje
       // Özeti, ana sayfa hızlı işlemi, masraf ayrıntısı) aynı şeyi göstersin.
+      // "Masraflarım" her giriş yerinden (hızlı işlem dahil) yeni masrafı
+      // göstersin; düzenleme ayrıntı sayfasından gelir ve o tazeler.
+      if (initial == null) ref.invalidate(myExpensesProvider);
       final messenger = ScaffoldMessenger.maybeOf(context);
       Navigator.of(context).pop(expense);
       messenger?.showSnackBar(
@@ -198,7 +212,10 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
     // görünmez, masraf formu yine çalışır (web ile aynı). Düzenlemede seçili
     // değer yine de korunur ve aynen geri gönderilir.
     final user = ref.watch(authControllerProvider).valueOrNull;
-    bool allowed(String code) => user != null && user.can(code);
+    // Bağlar maliyetin nereye yazılacağı kararıdır: yalnızca finans
+    // yöneticisi seçer (backend 0066); diğerinde seçici yüklenmez bile.
+    final canLink = user != null && user.can(kExpenseFinanceManagePermission);
+    bool allowed(String code) => canLink && user.can(code);
 
     final changeOrders = allowed('projects.finance.read')
         ? (ref.watch(projectChangeOrdersProvider(widget.projectId)).valueOrNull ?? const <ChangeOrder>[])

@@ -38,6 +38,7 @@ import '../features/projects/budget/budget_routes.dart' show budgetRoutes;
 import '../features/projects/contract_co/contract_co_routes.dart' show contractCoRoutes;
 import '../features/projects/finance_plan/finance_plan_routes.dart' show financePlanRoutes;
 import '../features/projects/ops_team/ops_team_routes.dart' show opsTeamRoutes;
+import '../features/projects/my_expenses/presentation/my_expenses_screen.dart';
 import '../features/projects/presentation/project_detail_screen.dart';
 import '../features/projects/projects_routes.dart';
 import '../features/projects/presentation/projects_screen.dart';
@@ -454,6 +455,15 @@ final routerProvider = Provider<GoRouter>((ref) {
                   ],
                 ),
                 GoRoute(path: 'mesai', builder: (context, state) => const AttendanceScreen()),
+                // Masraflarım (backend 0066): ?proje= proje süzgeci, ?masraf=
+                // karar bildiriminden gelince açılacak masraf.
+                GoRoute(
+                  path: 'masraflarim',
+                  builder: (context, state) => MyExpensesScreen(
+                    projectId: state.uri.queryParameters['proje'],
+                    initialExpenseId: state.uri.queryParameters['masraf'],
+                  ),
+                ),
                 GoRoute(path: 'profil', builder: (context, state) => const ProfileScreen()),
                 GoRoute(
                   path: 'firma-ayarlari',

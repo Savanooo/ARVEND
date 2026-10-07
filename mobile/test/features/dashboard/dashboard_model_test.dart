@@ -520,6 +520,7 @@ void main() {
         'Teklif Oluştur',
         'Tahsilat Gir',
         'Masraf Gir',
+        'Masraf Takibi',
         'Mesai Gir',
         'Satın Alma',
         'Görev Ekle',
@@ -527,8 +528,12 @@ void main() {
         'Müşteri Ekle',
         'Metraj Hesapla',
       ]);
-      expect(quickActionsFor(fieldUser).map((a) => a.label), ['Not Ekle']);
-      expect(quickActionsFor(financeUser).map((a) => a.label), ['Tahsilat Gir', 'Masraf Gir', 'Satın Alma']);
+      // Masrafı herkes girer (backend 0066): Saha da girer ve Masraflarım'ı görür.
+      expect(quickActionsFor(fieldUser).map((a) => a.label), ['Masraf Gir', 'Masraf Takibi', 'Not Ekle']);
+      expect(
+        quickActionsFor(financeUser).map((a) => a.label),
+        ['Tahsilat Gir', 'Masraf Gir', 'Masraf Takibi', 'Satın Alma'],
+      );
       // Mesai Gir iki izin ister (attendance.manage VE employees.read).
       final onlyAttendance = User(
         id: 'u',

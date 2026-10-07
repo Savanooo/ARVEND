@@ -27,17 +27,25 @@ import '../finance_plan/finance_plan_test_support.dart' as fp;
 User ledgerUser(String id, Set<String> permissions, {UserRole role = UserRole.kullanici}) =>
     cc.buildUser(id: id, role: role, roleCode: id, permissions: permissions);
 
-/// Sahip: finans okuma + yazma + maliyet kodları.
+/// Sahip: finans okuma + yazma + maliyet kodları + masraf girme (0066'dan
+/// beri "Masraf Ekle" bu izinle).
 final ledgerOwner = ledgerUser(
   'owner',
-  {'projects.read', 'projects.finance.read', 'projects.finance.manage', 'organization.cost_codes.read'},
+  {
+    'projects.read',
+    'projects.finance.read',
+    'projects.finance.manage',
+    'organization.cost_codes.read',
+    'projects.expenses.create',
+  },
   role: UserRole.admin,
 );
 
 /// Yalnızca finans görüntüleme: satırlar açılır, iptal/ekle yok.
 final ledgerViewer = ledgerUser('viewer', {'projects.read', 'projects.finance.read'});
 
-/// Onaylayıcı (Sahip/Yönetici/Finans varsayılanı): finans + masraf onayı.
+/// Onaylayıcı (0066'dan beri Sahip/Yönetici varsayılanı): finans + masraf
+/// girme + onay.
 final ledgerApprover = ledgerUser(
   'approver',
   {
@@ -45,6 +53,7 @@ final ledgerApprover = ledgerUser(
     'projects.finance.read',
     'projects.finance.manage',
     'organization.cost_codes.read',
+    'projects.expenses.create',
     'projects.expenses.approve',
   },
   role: UserRole.admin,

@@ -142,6 +142,8 @@ void main() {
           QuickActionKey.offer => ['/teklifler/yeni'],
           QuickActionKey.attendance => ['/diger/mesai'],
           QuickActionKey.calc => ['/diger/metraj'],
+          // Masraflarım + masraf kararı bildiriminin hedefi (backend 0066).
+          QuickActionKey.myExpenses => ['/diger/masraflarim', '/diger/masraflarim?masraf=e1&proje=p1'],
           QuickActionKey.purchaseRequest => ['/projeler/p1/satin-alma/talepler/yeni'],
           QuickActionKey.task => ['/projeler/p1/gorevler/yeni'],
           _ => const <String>[],

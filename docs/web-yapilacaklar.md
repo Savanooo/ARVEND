@@ -79,6 +79,9 @@ mobil hazır; web şu an çalışmaya devam ediyor ama aşağıdakiler eksik.
   işlemler `lib/dashboard.ts`). Finans sekmesini göremeyen kişi için proje
   sayfasında ayrı bir giriş gerekir. finance.manage yoksa formda Ek İş /
   Bütçe Kalemi / Maliyet Kodu gösterilmez (sunucu doluysa 403 döner).
+- Ana sayfa hızlı işlemleri (`lib/dashboard.ts`, mobil `QuickActionKey` ile
+  aynı sıra): "Masraf Gir"den hemen sonra "Masraf Takibi" (Masraflarım'ı açar,
+  `projects.expenses.create`); mobil 1.5.10'dan beri böyle.
 - "Masraflarım" sayfası: `GET /expenses/mine` (projeler arası, isteğe bağlı
   `?project_id=`); durum rozeti (Onay bekliyor / Onaylandı / Reddedildi + ret
   nedeni / Geri çekildi), kendi bekleyen/reddedilen masrafta Düzenle ve
