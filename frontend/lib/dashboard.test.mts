@@ -459,6 +459,7 @@ describe("webHrefForActionTarget (bildirim hedefi mobil yoldur)", () => {
     [`/projeler/${P}/satin-alma/talepler/t1`, `/projeler/${P}?tab=satinalma`],
     [`/projeler/${P}/satin-alma/rfqlar/r1/karsilastir`, `/projeler/${P}?tab=satinalma`],
     [`/projeler/${P}/gorevler/g1`, `/projeler/${P}?tab=operasyon`],
+    [`/projeler/${P}/planlama/s1`, `/projeler/${P}?tab=operasyon`],
     [`/projeler/${P}/taseronlar/s1/hakedisler/h1`, `/projeler/${P}?tab=finans`],
     [`/projeler/${P}?grup=finans&alt=maliyet`, `/projeler/${P}?tab=maliyet`],
     [`/projeler/${P}?grup=finans&alt=ek-isler`, `/projeler/${P}?tab=finans`],

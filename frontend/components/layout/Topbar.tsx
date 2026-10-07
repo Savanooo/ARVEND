@@ -1,14 +1,17 @@
 import { Bell, Search } from "lucide-react";
 
+import { hasPermission } from "@/lib/permissions";
 import { PLATFORM_CONTEXT_LABEL, userRoleLabel, type User } from "@/lib/types";
 
 import { AppDownloadLink } from "./AppDownloadLink";
+import { NotificationBell } from "./NotificationBell";
 
 // Uygulama kabuğunun (AppShell) üst çubuğu -- sayfaya özel PageHeader'dan
-// farklı olarak her ekranda aynı kalır. Arama ve bildirim, backend'de
-// henüz karşılığı olmadığı için BİLİNÇLİ OLARAK devre dışı/placeholder
-// gösterilir -- çalışıyormuş gibi görünen ama hiçbir şey yapmayan bir
-// giriş alanı yanıltıcı olurdu.
+// farklı olarak her ekranda aynı kalır. Arama, backend'de henüz karşılığı
+// olmadığı için BİLİNÇLİ OLARAK devre dışı/placeholder gösterilir --
+// çalışıyormuş gibi görünen ama hiçbir şey yapmayan bir giriş alanı
+// yanıltıcı olurdu. Bildirim zili /notifications uçlarıyla çalışır
+// (NotificationBell).
 export function Topbar({ user }: { user: User }) {
   return (
     <div className="flex items-center justify-between gap-4 border-b border-border bg-surface px-4 py-3 sm:px-6">
@@ -32,15 +35,21 @@ export function Topbar({ user }: { user: User }) {
       <div className="ml-auto flex min-w-0 items-center gap-3">
         {/* İndirme ucu firma oturumu ister (requireTenant): Süper Admin'de yok. */}
         {user.role !== "super_admin" && <AppDownloadLink />}
-        <button
-          type="button"
-          disabled
-          aria-disabled
-          title="Bildirimler (yakında)"
-          className="rounded-md p-2 text-text-muted disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <Bell size={18} strokeWidth={1.75} />
-        </button>
+        {/* Bildirimler firma kullanıcısınındır (notifications.read tüm firma
+            rollerinde); Süper Admin'in bildirim kutusu yok. */}
+        {user.role !== "super_admin" && hasPermission(user.permissions, "notifications.read") ? (
+          <NotificationBell />
+        ) : (
+          <button
+            type="button"
+            disabled
+            aria-disabled
+            title="Bildirimler"
+            className="rounded-md p-2 text-text-muted disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Bell size={18} strokeWidth={1.75} />
+          </button>
+        )}
         <div className="flex min-w-0 items-center gap-2 border-l border-border pl-3">
           <div className="min-w-0 text-right">
             <div className="truncate text-sm font-medium leading-tight">{user.full_name}</div>

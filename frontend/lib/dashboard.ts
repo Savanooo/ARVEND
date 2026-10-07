@@ -32,6 +32,13 @@ import type { Role } from "./types";
 export const DASHBOARD_PATH = "/api/v1/dashboard";
 export const PROJECT_OPTIONS_PATH = "/api/v1/dashboard/project-options";
 export const NOTIFICATIONS_READ_ALL_PATH = "/api/v1/notifications/read-all";
+export const NOTIFICATIONS_LIST_PATH = "/api/v1/notifications";
+export const NOTIFICATIONS_UNREAD_COUNT_PATH = "/api/v1/notifications/unread-count";
+
+/** Tek bildirimi okundu işaretler (POST; yalnızca çağıranın kendi kaydı). */
+export function notificationReadPath(id: string): string {
+  return `/api/v1/notifications/${encodeURIComponent(id)}/read`;
+}
 
 // ---------------------------------------------------------------------------
 // Yanıt tipleri (backend internal/domain/dashboard.go'nun birebir aynası)
@@ -1266,7 +1273,9 @@ export function webHrefForActionTarget(path: string | null | undefined): string 
   if (seg[0] === "projeler" && seg[1]) {
     const p = seg[1];
     if (seg[2] === "satin-alma") return projectHref(p, "satinalma");
-    if (seg[2] === "gorevler") return projectHref(p, "operasyon");
+    // Plan ataması bildirimi (service/project_notify.go) .../planlama/{id}
+    // yazar; web'de Planlama, Operasyon sekmesindedir.
+    if (seg[2] === "gorevler" || seg[2] === "planlama") return projectHref(p, "operasyon");
     if (seg[2] === "taseronlar") return projectHref(p, "finans");
     if (seg.length === 2) {
       const grup = params.get("grup");
