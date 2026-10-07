@@ -555,6 +555,7 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
                               key: ObjectKey(entry.value),
                               item: entry.value,
                               showInternal: canManageInternal,
+                              currency: _currency,
                               onChanged: () => setState(() {}),
                               onRemove: _items.length > 1 ? () => setState(() => _items.removeAt(entry.key)) : null,
                             )),
@@ -562,6 +563,7 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
                           items: _items,
                           vatRateText: _vatRateController.text,
                           showInternal: canManageInternal,
+                          currency: _currency,
                         ),
                         const SizedBox(height: AppSpacing.md),
                         TextFormField(
@@ -656,12 +658,14 @@ class _ItemRow extends StatelessWidget {
     required this.item,
     required this.onChanged,
     required this.showInternal,
+    this.currency = 'TRY',
     this.onRemove,
   });
 
   final _DraftItem item;
   final VoidCallback onChanged;
   final bool showInternal;
+  final String currency;
   final VoidCallback? onRemove;
 
   @override
@@ -757,12 +761,12 @@ class _ItemRow extends StatelessWidget {
             const SizedBox(height: AppSpacing.xs),
             Align(
               alignment: Alignment.centerRight,
-              child: Text('Satır toplamı: ${Formatters.money(lineTotal)}', style: AppTypography.helper),
+              child: Text('Satır toplamı: ${Formatters.money(lineTotal, currency: currency)}', style: AppTypography.helper),
             ),
           ],
           if (showInternal) ...[
             const SizedBox(height: AppSpacing.md),
-            _InternalPricingBox(item: item, preview: preview, onChanged: onChanged),
+            _InternalPricingBox(item: item, preview: preview, currency: currency, onChanged: onChanged),
           ],
         ],
       ),
@@ -775,10 +779,16 @@ class _ItemRow extends StatelessWidget {
 /// nötr/koyu ton (durum renklerinden -- success/warning/danger/info --
 /// KASITLI OLARAK ayrı, çünkü bu bir "durum" değil bir "gizlilik" ekseni).
 class _InternalPricingBox extends StatelessWidget {
-  const _InternalPricingBox({required this.item, required this.preview, required this.onChanged});
+  const _InternalPricingBox({
+    required this.item,
+    required this.preview,
+    required this.onChanged,
+    this.currency = 'TRY',
+  });
   final _DraftItem item;
   final double? preview;
   final VoidCallback onChanged;
+  final String currency;
 
   @override
   Widget build(BuildContext context) {
@@ -865,7 +875,7 @@ class _InternalPricingBox extends StatelessWidget {
               Row(
                 children: [
                   Text('Önizleme satış: ', style: AppTypography.helper),
-                  MoneyText(preview!, style: AppTypography.helper.copyWith(fontWeight: FontWeight.w700)),
+                  MoneyText(preview!, currency: currency, style: AppTypography.helper.copyWith(fontWeight: FontWeight.w700)),
                   Text(' (sunucu kesinleştirir)', style: AppTypography.helper),
                 ],
               ),
@@ -883,11 +893,17 @@ class _InternalPricingBox extends StatelessWidget {
 /// görünsün diye; kesin toplamı kayıtta sunucu hesaplar. Geçerli satır
 /// yoksa çizilmez.
 class _TotalsPreview extends StatelessWidget {
-  const _TotalsPreview({required this.items, required this.vatRateText, required this.showInternal});
+  const _TotalsPreview({
+    required this.items,
+    required this.vatRateText,
+    required this.showInternal,
+    this.currency = 'TRY',
+  });
 
   final List<_DraftItem> items;
   final String vatRateText;
   final bool showInternal;
+  final String currency;
 
   @override
   Widget build(BuildContext context) {
@@ -904,7 +920,7 @@ class _TotalsPreview extends StatelessWidget {
           child: Row(
             children: [
               Expanded(child: Text(label, style: bold ? AppTypography.cardTitle : AppTypography.metadata)),
-              MoneyText(value, style: bold ? AppTypography.cardTitle : AppTypography.body),
+              MoneyText(value, currency: currency, style: bold ? AppTypography.cardTitle : AppTypography.body),
             ],
           ),
         );

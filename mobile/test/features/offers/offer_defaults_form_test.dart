@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
+import 'package:arvend/core/utils/formatters.dart';
 import 'package:arvend/features/offers/domain/offer.dart';
 import 'package:arvend/features/offers/presentation/offer_create_screen.dart';
 
@@ -159,6 +160,21 @@ void main() {
     await tester.pumpAndSettle();
     final items = (requestBodyFor(adapter, '/offers/')['items'] as List).cast<Map<String, dynamic>>();
     expect(items.single['unit_price'], 0);
+  });
+
+  testWidgets('TRY dışı firma para birimi bilgi olarak görünür, önizleme o para birimiyle', (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/offers/defaults': [
+        (status: 200, body: {'vat_rate': 20, 'currency': 'USD', 'validity_days': null, 'valid_until': null}),
+      ],
+    });
+    await pumpRoutedForm(tester, adapter, form: const OfferCreateScreen(), user: _user);
+
+    expect(find.text('Para birimi: USD (firma ayarı)'), findsOneWidget);
+    expect(find.textContaining('Geçerlilik sonu'), findsNothing);
+    await _fillOneItem(tester);
+    await tester.pumpAndSettle();
+    expect(find.text('Satır toplamı: ${Formatters.money(200, currency: 'USD')}'), findsOneWidget);
   });
 
   testWidgets('fiyatlı kalemlerde onay sorulmaz', (tester) async {

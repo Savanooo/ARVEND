@@ -169,6 +169,7 @@ class _OffersScreenState extends ConsumerState<OffersScreen> {
                                 const SizedBox(height: 4),
                                 MoneyText(
                                   o.grandTotal,
+                                  currency: o.currency,
                                   style: AppTypography.metadata.copyWith(fontWeight: FontWeight.w600),
                                 ),
                               ],
