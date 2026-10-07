@@ -60,12 +60,15 @@ class CalcGroupDetailScreen extends ConsumerWidget {
         },
       );
       if (!saved || !context.mounted) return;
-      // Backend yalnızca aktif grupları listeler -- pasifleştirilen grup
-      // artık açılamaz, listeye dönülür.
+      // Pasif grup yönetim listesinde kalır (rozetle) ve buradan yeniden
+      // aktifleştirilebilir -- ekran kapatılmaz.
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(deactivated ? 'Grup pasifleştirildi; pasif gruplar listede görünmez.' : 'Kaydedildi.')),
+        SnackBar(
+          content: Text(
+            deactivated ? 'Grup pasifleştirildi; Metraj Hesapla panelinde görünmez.' : 'Kaydedildi.',
+          ),
+        ),
       );
-      if (deactivated && context.canPop()) context.pop();
     }
 
     Future<void> createCategory() async {
@@ -111,7 +114,7 @@ class CalcGroupDetailScreen extends ConsumerWidget {
               Padding(
                 padding: EdgeInsets.only(top: AppSpacing.xxl),
                 child: EmptyStateView(
-                  message: 'Grup bulunamadı. Pasifleştirilen gruplar listede görünmez.',
+                  message: 'Grup bulunamadı.',
                   icon: Icons.search_off_outlined,
                 ),
               ),
@@ -140,12 +143,18 @@ class CalcGroupDetailScreen extends ConsumerWidget {
               )
             else
               for (final c in data.categories)
-                // Yalnızca aktif kategoriler listelenir (rozet bilgi taşımaz);
+                // Pasif kategoriler de listelenir (yalnızca onlar rozetlenir);
                 // slug iç veridir -- alt satırda açıklama.
                 AppListCard(
                   title: c.name,
                   subtitle: c.description.isEmpty ? null : c.description,
-                  trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (!c.isActive) calcActiveBadge(false),
+                      const Icon(Icons.chevron_right, color: AppColors.textMuted),
+                    ],
+                  ),
                   onTap: () => context.push('$kCalcAdminBasePath/$groupId/${c.id}'),
                 ),
           ];

@@ -159,6 +159,55 @@ func TestCalcModule_CRUDAndCalculation(t *testing.T) {
 		}
 	})
 
+	// Pasifleştirilen grup/kategori yönetim listesinde kalmalı (yeniden
+	// aktifleştirilebilsin); Metraj Hesapla akışı ise yalnızca aktifleri görür.
+	t.Run("pasif grup/kategori admin listesinde görünür ve yeniden aktifleşir", func(t *testing.T) {
+		g := mustGroup(t, ctx, calcSvc, orgA.ID, "pasif-grup")
+		cat := mustCategory(t, ctx, calcSvc, orgA.ID, g.ID, "pasif-kategori")
+		if _, err := calcSvc.UpdateGroup(ctx, g.ID, orgA.ID, service.CalcGroupInput{Slug: g.Slug, Name: g.Name}, false); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := calcSvc.UpdateCategory(ctx, cat.ID, orgA.ID, service.CalcCategoryInput{GroupID: g.ID, Slug: cat.Slug, Name: cat.Name}, false); err != nil {
+			t.Fatal(err)
+		}
+		contains := func(groups []domain.CalcGroup) (bool, bool) {
+			for _, gr := range groups {
+				if gr.ID == g.ID {
+					return true, gr.IsActive
+				}
+			}
+			return false, false
+		}
+		active, err := calcSvc.ListGroups(ctx, orgA.ID, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if found, _ := contains(active); found {
+			t.Fatal("pasif grup aktif listede görünmemeli")
+		}
+		all, err := calcSvc.ListGroups(ctx, orgA.ID, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if found, isActive := contains(all); !found || isActive {
+			t.Fatalf("pasif grup admin listesinde pasif olarak görünmeli (found=%v)", found)
+		}
+		if cats, _ := calcSvc.ListCategoriesByGroup(ctx, g.ID, orgA.ID, false); len(cats) != 0 {
+			t.Fatalf("pasif kategori aktif listede görünmemeli: %+v", cats)
+		}
+		cats, err := calcSvc.ListCategoriesByGroup(ctx, g.ID, orgA.ID, true)
+		if err != nil || len(cats) != 1 || cats[0].IsActive {
+			t.Fatalf("pasif kategori admin listesinde görünmeli: %+v err=%v", cats, err)
+		}
+		if _, err := calcSvc.UpdateGroup(ctx, g.ID, orgA.ID, service.CalcGroupInput{Slug: g.Slug, Name: g.Name}, true); err != nil {
+			t.Fatal(err)
+		}
+		active, _ = calcSvc.ListGroups(ctx, orgA.ID, false)
+		if found, _ := contains(active); !found {
+			t.Fatal("yeniden aktifleşen grup aktif listede görünmeli")
+		}
+	})
+
 	t.Run("tenant izolasyonu: Firma B, Firma A'nın grubunu/kategorisini/kalemini göremez", func(t *testing.T) {
 		calcSvcB := service.NewCalcService(sqlc.New(pool))
 		g := mustGroup(t, ctx, calcSvc, orgA.ID, "izole-grup")
@@ -174,12 +223,23 @@ func TestCalcModule_CRUDAndCalculation(t *testing.T) {
 		if _, err := calcSvcB.UpdateGroup(ctx, g.ID, orgB.ID, service.CalcGroupInput{Slug: g.Slug, Name: "Ele Geçirildi"}, true); err == nil {
 			t.Fatal("Firma B, Firma A'nın grubunu güncelleyebildi")
 		}
-		cats, err := calcSvcB.ListCategoriesByGroup(ctx, g.ID, orgB.ID)
-		if err != nil {
-			t.Fatalf("beklenmeyen hata: %v", err)
+		for _, includeInactive := range []bool{false, true} {
+			cats, err := calcSvcB.ListCategoriesByGroup(ctx, g.ID, orgB.ID, includeInactive)
+			if err != nil {
+				t.Fatalf("beklenmeyen hata: %v", err)
+			}
+			if len(cats) != 0 {
+				t.Fatalf("Firma B, Firma A'nın kategorilerini görebildi (includeInactive=%v): %+v", includeInactive, cats)
+			}
 		}
-		if len(cats) != 0 {
-			t.Fatalf("Firma B, Firma A'nın kategorilerini görebildi: %+v", cats)
+		if groups, err := calcSvcB.ListGroups(ctx, orgB.ID, true); err != nil {
+			t.Fatalf("beklenmeyen hata: %v", err)
+		} else {
+			for _, gr := range groups {
+				if gr.ID == g.ID {
+					t.Fatal("Firma B, Firma A'nın grubunu admin listesinde görebildi")
+				}
+			}
 		}
 		if _, err := calcSvcB.UpdateRecipeItem(ctx, item.ID, orgB.ID, service.CalcRecipeItemInput{
 			CategoryID: cat.ID, MaterialName: "Ele Geçirildi", Unit: "adet", CalculationType: domain.CalcTypeFixed,

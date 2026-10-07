@@ -221,7 +221,7 @@ void main() {
   });
 
   group('OffersScreen — filtre/arama', () {
-    testWidgets('durum sekmesi ve arama birlikte istemci tarafında filtreler', (tester) async {
+    testWidgets('durum sekmesi sunucuya status parametresiyle istek atar, sayaçlar backend toplamıdır', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
         '/auth/me': [(status: 200, body: _meJson())],
         '/offers/': [
@@ -232,7 +232,18 @@ void main() {
                 _offerJson(id: 'o1', offerNo: 'TKF-001', status: 'taslak'),
                 _offerJson(id: 'o2', offerNo: 'TKF-002', status: 'gönderildi'),
               ],
-              'total': 2,
+              // Gerçek toplamlar yüklenen satırlardan büyük: sayaçlar
+              // sayfadakileri değil, backend'in saydığını göstermeli.
+              'total': 120,
+              'status_counts': {'taslak': 70, 'gönderildi': 50, 'kabul edildi': 0, 'reddedildi': 0},
+            },
+          ),
+          (
+            status: 200,
+            body: {
+              'offers': [_offerJson(id: 'o2', offerNo: 'TKF-002', status: 'gönderildi')],
+              'total': 50,
+              'status_counts': {'taslak': 70, 'gönderildi': 50, 'kabul edildi': 0, 'reddedildi': 0},
             },
           ),
         ],
@@ -241,14 +252,24 @@ void main() {
 
       expect(find.text('TKF-001'), findsOneWidget);
       expect(find.text('TKF-002'), findsOneWidget);
+      expect(find.text('120 teklif'), findsOneWidget);
+      expect(find.widgetWithText(FilterChip, 'Tümü (120)'), findsOneWidget);
 
-      // "Gönderildi" hem filtre çipinde hem de TKF-002'nin durum
-      // rozetinde geçer -- yalnızca çipi hedeflemek için daralt.
-      await tester.tap(find.widgetWithText(FilterChip, 'Gönderildi'));
+      // Sayaçlı etiketler genişlediği için çip yatay çubukta görünür alanın
+      // dışında kalabilir -- Pasif testindeki gibi önce görünür kaydırılır,
+      // sonra üretim kodunun aynı onSelected callback'i çağrılır.
+      await tester.dragUntilVisible(
+        find.text('Gönderildi (50)'),
+        find.byType(AppFilterBar),
+        const Offset(-80, 0),
+      );
+      tester.widget<FilterChip>(find.widgetWithText(FilterChip, 'Gönderildi (50)')).onSelected!(true);
       await tester.pumpAndSettle();
 
+      expect(adapter.requestQueries.last['status'], 'gönderildi');
       expect(find.text('TKF-001'), findsNothing);
       expect(find.text('TKF-002'), findsOneWidget);
+      expect(find.text('50 teklif'), findsOneWidget);
     });
 
     testWidgets('Pasif çipine dokunmak pasif filtresiyle yeni bir istek atar', (tester) async {

@@ -225,8 +225,9 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/{id}/pdf", d.OfferPDF.Download)
 				// Teklifin projeye dönüşüp dönüşmediği (dönüşmediyse 404) --
 				// teklif detayındaki "Projeye Dönüştür"/"Projeyi Görüntüle"
-				// ayrımı buna bakar.
-				r.Get("/{id}/project", d.Projects.GetByOffer)
+				// ayrımı buna bakar. Yanıt projenin kendisi olduğu için handler
+				// ayrıca projects.read + proje erişimi ister.
+				r.Get("/{id}/project", d.Projects.GetByOffer(d.AuthorizationSvc))
 			})
 			r.With(perm(domain.PermOffersCreate)).Post("/", d.Offers.Create)
 			r.Group(func(r chi.Router) {

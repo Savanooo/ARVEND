@@ -14,8 +14,11 @@ class CalcAdminRepository {
   static const productPageSize = 200;
   static const _maxProductPages = 50;
 
+  /// Pasifleştirilmiş gruplar DAHİL (`include_inactive=1`): yönetim
+  /// ekranı onları rozetle gösterir ki yeniden aktifleştirilebilsin --
+  /// eskiden pasife alınan grup listeden düşüp bir daha açılamıyordu.
   Future<List<CalcAdminGroup>> groups() async {
-    final json = await _client.get<Map<String, dynamic>>('/calculations/groups');
+    final json = await _client.get<Map<String, dynamic>>('/calculations/groups', query: {'include_inactive': 1});
     return (json['groups'] as List? ?? const []).cast<Map<String, dynamic>>().map(CalcAdminGroup.fromJson).toList();
   }
 
@@ -53,8 +56,12 @@ class CalcAdminRepository {
     return CalcAdminGroup.fromJson(json);
   }
 
+  /// [groups] ile aynı: pasif kategoriler de gelir.
   Future<List<CalcAdminCategory>> categories(String groupId) async {
-    final json = await _client.get<Map<String, dynamic>>('/calculations/categories', query: {'group_id': groupId});
+    final json = await _client.get<Map<String, dynamic>>(
+      '/calculations/categories',
+      query: {'group_id': groupId, 'include_inactive': 1},
+    );
     return (json['categories'] as List? ?? const [])
         .cast<Map<String, dynamic>>()
         .map(CalcAdminCategory.fromJson)

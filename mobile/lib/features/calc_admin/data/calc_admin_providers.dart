@@ -12,8 +12,8 @@ final calcAdminGroupsProvider = FutureProvider.autoDispose<List<CalcAdminGroup>>
   (ref) => ref.watch(calcAdminRepositoryProvider).groups(),
 );
 
-/// Tekil grup ucu olmadığı için liste üzerinden bulunur; yoksa (silinmiş
-/// değil, PASİFLEŞTİRİLMİŞ -- backend yalnızca aktifleri listeler) null.
+/// Tekil grup ucu olmadığı için liste üzerinden bulunur (liste pasif
+/// grupları da içerir); yoksa null.
 final calcAdminGroupProvider = FutureProvider.autoDispose.family<CalcAdminGroup?, String>((ref, groupId) async {
   final groups = await ref.watch(calcAdminGroupsProvider.future);
   for (final g in groups) {

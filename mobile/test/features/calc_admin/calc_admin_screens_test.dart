@@ -91,6 +91,32 @@ void main() {
       expect(repo.calls, contains('products'));
     });
 
+    // Pasifleştirilen grup eskiden listeden düşüyor ve bir daha
+    // açılamıyordu: artık rozetle listelenir, açılır ve kategorileri görünür.
+    testWidgets('inactive group stays listed with a badge and can be opened', (tester) async {
+      final repo = FakeCalcAdminRepository();
+      repo.groupsData = [
+        for (final g in repo.groupsData)
+          g.id == 'g1'
+              ? CalcAdminGroup(
+                  id: g.id,
+                  slug: g.slug,
+                  name: g.name,
+                  description: g.description,
+                  sortOrder: g.sortOrder,
+                  isActive: false,
+                )
+              : g,
+      ];
+      await _pump(tester, calcAdminApp(user: ownerUser, repo: repo));
+      expect(find.text('Petek Tavanlar'), findsOneWidget);
+      expect(find.text('Pasif'), findsOneWidget);
+      await tester.tap(find.text('Petek Tavanlar'));
+      await tester.pumpAndSettle();
+      expect(find.text('Hesaplama Türleri (2)'), findsOneWidget);
+      expect(find.text('Grup bulunamadı.'), findsNothing);
+    });
+
     testWidgets('create group: slug follows the name, repo receives it', (tester) async {
       final repo = FakeCalcAdminRepository();
       await _pump(tester, calcAdminApp(user: ownerUser, repo: repo));

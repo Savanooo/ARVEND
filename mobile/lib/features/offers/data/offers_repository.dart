@@ -3,6 +3,18 @@ import 'dart:typed_data';
 import '../../../core/api/api_client.dart';
 import '../domain/offer.dart';
 
+/// `GET /offers/` sayfası: bu sayfanın satırları + filtrenin gerçek toplamı
+/// + durum sekmesi sayaçları.
+class OfferListPage {
+  const OfferListPage({required this.offers, required this.total, required this.statusCounts});
+
+  static const pageSize = 50;
+
+  final List<Offer> offers;
+  final int total;
+  final Map<String, int> statusCounts;
+}
+
 class OffersRepository {
   OffersRepository(this._client);
   final ApiClient _client;
@@ -21,6 +33,33 @@ class OffersRepository {
     });
     final list = (json['offers'] as List).cast<Map<String, dynamic>>().map(Offer.fromJson).toList();
     return (offers: list, total: json['total'] as int? ?? list.length);
+  }
+
+  /// Teklifler ekranının sayfalı listesi: durum sekmesi ve arama SUNUCUDA
+  /// uygulanır (backend `GET /offers/?status=&q=&page=&limit=`). Eskiden
+  /// yalnızca ilk 50 teklif çekilip cihazda süzülüyordu -- 51. ve sonraki
+  /// teklifler hiçbir filtrede görünmüyordu. `statusCounts`, aynı arama
+  /// kapsamında her durumdaki GERÇEK teklif sayısıdır (sekme sayaçları).
+  Future<OfferListPage> page({
+    bool passive = false,
+    String status = '',
+    String q = '',
+    int page = 1,
+    int limit = OfferListPage.pageSize,
+  }) async {
+    final json = await _client.get<Map<String, dynamic>>('/offers/', query: {
+      if (passive) 'filter': 'pasif',
+      if (status.isNotEmpty) 'status': status,
+      if (q.isNotEmpty) 'q': q,
+      'page': page,
+      'limit': limit,
+    });
+    final offers = (json['offers'] as List? ?? const []).cast<Map<String, dynamic>>().map(Offer.fromJson).toList();
+    final counts = <String, int>{
+      for (final e in (json['status_counts'] as Map<String, dynamic>? ?? const {}).entries)
+        e.key: (e.value as num?)?.toInt() ?? 0,
+    };
+    return OfferListPage(offers: offers, total: (json['total'] as num?)?.toInt() ?? offers.length, statusCounts: counts);
   }
 
   Future<Offer> get(String id) async {

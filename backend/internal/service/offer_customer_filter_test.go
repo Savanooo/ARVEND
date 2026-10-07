@@ -68,7 +68,7 @@ func TestOfferListCustomerFilter(t *testing.T) {
 	newOffer(t, nil, "Serbest Metin Müşteri")
 
 	t.Run("no_filter_returns_all_four", func(t *testing.T) {
-		res, err := offerSvc.List(ctx, org.ID, false, 1, 200, "")
+		res, err := offerSvc.List(ctx, org.ID, service.OfferListFilter{Page: 1, Limit: 200})
 		if err != nil {
 			t.Fatalf("liste alınamadı: %v", err)
 		}
@@ -81,7 +81,7 @@ func TestOfferListCustomerFilter(t *testing.T) {
 	})
 
 	t.Run("customer_id_filter_returns_only_that_customers_offers", func(t *testing.T) {
-		res, err := offerSvc.List(ctx, org.ID, false, 1, 200, customerA.ID)
+		res, err := offerSvc.List(ctx, org.ID, service.OfferListFilter{Page: 1, Limit: 200, CustomerID: customerA.ID})
 		if err != nil {
 			t.Fatalf("liste alınamadı: %v", err)
 		}
@@ -99,7 +99,7 @@ func TestOfferListCustomerFilter(t *testing.T) {
 	})
 
 	t.Run("customer_id_filter_for_customer_with_one_offer", func(t *testing.T) {
-		res, err := offerSvc.List(ctx, org.ID, false, 1, 200, customerB.ID)
+		res, err := offerSvc.List(ctx, org.ID, service.OfferListFilter{Page: 1, Limit: 200, CustomerID: customerB.ID})
 		if err != nil {
 			t.Fatalf("liste alınamadı: %v", err)
 		}
@@ -112,7 +112,7 @@ func TestOfferListCustomerFilter(t *testing.T) {
 		// customer_id=null olan "Serbest Metin Müşteri" teklifi, HİÇBİR
 		// customer_id filtresiyle eşleşmemeli -- yalnızca filtresiz listede
 		// görünür (yukarıdaki no_filter testinde zaten doğrulandı).
-		res, err := offerSvc.List(ctx, org.ID, false, 1, 200, customerA.ID)
+		res, err := offerSvc.List(ctx, org.ID, service.OfferListFilter{Page: 1, Limit: 200, CustomerID: customerA.ID})
 		if err != nil {
 			t.Fatalf("liste alınamadı: %v", err)
 		}
@@ -124,7 +124,7 @@ func TestOfferListCustomerFilter(t *testing.T) {
 	})
 
 	t.Run("unknown_customer_id_returns_empty_not_error", func(t *testing.T) {
-		res, err := offerSvc.List(ctx, org.ID, false, 1, 200, "00000000-0000-0000-0000-000000000000")
+		res, err := offerSvc.List(ctx, org.ID, service.OfferListFilter{Page: 1, Limit: 200, CustomerID: "00000000-0000-0000-0000-000000000000"})
 		if err != nil {
 			t.Fatalf("bilinmeyen customer_id hata döndürmemeli: %v", err)
 		}
@@ -138,7 +138,7 @@ func TestOfferListCustomerFilter(t *testing.T) {
 		// customer_id'nin organization_id ile BİRLİKTE filtrelendiğidir:
 		// otherOrg + customerA.ID kombinasyonu (farklı org'daki bir UUID)
 		// hiçbir satırla eşleşmemeli.
-		res, err := offerSvc.List(ctx, otherOrg.ID, false, 1, 200, customerA.ID)
+		res, err := offerSvc.List(ctx, otherOrg.ID, service.OfferListFilter{Page: 1, Limit: 200, CustomerID: customerA.ID})
 		if err != nil {
 			t.Fatalf("liste alınamadı: %v", err)
 		}

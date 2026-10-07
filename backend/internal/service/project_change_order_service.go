@@ -70,6 +70,9 @@ type PublicChangeOrderView struct {
 	ProjectedContractValue float64
 	Currency               string
 	CanRespond             bool
+	// OrganizationName: ek işi gönderen firmanın adı -- public sayfa başlığı
+	// her firmanın müşterisine "Arvend Yapı" gösteriyordu.
+	OrganizationName string
 }
 
 // resolveChangeOrderRef, opsiyonel bir change_order_id'yi doğrular: boşsa
@@ -710,24 +713,38 @@ func (s *ProjectService) SendChangeOrderEmail(ctx context.Context, projectID, ch
 // altında) çağrılabilir (offer'daki resolveActiveShareLink ile AYNI
 // çift-kullanım deseni).
 func (s *ProjectService) resolveActiveChangeOrderShareLink(ctx context.Context, q *sqlc.Queries, token string) (sqlc.ProjectChangeOrderShareLink, error) {
+	link, _, err := s.resolveActiveChangeOrderShareLinkWithOrg(ctx, q, token)
+	return link, err
+}
+
+// resolveActiveChangeOrderShareLinkWithOrg, bağlantının firmasını da (public
+// sayfadaki firma adı için) döner. Askıya alınmış/iptal edilmiş/silinmiş
+// firmanın linki çalışmaz (bkz. publicLinkOrganization) -- eskiden bu yol
+// firma durumuna hiç bakmıyordu, askıdaki bir firmanın ek işi hâlâ
+// onaylanabiliyordu. Respond'da kontrol kilit altında da tekrarlanır.
+func (s *ProjectService) resolveActiveChangeOrderShareLinkWithOrg(ctx context.Context, q *sqlc.Queries, token string) (sqlc.ProjectChangeOrderShareLink, sqlc.Organization, error) {
 	tid, err := repository.StringToUUID(token)
 	if err != nil {
-		return sqlc.ProjectChangeOrderShareLink{}, domain.ErrNotFound
+		return sqlc.ProjectChangeOrderShareLink{}, sqlc.Organization{}, domain.ErrNotFound
 	}
 	link, err := q.GetChangeOrderShareLinkByToken(ctx, tid)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return sqlc.ProjectChangeOrderShareLink{}, domain.ErrNotFound
+			return sqlc.ProjectChangeOrderShareLink{}, sqlc.Organization{}, domain.ErrNotFound
 		}
-		return sqlc.ProjectChangeOrderShareLink{}, err
+		return sqlc.ProjectChangeOrderShareLink{}, sqlc.Organization{}, err
 	}
 	if link.RevokedAt.Valid {
-		return sqlc.ProjectChangeOrderShareLink{}, ErrChangeOrderShareLinkRevoked
+		return sqlc.ProjectChangeOrderShareLink{}, sqlc.Organization{}, ErrChangeOrderShareLinkRevoked
 	}
 	if link.ExpiresAt.Valid && time.Now().After(link.ExpiresAt.Time) {
-		return sqlc.ProjectChangeOrderShareLink{}, ErrChangeOrderShareLinkExpired
+		return sqlc.ProjectChangeOrderShareLink{}, sqlc.Organization{}, ErrChangeOrderShareLinkExpired
 	}
-	return link, nil
+	org, err := publicLinkOrganization(ctx, q, link.OrganizationID)
+	if err != nil {
+		return sqlc.ProjectChangeOrderShareLink{}, sqlc.Organization{}, err
+	}
+	return link, org, nil
 }
 
 // GetChangeOrderByShareLinkToken, müşterinin kimlik doğrulamasız
@@ -735,7 +752,7 @@ func (s *ProjectService) resolveActiveChangeOrderShareLink(ctx context.Context, 
 // EN İYİ ÇABA ile loglanır: log başarısız olsa bile müşteri sayfayı
 // görebilmeye devam eder (offer'ın customer_viewed deseniyle aynı).
 func (s *ProjectService) GetChangeOrderByShareLinkToken(ctx context.Context, token, ip, userAgent string) (*PublicChangeOrderView, error) {
-	link, err := s.resolveActiveChangeOrderShareLink(ctx, s.q, token)
+	link, org, err := s.resolveActiveChangeOrderShareLinkWithOrg(ctx, s.q, token)
 	if err != nil {
 		return nil, err
 	}
@@ -798,6 +815,7 @@ func (s *ProjectService) GetChangeOrderByShareLinkToken(ctx context.Context, tok
 		ProjectedContractValue: projected,
 		Currency:               project.Currency,
 		CanRespond:             canRespond,
+		OrganizationName:       org.Name,
 	}, nil
 }
 

@@ -22,6 +22,7 @@ import type {
 } from "@/lib/types";
 
 import { ActivityTimeline } from "./ActivityTimeline";
+import { DownloadPdfButton } from "./DownloadPdfButton";
 import { OfferActions } from "./OfferActions";
 import { ShareOfferCard } from "./ShareOfferCard";
 
@@ -50,12 +51,18 @@ export default async function TeklifDetayPage({
   );
 
   // Teklif zaten projeye dönüştürülmüş mü? 404 = dönüştürülmemiş.
-  const project = await apiServer<Project>(`/api/v1/offers/${id}/project`, cookieHeader).catch(
+  // 403 = dönüştürülmüş ama kullanıcının o projeye erişimi (projects.read +
+  // proje üyeliği) yok -- backend proje verisini artık yalnızca erişimi
+  // olana döner; bu durumda ne "Projeyi Görüntüle" ne "Projeye Dönüştür"
+  // gösterilir.
+  const projectLookup = await apiServer<Project>(`/api/v1/offers/${id}/project`, cookieHeader).then(
+    (p) => ({ project: p as Project | null, accessDenied: false }),
     (err) => {
-      if (err instanceof ApiError) return null;
+      if (err instanceof ApiError) return { project: null, accessDenied: err.status === 403 };
       throw err;
     }
   );
+  const { project, accessDenied: projectAccessDenied } = projectLookup;
 
   // internal_pricing alanı backend'de YALNIZCA offers.internal_pricing.read
   // izni olan personel için doldurulur (bkz. offer_handler.go
@@ -74,6 +81,7 @@ export default async function TeklifDetayPage({
         }
         action={
           <div className="flex items-center gap-3">
+            <DownloadPdfButton offerId={offer.id} offerNo={offer.offer_no} revisionNo={offer.revision_no} />
             {offer.status === "taslak" && canUpdate && (
               <Link href={`/teklifler/${offer.id}/duzenle`}>
                 <Button variant="secondary">Düzenle</Button>
@@ -84,7 +92,7 @@ export default async function TeklifDetayPage({
                 <Button variant="secondary">Projeyi Görüntüle</Button>
               </Link>
             ) : (
-              offer.status === "kabul edildi" && canCreateProject && (
+              offer.status === "kabul edildi" && canCreateProject && !projectAccessDenied && (
                 <Link href={`/teklifler/${offer.id}/projeye-donustur`}>
                   <Button>Projeye Dönüştür</Button>
                 </Link>
@@ -178,6 +186,12 @@ export default async function TeklifDetayPage({
                 Teklif Tarihi
               </div>
               <div>{new Date(offer.offer_date).toLocaleDateString("tr-TR")}</div>
+              <div className="mt-3 border-t border-border pt-3 text-xs uppercase tracking-widest text-text-muted">
+                Geçerlilik Tarihi
+              </div>
+              <div>
+                {offer.valid_until ? new Date(offer.valid_until).toLocaleDateString("tr-TR") : "Süresiz"}
+              </div>
             </CardBody>
           </Card>
 

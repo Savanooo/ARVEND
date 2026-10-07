@@ -49,18 +49,43 @@ func clientIP(r *http.Request) string {
 // olamayacak bir Kabul Et/Reddet butonu gösterilmemesi için.
 type publicOfferResponse struct {
 	offerResponse
-	CanRespond bool `json:"can_respond"`
+	// OrganizationName: teklifi veren firmanın adı -- public sayfa başlığı
+	// bunu gösterir (eskiden her firmanın müşterisine sabit "Arvend Yapı").
+	OrganizationName string `json:"organization_name"`
+	CanRespond       bool   `json:"can_respond"`
+	// ValidityExpired: geçerlilik tarihi (valid_until, o gün dahil) geçmiş
+	// -- sayfa butonlar yerine "süresi doldu" mesajını gösterir. "Bugün"ün
+	// tek tanımı sunucudadır (İstanbul takvim günü, bkz.
+	// service.OfferValidityExpired); istemci saatine güvenilmez.
+	ValidityExpired bool `json:"validity_expired"`
+}
+
+// toPublicOfferResponse, müşteriye giden TEK teklif şeklidir:
+// toOfferResponse'un (zaten iç fiyatlamayı hiç içermeyen) çıktısından
+// Metraj Hesaplama'nın dondurulmuş hesap kaydı (calc_snapshot: fire
+// yüzdesi, reçete katsayısı, katalog/liste fiyatı) ve iç kategori id'si
+// de çıkarılır -- bunlar firmanın maliyet yapısını müşteriye açıyordu.
+// Müşteriye yalnızca kalem adı, birim, miktar, birim fiyat ve tutar gider.
+func toPublicOfferResponse(o domain.Offer) offerResponse {
+	resp := toOfferResponse(o)
+	for i := range resp.Items {
+		resp.Items[i].CalcSnapshot = nil
+		resp.Items[i].CalcCategoryID = nil
+	}
+	return resp
 }
 
 func (h *PublicOfferHandler) Get(w http.ResponseWriter, r *http.Request) {
-	o, canRespond, err := h.svc.GetByShareLinkToken(r.Context(), chi.URLParam(r, "token"), clientIP(r), r.UserAgent())
+	v, err := h.svc.GetPublicView(r.Context(), chi.URLParam(r, "token"), clientIP(r), r.UserAgent())
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
 	httpjson.Write(w, http.StatusOK, publicOfferResponse{
-		offerResponse: toOfferResponse(*o),
-		CanRespond:    canRespond,
+		offerResponse:    toPublicOfferResponse(v.Offer),
+		OrganizationName: v.OrganizationName,
+		CanRespond:       v.CanRespond,
+		ValidityExpired:  v.ValidityExpired,
 	})
 }
 
@@ -79,7 +104,7 @@ func (h *PublicOfferHandler) Respond(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toOfferResponse(*o))
+	httpjson.Write(w, http.StatusOK, toPublicOfferResponse(*o))
 }
 
 func (h *PublicOfferHandler) writeError(w http.ResponseWriter, err error) {
@@ -87,13 +112,15 @@ func (h *PublicOfferHandler) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "teklif bulunamadı")
 	case errors.Is(err, service.ErrShareLinkRevoked),
-		errors.Is(err, service.ErrShareLinkExpired):
+		errors.Is(err, service.ErrShareLinkExpired),
+		errors.Is(err, service.ErrPublicLinkUnavailable):
 		// 410 Gone: bağlantı bir zamanlar geçerliydi ama artık kalıcı
 		// olarak kullanılamaz -- 404'ten kasıtlı olarak farklı, "hiç var
 		// olmadı" ile "artık geçerli değil"i ayırt eder.
 		httpjson.Error(w, http.StatusGone, err.Error())
 	case errors.Is(err, service.ErrOfferSuperseded),
-		errors.Is(err, service.ErrOfferNotRespondable):
+		errors.Is(err, service.ErrOfferNotRespondable),
+		errors.Is(err, service.ErrOfferValidityExpired):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case isInternalError(err):
 		writeInternalError(w, err)

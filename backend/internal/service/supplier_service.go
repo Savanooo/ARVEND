@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
@@ -21,6 +23,52 @@ var ErrDuplicateSupplierCode = errors.New("bu tedarikçi kodu bu firmada zaten k
 
 // ErrSupplierFieldsRequired, code/legal_name boş bırakıldığında döner.
 var ErrSupplierFieldsRequired = errors.New("tedarikçi kodu ve unvanı zorunludur")
+
+// ErrSupplierLegalNameRequired: güncellemede unvan boş bırakıldı. Create
+// bunu zaten reddediyordu; Update etmiyordu ve unvanı boş bir tedarikçi
+// kartı (seçim listelerinde adsız satır) oluşabiliyordu.
+var ErrSupplierLegalNameRequired = errors.New("tedarikçi unvanı zorunludur")
+
+// ErrDuplicateSupplierTaxNumber, aynı firmada aynı vergi numarasıyla
+// kayıtlı başka bir tedarikçi olduğunda döner (errors.Is ile; ayrıntı
+// *DuplicateSupplierTaxNumberError'da). Eskiden kontrol yoktu -- aynı
+// tedarikçi farklı kodlarla tekrar açılıp siparişleri/ödemeleri kartlara
+// dağılıyordu.
+var ErrDuplicateSupplierTaxNumber = errors.New("bu vergi numarasıyla kayıtlı bir tedarikçi zaten var")
+
+type DuplicateSupplierTaxNumberError struct {
+	Existing domain.Supplier
+}
+
+func (e *DuplicateSupplierTaxNumberError) Error() string {
+	msg := "bu vergi numarasıyla kayıtlı bir tedarikçi zaten var: " + e.Existing.Code + " - " + e.Existing.LegalName
+	if !e.Existing.IsActive {
+		msg += " (arşivde)"
+	}
+	return msg
+}
+
+func (e *DuplicateSupplierTaxNumberError) Is(target error) bool {
+	return target == ErrDuplicateSupplierTaxNumber
+}
+
+// checkSupplierTaxNumber, vergi numarası (normalize edilmiş anahtarıyla)
+// başka bir tedarikçide kayıtlıysa *DuplicateSupplierTaxNumberError döner.
+// Boş/çok kısa numara karşılaştırılmaz.
+func (s *SupplierService) checkSupplierTaxNumber(ctx context.Context, orgID, excludeID pgtype.UUID, taxNumber string) error {
+	key := customerTaxKey(taxNumber)
+	if key == "" {
+		return nil
+	}
+	row, err := s.q.FindSupplierByTaxKey(ctx, sqlc.FindSupplierByTaxKeyParams{OrganizationID: orgID, ExcludeID: excludeID, TaxKey: key})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	return &DuplicateSupplierTaxNumberError{Existing: repository.ToDomainSupplier(row)}
+}
 
 // SupplierService, suppliers (kuruluş-seviyeli, projeler arası
 // PAYLAŞILAN tedarikçi kataloğu) için CRUD işlemlerini yönetir --
@@ -104,6 +152,10 @@ func (s *SupplierService) Create(ctx context.Context, organizationID string, in 
 	if in.Code == "" || in.LegalName == "" {
 		return nil, ErrSupplierFieldsRequired
 	}
+	in.TaxNumber = normalizeTaxNumber(in.TaxNumber)
+	if err := s.checkSupplierTaxNumber(ctx, orgID, pgtype.UUID{}, in.TaxNumber); err != nil {
+		return nil, err
+	}
 	ibanEnc, err := s.encryptIBAN(in.IBAN, "")
 	if err != nil {
 		return nil, err
@@ -111,7 +163,7 @@ func (s *SupplierService) Create(ctx context.Context, organizationID string, in 
 
 	row, err := s.q.CreateSupplier(ctx, sqlc.CreateSupplierParams{
 		OrganizationID: orgID, Code: in.Code, LegalName: in.LegalName, TradeName: strings.TrimSpace(in.TradeName),
-		TaxNumber: strings.TrimSpace(in.TaxNumber), TaxOffice: strings.TrimSpace(in.TaxOffice),
+		TaxNumber: in.TaxNumber, TaxOffice: strings.TrimSpace(in.TaxOffice),
 		ContactName: strings.TrimSpace(in.ContactName), Email: strings.TrimSpace(in.Email), Phone: strings.TrimSpace(in.Phone),
 		Address: in.Address, City: strings.TrimSpace(in.City), Country: strings.TrimSpace(in.Country),
 		IbanEnc: ibanEnc, Notes: in.Notes, CreatedBy: actorUUID(in.UserID), Specialty: strings.TrimSpace(in.Specialty),
@@ -139,9 +191,21 @@ func (s *SupplierService) Update(ctx context.Context, id, organizationID string,
 	if err != nil {
 		return nil, err
 	}
+	in.LegalName = strings.TrimSpace(in.LegalName)
+	if in.LegalName == "" {
+		return nil, ErrSupplierLegalNameRequired
+	}
 	current, err := s.q.GetSupplier(ctx, sqlc.GetSupplierParams{ID: sid, OrganizationID: orgID})
 	if err != nil {
 		return nil, domain.ErrNotFound
+	}
+	in.TaxNumber = normalizeTaxNumber(in.TaxNumber)
+	// Yalnızca vergi numarası DEĞİŞTİYSE kontrol edilir: bugünden önce
+	// oluşmuş bir çift kaydın başka bir alanını düzenlemek engellenmemeli.
+	if customerTaxKey(in.TaxNumber) != customerTaxKey(current.TaxNumber) {
+		if err := s.checkSupplierTaxNumber(ctx, orgID, sid, in.TaxNumber); err != nil {
+			return nil, err
+		}
 	}
 	ibanEnc, err := s.encryptIBAN(in.IBAN, current.IbanEnc)
 	if err != nil {
@@ -149,8 +213,8 @@ func (s *SupplierService) Update(ctx context.Context, id, organizationID string,
 	}
 	row, err := s.q.UpdateSupplier(ctx, sqlc.UpdateSupplierParams{
 		ID: sid, OrganizationID: orgID,
-		LegalName: strings.TrimSpace(in.LegalName), TradeName: strings.TrimSpace(in.TradeName),
-		TaxNumber: strings.TrimSpace(in.TaxNumber), TaxOffice: strings.TrimSpace(in.TaxOffice),
+		LegalName: in.LegalName, TradeName: strings.TrimSpace(in.TradeName),
+		TaxNumber: in.TaxNumber, TaxOffice: strings.TrimSpace(in.TaxOffice),
 		ContactName: strings.TrimSpace(in.ContactName), Email: strings.TrimSpace(in.Email), Phone: strings.TrimSpace(in.Phone),
 		Address: in.Address, City: strings.TrimSpace(in.City), Country: strings.TrimSpace(in.Country),
 		IbanEnc: ibanEnc, Notes: in.Notes, Specialty: strings.TrimSpace(in.Specialty),

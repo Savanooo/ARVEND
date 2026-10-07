@@ -11,24 +11,63 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const countOffers = `-- name: CountOffers :one
-SELECT count(*) FROM offers o
+const countOffersByStatus = `-- name: CountOffersByStatus :many
+SELECT o.status, count(*) AS count
+FROM offers o
 JOIN offer_revisions r ON r.id = o.current_revision_id
 WHERE o.organization_id = $1 AND o.is_passive = $2
   AND ($3::uuid IS NULL OR r.customer_id = $3::uuid)
+  AND ($4::date IS NULL OR o.offer_date >= $4::date)
+  AND ($5::date IS NULL OR o.offer_date <= $5::date)
+  AND ($6::varchar IS NULL
+       OR o.offer_no ILIKE '%' || $6::varchar || '%'
+       OR r.customer_name ILIKE '%' || $6::varchar || '%')
+GROUP BY o.status
 `
 
-type CountOffersParams struct {
+type CountOffersByStatusParams struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
 	IsPassive      bool        `json:"is_passive"`
 	CustomerID     pgtype.UUID `json:"customer_id"`
+	DateFrom       pgtype.Date `json:"date_from"`
+	DateTo         pgtype.Date `json:"date_to"`
+	Search         *string     `json:"search"`
 }
 
-func (q *Queries) CountOffers(ctx context.Context, arg CountOffersParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countOffers, arg.OrganizationID, arg.IsPassive, arg.CustomerID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
+type CountOffersByStatusRow struct {
+	Status string `json:"status"`
+	Count  int64  `json:"count"`
+}
+
+// ListOffers'ın AYNI filtreleri (durum HARİÇ), duruma göre gruplanmış --
+// hem sayfalamanın gerçek toplamı hem de durum sekmelerinin sayaçları bu
+// TEK sorgudan türetilir (sekmeler artık yalnızca yüklenen satırları
+// saymıyor).
+func (q *Queries) CountOffersByStatus(ctx context.Context, arg CountOffersByStatusParams) ([]CountOffersByStatusRow, error) {
+	rows, err := q.db.Query(ctx, countOffersByStatus,
+		arg.OrganizationID,
+		arg.IsPassive,
+		arg.CustomerID,
+		arg.DateFrom,
+		arg.DateTo,
+		arg.Search,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CountOffersByStatusRow
+	for rows.Next() {
+		var i CountOffersByStatusRow
+		if err := rows.Scan(&i.Status, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const createOffer = `-- name: CreateOffer :one
@@ -113,17 +152,27 @@ SELECT o.id, o.offer_no, o.offer_date, o.status, o.is_passive, o.created_by, o.c
 FROM offers o
 JOIN offer_revisions r ON r.id = o.current_revision_id
 WHERE o.organization_id = $1 AND o.is_passive = $2
-  AND ($5::uuid IS NULL OR r.customer_id = $5::uuid)
-ORDER BY o.created_at DESC
-LIMIT $3 OFFSET $4
+  AND ($3::uuid IS NULL OR r.customer_id = $3::uuid)
+  AND ($4::varchar IS NULL OR o.status = $4::varchar)
+  AND ($5::date IS NULL OR o.offer_date >= $5::date)
+  AND ($6::date IS NULL OR o.offer_date <= $6::date)
+  AND ($7::varchar IS NULL
+       OR o.offer_no ILIKE '%' || $7::varchar || '%'
+       OR r.customer_name ILIKE '%' || $7::varchar || '%')
+ORDER BY o.created_at DESC, o.id DESC
+LIMIT $9 OFFSET $8
 `
 
 type ListOffersParams struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
 	IsPassive      bool        `json:"is_passive"`
-	Limit          int32       `json:"limit"`
-	Offset         int32       `json:"offset"`
 	CustomerID     pgtype.UUID `json:"customer_id"`
+	Status         *string     `json:"status"`
+	DateFrom       pgtype.Date `json:"date_from"`
+	DateTo         pgtype.Date `json:"date_to"`
+	Search         *string     `json:"search"`
+	RowOffset      int32       `json:"row_offset"`
+	RowLimit       int32       `json:"row_limit"`
 }
 
 type ListOffersRow struct {
@@ -148,13 +197,24 @@ type ListOffersRow struct {
 // IS NULL => filtresiz). offers tablosunun kendisinde customer_id YOK
 // (0018 migration'da kaldırıldı) -- canlı değer yalnızca current_revision
 // üzerinden erişilebilir, bu yüzden r.customer_id üzerinden filtrelenir.
+// status/search/date_from/date_to: liste ekranlarının durum sekmesi, arama
+// ve tarih filtresi SUNUCUDA uygulanır (eskiden yalnızca ilk 50 satır
+// çekilip tarayıcıda/mobilde süzülüyordu -- 51. ve sonraki teklifler hiçbir
+// filtrede görünmüyordu). search, teklif no veya müşteri adında geçer;
+// '%'/'_' joker karakterleri çağıran tarafta kaçırılır (bkz.
+// escapeLikePattern). Sıralama tie-breaker'lı (id) -- sayfalar arası kayma
+// olmasın.
 func (q *Queries) ListOffers(ctx context.Context, arg ListOffersParams) ([]ListOffersRow, error) {
 	rows, err := q.db.Query(ctx, listOffers,
 		arg.OrganizationID,
 		arg.IsPassive,
-		arg.Limit,
-		arg.Offset,
 		arg.CustomerID,
+		arg.Status,
+		arg.DateFrom,
+		arg.DateTo,
+		arg.Search,
+		arg.RowOffset,
+		arg.RowLimit,
 	)
 	if err != nil {
 		return nil, err

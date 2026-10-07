@@ -173,6 +173,11 @@ func (h *ProductHandler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "ürün bulunamadı")
+	case errors.Is(err, service.ErrProductInUse):
+		httpjson.Error(w, http.StatusConflict, err.Error())
+	case isInternalError(err):
+		// Ham veritabanı metni (FK/kolon adları) istemciye sızmasın.
+		writeInternalError(w, err)
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}

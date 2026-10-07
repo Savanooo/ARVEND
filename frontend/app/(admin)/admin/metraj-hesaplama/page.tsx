@@ -14,7 +14,9 @@ import { NewGroupButton } from "./NewGroupButton";
 
 async function fetchGroups() {
   const cookieHeader = (await cookies()).toString();
-  return apiServer<{ groups: CalcGroup[] }>("/api/v1/calculations/groups", cookieHeader);
+  // include_inactive: pasifleştirilmiş gruplar da listelenir (rozetle) ki
+  // yeniden aktifleştirilebilsin -- eskiden listeden düşüp ulaşılamıyordu.
+  return apiServer<{ groups: CalcGroup[] }>("/api/v1/calculations/groups?include_inactive=1", cookieHeader);
 }
 
 // Metraj Hesaplama admin ekranı: Grup -> Kategori -> Reçete Kalemi
@@ -53,7 +55,7 @@ export default async function MetrajHesaplamaPage() {
             <tbody>
               {groups.map((g) => (
                 <Tr key={g.id}>
-                  <Td className="font-medium">{g.name}</Td>
+                  <Td className={`font-medium ${g.is_active ? "" : "text-text-muted"}`}>{g.name}</Td>
                   <Td className="text-text-muted">{g.slug}</Td>
                   <Td className="text-text-muted">{g.sort_order}</Td>
                   <Td>

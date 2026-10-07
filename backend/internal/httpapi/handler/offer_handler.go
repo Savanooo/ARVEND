@@ -177,15 +177,44 @@ func toOfferResponse(o domain.Offer) offerResponse {
 	return resp
 }
 
+// List: ?filter=pasif, ?status=, ?q= (teklif no / müşteri adı), ?date_from=
+// ve ?date_to= (YYYY-AA-GG, teklif tarihi, ikisi de dahil), ?page=, ?limit=
+// (en çok 200). Filtrelerin hepsi SUNUCUDA uygulanır; total filtrelenmiş
+// gerçek toplamdır, status_counts durum sekmelerinin sayaçlarıdır.
 func (h *OfferHandler) List(w http.ResponseWriter, r *http.Request) {
-	isPassive := r.URL.Query().Get("filter") == "pasif"
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	customerID := r.URL.Query().Get("customer_id")
+	q := r.URL.Query()
+	page, _ := strconv.Atoi(q.Get("page"))
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	var dates [2]*time.Time
+	for i, key := range []string{"date_from", "date_to"} {
+		raw := q.Get(key)
+		if raw == "" {
+			continue
+		}
+		t, err := time.Parse(dateLayout, raw)
+		if err != nil {
+			httpjson.Error(w, http.StatusBadRequest, "geçersiz tarih filtresi (YYYY-AA-GG bekleniyor)")
+			return
+		}
+		dates[i] = &t
+	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	result, err := h.svc.List(r.Context(), orgID, isPassive, page, limit, customerID)
+	result, err := h.svc.List(r.Context(), orgID, service.OfferListFilter{
+		IsPassive:  q.Get("filter") == "pasif",
+		CustomerID: q.Get("customer_id"),
+		Status:     q.Get("status"),
+		Search:     q.Get("q"),
+		DateFrom:   dates[0],
+		DateTo:     dates[1],
+		Page:       page,
+		Limit:      limit,
+	})
 	if err != nil {
-		httpjson.Error(w, http.StatusInternalServerError, "teklifler alınamadı")
+		if isInternalError(err) {
+			writeInternalError(w, err)
+			return
+		}
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	seeInternal := canSeeOfferInternalPricing(r)
@@ -197,7 +226,10 @@ func (h *OfferHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		offers[i] = resp
 	}
-	httpjson.Write(w, http.StatusOK, map[string]any{"offers": offers, "total": result.Total})
+	httpjson.Write(w, http.StatusOK, map[string]any{
+		"offers": offers, "total": result.Total, "status_counts": result.StatusCounts,
+		"page": result.Page, "limit": result.Limit,
+	})
 }
 
 func (h *OfferHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -215,6 +247,9 @@ func (h *OfferHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 type createOfferItemRequest struct {
+	// ID: düzenlemede satırın karşılık geldiği mevcut kalemin id'si (yeni
+	// satırlarda boş). Bkz. service.OfferItemInput.ID.
+	ID          *string `json:"id"`
 	ProductID   *string `json:"product_id"`
 	ProductName string  `json:"product_name"`
 	Quantity    float64 `json:"quantity"`
@@ -248,21 +283,34 @@ type createOfferRequest struct {
 	Items           []createOfferItemRequest `json:"items"`
 }
 
-func parseValidUntil(raw *string) *time.Time {
-	if raw == nil || *raw == "" {
-		return nil
+// parseValidUntil, valid_until alanının üç durumunu ayırır:
+//   - alan yok ya da null -> provided=false: Update'te mevcut tarih KORUNUR
+//     (mobil form bu alanı hiç düzenlemiyor ve null gönderiyor -- eskiden
+//     her mobil kayıt tarihi sessizce siliyordu);
+//   - "" -> provided=true, nil: tarih bilerek temizlenir;
+//   - "YYYY-MM-DD" -> o tarih.
+//
+// Biçimi bozuk bir değer hata döner (eskiden sessizce "tarih yok"
+// sayılıp mevcut tarihi siliyordu).
+func parseValidUntil(raw *string) (*time.Time, bool, error) {
+	if raw == nil {
+		return nil, false, nil
+	}
+	if *raw == "" {
+		return nil, true, nil
 	}
 	t, err := time.Parse(dateLayout, *raw)
 	if err != nil {
-		return nil
+		return nil, true, errors.New("geçersiz geçerlilik tarihi (YYYY-AA-GG bekleniyor)")
 	}
-	return &t
+	return &t, true, nil
 }
 
 func toOfferItemInputs(items []createOfferItemRequest) []service.OfferItemInput {
 	out := make([]service.OfferItemInput, len(items))
 	for i, it := range items {
 		out[i] = service.OfferItemInput{
+			ID:                      it.ID,
 			ProductID:               it.ProductID,
 			ProductName:             it.ProductName,
 			Quantity:                it.Quantity,
@@ -286,6 +334,12 @@ func (h *OfferHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	validUntil, _, err := parseValidUntil(req.ValidUntil)
+	if err != nil {
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	userID, _ := middleware.UserIDFromContext(r.Context())
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	canManageInternal := canManageOfferInternalPricing(r)
@@ -296,7 +350,7 @@ func (h *OfferHandler) Create(w http.ResponseWriter, r *http.Request) {
 		CustomerPhone:            req.CustomerPhone,
 		CustomerEmail:            req.CustomerEmail,
 		CustomerAddress:          req.CustomerAddress,
-		ValidUntil:               parseValidUntil(req.ValidUntil),
+		ValidUntil:               validUntil,
 		Notes:                    req.Notes,
 		VatRate:                  req.VatRate,
 		Items:                    toOfferItemInputs(req.Items),
@@ -321,6 +375,11 @@ func (h *OfferHandler) Update(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
+	validUntil, validUntilProvided, err := parseValidUntil(req.ValidUntil)
+	if err != nil {
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
 	canManageInternal := canManageOfferInternalPricing(r)
@@ -330,7 +389,8 @@ func (h *OfferHandler) Update(w http.ResponseWriter, r *http.Request) {
 		CustomerPhone:            req.CustomerPhone,
 		CustomerEmail:            req.CustomerEmail,
 		CustomerAddress:          req.CustomerAddress,
-		ValidUntil:               parseValidUntil(req.ValidUntil),
+		ValidUntil:               validUntil,
+		ValidUntilProvided:       validUntilProvided,
 		Notes:                    req.Notes,
 		VatRate:                  req.VatRate,
 		Items:                    toOfferItemInputs(req.Items),
@@ -703,7 +763,10 @@ func (h *OfferHandler) writeError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusNotFound, "teklif bulunamadı")
 	case errors.Is(err, service.ErrOfferAccepted),
 		errors.Is(err, service.ErrOfferNotEditable),
+		errors.Is(err, service.ErrOfferInternalPricingUnmatched),
 		errors.Is(err, service.ErrOfferLocked),
+		errors.Is(err, service.ErrOfferCannotReturnToDraft),
+		errors.Is(err, service.ErrOfferSendExpired),
 		errors.Is(err, service.ErrOfferNotRevisable):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case isInternalError(err):

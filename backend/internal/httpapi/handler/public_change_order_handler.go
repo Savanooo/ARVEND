@@ -34,6 +34,8 @@ type publicChangeOrderItemResponse struct {
 // -- dahili/kimlik doğrulamalı yanıt AYRI bir tiptir, buraya asla
 // serialize edilmez).
 type publicChangeOrderResponse struct {
+	// OrganizationName: ek işi gönderen firmanın adı (sayfa başlığı).
+	OrganizationName       string                          `json:"organization_name"`
 	ChangeOrderNo          string                          `json:"change_order_no"`
 	ProjectNo              string                          `json:"project_no"`
 	ProjectName            string                          `json:"project_name"`
@@ -64,7 +66,8 @@ func toPublicChangeOrderResponse(v service.PublicChangeOrderView) publicChangeOr
 		}
 	}
 	return publicChangeOrderResponse{
-		ChangeOrderNo: v.ChangeOrder.ChangeOrderNo(), ProjectNo: v.ProjectNo, ProjectName: v.ProjectName,
+		OrganizationName: v.OrganizationName,
+		ChangeOrderNo:    v.ChangeOrder.ChangeOrderNo(), ProjectNo: v.ProjectNo, ProjectName: v.ProjectName,
 		CustomerName: v.CustomerName, ChangeType: v.ChangeOrder.ChangeType, Title: v.ChangeOrder.Title,
 		Description: v.ChangeOrder.Description, Status: v.ChangeOrder.Status, Items: items,
 		Subtotal: v.ChangeOrder.Subtotal, VatRate: v.ChangeOrder.VatRate, VatAmount: v.ChangeOrder.VatAmount,
@@ -113,7 +116,8 @@ func (h *PublicChangeOrderHandler) writeError(w http.ResponseWriter, err error) 
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "ek iş bulunamadı")
-	case errors.Is(err, service.ErrChangeOrderShareLinkRevoked), errors.Is(err, service.ErrChangeOrderShareLinkExpired):
+	case errors.Is(err, service.ErrChangeOrderShareLinkRevoked), errors.Is(err, service.ErrChangeOrderShareLinkExpired),
+		errors.Is(err, service.ErrPublicLinkUnavailable):
 		// 410: var olmuş ama artık geçersiz -- 404 "hiç var olmadı"dan
 		// bilinçli olarak ayrılır (bkz. offer'ın aynı ayrımı).
 		httpjson.Error(w, http.StatusGone, err.Error())

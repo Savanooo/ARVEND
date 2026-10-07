@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
-import { Logo } from "@/components/layout/Logo";
+import { PublicPageHeader } from "@/components/layout/PublicPageHeader";
 import { apiServer, ApiError } from "@/lib/api";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
 import { CHANGE_ORDER_TYPE_LABELS, type ChangeOrderStatus, type PublicChangeOrder } from "@/lib/types";
@@ -26,11 +26,19 @@ const STATUS_LABEL: Record<ChangeOrderStatus, string> = {
   superseded: "Yerine Yeni Revizyon Oluşturuldu",
 };
 
-type FetchResult = { changeOrder: PublicChangeOrder; error: null } | { changeOrder: null; error: ApiError };
+// organization_name: ek işi gönderen firmanın adı (sayfa başlığı).
+type PublicChangeOrderWithOrg = PublicChangeOrder & { organization_name?: string };
+
+type FetchResult =
+  | { changeOrder: PublicChangeOrderWithOrg; error: null }
+  | { changeOrder: null; error: ApiError };
 
 async function fetchChangeOrder(token: string): Promise<FetchResult> {
   try {
-    return { changeOrder: await apiServer<PublicChangeOrder>(`/api/v1/public/change-orders/${token}/`, ""), error: null };
+    return {
+      changeOrder: await apiServer<PublicChangeOrderWithOrg>(`/api/v1/public/change-orders/${token}/`, ""),
+      error: null,
+    };
   } catch (err) {
     if (err instanceof ApiError) return { changeOrder: null, error: err };
     throw err;
@@ -53,13 +61,10 @@ export default async function EkIsPage({ params }: { params: Promise<{ token: st
 
   return (
     <div className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 p-6 sm:p-10">
-      <div className="flex items-center gap-3">
-        <Logo size={40} />
-        <div>
-          <div className="font-semibold">Arvend Yapı</div>
-          <div className="text-xs text-text-muted">Ek İş / Değişiklik Emri Görüntüleme</div>
-        </div>
-      </div>
+      <PublicPageHeader
+        organizationName={co?.organization_name}
+        subtitle="Ek İş / Değişiklik Emri Görüntüleme"
+      />
 
       {!co ? (
         <Card>

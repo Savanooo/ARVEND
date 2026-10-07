@@ -496,6 +496,51 @@ func (q *Queries) ListCalcCategoriesByGroup(ctx context.Context, arg ListCalcCat
 	return items, nil
 }
 
+const listCalcCategoriesByGroupAdmin = `-- name: ListCalcCategoriesByGroupAdmin :many
+SELECT id, organization_id, group_id, slug, name, description, image_file_id, sort_order, is_active, created_at, updated_at FROM calc_categories
+WHERE group_id = $1 AND organization_id = $2
+ORDER BY is_active DESC, sort_order ASC, name ASC
+`
+
+type ListCalcCategoriesByGroupAdminParams struct {
+	GroupID        pgtype.UUID `json:"group_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+// ListCalcCategoriesByGroupAdmin: ListCalcGroupsAdmin ile aynı gerekçe --
+// pasif kategoriler de listelenir ki yeniden aktifleştirilebilsin.
+func (q *Queries) ListCalcCategoriesByGroupAdmin(ctx context.Context, arg ListCalcCategoriesByGroupAdminParams) ([]CalcCategory, error) {
+	rows, err := q.db.Query(ctx, listCalcCategoriesByGroupAdmin, arg.GroupID, arg.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CalcCategory
+	for rows.Next() {
+		var i CalcCategory
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.GroupID,
+			&i.Slug,
+			&i.Name,
+			&i.Description,
+			&i.ImageFileID,
+			&i.SortOrder,
+			&i.IsActive,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCalcGroups = `-- name: ListCalcGroups :many
 
 SELECT id, organization_id, slug, name, description, sort_order, is_active, created_at, updated_at FROM calc_groups WHERE organization_id = $1 AND is_active = true ORDER BY sort_order ASC, name ASC
@@ -504,6 +549,44 @@ SELECT id, organization_id, slug, name, description, sort_order, is_active, crea
 // ============ Gruplar ============
 func (q *Queries) ListCalcGroups(ctx context.Context, organizationID pgtype.UUID) ([]CalcGroup, error) {
 	rows, err := q.db.Query(ctx, listCalcGroups, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CalcGroup
+	for rows.Next() {
+		var i CalcGroup
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.Slug,
+			&i.Name,
+			&i.Description,
+			&i.SortOrder,
+			&i.IsActive,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCalcGroupsAdmin = `-- name: ListCalcGroupsAdmin :many
+SELECT id, organization_id, slug, name, description, sort_order, is_active, created_at, updated_at FROM calc_groups WHERE organization_id = $1 ORDER BY is_active DESC, sort_order ASC, name ASC
+`
+
+// ListCalcGroupsAdmin, yönetim ekranı için pasifleştirilmiş gruplar DAHİL
+// tümünü döner (ListCalcRecipeItemsAdmin ile aynı ilke) -- aksi halde
+// pasife alınan bir grup listeden düşüp detay sayfası 404 veriyor, yeniden
+// aktifleştirilemiyordu. Aktifler önce gelir.
+func (q *Queries) ListCalcGroupsAdmin(ctx context.Context, organizationID pgtype.UUID) ([]CalcGroup, error) {
+	rows, err := q.db.Query(ctx, listCalcGroupsAdmin, organizationID)
 	if err != nil {
 		return nil, err
 	}

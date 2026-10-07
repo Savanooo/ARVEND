@@ -32,7 +32,13 @@ export default async function TeklifDuzenlePage({
   return (
     <>
       <PageHeader title={`${offer.offer_no} — Düzenle`} />
-      <OfferForm offer={offer} canManageInternalPricing={canManageInternalPricing} />
+      <OfferForm
+        offer={offer}
+        canManageInternalPricing={canManageInternalPricing}
+        canReadCustomers={hasPermission(user.permissions, "customers.read")}
+        canManageCustomers={hasPermission(user.permissions, "customers.manage")}
+        canReadProducts={hasPermission(user.permissions, "products.read")}
+      />
     </>
   );
 }

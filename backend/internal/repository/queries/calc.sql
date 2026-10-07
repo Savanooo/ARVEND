@@ -3,6 +3,13 @@
 -- name: ListCalcGroups :many
 SELECT * FROM calc_groups WHERE organization_id = $1 AND is_active = true ORDER BY sort_order ASC, name ASC;
 
+-- ListCalcGroupsAdmin, yönetim ekranı için pasifleştirilmiş gruplar DAHİL
+-- tümünü döner (ListCalcRecipeItemsAdmin ile aynı ilke) -- aksi halde
+-- pasife alınan bir grup listeden düşüp detay sayfası 404 veriyor, yeniden
+-- aktifleştirilemiyordu. Aktifler önce gelir.
+-- name: ListCalcGroupsAdmin :many
+SELECT * FROM calc_groups WHERE organization_id = $1 ORDER BY is_active DESC, sort_order ASC, name ASC;
+
 -- name: GetCalcGroupByID :one
 SELECT * FROM calc_groups WHERE id = $1 AND organization_id = $2;
 
@@ -29,6 +36,13 @@ RETURNING *;
 SELECT * FROM calc_categories
 WHERE group_id = $1 AND organization_id = $2 AND is_active = true
 ORDER BY sort_order ASC, name ASC;
+
+-- ListCalcCategoriesByGroupAdmin: ListCalcGroupsAdmin ile aynı gerekçe --
+-- pasif kategoriler de listelenir ki yeniden aktifleştirilebilsin.
+-- name: ListCalcCategoriesByGroupAdmin :many
+SELECT * FROM calc_categories
+WHERE group_id = $1 AND organization_id = $2
+ORDER BY is_active DESC, sort_order ASC, name ASC;
 
 -- ListActiveCalcCategoriesForOrg, tüm aktif grupların tüm aktif
 -- kategorilerini TEK sorguda döner -- web/mobil "grup seç -> kategori

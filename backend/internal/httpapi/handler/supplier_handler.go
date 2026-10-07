@@ -167,10 +167,15 @@ func (h *SupplierHandler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "tedarikçi bulunamadı")
-	case errors.Is(err, service.ErrDuplicateSupplierCode):
+	case errors.Is(err, service.ErrDuplicateSupplierCode),
+		errors.Is(err, service.ErrDuplicateSupplierTaxNumber):
 		httpjson.Error(w, http.StatusConflict, err.Error())
-	case errors.Is(err, service.ErrSupplierFieldsRequired):
+	case errors.Is(err, service.ErrSupplierFieldsRequired),
+		errors.Is(err, service.ErrSupplierLegalNameRequired):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
+	case isInternalError(err):
+		// Ham veritabanı metni (kolon/kısıt adları) istemciye sızmasın.
+		writeInternalError(w, err)
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}

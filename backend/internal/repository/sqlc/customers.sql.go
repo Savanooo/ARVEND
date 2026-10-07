@@ -74,6 +74,70 @@ func (q *Queries) CreateCustomer(ctx context.Context, arg CreateCustomerParams) 
 	return i, err
 }
 
+const findCustomerDuplicates = `-- name: FindCustomerDuplicates :many
+SELECT id, organization_id, name, phone, email, address, tax_office, tax_number, notes, is_active, created_at, updated_at FROM customers
+WHERE organization_id = $1
+  AND ($2::uuid IS NULL OR id <> $2::uuid)
+  AND (($3::text <> ''
+        AND upper(regexp_replace(tax_number, '[^0-9A-Za-z]', '', 'g')) = $3::text)
+    OR ($4::text <> ''
+        AND right(regexp_replace(phone, '[^0-9]', '', 'g'), 10) = $4::text))
+ORDER BY is_active DESC, name ASC
+LIMIT 5
+`
+
+type FindCustomerDuplicatesParams struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ExcludeID      pgtype.UUID `json:"exclude_id"`
+	TaxKey         string      `json:"tax_key"`
+	PhoneKey       string      `json:"phone_key"`
+}
+
+// Aynı firmada aynı vergi numarasına ya da telefona sahip müşteriler
+// (arşivdekiler dahil -- arşivdeki bir müşteriyi yeniden açmak, yenisini
+// yaratmaktan doğrudur). Karşılaştırma normalize anahtarlarla yapılır:
+// vergi no yalnızca harf/rakam, büyük harf; telefon yalnızca rakamların son
+// 10 hanesi (+90 / 0 öneki fark etmez). Boş anahtar karşılaştırılmaz.
+// Anahtarlar Go tarafında service.customerTaxKey / customerPhoneKey ile
+// AYNI kuralla üretilir.
+func (q *Queries) FindCustomerDuplicates(ctx context.Context, arg FindCustomerDuplicatesParams) ([]Customer, error) {
+	rows, err := q.db.Query(ctx, findCustomerDuplicates,
+		arg.OrganizationID,
+		arg.ExcludeID,
+		arg.TaxKey,
+		arg.PhoneKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Customer
+	for rows.Next() {
+		var i Customer
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.Name,
+			&i.Phone,
+			&i.Email,
+			&i.Address,
+			&i.TaxOffice,
+			&i.TaxNumber,
+			&i.Notes,
+			&i.IsActive,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getCustomerByID = `-- name: GetCustomerByID :one
 SELECT id, organization_id, name, phone, email, address, tax_office, tax_number, notes, is_active, created_at, updated_at FROM customers WHERE id = $1 AND organization_id = $2
 `
@@ -106,19 +170,35 @@ func (q *Queries) GetCustomerByID(ctx context.Context, arg GetCustomerByIDParams
 const listCustomers = `-- name: ListCustomers :many
 SELECT id, organization_id, name, phone, email, address, tax_office, tax_number, notes, is_active, created_at, updated_at FROM customers
 WHERE organization_id = $1
-  AND ($3::boolean IS NULL OR is_active = $3::boolean)
-  AND ($2::text = '' OR name ILIKE '%' || $2::text || '%')
+  AND ($2::boolean IS NULL OR is_active = $2::boolean)
+  AND ($3::text = ''
+       OR name ILIKE '%' || $3::text || '%'
+       OR email ILIKE '%' || $3::text || '%'
+       OR tax_number ILIKE '%' || $3::text || '%'
+       OR ($4::text <> ''
+           AND regexp_replace(phone, '[^0-9]', '', 'g') LIKE '%' || $4::text || '%'))
 ORDER BY name ASC
 `
 
 type ListCustomersParams struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
-	Column2        string      `json:"column_2"`
 	IsActive       *bool       `json:"is_active"`
+	Search         string      `json:"search"`
+	SearchDigits   string      `json:"search_digits"`
 }
 
+// search: ad, e-posta veya vergi numarasında geçer (LIKE joker karakterleri
+// çağıranda kaçırılır); search_digits (aramadaki rakamlar, baştaki 0'lar
+// atılmış) telefonun yalnızca rakamlarında aranır -- "0532 111" araması
+// "+90 (532) 111 22 33" kaydını bulur. Eskiden yalnızca ad aranıyordu:
+// telefonla/vergi no ile müşteri bulunamıyor, aynı müşteri tekrar açılıyordu.
 func (q *Queries) ListCustomers(ctx context.Context, arg ListCustomersParams) ([]Customer, error) {
-	rows, err := q.db.Query(ctx, listCustomers, arg.OrganizationID, arg.Column2, arg.IsActive)
+	rows, err := q.db.Query(ctx, listCustomers,
+		arg.OrganizationID,
+		arg.IsActive,
+		arg.Search,
+		arg.SearchDigits,
+	)
 	if err != nil {
 		return nil, err
 	}

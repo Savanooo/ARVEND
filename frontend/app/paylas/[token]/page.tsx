@@ -1,8 +1,8 @@
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
-import { Logo } from "@/components/layout/Logo";
-import { apiServer, ApiError } from "@/lib/api";
+import { PublicPageHeader } from "@/components/layout/PublicPageHeader";
+import { API_BASE, apiServer, ApiError } from "@/lib/api";
 import { formatTL } from "@/lib/format";
 import type { Offer, OfferStatus } from "@/lib/types";
 
@@ -20,7 +20,12 @@ const STATUS_TONE: Record<OfferStatus, "success" | "gold" | "danger" | "muted"> 
 // Kabul/Reddet butonları buna göre gösterilir -- teklifin durumuna bakmak
 // yetmez, çünkü gösterilen durum linkin bağlı olduğu (donmuş) revizyonun
 // durumudur.
-type PublicOffer = Offer & { can_respond: boolean };
+//
+// validity_expired: geçerlilik tarihi (o gün dahil) geçmiş -- "bugün"ü
+// sunucu belirler (İstanbul takvim günü), tarayıcı saatine bakılmaz.
+//
+// organization_name: teklifi veren firmanın adı (sayfa başlığı).
+type PublicOffer = Offer & { can_respond: boolean; validity_expired: boolean; organization_name: string };
 
 type FetchResult = { offer: PublicOffer; error: null } | { offer: null; error: ApiError };
 
@@ -53,13 +58,7 @@ export default async function PaylasPage({
 
   return (
     <div className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 p-6 sm:p-10">
-      <div className="flex items-center gap-3">
-        <Logo size={40} />
-        <div>
-          <div className="font-semibold">Arvend Yapı</div>
-          <div className="text-xs text-text-muted">Teklif Görüntüleme</div>
-        </div>
-      </div>
+      <PublicPageHeader organizationName={offer?.organization_name} subtitle="Teklif Görüntüleme" />
 
       {!offer ? (
         <Card>
@@ -82,6 +81,9 @@ export default async function PaylasPage({
               )}
               <div className="mt-1 text-xs text-text-muted">
                 Teklif Tarihi: {new Date(offer.offer_date).toLocaleDateString("tr-TR")}
+                {offer.valid_until && (
+                  <> · Geçerlilik: {new Date(offer.valid_until).toLocaleDateString("tr-TR")}</>
+                )}
               </div>
             </CardBody>
           </Card>
@@ -124,6 +126,21 @@ export default async function PaylasPage({
             </CardBody>
           </Card>
 
+          {/* Düz bağlantı yeterli: public uç oturum istemez. Tarayıcı bu
+              adrese doğrudan gittiği için (sunucu içi INTERNAL_API_URL değil)
+              herkese açık API kökü kullanılır. Bağlantı kuralları paylaşım
+              sayfasıyla aynıdır (iptal/süresi dolmuş link PDF de vermez). */}
+          <div className="flex justify-end">
+            <a
+              href={`${API_BASE}/api/v1/public/offers/${encodeURIComponent(token)}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm font-medium text-text hover:bg-surface-hover"
+            >
+              PDF İndir
+            </a>
+          </div>
+
           {offer.notes && (
             <Card>
               <CardHeader>Notlar</CardHeader>
@@ -138,7 +155,15 @@ export default async function PaylasPage({
           {offer.status === "reddedildi" && (
             <p className="text-center text-sm text-danger">Bu teklifi reddettiniz.</p>
           )}
-          {!offer.can_respond && offer.status === "gönderildi" && (
+          {offer.status === "gönderildi" && offer.validity_expired && offer.valid_until && (
+            <p className="text-center text-sm text-text-muted">
+              Bu teklifin geçerlilik süresi{" "}
+              {new Date(offer.valid_until).toLocaleDateString("tr-TR")} tarihinde doldu; bu teklif
+              artık onaylanamaz veya reddedilemez. Güncel bir teklif için lütfen teklifi gönderen
+              firmayla iletişime geçin.
+            </p>
+          )}
+          {!offer.can_respond && offer.status === "gönderildi" && !offer.validity_expired && (
             <p className="text-center text-sm text-text-muted">
               Bu teklif için daha güncel bir revizyon hazırlanmıştır; bu bağlantı üzerinden karar
               verilemez. Lütfen size en son gönderilen bağlantıyı kullanın.

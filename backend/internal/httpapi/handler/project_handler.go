@@ -218,14 +218,42 @@ func (h *ProjectHandler) Get(w http.ResponseWriter, r *http.Request) {
 // GetByOffer, teklifin projeye dönüştürülüp dönüştürülmediğini söyler.
 // Dönüştürülmemişse 404 döner -- frontend bunu "Projeye Dönüştür"
 // butonunu göstermek için kullanır.
-func (h *ProjectHandler) GetByOffer(w http.ResponseWriter, r *http.Request) {
-	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	p, err := h.svc.GetByOfferID(r.Context(), chi.URLParam(r, "id"), orgID)
-	if err != nil {
-		h.writeError(w, err)
-		return
+//
+// Uç /offers altında (offers.read) durur ama yanıt PROJENİN kendisidir
+// (sözleşme bedeli, iç notlar...): bu yüzden /projects/{id} ile AYNI kapı
+// uygulanır -- projects.read izni VE proje erişimi (owner/admin dışındakiler
+// için proje üyeliği, bkz. AuthorizationService.CanAccessProject). Eskiden
+// offers.read'i olan herkes üyesi olmadığı projelerin bu bilgilerini
+// okuyabiliyordu. İzin kontrolü projeye bakmadan önce yapılır (izinsiz
+// kullanıcı projenin varlığını da öğrenmez).
+func (h *ProjectHandler) GetByOffer(authzSvc *service.AuthorizationService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		authz, ok := middleware.AuthzContextFromRequest(r.Context())
+		if !ok || !authz.HasPermission(domain.PermProjectsRead) {
+			httpjson.Write(w, http.StatusForbidden, map[string]string{
+				"error": "bu işlem için yetkiniz yok", "code": "permission_denied",
+			})
+			return
+		}
+		orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+		p, err := h.svc.GetByOfferID(r.Context(), chi.URLParam(r, "id"), orgID)
+		if err != nil {
+			h.writeError(w, err)
+			return
+		}
+		canAccess, err := authzSvc.CanAccessProject(r.Context(), authz, p.ID)
+		if err != nil {
+			h.writeError(w, err)
+			return
+		}
+		if !canAccess {
+			httpjson.Write(w, http.StatusForbidden, map[string]string{
+				"error": "bu projeye erişim yetkiniz yok", "code": "project_access_denied",
+			})
+			return
+		}
+		httpjson.Write(w, http.StatusOK, toProjectResponse(*p))
 	}
-	httpjson.Write(w, http.StatusOK, toProjectResponse(*p))
 }
 
 type updateProjectRequest struct {

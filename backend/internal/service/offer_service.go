@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/mailer"
@@ -88,6 +89,12 @@ func logOfferEvent(ctx context.Context, q *sqlc.Queries, orgID, offerID, revisio
 }
 
 type OfferItemInput struct {
+	// ID: düzenlenen taslakta bu satırın karşılık geldiği MEVCUT kalemin
+	// id'si (yeni eklenen satırlarda nil). Yalnızca Update'te, iç fiyatlama
+	// yetkisi olmayan bir düzenleyicinin kaydında mevcut kalemlerin iç
+	// maliyetini taşımak için kullanılır (bkz. carryOverInternalPricing) --
+	// satırlar her kayıtta yine silinip yeniden yazılır.
+	ID          *string
 	ProductID   *string
 	ProductName string
 	Quantity    float64
@@ -160,16 +167,38 @@ type computedOfferItem struct {
 // olursa olsun cost*(1+markup/100) olarak SUNUCUDA yeniden hesaplanır;
 // "manual" modda ise unit_price OLDUĞU GİBİ (dokunulmadan) kullanılır --
 // elle girilen satış fiyatı hiçbir zaman otomatik ÜZERİNE YAZILMAZ.
+//
+// Yuvarlama: miktar, birim fiyat ve iç maliyet kolonları numeric(12,2)'dir
+// -- bu yüzden ÖNCE ikisi de 2 haneye (decimal ile, float gürültüsü
+// olmadan) yuvarlanır, satır toplamı ANCAK SONRA bu yuvarlanmış değerlerin
+// çarpımından hesaplanır. Aksi halde (eski hâl) satır toplamı yuvarlanmamış
+// miktardan hesaplanıp miktar kolona yuvarlanarak yazılıyordu ve müşterinin
+// gördüğü "miktar × birim fiyat" satır toplamını tutmuyordu.
+//
+// Doğrulama sırası: negatif birim fiyat kontrolü marj yeniden hesabından
+// SONRA yapılır (%-100'ün altındaki bir marj aksi halde negatif satış
+// fiyatı üretiyordu); KDV oranı 0-100 aralığında olmalıdır (negatif değer
+// kabul ediliyor, 999,99 üstü ise numeric(5,2) taşıp 500 dönüyordu).
 func computeOfferTotals(items []OfferItemInput, vatRateInput *float64, canManageInternalPricing bool) ([]computedOfferItem, float64, float64, float64, float64, error) {
-	vatRate := 20.0
+	fail := func(msg string) ([]computedOfferItem, float64, float64, float64, float64, error) {
+		return nil, 0, 0, 0, 0, errors.New(msg)
+	}
+	hundred := decimal.NewFromInt(100)
+	vatRate := decimal.NewFromInt(20)
 	if vatRateInput != nil {
-		vatRate = *vatRateInput
+		vatRate = decimal.NewFromFloat(*vatRateInput).Round(2)
+	}
+	if vatRate.IsNegative() || vatRate.GreaterThan(hundred) {
+		return fail("KDV oranı 0 ile 100 arasında olmalıdır")
 	}
 	computed := make([]computedOfferItem, 0, len(items))
-	subtotal := 0.0
+	subtotal := decimal.Zero
 	for _, it := range items {
 		name := strings.TrimSpace(it.ProductName)
-		if name == "" || it.Quantity <= 0 || it.UnitPrice < 0 {
+		qty := decimal.NewFromFloat(it.Quantity).Round(2)
+		// Adı boş ya da miktarı 0 olan satırlar formun boş bıraktığı
+		// satırlardır -- sessizce atlanır (mevcut davranış).
+		if name == "" || !qty.IsPositive() {
 			continue
 		}
 		if !canManageInternalPricing {
@@ -177,37 +206,67 @@ func computeOfferTotals(items []OfferItemInput, vatRateInput *float64, canManage
 			it.PricingMode = ""
 			it.MarkupPercent = nil
 		}
+		price := decimal.NewFromFloat(it.UnitPrice).Round(2)
 		if it.InternalSubcontractCost != nil {
-			if *it.InternalSubcontractCost < 0 {
-				return nil, 0, 0, 0, 0, errors.New("iç taşeron maliyeti negatif olamaz")
+			cost := decimal.NewFromFloat(*it.InternalSubcontractCost).Round(2)
+			if cost.IsNegative() {
+				return fail("iç taşeron maliyeti negatif olamaz")
 			}
+			if !cost.LessThan(offerAmountLimit) {
+				return fail("iç taşeron maliyeti çok büyük")
+			}
+			costF := cost.InexactFloat64()
+			it.InternalSubcontractCost = &costF
 			switch it.PricingMode {
 			case domain.OfferItemPricingModeMarkup:
 				if it.MarkupPercent == nil {
-					return nil, 0, 0, 0, 0, errors.New("marj yüzdesi girilmelidir")
+					return fail("marj yüzdesi girilmelidir")
 				}
-				it.UnitPrice = round2(*it.InternalSubcontractCost * (1 + *it.MarkupPercent/100))
+				markup := decimal.NewFromFloat(*it.MarkupPercent).Round(2)
+				// markup_percent numeric(6,2): ±9999,99.
+				if !markup.Abs().LessThan(decimal.NewFromInt(10000)) {
+					return fail("marj yüzdesi -9999,99 ile 9999,99 arasında olmalıdır")
+				}
+				markupF := markup.InexactFloat64()
+				it.MarkupPercent = &markupF
+				price = cost.Mul(decimal.NewFromInt(1).Add(markup.Div(hundred))).Round(2)
 			case domain.OfferItemPricingModeManual:
 				it.MarkupPercent = nil
 			default:
-				return nil, 0, 0, 0, 0, errors.New("geçersiz fiyatlama modu")
+				return fail("geçersiz fiyatlama modu")
 			}
 		} else {
 			it.PricingMode = ""
 			it.MarkupPercent = nil
 		}
-		lineTotal := round2(it.Quantity * it.UnitPrice)
-		subtotal += lineTotal
-		computed = append(computed, computedOfferItem{OfferItemInput: it, LineTotal: lineTotal})
+		if price.IsNegative() {
+			return fail(fmt.Sprintf("%q kaleminin birim fiyatı negatif olamaz", name))
+		}
+		lineTotal := qty.Mul(price).Round(2)
+		if !qty.LessThan(offerAmountLimit) || !price.LessThan(offerAmountLimit) || !lineTotal.LessThan(offerAmountLimit) {
+			return fail(fmt.Sprintf("%q kaleminin miktarı veya tutarı çok büyük", name))
+		}
+		it.Quantity = qty.InexactFloat64()
+		it.UnitPrice = price.InexactFloat64()
+		subtotal = subtotal.Add(lineTotal)
+		computed = append(computed, computedOfferItem{OfferItemInput: it, LineTotal: lineTotal.InexactFloat64()})
 	}
 	if len(computed) == 0 {
-		return nil, 0, 0, 0, 0, errors.New("geçerli en az bir kalem girilmelidir")
+		return fail("geçerli en az bir kalem girilmelidir")
 	}
-	subtotal = round2(subtotal)
-	vatAmount := round2(subtotal * vatRate / 100)
-	grandTotal := round2(subtotal + vatAmount)
-	return computed, subtotal, vatRate, vatAmount, grandTotal, nil
+	vatAmount := subtotal.Mul(vatRate).Div(hundred).Round(2)
+	grandTotal := subtotal.Add(vatAmount)
+	if !grandTotal.LessThan(offerAmountLimit) {
+		return fail("teklif toplamı çok büyük")
+	}
+	return computed, subtotal.InexactFloat64(), vatRate.InexactFloat64(), vatAmount.InexactFloat64(), grandTotal.InexactFloat64(), nil
 }
+
+// offerAmountLimit: teklif miktar/tutar kolonları numeric(12,2) -- en çok
+// 9.999.999.999,99. Sınırı aşan bir değer INSERT'te "numeric field
+// overflow" ile 500'e düşerdi; computeOfferTotals anlaşılır bir mesajla
+// reddeder.
+var offerAmountLimit = decimal.New(1, 10)
 
 // resolveCustomerSnapshot, customerID doluysa o müşterinin o anki
 // bilgilerini döner (snapshot için); boşsa sıfır değerler döner ve
@@ -330,6 +389,9 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 	}
 	if len(in.Items) == 0 {
 		return nil, errors.New("en az bir kalem girilmelidir")
+	}
+	if err := validateOfferValidUntil(in.ValidUntil, time.Now()); err != nil {
+		return nil, err
 	}
 	items, subtotal, vatRate, vatAmount, grandTotal, err := computeOfferTotals(in.Items, in.VatRate, in.CanManageInternalPricing)
 	if err != nil {
@@ -461,45 +523,107 @@ func (s *OfferService) generateOfferNo(ctx context.Context, orgID pgtype.UUID) (
 
 type OfferListResult struct {
 	Offers []domain.Offer
-	Total  int64
+	// Total: filtrelerin (durum dahil) eşleştiği TÜM tekliflerin sayısı --
+	// sayfadaki satır sayısı değil.
+	Total int64
+	// StatusCounts: aynı filtrelerle (durum HARİÇ) her durumdaki teklif
+	// sayısı -- durum sekmelerinin sayaçları. Hiç teklifi olmayan durumlar
+	// 0 ile yer alır.
+	StatusCounts map[string]int64
+	Page         int
+	Limit        int
 }
 
-func (s *OfferService) List(ctx context.Context, organizationID string, isPassive bool, page, limit int, customerID string) (*OfferListResult, error) {
+// OfferListFilter, teklif listesinin sunucu tarafı filtreleridir; boş
+// alanlar filtresizdir.
+type OfferListFilter struct {
+	IsPassive  bool
+	CustomerID string
+	Status     string
+	Search     string
+	DateFrom   *time.Time
+	DateTo     *time.Time
+	Page       int
+	Limit      int
+}
+
+// escapeLikePattern, kullanıcı aramasındaki LIKE joker karakterlerini
+// (%, _ ve kaçış karakteri \) düz metne çevirir -- "%" araması her teklifi
+// eşleştirmesin.
+func escapeLikePattern(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
+
+func (s *OfferService) List(ctx context.Context, organizationID string, f OfferListFilter) (*OfferListResult, error) {
 	orgID, err := repository.StringToUUID(organizationID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	if limit <= 0 || limit > 200 {
-		limit = 50
+	if f.Limit <= 0 || f.Limit > 200 {
+		f.Limit = 50
 	}
-	if page <= 0 {
-		page = 1
+	if f.Page <= 0 {
+		f.Page = 1
 	}
 	var custID pgtype.UUID
-	if customerID != "" {
-		if cid, err := repository.StringToUUID(customerID); err == nil {
+	if f.CustomerID != "" {
+		if cid, err := repository.StringToUUID(f.CustomerID); err == nil {
 			custID = cid
 		}
 	}
+	var status *string
+	if f.Status != "" {
+		if !domain.ValidOfferStatus(f.Status) {
+			return nil, errors.New("geçersiz durum filtresi")
+		}
+		status = &f.Status
+	}
+	var search *string
+	if q := strings.TrimSpace(f.Search); q != "" {
+		escaped := escapeLikePattern(q)
+		search = &escaped
+	}
+	dateFrom, dateTo := repository.TimePtrToDate(f.DateFrom), repository.TimePtrToDate(f.DateTo)
+
 	rows, err := s.q.ListOffers(ctx, sqlc.ListOffersParams{
 		OrganizationID: orgID,
-		IsPassive:      isPassive,
-		Limit:          int32(limit),
-		Offset:         int32((page - 1) * limit),
+		IsPassive:      f.IsPassive,
 		CustomerID:     custID,
+		Status:         status,
+		DateFrom:       dateFrom,
+		DateTo:         dateTo,
+		Search:         search,
+		RowLimit:       int32(f.Limit),
+		RowOffset:      int32((f.Page - 1) * f.Limit),
 	})
 	if err != nil {
 		return nil, err
 	}
-	total, err := s.q.CountOffers(ctx, sqlc.CountOffersParams{OrganizationID: orgID, IsPassive: isPassive, CustomerID: custID})
+	countRows, err := s.q.CountOffersByStatus(ctx, sqlc.CountOffersByStatusParams{
+		OrganizationID: orgID, IsPassive: f.IsPassive, CustomerID: custID,
+		DateFrom: dateFrom, DateTo: dateTo, Search: search,
+	})
 	if err != nil {
 		return nil, err
+	}
+	counts := map[string]int64{
+		domain.OfferStatusTaslak: 0, domain.OfferStatusGonderildi: 0,
+		domain.OfferStatusKabulEdildi: 0, domain.OfferStatusReddedildi: 0,
+	}
+	var all int64
+	for _, c := range countRows {
+		counts[c.Status] = c.Count
+		all += c.Count
+	}
+	total := all
+	if status != nil {
+		total = counts[*status]
 	}
 	offers := make([]domain.Offer, len(rows))
 	for i, r := range rows {
 		offers[i] = repository.ToDomainOfferListItem(r)
 	}
-	return &OfferListResult{Offers: offers, Total: total}, nil
+	return &OfferListResult{Offers: offers, Total: total, StatusCounts: counts, Page: f.Page, Limit: f.Limit}, nil
 }
 
 func (s *OfferService) Get(ctx context.Context, id, organizationID string) (*domain.Offer, error) {
@@ -544,6 +668,63 @@ func (s *OfferService) loadOfferWithCurrentRevision(ctx context.Context, offerRo
 
 var ErrOfferNotEditable = errors.New("yalnızca taslak durumundaki teklifler düzenlenebilir")
 
+// ErrOfferInternalPricingUnmatched: taslakta iç maliyet bilgisi olan
+// kalemler var, düzenleyicinin bunları görme/değiştirme yetkisi yok VE
+// gönderilen kalemler mevcut kalemlerle (id ile) eşleştirilemiyor. Kaydı
+// kabul etmek iç maliyetleri sessizce silmek olurdu -- bu yüzden reddedilir.
+var ErrOfferInternalPricingUnmatched = errors.New("bu taslaktaki bazı kalemlerde iç maliyet bilgisi var ve gönderilen kalemler mevcut kalemlerle eşleştirilemedi; iç maliyetlerin silinmemesi için kayıt yapılmadı. Uygulamayı güncelleyip tekrar deneyin ya da iç fiyatlama yetkisi olan bir kullanıcıdan düzenlemesini isteyin")
+
+// carryOverInternalPricing, offers.internal_pricing.manage yetkisi OLMAYAN
+// bir düzenleyicinin gönderdiği kalemlere, mevcut revizyondaki karşılık
+// gelen kalemin (istekteki id ile eşleşen) iç fiyatlama alanlarını taşır.
+// İstemcinin gönderdiği iç alanlar her durumda yok sayılır (yetki sınırı).
+//
+//   - Mevcut kalemlerin hiçbirinde iç maliyet yoksa kaybedilecek bir şey
+//     yoktur -- kalemler olduğu gibi döner.
+//   - Varsa ama istekteki HİÇBİR kalem id taşımıyorsa (id göndermeyen eski
+//     istemci) eşleştirme güvenilir değildir -> ErrOfferInternalPricingUnmatched.
+//     İstek id taşıyorsa, hiçbir satırın işaret etmediği mevcut kalemler
+//     düzenleyicinin bilerek sildiği kalemlerdir.
+//   - "markup" modundaki bir kalemin birim fiyatını düzenleyici değiştirdiyse
+//     kalem "manual"a çevrilir (maliyet korunur): aksi halde sunucu fiyatı
+//     maliyet × marjdan yeniden hesaplayıp düzenleyicinin -- iç maliyeti
+//     göremeyen kişinin -- girdiği fiyatı sessizce geri alırdı.
+func carryOverInternalPricing(items []OfferItemInput, existing []sqlc.OfferRevisionItem) ([]OfferItemInput, error) {
+	withInternal := make(map[string]sqlc.OfferRevisionItem)
+	for _, e := range existing {
+		if e.InternalSubcontractCost.Valid {
+			withInternal[e.ID.String()] = e
+		}
+	}
+	out := make([]OfferItemInput, len(items))
+	anyID := false
+	for i, it := range items {
+		it.InternalSubcontractCost, it.PricingMode, it.MarkupPercent = nil, "", nil
+		if it.ID != nil && strings.TrimSpace(*it.ID) != "" {
+			anyID = true
+			if uid, err := repository.StringToUUID(strings.TrimSpace(*it.ID)); err == nil {
+				if e, ok := withInternal[uid.String()]; ok {
+					it.InternalSubcontractCost = repository.NumericToFloat64Ptr(e.InternalSubcontractCost)
+					if e.PricingMode != nil {
+						it.PricingMode = *e.PricingMode
+					}
+					it.MarkupPercent = repository.NumericToFloat64Ptr(e.MarkupPercent)
+					if it.PricingMode == domain.OfferItemPricingModeMarkup &&
+						!decimal.NewFromFloat(it.UnitPrice).Round(2).Equal(repository.NumericToDecimal(e.UnitPrice)) {
+						it.PricingMode = domain.OfferItemPricingModeManual
+						it.MarkupPercent = nil
+					}
+				}
+			}
+		}
+		out[i] = it
+	}
+	if len(withInternal) > 0 && !anyID {
+		return nil, ErrOfferInternalPricingUnmatched
+	}
+	return out, nil
+}
+
 type UpdateOfferInput struct {
 	CustomerID      *string
 	CustomerName    string
@@ -551,12 +732,50 @@ type UpdateOfferInput struct {
 	CustomerEmail   string
 	CustomerAddress string
 	ValidUntil      *time.Time
-	Notes           string
-	VatRate         *float64
-	Items           []OfferItemInput
-	UserID          string
+	// ValidUntilProvided false ise (istemci alanı hiç göndermedi ya da null
+	// gönderdi) revizyonun mevcut geçerlilik tarihi KORUNUR; true ise
+	// ValidUntil yazılır (nil = tarihi temizle). Eskiden alanı göndermeyen
+	// her kayıt (ör. mobil form) tarihi sessizce NULL'a çekiyordu.
+	ValidUntilProvided bool
+	Notes              string
+	VatRate            *float64
+	Items              []OfferItemInput
+	UserID             string
 	// CanManageInternalPricing: bkz. CreateOfferInput.
 	CanManageInternalPricing bool
+}
+
+// ErrOfferValidUntilInPast: yeni girilen geçerlilik tarihi bugünden önce
+// olamaz -- böyle bir teklif müşteriye ulaştığı anda yanıtlanamazdı.
+var ErrOfferValidUntilInPast = errors.New("geçerlilik tarihi bugünden önce olamaz")
+
+// calendarDay, bir anın takvim gününü (saat/dilim bilgisi atılmış) döner.
+func calendarDay(t time.Time) time.Time {
+	y, m, d := t.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
+func validateOfferValidUntil(validUntil *time.Time, now time.Time) error {
+	if validUntil != nil && calendarDay(*validUntil).Before(calendarDay(IstanbulNow(now))) {
+		return ErrOfferValidUntilInPast
+	}
+	return nil
+}
+
+// OfferValidityExpired, geçerlilik tarihi (dahil) geçmiş bir teklif için
+// true döner -- "bugün" İstanbul takvim günüdür (bkz. timezone.go). Tarihi
+// olmayan teklif süresiz geçerlidir. Müşteri kararı (RespondByShareLinkToken)
+// ve public sayfanın "süresi doldu" bilgisi bu TEK fonksiyondan türer.
+func OfferValidityExpired(validUntil *time.Time, now time.Time) bool {
+	return validUntil != nil && calendarDay(IstanbulNow(now)).After(calendarDay(*validUntil))
+}
+
+func offerRevisionValidityExpired(rev sqlc.OfferRevision, now time.Time) bool {
+	if !rev.ValidUntil.Valid {
+		return false
+	}
+	t := rev.ValidUntil.Time
+	return OfferValidityExpired(&t, now)
 }
 
 // Update, yalnızca "taslak" durumundaki (henüz gönderilmemiş ya da yeni
@@ -587,9 +806,10 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 	if len(in.Items) == 0 {
 		return nil, errors.New("en az bir kalem girilmelidir")
 	}
-	items, subtotal, vatRate, vatAmount, grandTotal, err := computeOfferTotals(in.Items, in.VatRate, in.CanManageInternalPricing)
-	if err != nil {
-		return nil, err
+	if in.ValidUntilProvided {
+		if err := validateOfferValidUntil(in.ValidUntil, time.Now()); err != nil {
+			return nil, err
+		}
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -598,6 +818,37 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 	}
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
+
+	validUntil := repository.TimePtrToDate(in.ValidUntil)
+	if !in.ValidUntilProvided {
+		currentRev, err := txq.GetOfferRevisionByID(ctx, sqlc.GetOfferRevisionByIDParams{ID: offerRow.CurrentRevisionID, OrganizationID: orgID})
+		if err != nil {
+			return nil, err
+		}
+		validUntil = currentRev.ValidUntil
+	}
+
+	// İç fiyatlama yetkisi olmayan düzenleyici: istemcinin gönderdiği iç
+	// alanlara hiç güvenilmez, mevcut kalemlerinkiler id ile taşınır (bkz.
+	// carryOverInternalPricing). Taşınan değerler veritabanından geldiği
+	// için hesaplama bu durumda "yetkili" yoldan yapılır -- aksi halde
+	// computeOfferTotals onları da silerdi (eski hata: kalemler silinip
+	// yeniden yazıldığı için iç maliyetler sessizce kayboluyordu).
+	itemsIn, trustInternal := in.Items, in.CanManageInternalPricing
+	if !in.CanManageInternalPricing {
+		existing, err := txq.ListOfferRevisionItems(ctx, offerRow.CurrentRevisionID)
+		if err != nil {
+			return nil, err
+		}
+		if itemsIn, err = carryOverInternalPricing(in.Items, existing); err != nil {
+			return nil, err
+		}
+		trustInternal = true
+	}
+	items, subtotal, vatRate, vatAmount, grandTotal, err := computeOfferTotals(itemsIn, in.VatRate, trustInternal)
+	if err != nil {
+		return nil, err
+	}
 
 	custID, customer, err := resolveCustomerSnapshot(ctx, txq, orgID, in.CustomerID)
 	if err != nil {
@@ -620,7 +871,7 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 		CustomerPhone:   strings.TrimSpace(customerPhone),
 		CustomerEmail:   strings.TrimSpace(customerEmail),
 		CustomerAddress: strings.TrimSpace(customerAddress),
-		ValidUntil:      repository.TimePtrToDate(in.ValidUntil),
+		ValidUntil:      validUntil,
 		Subtotal:        repository.Float64ToNumeric(subtotal),
 		VatRate:         repository.Float64ToNumeric(vatRate),
 		VatAmount:       repository.Float64ToNumeric(vatAmount),
@@ -665,6 +916,15 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 }
 
 var ErrOfferLocked = errors.New("kabul edilmiş teklif/revizyon durumu değiştirilemez")
+
+// ErrOfferCannotReturnToDraft: müşteriye gönderilmiş (ya da müşterinin/
+// personelin karar verdiği) bir revizyon "taslak"a geri alınamaz. Taslak,
+// Update()'in revizyonu YERİNDE yeniden yazdığı tek durumdur -- geri dönüşe
+// izin vermek, müşterinin elindeki hâlâ aktif paylaşım linkinin gösterdiği
+// içeriği sessizce değiştirmek (ve sonra yeniden "gönderildi" yapınca
+// müşterinin görmediği bir içeriği kabul ettirmek) demekti. Değişiklik için
+// her zaman "Revize Et" (yeni revizyon + eski linklerin iptali) kullanılır.
+var ErrOfferCannotReturnToDraft = errors.New("müşteriye gönderilmiş bir teklif taslağa geri alınamaz; değişiklik için \"Revize Et\" ile yeni bir revizyon oluşturun")
 
 // UpdateStatus, personelin (dashboard'daki durum seçiciyle) teklifin
 // GÜNCEL revizyonunun durumunu doğrudan değiştirmesini sağlar --
@@ -727,6 +987,9 @@ func (s *OfferService) UpdateStatus(ctx context.Context, id, organizationID, sta
 	if offerRow.Status == domain.OfferStatusKabulEdildi {
 		return nil, ErrOfferLocked
 	}
+	if status == domain.OfferStatusTaslak && offerRow.Status != domain.OfferStatusTaslak {
+		return nil, ErrOfferCannotReturnToDraft
+	}
 	previousStatus := offerRow.Status
 
 	updatedRev, err := txq.UpdateOfferRevisionStatus(ctx, sqlc.UpdateOfferRevisionStatusParams{
@@ -746,6 +1009,9 @@ func (s *OfferService) UpdateStatus(ctx context.Context, id, organizationID, sta
 
 	eventType := domain.EventOfferUpdated
 	justSent := status == domain.OfferStatusGonderildi && previousStatus != domain.OfferStatusGonderildi
+	if justSent && offerRevisionValidityExpired(updatedRev, time.Now()) {
+		return nil, ErrOfferSendExpired
+	}
 	if justSent {
 		eventType = domain.EventRevisionSent
 		revokedLinks, err := txq.RevokeShareLinksForOtherRevisions(ctx, sqlc.RevokeShareLinksForOtherRevisionsParams{
@@ -909,6 +1175,14 @@ func (s *OfferService) Revise(ctx context.Context, id, organizationID, userID st
 		}
 	}
 
+	// Süresi zaten dolmuş bir geçerlilik tarihi yeni revizyona taşınmaz:
+	// yeni revizyon yeni bir fiyat/süre teklifidir, eski tarihle gönderilirse
+	// müşteri onu hiç yanıtlayamazdı. Personel yeni tarihi taslakta girer.
+	validUntil := currentRev.ValidUntil
+	if offerRevisionValidityExpired(currentRev, time.Now()) {
+		validUntil = pgtype.Date{}
+	}
+
 	newRev, err := txq.CreateOfferRevision(ctx, sqlc.CreateOfferRevisionParams{
 		OrganizationID:  orgID,
 		OfferID:         offerRow.ID,
@@ -918,7 +1192,7 @@ func (s *OfferService) Revise(ctx context.Context, id, organizationID, userID st
 		CustomerPhone:   currentRev.CustomerPhone,
 		CustomerEmail:   currentRev.CustomerEmail,
 		CustomerAddress: currentRev.CustomerAddress,
-		ValidUntil:      currentRev.ValidUntil,
+		ValidUntil:      validUntil,
 		Subtotal:        currentRev.Subtotal,
 		DiscountType:    currentRev.DiscountType,
 		DiscountValue:   currentRev.DiscountValue,
@@ -1030,6 +1304,14 @@ var (
 	ErrShareLinkExpired    = errors.New("bu paylaşım bağlantısının süresi dolmuş")
 	ErrOfferSuperseded     = errors.New("bu teklif için yeni bir revizyon oluşturuldu, bu bağlantı üzerinden artık karar verilemez")
 	ErrOfferNotRespondable = errors.New("bu teklif için onay/red işlemi yapılamaz")
+	// ErrOfferValidityExpired: revizyonun geçerlilik tarihi (valid_until,
+	// o gün dahil) geçmiş -- müşteri artık kabul/red veremez. Eskiden tarih
+	// hiç kontrol edilmiyordu; süresi aylar önce dolmuş bir fiyat kabul
+	// edilebiliyordu.
+	ErrOfferValidityExpired = errors.New("bu teklifin geçerlilik süresi dolmuş; onay/red işlemi yapılamaz. Güncel bir teklif için lütfen teklifi gönderen firmayla iletişime geçin")
+	// ErrOfferSendExpired: geçerlilik tarihi geçmiş bir revizyon müşteriye
+	// gönderilemez -- gönderilen link hiçbir zaman yanıtlanamazdı.
+	ErrOfferSendExpired = errors.New("teklifin geçerlilik tarihi geçmiş; göndermeden önce geçerlilik tarihini güncelleyin")
 )
 
 // CreateShareLink, teklifin O ANKİ (current) revizyonuna bağlı yeni bir
@@ -1160,24 +1442,38 @@ func (s *OfferService) RevokeShareLink(ctx context.Context, linkID, organization
 // Respond) tek giriş noktasıdır -- güvenlik sınırı organization_id değil,
 // tahmin edilemez token'ın kendisidir.
 func (s *OfferService) resolveActiveShareLink(ctx context.Context, q *sqlc.Queries, token string) (sqlc.OfferShareLink, error) {
+	link, _, err := s.resolveActiveShareLinkWithOrg(ctx, q, token)
+	return link, err
+}
+
+// resolveActiveShareLinkWithOrg, resolveActiveShareLink'in bağlantının
+// firmasını da (public sayfadaki firma adı için) dönen hâlidir.
+// Askıya alınmış/iptal edilmiş/silinmiş firmanın linki çalışmaz (bkz.
+// publicLinkOrganization); Respond'da bu kontrol de kilit altında tekrarlanır
+// (çözüm orada ikinci kez yapılır).
+func (s *OfferService) resolveActiveShareLinkWithOrg(ctx context.Context, q *sqlc.Queries, token string) (sqlc.OfferShareLink, sqlc.Organization, error) {
 	tid, err := repository.StringToUUID(token)
 	if err != nil {
-		return sqlc.OfferShareLink{}, domain.ErrNotFound
+		return sqlc.OfferShareLink{}, sqlc.Organization{}, domain.ErrNotFound
 	}
 	link, err := q.GetShareLinkByToken(ctx, tid)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return sqlc.OfferShareLink{}, domain.ErrNotFound
+			return sqlc.OfferShareLink{}, sqlc.Organization{}, domain.ErrNotFound
 		}
-		return sqlc.OfferShareLink{}, err
+		return sqlc.OfferShareLink{}, sqlc.Organization{}, err
 	}
 	if link.RevokedAt.Valid {
-		return sqlc.OfferShareLink{}, ErrShareLinkRevoked
+		return sqlc.OfferShareLink{}, sqlc.Organization{}, ErrShareLinkRevoked
 	}
 	if link.ExpiresAt.Valid && time.Now().After(link.ExpiresAt.Time) {
-		return sqlc.OfferShareLink{}, ErrShareLinkExpired
+		return sqlc.OfferShareLink{}, sqlc.Organization{}, ErrShareLinkExpired
 	}
-	return link, nil
+	org, err := publicLinkOrganization(ctx, q, link.OrganizationID)
+	if err != nil {
+		return sqlc.OfferShareLink{}, sqlc.Organization{}, err
+	}
+	return link, org, nil
 }
 
 // GetByShareLinkToken, müşterinin auth gerektirmeyen paylaşım linkinden
@@ -1197,29 +1493,58 @@ func (s *OfferService) resolveActiveShareLink(ctx context.Context, q *sqlc.Queri
 // başarılı olamayacak bir buton gösterilmiş olurdu (karar zaten
 // verilmişse ya da yeni bir revizyon gönderilmişse).
 func (s *OfferService) GetByShareLinkToken(ctx context.Context, token, ip, userAgent string) (*domain.Offer, bool, error) {
-	link, err := s.resolveActiveShareLink(ctx, s.q, token)
+	v, err := s.GetPublicView(ctx, token, ip, userAgent)
 	if err != nil {
 		return nil, false, err
+	}
+	return &v.Offer, v.CanRespond, nil
+}
+
+// PublicOfferView, müşteri paylaşım sayfasının ihtiyaç duyduğu her şeydir:
+// bağlı revizyonun içeriği, şu an karar verilip verilemeyeceği, geçerlilik
+// süresinin dolup dolmadığı ve teklifi veren firmanın adı (sayfa başlığı
+// her firmanın müşterisine "Arvend Yapı" gösteriyordu).
+type PublicOfferView struct {
+	Offer            domain.Offer
+	CanRespond       bool
+	ValidityExpired  bool
+	OrganizationName string
+}
+
+// GetPublicView: bkz. GetByShareLinkToken. Pasife (arşive) alınmış bir
+// teklifin linki artık açılmaz (ErrPublicLinkUnavailable) -- arşive almak
+// teklifi geri çekmektir; eskiden link çalışmaya ve teklif kabul
+// edilebilmeye devam ediyordu. Arşivden çıkarılınca linkler yeniden
+// çalışır (iptal edilmezler, yalnızca reddedilirler).
+func (s *OfferService) GetPublicView(ctx context.Context, token, ip, userAgent string) (*PublicOfferView, error) {
+	link, org, err := s.resolveActiveShareLinkWithOrg(ctx, s.q, token)
+	if err != nil {
+		return nil, err
 	}
 	offerRow, err := s.q.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: link.OfferID, OrganizationID: link.OrganizationID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, false, domain.ErrNotFound
+			return nil, domain.ErrNotFound
 		}
-		return nil, false, err
+		return nil, err
+	}
+	if offerRow.IsPassive {
+		return nil, ErrPublicLinkUnavailable
 	}
 	revRow, err := s.q.GetOfferRevisionByID(ctx, sqlc.GetOfferRevisionByIDParams{ID: link.RevisionID, OrganizationID: link.OrganizationID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, false, domain.ErrNotFound
+			return nil, domain.ErrNotFound
 		}
-		return nil, false, err
+		return nil, err
 	}
+	now := time.Now()
+	expired := offerRevisionValidityExpired(revRow, now)
 	canRespond := offerRow.CurrentRevisionID.String() == link.RevisionID.String() &&
-		revRow.Status == domain.OfferStatusGonderildi
+		revRow.Status == domain.OfferStatusGonderildi && !expired
 	itemRows, err := s.q.ListOfferRevisionItems(ctx, revRow.ID)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	items := make([]domain.OfferItem, len(itemRows))
 	for i, r := range itemRows {
@@ -1237,7 +1562,7 @@ func (s *OfferService) GetByShareLinkToken(ctx context.Context, token, ip, userA
 		pgtype.UUID{}, nil, ip, userAgent); err != nil {
 		log.Printf("customer_viewed olayı yazılamadı: %v", err)
 	}
-	return &offer, canRespond, nil
+	return &PublicOfferView{Offer: offer, CanRespond: canRespond, ValidityExpired: expired, OrganizationName: org.Name}, nil
 }
 
 // RespondByShareLinkToken, müşterinin paylaşım linkinden teklifi kabul/red
@@ -1301,6 +1626,9 @@ func (s *OfferService) RespondByShareLinkToken(ctx context.Context, token, decis
 		}
 		return nil, err
 	}
+	if offerRow.IsPassive {
+		return nil, ErrPublicLinkUnavailable
+	}
 	if offerRow.CurrentRevisionID.String() != link.RevisionID.String() {
 		return nil, ErrOfferSuperseded
 	}
@@ -1314,6 +1642,9 @@ func (s *OfferService) RespondByShareLinkToken(ctx context.Context, token, decis
 	}
 	if revRow.Status != domain.OfferStatusGonderildi {
 		return nil, ErrOfferNotRespondable
+	}
+	if offerRevisionValidityExpired(revRow, time.Now()) {
+		return nil, ErrOfferValidityExpired
 	}
 
 	updatedRev, err := txq.UpdateOfferRevisionStatus(ctx, sqlc.UpdateOfferRevisionStatusParams{
@@ -1455,6 +1786,11 @@ func (s *OfferService) SendOfferEmail(ctx context.Context, offerID, organization
 	if len([]rune(to)) > 255 {
 		return nil, errors.New("alıcı e-posta adresi çok uzun")
 	}
+	// Mail gönderilMEDEN önce: süresi dolmuş bir teklifin linki müşteriye
+	// gitse bile hiçbir zaman yanıtlanamaz (bkz. RespondByShareLinkToken).
+	if OfferValidityExpired(offer.ValidUntil, time.Now()) {
+		return nil, ErrOfferSendExpired
+	}
 
 	link, err := s.getOrCreateActiveShareLink(ctx, offer.ID, organizationID, offer.CurrentRevisionID, userID)
 	if err != nil {
@@ -1558,6 +1894,10 @@ func (s *OfferService) Delete(ctx context.Context, id, organizationID string) er
 	return s.q.DeleteOffer(ctx, sqlc.DeleteOfferParams{ID: uid, OrganizationID: orgID})
 }
 
+// round2, 2 haneye yuvarlar (yarım değerler sıfırdan uzağa). decimal
+// üzerinden yapılır: eski float hâli (int64(f*100+0.5)) 1.005 gibi ikili
+// tabanda tam temsil edilemeyen değerleri aşağı, negatif değerleri ise
+// yanlış yöne yuvarlıyordu.
 func round2(f float64) float64 {
-	return float64(int64(f*100+0.5)) / 100
+	return decimal.NewFromFloat(f).Round(2).InexactFloat64()
 }
