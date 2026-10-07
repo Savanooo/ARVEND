@@ -34,6 +34,7 @@ func TestProjectErrorMapping(t *testing.T) {
 		{"title required", (&ProjectHandler{}).writeError, service.ErrTitleRequired, 400, "başlık"},
 		{"change type", (&ProjectHandler{}).writeError, service.ErrInvalidChangeType, 400, "değişiklik tipi"},
 		{"retention", (&ProjectHandler{}).writeError, service.ErrInvalidRetentionPercent, 400, "0 ile 100"},
+		{"expense vat rate", (&ProjectHandler{}).writeError, service.ErrInvalidExpenseVATRate, 400, "KDV oranı"},
 		{"project db error", (&ProjectHandler{}).writeError, pgErr, 500, "beklenmeyen"},
 		{"cost code db error", (&CostCodeHandler{}).writeError, pgErr, 500, "beklenmeyen"},
 		{"supplier db error", (&SupplierHandler{}).writeError, pgErr, 500, "beklenmeyen"},

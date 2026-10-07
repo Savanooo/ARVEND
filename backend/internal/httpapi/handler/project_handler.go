@@ -424,6 +424,7 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrNegativeProgress),
 		errors.Is(err, service.ErrQuotationDuplicateItem),
 		errors.Is(err, service.ErrInvalidProfitPercent),
+		errors.Is(err, service.ErrInvalidExpenseVATRate),
 		errors.Is(err, service.ErrInvalidAmount):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, service.ErrOfferNotAccepted),

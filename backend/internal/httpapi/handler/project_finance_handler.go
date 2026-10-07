@@ -288,6 +288,11 @@ type expenseResponse struct {
 	DecidedBy      *string `json:"decided_by"`
 	DecidedAt      *string `json:"decided_at"`
 	DecisionNote   string  `json:"decision_note"`
+	// KDV (migration 0065): amount ödenen tutardır (oran varsa KDV dahil).
+	// vat_rate null = belirtilmedi; o zaman vat_amount ve net_amount da null.
+	VATRate   *float64 `json:"vat_rate"`
+	VATAmount *float64 `json:"vat_amount"`
+	NetAmount *float64 `json:"net_amount"`
 }
 
 func toExpenseResponse(e domain.Expense) expenseResponse {
@@ -299,6 +304,7 @@ func toExpenseResponse(e domain.Expense) expenseResponse {
 		ChangeOrderID: e.ChangeOrderID, CostCodeID: e.CostCodeID, BudgetLineID: e.BudgetLineID,
 		ApprovalStatus: e.ApprovalStatus, DecidedBy: e.DecidedBy, DecidedAt: tsStrPtr(e.DecidedAt),
 		DecisionNote: e.DecisionNote,
+		VATRate:      e.VATRate, VATAmount: e.VATAmount, NetAmount: e.NetAmount(),
 	}
 }
 
@@ -317,6 +323,10 @@ type expenseRequest struct {
 	// de OPSİYONELDİR (bkz. service.ExpenseInput.CostCodeID notu).
 	CostCodeID   string `json:"cost_code_id"`
 	BudgetLineID string `json:"budget_line_id"`
+	// VATRate OPSİYONELDİR (migration 0065): alan yok ya da null =
+	// "belirtilmedi" -- alanı göndermeyen istemciler (bugünkü web formu)
+	// masrafı önceki gibi KDV bilgisiz girer.
+	VATRate *float64 `json:"vat_rate"`
 }
 
 func (r expenseRequest) toInput(userID string, expenseDate time.Time) service.ExpenseInput {
@@ -326,6 +336,7 @@ func (r expenseRequest) toInput(userID string, expenseDate time.Time) service.Ex
 		InvoiceNo: r.InvoiceNo, Notes: r.Notes, IdempotencyKey: r.IdempotencyKey,
 		ChangeOrderID: r.ChangeOrderID, UserID: userID,
 		CostCodeID: r.CostCodeID, BudgetLineID: r.BudgetLineID,
+		VATRate: r.VATRate,
 	}
 }
 

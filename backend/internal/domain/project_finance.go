@@ -47,6 +47,12 @@ const (
 	ExpenseApprovalRejected = "rejected"
 )
 
+// ValidExpenseVATRate: masrafın KDV oranı (%) 0-100 arasında olmalı; nil =
+// "belirtilmedi" (migration 0065) ve her zaman geçerlidir.
+func ValidExpenseVATRate(rate *float64) bool {
+	return rate == nil || (*rate >= 0 && *rate <= 100)
+}
+
 // ExpenseDecisionNoteMaxLen, ret gerekçesinin kolon sınırıdır
 // (decision_note varchar(500)) -- aşan metin DB hatası yerine Türkçe bir
 // doğrulama hatasıyla döner.
@@ -228,6 +234,21 @@ type Expense struct {
 	DecidedBy      *string
 	DecidedAt      *time.Time
 	DecisionNote   string
+	// VATRate: KDV oranı (%), nil = belirtilmedi (migration 0065) -- Amount
+	// yine ödenen tutardır (oran verilmişse KDV dahil). VATAmount tutarın
+	// içindeki KDV'dir, DB'de oranla birlikte üretilir (oran nil ise nil).
+	VATRate   *float64
+	VATAmount *float64
+}
+
+// NetAmount: KDV hariç tutar (kuruşa yuvarlı); KDV belirtilmemişse nil --
+// bilinmeyen KDV'yi sıfır saymak "KDV hariç" diye yanlış bir rakam olurdu.
+func (e Expense) NetAmount() *float64 {
+	if e.VATAmount == nil {
+		return nil
+	}
+	v := math.Round((e.Amount-*e.VATAmount)*100) / 100
+	return &v
 }
 
 type ProjectInvoice struct {

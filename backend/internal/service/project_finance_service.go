@@ -557,6 +557,22 @@ type ExpenseInput struct {
 	// onaylı yazılır, onaylayıcılara bildirim gitmez. HTTP isteği bunu
 	// ayarlayamaz (handler eşlemez): kullanıcı girişi her zaman onay bekler.
 	PreApproved bool
+	// VATRate: KDV oranı (%), 0-100; nil = belirtilmedi (migration 0065) --
+	// tutar KDV hariç kâra tamamıyla maliyet olarak girer. Düzenlemede de
+	// nil "belirtilmedi" demektir (PUT satırı bütünüyle yeniden yazar).
+	VATRate *float64
+}
+
+// ErrInvalidExpenseVATRate: masraf KDV oranı aralık dışı.
+var ErrInvalidExpenseVATRate = errors.New("KDV oranı 0 ile 100 arasında olmalıdır")
+
+// expenseEventMetadata: masraf olayının izi; KDV oranı yalnızca girildiyse.
+func expenseEventMetadata(expenseID string, in ExpenseInput) map[string]any {
+	m := map[string]any{"expense_id": expenseID, "amount": in.Amount, "category": in.Category}
+	if in.VATRate != nil {
+		m["vat_rate"] = *in.VATRate
+	}
+	return m
 }
 
 func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizationID string, in ExpenseInput) (*domain.Expense, error) {
@@ -573,6 +589,9 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 	}
 	if strings.TrimSpace(in.Description) == "" {
 		return nil, errors.New("masraf açıklaması zorunludur")
+	}
+	if !domain.ValidExpenseVATRate(in.VATRate) {
+		return nil, ErrInvalidExpenseVATRate
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -638,6 +657,7 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 		CostCodeID:     costCodeID,
 		BudgetLineID:   budgetLineID,
 		ApprovalStatus: approvalStatus,
+		VatRate:        repository.Float64PtrToNumeric(in.VATRate),
 	})
 	if err != nil {
 		// bkz. CreateCollection: eşzamanlı aynı anahtarlı istek kazandıysa
@@ -654,7 +674,7 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 		return nil, err
 	}
 	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventExpenseAdded, actorUUID(in.UserID),
-		map[string]any{"expense_id": row.ID.String(), "amount": in.Amount, "category": in.Category}); err != nil {
+		expenseEventMetadata(row.ID.String(), in)); err != nil {
 		return nil, err
 	}
 	// Masraf onay bekleyerek doğar (migration 0060): onaylayıcılara haber ver.
@@ -705,8 +725,14 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 	if !domain.ValidExpenseCategory(in.Category) {
 		return nil, errors.New("geçersiz masraf kategorisi")
 	}
+	if strings.TrimSpace(in.Description) == "" {
+		return nil, errors.New("masraf açıklaması zorunludur")
+	}
 	if in.Amount <= 0 {
 		return nil, ErrInvalidAmount
+	}
+	if !domain.ValidExpenseVATRate(in.VATRate) {
+		return nil, ErrInvalidExpenseVATRate
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -723,6 +749,12 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 		return nil, err
 	}
 
+	// Ek iş bağı da yeniden yazılır (önceden düzenleme onu sessizce yok
+	// sayıyordu); başka projenin ek işine bağlanamaz.
+	changeOrderID, err := resolveChangeOrderRef(ctx, txq, in.ChangeOrderID, pid, orgID)
+	if err != nil {
+		return nil, err
+	}
 	costCodeID, budgetLineID, err := resolveCostAllocation(ctx, txq, in.CostCodeID, in.BudgetLineID, pid, orgID)
 	if err != nil {
 		return nil, err
@@ -741,6 +773,8 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 		ProjectID:      pid,
 		CostCodeID:     costCodeID,
 		BudgetLineID:   budgetLineID,
+		VatRate:        repository.Float64PtrToNumeric(in.VATRate),
+		ChangeOrderID:  changeOrderID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -749,7 +783,7 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 		return nil, err
 	}
 	if err := logProjectEvent(ctx, txq, orgID, row.ProjectID, domain.ProjectEventExpenseUpdated, actorUUID(in.UserID),
-		map[string]any{"expense_id": expenseID, "amount": in.Amount}); err != nil {
+		expenseEventMetadata(expenseID, in)); err != nil {
 		return nil, err
 	}
 	if err := notifyExpensePendingApproval(ctx, txq, project, row, actorUUID(in.UserID)); err != nil {

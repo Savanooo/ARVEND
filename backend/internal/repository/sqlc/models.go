@@ -695,6 +695,8 @@ type ProjectExpense struct {
 	DecidedBy      pgtype.UUID        `json:"decided_by"`
 	DecidedAt      pgtype.Timestamptz `json:"decided_at"`
 	DecisionNote   string             `json:"decision_note"`
+	VatRate        pgtype.Numeric     `json:"vat_rate"`
+	VatAmount      pgtype.Numeric     `json:"vat_amount"`
 }
 
 type ProjectFile struct {
