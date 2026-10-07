@@ -8,6 +8,7 @@ import '../../../core/widgets/app_form_section.dart';
 import '../../../core/widgets/unsaved_changes_scope.dart';
 import '../domain/calc_admin.dart';
 import 'calc_admin_common.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 /// Formun gönderdiği değerler -- grup ve kategori AYNI alan kümesini
 /// kullanır (web NewGroupButton/NewCategoryButton + EditGroupForm/
@@ -53,13 +54,10 @@ Future<bool> showCalcNodeFormSheet(
   CalcNodeValues? initial,
   int nameMaxLength = CalcLimits.nodeName,
 }) async {
-  final saved = await showModalBottomSheet<bool>(
+  final saved = await showAppSheet<bool>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    // Kayıt sürerken sayfa sürüklenerek kapatılamaz; dışarı dokunma ve geri
-    // tuşu formdaki UnsavedChangesScope ile engellenir.
-    enableDrag: false,
     builder: (_) => CalcNodeFormSheet(
       title: title,
       nameHint: nameHint,

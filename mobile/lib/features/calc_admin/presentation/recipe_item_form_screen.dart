@@ -15,6 +15,7 @@ import '../../../core/widgets/unsaved_changes_scope.dart';
 import '../data/calc_admin_providers.dart';
 import '../domain/calc_admin.dart';
 import 'calc_admin_common.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 /// Silme isteği süren kalemler: aynı kalem (kart menüsü + düzenleme ekranı)
 /// ikinci kez silinmeye çalışılmasın -- ikinci istek 404 dönüp başarılı
@@ -492,7 +493,7 @@ class _ProductField extends ConsumerWidget {
           borderRadius: BorderRadius.circular(AppRadius.control),
           onTap: canOpen
               ? () async {
-                  final picked = await showModalBottomSheet<({String? id})>(
+                  final picked = await showAppSheet<({String? id})>(
                     context: context,
                     isScrollControlled: true,
                     useSafeArea: true,

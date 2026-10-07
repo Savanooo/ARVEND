@@ -5,12 +5,13 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../customers/data/customers_providers.dart';
 import '../../customers/domain/customer.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 /// Teklif formunda "mevcut müşteriden seç" akışı -- müşteri modülünü teklif
 /// içinde TEKRARLAMAZ, yalnızca zaten var olan `customersListProvider`
 /// (arama destekli) üzerinden bir `Customer` seçtirip geri döner.
 Future<Customer?> showCustomerPickerSheet(BuildContext context) {
-  return showModalBottomSheet<Customer>(
+  return showAppSheet<Customer>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
