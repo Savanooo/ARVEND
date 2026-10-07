@@ -47,12 +47,18 @@ export default async function TeklifDetayPage({
   );
 
   // Teklif zaten projeye dönüştürülmüş mü? 404 = dönüştürülmemiş.
-  const project = await apiServer<Project>(`/api/v1/offers/${id}/project`, cookieHeader).catch(
+  // 403 = dönüştürülmüş ama kullanıcının o projeye erişimi (projects.read +
+  // proje üyeliği) yok -- backend proje verisini artık yalnızca erişimi
+  // olana döner; bu durumda ne "Projeyi Görüntüle" ne "Projeye Dönüştür"
+  // gösterilir.
+  const projectLookup = await apiServer<Project>(`/api/v1/offers/${id}/project`, cookieHeader).then(
+    (p) => ({ project: p as Project | null, accessDenied: false }),
     (err) => {
-      if (err instanceof ApiError) return null;
+      if (err instanceof ApiError) return { project: null, accessDenied: err.status === 403 };
       throw err;
     }
   );
+  const { project, accessDenied: projectAccessDenied } = projectLookup;
 
   // internal_pricing alanı backend'de YALNIZCA offers.internal_pricing.read
   // izni olan personel için doldurulur (bkz. offer_handler.go
@@ -82,7 +88,7 @@ export default async function TeklifDetayPage({
                 <Button variant="secondary">Projeyi Görüntüle</Button>
               </Link>
             ) : (
-              offer.status === "kabul edildi" && canCreateProject && (
+              offer.status === "kabul edildi" && canCreateProject && !projectAccessDenied && (
                 <Link href={`/teklifler/${offer.id}/projeye-donustur`}>
                   <Button>Projeye Dönüştür</Button>
                 </Link>
