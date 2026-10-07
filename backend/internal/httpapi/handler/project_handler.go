@@ -276,7 +276,8 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrBudgetNotYetBaselined),
 		errors.Is(err, service.ErrAdjustmentNotPending),
 		errors.Is(err, service.ErrDuplicateWBSCode),
-		errors.Is(err, service.ErrCommitmentNotActive):
+		errors.Is(err, service.ErrCommitmentNotActive),
+		errors.Is(err, service.ErrCommitmentNotManual):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrInvalidWBSParent),
 		errors.Is(err, service.ErrInvalidBudgetLineCostCode):

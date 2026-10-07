@@ -17,6 +17,11 @@ import (
 // tekrar iptal etme girişiminde döner.
 var ErrCommitmentNotActive = errors.New("yalnızca aktif bir taahhüt iptal edilebilir")
 
+// ErrCommitmentNotManual, satın alma siparişinden ya da taşeron
+// sözleşmesinden doğan bir taahhüdü elle iptal etme girişiminde döner --
+// bu taahhütler kaynaklarının yaşam döngüsüyle senkron tutulur.
+var ErrCommitmentNotManual = errors.New("satın alma siparişinden veya taşeron sözleşmesinden doğan taahhüt elle iptal edilemez; siparişi iptal edin ya da sözleşmeyi değişiklik/fesih ile güncelleyin")
+
 // CommitmentInput, bu sprintte YALNIZCA MANUEL taahhütler içindir --
 // SourceType kasıtlı olarak burada YOKTUR (her zaman domain.
 // CommitmentSourceManual sabitlenir): spec'in "sahte PO/taşeron kaydı
@@ -160,6 +165,9 @@ func (s *ProjectService) VoidCommitment(ctx context.Context, projectID, commitme
 			if existing, gerr := txq.GetCommitment(ctx, sqlc.GetCommitmentParams{ID: cid, OrganizationID: orgID, ProjectID: pid}); gerr == nil {
 				if existing.Status == domain.CommitmentStatusVoided {
 					return nil, ErrCommitmentNotActive
+				}
+				if existing.SourceType != domain.CommitmentSourceManual {
+					return nil, ErrCommitmentNotManual
 				}
 			}
 			return nil, domain.ErrNotFound

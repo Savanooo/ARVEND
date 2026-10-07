@@ -1869,7 +1869,7 @@ func (q *Queries) UpsertForecast(ctx context.Context, arg UpsertForecastParams) 
 
 const voidCommitment = `-- name: VoidCommitment :one
 UPDATE project_commitments SET status = 'voided', voided_at = now(), voided_by = $4, void_reason = $5
-WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'active'
+WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'active' AND source_type = 'manual'
 RETURNING id, organization_id, project_id, budget_line_id, cost_code_id, source_type, source_id, description, committed_amount, currency, status, committed_at, idempotency_key, created_by, voided_at, voided_by, void_reason, created_at, updated_at
 `
 
@@ -1881,6 +1881,10 @@ type VoidCommitmentParams struct {
 	VoidReason     string      `json:"void_reason"`
 }
 
+// Elle iptal YALNIZCA manuel taahhütler içindir: satın alma siparişinden/
+// taşeron sözleşmesinden doğan taahhüt kaynağının yaşam döngüsüyle
+// (sipariş iptali, değişiklik onayı, fesih) senkron tutulur; elle
+// voidlenirse kaynak hâlâ geçerliyken Cost Control'den sessizce düşerdi.
 func (q *Queries) VoidCommitment(ctx context.Context, arg VoidCommitmentParams) (ProjectCommitment, error) {
 	row := q.db.QueryRow(ctx, voidCommitment,
 		arg.ID,

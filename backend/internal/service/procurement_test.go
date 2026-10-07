@@ -1057,4 +1057,40 @@ func TestProcurement(t *testing.T) {
 			t.Errorf("eşzamanlı isteklerden TAM OLARAK biri sipariş açmalı, geldi %d", ok)
 		}
 	})
+
+	t.Run("41_po_generated_commitment_cannot_be_voided_by_hand", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 100000)
+		cc := newCostCode(t, orgA.ID, "VOID-CC")
+		s := newSupplier(t, orgA.ID, "VOID-S")
+		po, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, service.PurchaseOrderInput{
+			SupplierID: s.ID, IssueDate: time.Now(),
+			Items: []service.PurchaseOrderItemInput{{CostCodeID: cc.ID, Description: "K", Quantity: 1, UnitPrice: 5000}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.ApprovePurchaseOrder(ctx, p.ID, po.ID, orgA.ID, ""); err != nil {
+			t.Fatal(err)
+		}
+		commitments, err := projectSvc.ListCommitmentsForPurchaseOrder(ctx, p.ID, po.ID, orgA.ID)
+		if err != nil || len(commitments) != 1 {
+			t.Fatalf("PO taahhüdü bulunamadı: %v", err)
+		}
+		if _, err := projectSvc.VoidCommitment(ctx, p.ID, commitments[0].ID, orgA.ID, "", "elle"); !errors.Is(err, service.ErrCommitmentNotManual) {
+			t.Fatalf("PO'dan doğan taahhüt elle iptal EDİLEMEMELİ, geldi: %v", err)
+		}
+		again, _ := projectSvc.ListCommitmentsForPurchaseOrder(ctx, p.ID, po.ID, orgA.ID)
+		if again[0].Status != domain.CommitmentStatusActive {
+			t.Fatalf("taahhüt aktif kalmalı, geldi %s", again[0].Status)
+		}
+		manual, err := projectSvc.CreateCommitment(ctx, p.ID, orgA.ID, service.CommitmentInput{
+			CostCodeID: cc.ID, Description: "Manuel", CommittedAmount: 100, CommittedAt: time.Now(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.VoidCommitment(ctx, p.ID, manual.ID, orgA.ID, "", "elle"); err != nil {
+			t.Fatalf("manuel taahhüt elle iptal edilebilmeli: %v", err)
+		}
+	})
 }

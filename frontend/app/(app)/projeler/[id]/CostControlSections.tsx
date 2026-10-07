@@ -37,6 +37,13 @@ import type {
 // dosya SADECE onları görüntüler/toplar — HİÇBİR türetilmiş rakam burada
 // yeniden hesaplanmaz (bkz. docs/cost-control.md).
 
+// Manuel olmayan taahhütlerin kaynağı -- bunlar elle iptal edilemez,
+// kaynak kaydın kendi akışıyla güncellenir.
+const COMMITMENT_SOURCE_HINTS: Record<Exclude<Commitment["source_type"], "manual">, string> = {
+  purchase_order: "Satın alma siparişinden — siparişi iptal ederek kaldırılır",
+  subcontract: "Taşeron sözleşmesinden — değişiklik/fesih ile güncellenir",
+};
+
 function useCostControlAction(locked: boolean) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -909,6 +916,9 @@ function CommitmentsTab({
                 </Td>
                 <Td>
                   {c.description}
+                  {c.source_type !== "manual" && (
+                    <div className="text-xs text-text-muted">{COMMITMENT_SOURCE_HINTS[c.source_type]}</div>
+                  )}
                   {c.void_reason && <div className="text-xs text-danger">İptal: {c.void_reason}</div>}
                 </Td>
                 <Td className={`text-right ${c.status === "voided" ? "line-through" : "font-medium"}`}>
@@ -918,7 +928,9 @@ function CommitmentsTab({
                   <StatusBadge status={c.status} registry={COMMITMENT_STATUS} />
                 </Td>
                 <Td className="text-right">
-                  {c.status === "active" && !locked && (
+                  {/* Yalnızca manuel taahhüt elle iptal edilir; sipariş/taşeron
+                      taahhüdü kaynağıyla senkron tutulur (backend de reddeder). */}
+                  {c.status === "active" && c.source_type === "manual" && !locked && (
                     <button type="button" className="text-xs text-danger hover:underline" onClick={() => voidCommitment(c)}>
                       İptal Et
                     </button>

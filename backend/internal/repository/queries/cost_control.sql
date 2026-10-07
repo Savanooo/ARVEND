@@ -183,8 +183,12 @@ ORDER BY c.committed_at DESC, c.created_at DESC;
 SELECT * FROM project_commitments WHERE id = $1 AND organization_id = $2 AND project_id = $3;
 
 -- name: VoidCommitment :one
+-- Elle iptal YALNIZCA manuel taahhütler içindir: satın alma siparişinden/
+-- taşeron sözleşmesinden doğan taahhüt kaynağının yaşam döngüsüyle
+-- (sipariş iptali, değişiklik onayı, fesih) senkron tutulur; elle
+-- voidlenirse kaynak hâlâ geçerliyken Cost Control'den sessizce düşerdi.
 UPDATE project_commitments SET status = 'voided', voided_at = now(), voided_by = $4, void_reason = $5
-WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'active'
+WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'active' AND source_type = 'manual'
 RETURNING *;
 
 -- Sprint 4 -- Procurement entegrasyonu. CreateCommitment (yukarı,
