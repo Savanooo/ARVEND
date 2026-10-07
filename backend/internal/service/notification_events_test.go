@@ -767,8 +767,12 @@ func TestNotifications(t *testing.T) {
 		finance := mustRoleUser(t, orgA.ID, "notif_fin13", domain.OrgRoleFinance)
 		worker := mustRoleUser(t, orgA.ID, "notif_worker13", domain.OrgRoleField)
 		workerEmp := mustLinkedEmployee(t, orgA.ID, "Plan Sorumlusu 13", worker.ID)
+		// Erişim listesinde OLMAYAN Sahip ve Eski Sistem kullanıcısı: projeyi
+		// görebilirler ama operasyon bildirimi (yükleme/görev notu) almazlar.
+		ownerOutside := mustRoleUser(t, orgA.ID, "notif_owner13_out", domain.OrgRoleOwner)
+		legacyOutside := mustRoleUser(t, orgA.ID, "notif_legacy13_out", domain.OrgRoleLegacyUser)
 		p := newProject(t, orgA.ID, owner.ID)
-		for _, u := range []*domain.User{pm, field, finance, worker} {
+		for _, u := range []*domain.User{owner, pm, field, finance, worker} {
 			if _, err := authzSvc.AddProjectUser(ctx, p.ID, orgA.ID, service.ProjectUserInput{UserID: u.ID, ProjectRole: "member", CreatedBy: owner.ID}); err != nil {
 				t.Fatal(err)
 			}
@@ -888,7 +892,7 @@ func TestNotifications(t *testing.T) {
 				t.Errorf("hedef/gövde: %+v", got[0])
 			}
 		}
-		for _, other := range []*domain.User{field, finance, worker} {
+		for _, other := range []*domain.User{field, finance, worker, ownerOutside, legacyOutside} {
 			if n := len(list(other.ID, domain.NotificationPhotoUploaded)); n != 0 {
 				t.Errorf("%s yönetici değil / yükleyen: bildirim almamalı (%d)", other.Username, n)
 			}

@@ -74,12 +74,13 @@ type uploadNotice struct {
 	Title func(n int) string
 }
 
-// notifyProjectManagersOfUpload: projede yönetici yetkisi (projects.update)
-// olanlara -- yükleyen hariç -- gruplu bildirim. Aynı kişiye son
+// notifyProjectManagersOfUpload: projenin Erişim listesinde AÇIKÇA olup
+// yönetici yetkisi (projects.update) taşıyanlara -- yükleyen hariç --
+// gruplu bildirim (alıcı kuralı: resolveProjectAudience). Aynı kişiye son
 // notificationGroupWindow içinde okunmamış aynı tür bildirim varsa o
 // güncellenir (sayaç +1, en üste çıkar).
 func notifyProjectManagersOfUpload(ctx context.Context, txq *sqlc.Queries, orgID pgtype.UUID, project sqlc.Project, actor pgtype.UUID, n uploadNotice) error {
-	managers, err := resolveProjectApprovers(ctx, txq, orgID, project.ID, domain.PermProjectsUpdate)
+	managers, err := resolveProjectAudience(ctx, txq, orgID, project.ID, domain.PermProjectsUpdate)
 	if err != nil {
 		return err
 	}
@@ -175,6 +176,43 @@ func joinNonEmpty(sep string, parts ...string) string {
 		}
 	}
 	return strings.Join(out, sep)
+}
+
+// resolveProjectAudience: operasyon bildirimlerinin (görev notu/durumu,
+// dosya/fotoğraf yükleme) "yönetici" alıcıları -- projenin Erişim
+// listesinde (project_users) AÇIKÇA bulunan, permissionCode'u tutan aktif
+// kullanıcılar.
+//
+// resolveProjectApprovers'tan BİLİNÇLİ farkı: bypass rolleri (Sahip/
+// Yönetici/Eski Sistem) burada yalnızca listede açıkça varsa alıcıdır.
+// Onlar her projeyi GÖREBİLİR ama her projenin her fotoğrafını/görev
+// notunu duymak istemez -- "Eski Sistem" kullanıcıları dahil firmadaki
+// herkese yağan bu bildirimler sahada şikâyet konusuydu. Onay türü
+// bildirimler (satın alma talebi, hakediş, değişiklik emri) onay
+// verebilecek HERKESE gitmeye devam eder (resolveProjectApprovers).
+func resolveProjectAudience(ctx context.Context, txq *sqlc.Queries, orgID, projectID pgtype.UUID, permissionCode string) ([]pgtype.UUID, error) {
+	holders, err := txq.ListUsersWithPermission(ctx, sqlc.ListUsersWithPermissionParams{OrganizationID: orgID, PermissionCode: permissionCode})
+	if err != nil {
+		return nil, err
+	}
+	if len(holders) == 0 {
+		return nil, nil
+	}
+	members, err := txq.ListProjectUsersDetailed(ctx, sqlc.ListProjectUsersDetailedParams{ProjectID: projectID, OrganizationID: orgID})
+	if err != nil {
+		return nil, err
+	}
+	memberSet := make(map[pgtype.UUID]bool, len(members))
+	for _, m := range members {
+		memberSet[m.UserID] = true
+	}
+	var out []pgtype.UUID
+	for _, h := range holders {
+		if memberSet[h.ID] {
+			out = append(out, h.ID)
+		}
+	}
+	return out, nil
 }
 
 // canAccessProject: (kullanıcı aktif mi, projeye erişebilir mi). Erişim

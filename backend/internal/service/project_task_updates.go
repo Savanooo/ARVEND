@@ -128,10 +128,12 @@ func (s *ProjectService) AddTaskUpdate(ctx context.Context, projectID, taskID, o
 	return &up, &t, nil
 }
 
-// notifyTaskParties: görevi oluşturan + atanan kişinin bağlı kullanıcısı +
-// projenin yöneticileri (projects.update; görevi bir ustabaşı vermiş olsa
-// da yönetici haberdar olsun -- sahada istenen buydu), işlemi yapan
-// hariç, tekilleştirilmiş.
+// notifyTaskParties: görevin TARAFLARI (oluşturan + atanan kişinin bağlı
+// kullanıcısı) ve projenin Erişim listesindeki yöneticileri (projects.
+// update; görevi bir ustabaşı vermiş olsa da yönetici haberdar olsun --
+// sahada istenen buydu, bkz. resolveProjectAudience), işlemi yapan hariç,
+// tekilleştirilmiş. Taraflar da projeyi şu an görebiliyorsa alıcıdır:
+// erişimi kaldırılmış birine dokununca 403 veren bildirim gitmez.
 func notifyTaskParties(ctx context.Context, txq *sqlc.Queries, orgID pgtype.UUID, task sqlc.ProjectTask, actor pgtype.UUID, in CreateNotificationInput) error {
 	var recipients []pgtype.UUID
 	seen := map[pgtype.UUID]bool{}
@@ -142,13 +144,30 @@ func notifyTaskParties(ctx context.Context, txq *sqlc.Queries, orgID pgtype.UUID
 		seen[u] = true
 		recipients = append(recipients, u)
 	}
-	add(task.CreatedBy)
+	addParty := func(u pgtype.UUID) error {
+		if !u.Valid || seen[u] || (actor.Valid && u == actor) {
+			return nil
+		}
+		_, access, err := canAccessProject(ctx, txq, orgID, task.ProjectID, u)
+		if err != nil {
+			return err
+		}
+		if access {
+			add(u)
+		}
+		return nil
+	}
+	if err := addParty(task.CreatedBy); err != nil {
+		return err
+	}
 	if task.AssignedEmployeeID.Valid {
 		if emp, err := txq.GetEmployeeByID(ctx, sqlc.GetEmployeeByIDParams{ID: task.AssignedEmployeeID, OrganizationID: orgID}); err == nil {
-			add(emp.UserID)
+			if err := addParty(emp.UserID); err != nil {
+				return err
+			}
 		}
 	}
-	managers, err := resolveProjectApprovers(ctx, txq, orgID, task.ProjectID, domain.PermProjectsUpdate)
+	managers, err := resolveProjectAudience(ctx, txq, orgID, task.ProjectID, domain.PermProjectsUpdate)
 	if err != nil {
 		return err
 	}
