@@ -230,6 +230,10 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/{id}/project", d.Projects.GetByOffer(d.AuthorizationSvc))
 			})
 			r.With(perm(domain.PermOffersCreate)).Post("/", d.Offers.Create)
+			// Yeni teklif formunun firma varsayılanları (KDV, para birimi,
+			// geçerlilik, koşullar) -- formu açabilen herkes okuyabilmeli.
+			// Statik segment olduğu için /{id}'den önce eşleşir.
+			r.With(perm(domain.PermOffersCreate)).Get("/defaults", d.Offers.Defaults)
 			r.Group(func(r chi.Router) {
 				r.Use(perm(domain.PermOffersUpdate))
 				r.Put("/{id}", d.Offers.Update)

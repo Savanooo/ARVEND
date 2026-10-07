@@ -126,6 +126,7 @@ type offerResponse struct {
 	VatRate         float64             `json:"vat_rate"`
 	VatAmount       float64             `json:"vat_amount"`
 	GrandTotal      float64             `json:"grand_total"`
+	Currency        string              `json:"currency"`
 	Notes           string              `json:"notes"`
 	Status          string              `json:"status"`
 	IsPassive       bool                `json:"is_passive"`
@@ -149,6 +150,7 @@ func toOfferResponse(o domain.Offer) offerResponse {
 		VatRate:         o.VatRate,
 		VatAmount:       o.VatAmount,
 		GrandTotal:      o.GrandTotal,
+		Currency:        o.Currency,
 		Notes:           o.Notes,
 		Status:          o.Status,
 		IsPassive:       o.IsPassive,
@@ -246,6 +248,43 @@ func (h *OfferHandler) Get(w http.ResponseWriter, r *http.Request) {
 	httpjson.Write(w, http.StatusOK, resp)
 }
 
+// offerDefaultsResponse: yeni teklif formunun başlangıç değerleri. IBAN/
+// banka bilgisi BİLİNÇLİ OLARAK yok -- uç teklif oluşturabilen her
+// personele açık. validity_days null = firma geçerlilik süresi
+// tanımlamamış (teklif süresiz); valid_until bugünden (İstanbul) hesaplanmış
+// varsayılan bitiş tarihidir -- istemci kendi saat dilimiyle hesaplamasın.
+type offerDefaultsResponse struct {
+	VATRate       float64 `json:"vat_rate"`
+	Currency      string  `json:"currency"`
+	ValidityDays  *int    `json:"validity_days"`
+	ValidUntil    *string `json:"valid_until"`
+	PaymentTerms  string  `json:"payment_terms"`
+	DeliveryTerms string  `json:"delivery_terms"`
+	Footer        string  `json:"footer"`
+}
+
+// Defaults: GET /offers/defaults (offers.create) -- firma teklif
+// varsayılanları (onboarding "Teklif" adımı). Formlar KDV/geçerlilik
+// alanlarını bununla doldurur; POST /offers/ de gönderilmeyen alanları
+// aynı değerlerle tamamlar.
+func (h *OfferHandler) Defaults(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	d, err := h.svc.OfferDefaults(r.Context(), orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	resp := offerDefaultsResponse{
+		VATRate: d.VATRate, Currency: d.Currency, ValidityDays: d.ValidityDays,
+		PaymentTerms: d.PaymentTerms, DeliveryTerms: d.DeliveryTerms, Footer: d.Footer,
+	}
+	if until := d.ValidUntilFrom(service.IstanbulNow(time.Now())); until != nil {
+		s := until.Format(dateLayout)
+		resp.ValidUntil = &s
+	}
+	httpjson.Write(w, http.StatusOK, resp)
+}
+
 type createOfferItemRequest struct {
 	// ID: düzenlemede satırın karşılık geldiği mevcut kalemin id'si (yeni
 	// satırlarda boş). Bkz. service.OfferItemInput.ID.
@@ -280,6 +319,7 @@ type createOfferRequest struct {
 	ValidUntil      *string                  `json:"valid_until"`
 	Notes           string                   `json:"notes"`
 	VatRate         *float64                 `json:"vat_rate"`
+	Currency        *string                  `json:"currency"` // yalnızca oluşturmada; null = firma varsayılanı
 	Items           []createOfferItemRequest `json:"items"`
 }
 
@@ -334,7 +374,9 @@ func (h *OfferHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	validUntil, _, err := parseValidUntil(req.ValidUntil)
+	// valid_until/vat_rate/currency gönderilmezse (null) firma
+	// varsayılanları uygulanır; "" geçerlilik bilerek süresiz demektir.
+	validUntil, validUntilProvided, err := parseValidUntil(req.ValidUntil)
 	if err != nil {
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 		return
@@ -351,8 +393,10 @@ func (h *OfferHandler) Create(w http.ResponseWriter, r *http.Request) {
 		CustomerEmail:            req.CustomerEmail,
 		CustomerAddress:          req.CustomerAddress,
 		ValidUntil:               validUntil,
+		ValidUntilProvided:       validUntilProvided,
 		Notes:                    req.Notes,
 		VatRate:                  req.VatRate,
+		Currency:                 req.Currency,
 		Items:                    toOfferItemInputs(req.Items),
 		UserID:                   userID,
 		OrganizationID:           orgID,
