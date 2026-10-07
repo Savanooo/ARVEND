@@ -671,6 +671,24 @@ void main() {
       expect(adapter.calls, isNot(contains('/projects')));
     });
 
+    for (final scale in [1.0, 1.3]) {
+      testWidgets('360 dp (yazı ölçeği $scale): bütün işlemler eşit boyutta, hiçbiri kenarda kesik değil', (tester) async {
+        await _pump(tester, user: ownerUser, script: _script(fixtureJson('owner')), size: const Size(360, 1600), textScale: scale);
+
+        expect(tester.takeException(), isNull);
+        final tiles = find.byType(QuickActionButton);
+        expect(tiles, findsNWidgets(quickActionsFor(ownerUser).length));
+        final rects = [for (final e in tiles.evaluate()) tester.getRect(find.byWidget(e.widget))];
+        for (final r in rects) {
+          // Kaydırma konumundaki alt piksel farkı yüzünden yaklaşık.
+          expect(r.width, closeTo(rects.first.width, 0.01));
+          expect(r.height, closeTo(rects.first.height, 0.01));
+          expect(r.left, greaterThanOrEqualTo(16));
+          expect(r.right, lessThanOrEqualTo(360 - 16));
+        }
+      });
+    }
+
     testWidgets('açılan sayfa kendini değiştirse de (pushReplacement) kilit çözülür; işlemler pasif kalmaz', (
       tester,
     ) async {

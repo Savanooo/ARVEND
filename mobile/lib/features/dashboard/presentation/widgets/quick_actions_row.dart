@@ -25,51 +25,40 @@ typedef QuickActionRun = ({QuickActionKey action, bool loading});
 
 final quickActionInFlightProvider = StateProvider<QuickActionRun?>((ref) => null);
 
-/// "Hızlı İşlemler" (spec §3.5): izne göre süzülmüş, sabit sıralı yatay
-/// buton satırı. Boşsa hiç çizilmez (çağıran karar verir).
+/// "Hızlı İşlemler" (spec §3.5): izne göre süzülmüş, sabit sıralı işlemler
+/// eşit boyutlu bir ızgarada -- hepsi kaydırmadan görünür (bkz.
+/// QuickActionGrid). Boşsa hiç çizilmez (çağıran karar verir).
 class QuickActionsRow extends ConsumerWidget {
   const QuickActionsRow({super.key, required this.actions, this.inset = 0});
 
   final List<QuickActionKey> actions;
 
-  /// Şerit ekran kenarına kadar uzanır; başlık ve ilk/son kutucuk bu
-  /// kadar içeriden başlar (sayfanın yatay boşluğu). Böylece kısmen
-  /// görünen kutucuk içerik kenarında kesilmez, ekranın altından kayar.
+  /// Sayfanın yatay boşluğu: başlık ve ızgara bu kadar içeriden başlar.
   final double inset;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final running = ref.watch(quickActionInFlightProvider);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: EdgeInsets.symmetric(horizontal: inset),
-          child: const AppSectionHeader(title: 'Hızlı İşlemler'),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: EdgeInsets.symmetric(horizontal: inset),
-          // Butonlar eşit boyda (iki satırlık etiket diğerlerini uzatır).
-          child: IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (var i = 0; i < actions.length; i++) ...[
-                  if (i > 0) const SizedBox(width: AppSpacing.sm),
-                  QuickActionButton(
-                    icon: actions[i].icon,
-                    label: actions[i].label,
-                    busy: running != null && running.action == actions[i] && running.loading,
-                    onPressed: running == null ? () => runQuickAction(context, actions[i]) : null,
-                  ),
-                ],
-              ],
-            ),
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: inset),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const AppSectionHeader(title: 'Hızlı İşlemler'),
+          const SizedBox(height: AppSpacing.sm),
+          QuickActionGrid(
+            children: [
+              for (final action in actions)
+                QuickActionButton(
+                  icon: action.icon,
+                  label: action.label,
+                  busy: running != null && running.action == action && running.loading,
+                  onPressed: running == null ? () => runQuickAction(context, action) : null,
+                ),
+            ],
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

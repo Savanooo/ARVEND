@@ -98,8 +98,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     if (data != null) {
       body = _DashboardContent(data: data, user: user, stale: async.hasError, controller: _scroll, onRefresh: _refresh);
     } else if (async.hasError && !async.isLoading) {
-      // Yatay boşluk parça başınadır: hızlı işlem şeridi ekran kenarına
-      // kadar uzanır (bkz. QuickActionsRow.inset).
+      // Yatay boşluk parça başınadır (hızlı işlemler kendi `inset`iyle).
       body = ListView(
         controller: _scroll,
         physics: const AlwaysScrollableScrollPhysics(),
@@ -210,9 +209,8 @@ class _DashboardContent extends ConsumerWidget {
       onRetry: onRefresh,
     );
 
-    // Parçalar kendi yatay boşluğuyla (_inset) çizilir; yalnızca hızlı
-    // işlem şeridi ekran kenarına kadar uzanır ki kısmen görünen kutucuk
-    // içerik kenarında kesilmek yerine ekranın altından kaysın.
+    // Parçalar kendi yatay boşluğuyla çizilir (_inset; hızlı işlemler
+    // QuickActionsRow.inset ile).
     final zones = <Widget>[
       if (onboarding)
         _inset(

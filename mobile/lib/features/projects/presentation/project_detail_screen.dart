@@ -379,7 +379,7 @@ class _OverviewTab extends ConsumerWidget {
     final summaryAsync = canFinance ? ref.watch(projectFinancialSummaryProvider(projectId)) : null;
     final costControlAsync = canFinance && canSeeCostControl ? ref.watch(projectCostControlProvider(projectId)) : null;
 
-    final quickActions = <Widget>[
+    final quickActions = <QuickActionButton>[
       if (canAddLedger)
         QuickActionButton(
           icon: Icons.receipt_long_outlined,
@@ -513,17 +513,7 @@ class _OverviewTab extends ConsumerWidget {
           const SizedBox(height: AppSpacing.lg),
           const AppSectionHeader(title: 'Hızlı İşlemler'),
           const SizedBox(height: AppSpacing.sm),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (var i = 0; i < quickActions.length; i++) ...[
-                  if (i > 0) const SizedBox(width: AppSpacing.sm),
-                  quickActions[i],
-                ],
-              ],
-            ),
-          ),
+          QuickActionGrid(children: quickActions),
         ],
         if (summaryAsync != null) ...[
           const SizedBox(height: AppSpacing.lg),
