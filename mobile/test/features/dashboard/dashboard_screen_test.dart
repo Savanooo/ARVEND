@@ -203,7 +203,7 @@ void main() {
       expect(adapter.calls, isNot(contains('/tasks/mine')));
       expect(find.text('Tahsilat Gir'), findsOneWidget);
       expect(find.text('Masraf Gir'), findsOneWidget);
-      expect(find.text('Satın Alma Talebi'), findsOneWidget);
+      expect(find.widgetWithText(QuickActionButton, 'Satın Alma'), findsOneWidget);
       expect(find.text('Teklif Oluştur'), findsNothing);
       expect(find.text('Üyesi olduğun 3 projenin verileri gösteriliyor.'), findsOneWidget);
       // Onaylar "Senin sıran"da.
@@ -268,7 +268,9 @@ void main() {
       await _pump(tester, user: ownerUser, script: _script(json));
 
       expect(find.text('Bu özet şu an yüklenemedi.'), findsOneWidget);
-      expect(find.text('Satın Alma'), findsOneWidget); // kart başlığı kalır
+      // Kart başlığı kalır (hızlı işlem kutucuğu da aynı adı taşır).
+      expect(find.descendant(of: find.byType(QuickActionButton), matching: find.text('Satın Alma')), findsOneWidget);
+      expect(find.text('Satın Alma'), findsNWidgets(2));
       expect(find.text('Bazı bölümler yüklenemedi; liste eksik olabilir.'), findsOneWidget);
       expect(find.text('Proje Finansı'), findsOneWidget);
       expect(find.text('Taşeron'), findsOneWidget);
@@ -657,7 +659,7 @@ void main() {
           ],
         },
       );
-      final action = find.widgetWithText(QuickActionButton, 'Satın Alma Talebi');
+      final action = find.widgetWithText(QuickActionButton, 'Satın Alma');
       await tester.ensureVisible(action);
       await tester.pumpAndSettle();
       await tester.tap(action);

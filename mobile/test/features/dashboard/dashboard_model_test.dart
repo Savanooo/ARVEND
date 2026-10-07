@@ -500,14 +500,14 @@ void main() {
         'Tahsilat Gir',
         'Masraf Gir',
         'Mesai Gir',
-        'Satın Alma Talebi',
+        'Satın Alma',
         'Görev Ekle',
         'Not Ekle',
         'Müşteri Ekle',
         'Metraj Hesapla',
       ]);
       expect(quickActionsFor(fieldUser).map((a) => a.label), ['Not Ekle']);
-      expect(quickActionsFor(financeUser).map((a) => a.label), ['Tahsilat Gir', 'Masraf Gir', 'Satın Alma Talebi']);
+      expect(quickActionsFor(financeUser).map((a) => a.label), ['Tahsilat Gir', 'Masraf Gir', 'Satın Alma']);
       // Mesai Gir iki izin ister (attendance.manage VE employees.read).
       final onlyAttendance = User(
         id: 'u',

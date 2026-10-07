@@ -731,7 +731,8 @@ enum QuickActionKey {
   collection('Tahsilat Gir', Icons.payments_outlined, ['projects.finance.manage']),
   expense('Masraf Gir', Icons.receipt_long_outlined, ['projects.finance.manage']),
   attendance('Mesai Gir', Icons.more_time, ['attendance.manage', 'employees.read'], needsProject: false),
-  purchaseRequest('Satın Alma Talebi', Icons.shopping_cart_outlined, ['projects.procurement.manage']),
+  // Kısa ad: eşit genişlikli kutucukta "Satın Alma Talebi" "Satın Alma Ta…" diye kesiliyordu.
+  purchaseRequest('Satın Alma', Icons.shopping_cart_outlined, ['projects.procurement.manage']),
   task('Görev Ekle', Icons.add_task, ['projects.tasks.create']),
   note('Not Ekle', Icons.sticky_note_2_outlined, ['projects.operations.manage']),
   customer('Müşteri Ekle', Icons.person_add_alt_outlined, ['customers.manage'], needsProject: false),
