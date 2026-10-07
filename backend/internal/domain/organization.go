@@ -126,6 +126,40 @@ type Organization struct {
 
 func (o Organization) IsDeleted() bool { return o.DeletedAt != nil }
 
+// TrialStatus, deneme sürümündeki bir firmanın bitiş durumudur. Ürün kararı
+// (2026-10-07): süre dolunca erişim OTOMATİK KESİLMEZ -- bu bilgi yalnızca
+// gösterilir (mobil Ana Sayfa bandı; Süper Admin rozeti sonra). Kesmek
+// Süper Admin'in SetStatus ile verdiği bilinçli bir karardır.
+type TrialStatus struct {
+	EndsAt time.Time
+	// EndsOn: bitişin İstanbul takvim günü (UTC gece yarısı olarak).
+	EndsOn time.Time
+	// DaysLeft: EndsOn - bugün (İstanbul günü). Bitiş günü 0 ("bugün
+	// bitiyor"), geçtiyse negatif.
+	DaysLeft int
+	// Expired: bitiş günü geride kaldı. Gün bazlıdır -- bitiş günü boyunca
+	// deneme sürmüş sayılır, saatine bakılmaz (kullanıcıya gösterilen de
+	// yalnızca tarih).
+	Expired bool
+}
+
+// Trial, firma deneme sürümündeyse ve bitiş tarihi kayıtlıysa deneme
+// durumunu now anına göre loc takviminde (İstanbul) hesaplar; aksi halde
+// nil. trial_ends_at oluşturma anında yazılır (PlatformService) ve başka
+// hiçbir yerde okunmuyordu -- süresi dolan deneme sessizce tam erişimle
+// devam ediyordu.
+func (o Organization) Trial(now time.Time, loc *time.Location) *TrialStatus {
+	if o.Status != OrgStatusTrial || o.TrialEndsAt == nil {
+		return nil
+	}
+	ey, em, ed := o.TrialEndsAt.In(loc).Date()
+	ty, tm, td := now.In(loc).Date()
+	endsOn := time.Date(ey, em, ed, 0, 0, 0, 0, time.UTC)
+	today := time.Date(ty, tm, td, 0, 0, 0, 0, time.UTC)
+	days := int(endsOn.Sub(today).Hours() / 24)
+	return &TrialStatus{EndsAt: *o.TrialEndsAt, EndsOn: endsOn, DaysLeft: days, Expired: days < 0}
+}
+
 // DefaultOrganizationID, mevcut tek-firmalı veri için 0009 migration'ında
 // oluşturulan sabit organizasyon kimliğidir (seedAdmin ve tek seferlik
 // araçlarda referans için).
