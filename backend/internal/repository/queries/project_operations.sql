@@ -235,8 +235,15 @@ DELETE FROM project_notes WHERE id = $1 AND organization_id = $2 AND project_id 
 -- bu proje-erişim sınırından muaftır (spec: "owner/admin still means MY
 -- TASKS" -- bu muafiyet YALNIZCA proje erişimi içindir, assigned_employee_id
 -- eşleşmesi HERKES için, roldeb BAĞIMSIZ olarak ZORUNLUDUR).
+--
+-- 'open' modunda KAPALI (tamamlanmış/iptal) projelerin görevleri DÖNMEZ:
+-- o projede artık yapılacak iş yoktur ve bu görevler aksi halde sonsuza
+-- dek "açık/gecikmiş" görünürdü. Ana sayfa sayaçları (dashboard.sql
+-- Dashboard*Task*) AYNI kuralı uygular -- "Görevlerim" ile ana sayfa
+-- sayısı ayrışmasın. 'all'/somut durum filtrelerinde görünürler;
+-- project_status ile istemci "proje kapalı" diye işaretler.
 -- name: ListMyTasks :many
-SELECT t.*, p.name AS project_name
+SELECT t.*, p.name AS project_name, p.status AS project_status
 FROM project_tasks t
 INNER JOIN projects p ON p.id = t.project_id AND p.organization_id = t.organization_id
 WHERE t.organization_id = sqlc.arg(organization_id)::uuid
@@ -244,6 +251,7 @@ WHERE t.organization_id = sqlc.arg(organization_id)::uuid
   AND (
     CASE
       WHEN sqlc.arg(status_mode)::text = 'open' THEN t.status IN ('todo', 'in_progress')
+                                                   AND p.status NOT IN ('completed', 'cancelled')
       WHEN sqlc.arg(status_mode)::text = 'all' THEN TRUE
       ELSE t.status = sqlc.arg(status_mode)::text
     END
@@ -296,7 +304,10 @@ RETURNING *;
 -- Görevler sekmesinin "Ekip" görünümü: erişilebilir projelerdeki TÜM
 -- görevler (yönetici buradan takip eder). ListMyTasks ile aynı durum ve
 -- üyelik kuralları; assigned_employee_id verilirse o kişinin görevleri.
-SELECT t.*, p.name AS project_name
+-- total_count: LIMIT'ten ÖNCEKİ toplam -- liste sınırda kesildiyse
+-- istemci bunu söyleyebilsin (eskiden 500'de sessizce kırpılıyordu).
+SELECT t.*, p.name AS project_name, p.status AS project_status,
+       count(*) OVER ()::bigint AS total_count
 FROM project_tasks t
 INNER JOIN projects p ON p.id = t.project_id AND p.organization_id = t.organization_id
 WHERE t.organization_id = sqlc.arg(organization_id)::uuid
@@ -304,6 +315,7 @@ WHERE t.organization_id = sqlc.arg(organization_id)::uuid
   AND (
     CASE
       WHEN sqlc.arg(status_mode)::text = 'open' THEN t.status IN ('todo', 'in_progress')
+                                                   AND p.status NOT IN ('completed', 'cancelled')
       WHEN sqlc.arg(status_mode)::text = 'all' THEN TRUE
       ELSE t.status = sqlc.arg(status_mode)::text
     END
@@ -325,7 +337,7 @@ ORDER BY
   END,
   t.due_date ASC NULLS LAST,
   t.created_at DESC
-LIMIT 500;
+LIMIT sqlc.arg(row_limit)::int;
 
 -- ============ Atanabilirlik / proje erişimi ============
 

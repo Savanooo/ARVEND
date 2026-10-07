@@ -331,16 +331,26 @@ func (h *ProjectHandler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 
 type myTaskResponse struct {
 	taskResponse
-	ProjectID   string `json:"project_id"`
-	ProjectName string `json:"project_name"`
+	ProjectID     string `json:"project_id"`
+	ProjectName   string `json:"project_name"`
+	ProjectStatus string `json:"project_status"`
+	// ProjectClosed: proje tamamlandı/iptal -- görev artık "gecikmiş"
+	// sayılmaz (is_overdue false), istemci "proje kapalı" diye gösterir.
+	ProjectClosed bool `json:"project_closed"`
 }
 
 func toMyTaskResponse(t service.MyTask) myTaskResponse {
-	return myTaskResponse{
-		taskResponse: toTaskResponse(t.ProjectTask),
-		ProjectID:    t.ProjectID,
-		ProjectName:  t.ProjectName,
+	resp := myTaskResponse{
+		taskResponse:  toTaskResponse(t.ProjectTask),
+		ProjectID:     t.ProjectID,
+		ProjectName:   t.ProjectName,
+		ProjectStatus: t.ProjectStatus,
+		ProjectClosed: t.ProjectClosed(),
 	}
+	if resp.ProjectClosed {
+		resp.IsOverdue = false
+	}
+	return resp
 }
 
 // ListMyTasks, GET /api/v1/tasks/mine -- bana ATANAN görevler (bkz.
@@ -383,7 +393,7 @@ func (h *ProjectHandler) ListTeamTasks(w http.ResponseWriter, r *http.Request) {
 	if authz, ok := middleware.AuthzContextFromRequest(r.Context()); ok && !authz.BypassesProjectMembership() {
 		restrictToUserID = authz.UserID
 	}
-	rows, err := h.svc.ListTeamTasks(r.Context(), orgID, r.URL.Query().Get("status"), restrictToUserID, r.URL.Query().Get("assignee"))
+	rows, total, err := h.svc.ListTeamTasks(r.Context(), orgID, r.URL.Query().Get("status"), restrictToUserID, r.URL.Query().Get("assignee"))
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidEmployee) {
 			httpjson.Error(w, http.StatusBadRequest, err.Error())
@@ -396,7 +406,11 @@ func (h *ProjectHandler) ListTeamTasks(w http.ResponseWriter, r *http.Request) {
 	for i, t := range rows {
 		out[i] = toMyTaskResponse(t)
 	}
-	httpjson.Write(w, http.StatusOK, map[string]any{"tasks": out})
+	// total/truncated: liste service.TeamTaskLimit'te kesildiyse istemci
+	// "ilk N görev gösteriliyor" diyebilsin (eskiden sessizce kırpılıyordu).
+	httpjson.Write(w, http.StatusOK, map[string]any{
+		"tasks": out, "total": total, "truncated": total > int64(len(out)),
+	})
 }
 
 type taskUpdateResponse struct {

@@ -222,12 +222,19 @@ func toDomainTaskUpdate(r sqlc.ProjectTaskUpdate) domain.TaskUpdate {
 	return u
 }
 
+// TeamTaskLimit: "Ekip" görev listesinin tek yanıttaki üst sınırı. Liste
+// bundan uzunsa yanıt toplamı da taşır (ListTeamTasks'ın total dönüşü)
+// -- istemci "ilk N gösteriliyor" diyebilsin.
+const TeamTaskLimit = 500
+
 // ListTeamTasks: Görevler sekmesinin "Ekip" görünümü (erişilebilir
 // projelerdeki tüm görevler; assigneeEmployeeID doluysa o kişinin).
-func (s *ProjectService) ListTeamTasks(ctx context.Context, organizationID, statusMode, restrictToUserID, assigneeEmployeeID string) ([]MyTask, error) {
+// total: filtreye uyan TÜM görev sayısı (len(rows) > total ise liste
+// TeamTaskLimit'te kesilmiştir).
+func (s *ProjectService) ListTeamTasks(ctx context.Context, organizationID, statusMode, restrictToUserID, assigneeEmployeeID string) ([]MyTask, int64, error) {
 	orgID, err := repository.StringToUUID(organizationID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, 0, domain.ErrNotFound
 	}
 	mode := strings.TrimSpace(statusMode)
 	if mode == "" {
@@ -236,36 +243,39 @@ func (s *ProjectService) ListTeamTasks(ctx context.Context, organizationID, stat
 	switch mode {
 	case "open", "all", domain.TaskStatusTodo, domain.TaskStatusInProgress, domain.TaskStatusCompleted, domain.TaskStatusCancelled:
 	default:
-		return nil, errors.New("gecersiz status filtresi")
+		return nil, 0, errors.New("gecersiz status filtresi")
 	}
 	var restrict, assignee pgtype.UUID
 	if restrictToUserID != "" {
 		if restrict, err = repository.StringToUUID(restrictToUserID); err != nil {
-			return nil, domain.ErrNotFound
+			return nil, 0, domain.ErrNotFound
 		}
 	}
 	if strings.TrimSpace(assigneeEmployeeID) != "" {
 		if assignee, err = repository.StringToUUID(assigneeEmployeeID); err != nil {
-			return nil, ErrInvalidEmployee
+			return nil, 0, ErrInvalidEmployee
 		}
 	}
 	rows, err := s.q.ListTeamTasks(ctx, sqlc.ListTeamTasksParams{
 		OrganizationID: orgID, AssignedEmployeeID: assignee, StatusMode: mode, RestrictToUserID: restrict,
+		RowLimit: TeamTaskLimit,
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
+	var total int64
 	out := make([]MyTask, 0, len(rows))
 	for _, r := range rows {
+		total = r.TotalCount
 		task := repository.ToDomainTask(sqlc.ProjectTask{
 			ID: r.ID, OrganizationID: r.OrganizationID, ProjectID: r.ProjectID, ScheduleItemID: r.ScheduleItemID,
 			Title: r.Title, Description: r.Description, AssignedEmployeeID: r.AssignedEmployeeID,
 			AssignedName: r.AssignedName, Priority: r.Priority, Status: r.Status, DueDate: r.DueDate,
 			CompletedAt: r.CompletedAt, CreatedBy: r.CreatedBy, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 		})
-		out = append(out, MyTask{ProjectTask: task, ProjectName: r.ProjectName})
+		out = append(out, MyTask{ProjectTask: task, ProjectName: r.ProjectName, ProjectStatus: r.ProjectStatus})
 	}
-	return out, nil
+	return out, total, nil
 }
 
 // IsEmployeeLinked: kullanıcının bir personel kaydına bağlı olup olmadığı

@@ -1129,6 +1129,13 @@ SELECT e.id FROM employees e
 WHERE e.user_id = @user_id::uuid AND e.organization_id = @org_id::uuid
 LIMIT 1;
 
+-- Görev sayaçları/listeleri: AÇIK görev yalnızca AÇIK projede (planlı/
+-- aktif/beklemede) sayılır -- tamamlanmış/iptal projenin unutulmuş
+-- görevleri sonsuza dek "gecikmiş" görünmesin. /tasks/mine ve /tasks/team
+-- 'open' modu (project_operations.sql ListMyTasks/ListTeamTasks) AYNI
+-- kuralı uygular; ikisi ayrışırsa ana sayfa ile Görevler farklı sayı
+-- gösterir. completed_7d tamamlanmış projeyi de sayar (iş gerçekten
+-- yapıldı); yalnızca iptal edilen proje hiç sayılmaz.
 -- name: DashboardMyTaskCounts :one
 WITH ap AS (
     SELECT p.* FROM projects p
@@ -1143,7 +1150,7 @@ SELECT
     (count(*) FILTER (WHERE t.status IN ('todo', 'in_progress') AND t.due_date = @today::date))::int AS due_today,
     (min(t.due_date) FILTER (WHERE t.status IN ('todo', 'in_progress') AND t.due_date < @today::date))::date AS overdue_oldest
 FROM project_tasks t
-JOIN ap ON ap.id = t.project_id AND ap.status <> 'cancelled'
+JOIN ap ON ap.id = t.project_id AND ap.status NOT IN ('completed', 'cancelled')
 WHERE t.organization_id = @org_id::uuid AND t.assigned_employee_id = @employee_id::uuid;
 
 -- name: DashboardMyTasks :many
@@ -1160,7 +1167,7 @@ WITH ap AS (
 )
 SELECT t.id, t.project_id, t.title, ap.name AS project_name, t.due_date, t.priority, t.status
 FROM project_tasks t
-JOIN ap ON ap.id = t.project_id AND ap.status <> 'cancelled'
+JOIN ap ON ap.id = t.project_id AND ap.status NOT IN ('completed', 'cancelled')
 WHERE t.organization_id = @org_id::uuid AND t.assigned_employee_id = @employee_id::uuid
   AND t.status IN ('todo', 'in_progress')
   AND (@mode::text = 'items'
@@ -1178,14 +1185,14 @@ WITH ap AS (
            WHERE pu.project_id = p.id AND pu.user_id = sqlc.narg('restrict_to_user_id')::uuid))
 )
 SELECT
-    (count(*) FILTER (WHERE t.status IN ('todo', 'in_progress')))::int AS open_count,
-    (count(*) FILTER (WHERE t.status IN ('todo', 'in_progress') AND t.due_date < @today::date))::int AS overdue,
-    (count(*) FILTER (WHERE t.status IN ('todo', 'in_progress') AND t.due_date = @today::date))::int AS due_today,
-    (count(*) FILTER (WHERE t.status IN ('todo', 'in_progress') AND t.assigned_employee_id IS NULL))::int AS unassigned,
+    (count(*) FILTER (WHERE t.status IN ('todo', 'in_progress') AND ap.status <> 'completed'))::int AS open_count,
+    (count(*) FILTER (WHERE t.status IN ('todo', 'in_progress') AND ap.status <> 'completed' AND t.due_date < @today::date))::int AS overdue,
+    (count(*) FILTER (WHERE t.status IN ('todo', 'in_progress') AND ap.status <> 'completed' AND t.due_date = @today::date))::int AS due_today,
+    (count(*) FILTER (WHERE t.status IN ('todo', 'in_progress') AND ap.status <> 'completed' AND t.assigned_employee_id IS NULL))::int AS unassigned,
     (count(*) FILTER (WHERE t.status = 'completed' AND t.completed_at >= @d7_start_ts::timestamptz))::int AS completed_7d,
-    (min(t.due_date) FILTER (WHERE t.status IN ('todo', 'in_progress') AND t.due_date < @today::date))::date AS overdue_oldest,
+    (min(t.due_date) FILTER (WHERE t.status IN ('todo', 'in_progress') AND ap.status <> 'completed' AND t.due_date < @today::date))::date AS overdue_oldest,
     (min((t.created_at AT TIME ZONE 'Europe/Istanbul')::date)
-        FILTER (WHERE t.status IN ('todo', 'in_progress') AND t.assigned_employee_id IS NULL))::date AS unassigned_oldest
+        FILTER (WHERE t.status IN ('todo', 'in_progress') AND ap.status <> 'completed' AND t.assigned_employee_id IS NULL))::date AS unassigned_oldest
 FROM project_tasks t
 JOIN ap ON ap.id = t.project_id AND ap.status <> 'cancelled'
 WHERE t.organization_id = @org_id::uuid;
@@ -1202,7 +1209,7 @@ WITH ap AS (
 )
 SELECT t.id, t.project_id, t.title, ap.name AS project_name, t.due_date
 FROM project_tasks t
-JOIN ap ON ap.id = t.project_id AND ap.status <> 'cancelled'
+JOIN ap ON ap.id = t.project_id AND ap.status NOT IN ('completed', 'cancelled')
 WHERE t.organization_id = @org_id::uuid AND t.status IN ('todo', 'in_progress')
   AND ((@mode::text = 'overdue' AND t.due_date < @today::date)
        OR (@mode::text = 'unassigned' AND t.assigned_employee_id IS NULL))

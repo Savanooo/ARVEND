@@ -695,9 +695,18 @@ func (s *ProjectService) ListTasks(ctx context.Context, projectID, organizationI
 }
 
 // MyTask, global Gorevler listesi icin proje adini da tasiyan gorevdir.
+// ProjectStatus: kapalı (completed/cancelled) projenin görevi "gecikmiş"
+// sayılmaz ve istemci onu "proje kapalı" diye işaretleyebilir (bkz.
+// ProjectClosed).
 type MyTask struct {
 	domain.ProjectTask
-	ProjectName string
+	ProjectName   string
+	ProjectStatus string
+}
+
+// ProjectClosed: görevin projesi tamamlanmış ya da iptal edilmiş mi.
+func (t MyTask) ProjectClosed() bool {
+	return t.ProjectStatus == domain.ProjectStatusCompleted || t.ProjectStatus == domain.ProjectStatusCancelled
 }
 
 // ListMyTasks, GERÇEK "bana ATANAN görevler"i TEK sorguda döner (bkz.
@@ -786,7 +795,7 @@ func (s *ProjectService) ListMyTasks(ctx context.Context, organizationID, status
 			CreatedAt:          r.CreatedAt,
 			UpdatedAt:          r.UpdatedAt,
 		})
-		out = append(out, MyTask{ProjectTask: task, ProjectName: r.ProjectName})
+		out = append(out, MyTask{ProjectTask: task, ProjectName: r.ProjectName, ProjectStatus: r.ProjectStatus})
 	}
 	return out, nil
 }

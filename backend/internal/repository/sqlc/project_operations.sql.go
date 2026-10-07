@@ -845,7 +845,7 @@ func (q *Queries) GetUserProjectAccess(ctx context.Context, arg GetUserProjectAc
 }
 
 const listMyTasks = `-- name: ListMyTasks :many
-SELECT t.id, t.organization_id, t.project_id, t.schedule_item_id, t.title, t.description, t.assigned_employee_id, t.assigned_name, t.priority, t.status, t.due_date, t.completed_at, t.created_by, t.created_at, t.updated_at, p.name AS project_name
+SELECT t.id, t.organization_id, t.project_id, t.schedule_item_id, t.title, t.description, t.assigned_employee_id, t.assigned_name, t.priority, t.status, t.due_date, t.completed_at, t.created_by, t.created_at, t.updated_at, p.name AS project_name, p.status AS project_status
 FROM project_tasks t
 INNER JOIN projects p ON p.id = t.project_id AND p.organization_id = t.organization_id
 WHERE t.organization_id = $1::uuid
@@ -853,6 +853,7 @@ WHERE t.organization_id = $1::uuid
   AND (
     CASE
       WHEN $3::text = 'open' THEN t.status IN ('todo', 'in_progress')
+                                                   AND p.status NOT IN ('completed', 'cancelled')
       WHEN $3::text = 'all' THEN TRUE
       ELSE t.status = $3::text
     END
@@ -900,6 +901,7 @@ type ListMyTasksRow struct {
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 	ProjectName        string             `json:"project_name"`
+	ProjectStatus      string             `json:"project_status"`
 }
 
 // ============ Cross-project my tasks ============
@@ -930,6 +932,13 @@ type ListMyTasksRow struct {
 // bu proje-erişim sınırından muaftır (spec: "owner/admin still means MY
 // TASKS" -- bu muafiyet YALNIZCA proje erişimi içindir, assigned_employee_id
 // eşleşmesi HERKES için, roldeb BAĞIMSIZ olarak ZORUNLUDUR).
+//
+// 'open' modunda KAPALI (tamamlanmış/iptal) projelerin görevleri DÖNMEZ:
+// o projede artık yapılacak iş yoktur ve bu görevler aksi halde sonsuza
+// dek "açık/gecikmiş" görünürdü. Ana sayfa sayaçları (dashboard.sql
+// Dashboard*Task*) AYNI kuralı uygular -- "Görevlerim" ile ana sayfa
+// sayısı ayrışmasın. 'all'/somut durum filtrelerinde görünürler;
+// project_status ile istemci "proje kapalı" diye işaretler.
 func (q *Queries) ListMyTasks(ctx context.Context, arg ListMyTasksParams) ([]ListMyTasksRow, error) {
 	rows, err := q.db.Query(ctx, listMyTasks,
 		arg.OrganizationID,
@@ -961,6 +970,7 @@ func (q *Queries) ListMyTasks(ctx context.Context, arg ListMyTasksParams) ([]Lis
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ProjectName,
+			&i.ProjectStatus,
 		); err != nil {
 			return nil, err
 		}
@@ -1378,7 +1388,8 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]Project
 }
 
 const listTeamTasks = `-- name: ListTeamTasks :many
-SELECT t.id, t.organization_id, t.project_id, t.schedule_item_id, t.title, t.description, t.assigned_employee_id, t.assigned_name, t.priority, t.status, t.due_date, t.completed_at, t.created_by, t.created_at, t.updated_at, p.name AS project_name
+SELECT t.id, t.organization_id, t.project_id, t.schedule_item_id, t.title, t.description, t.assigned_employee_id, t.assigned_name, t.priority, t.status, t.due_date, t.completed_at, t.created_by, t.created_at, t.updated_at, p.name AS project_name, p.status AS project_status,
+       count(*) OVER ()::bigint AS total_count
 FROM project_tasks t
 INNER JOIN projects p ON p.id = t.project_id AND p.organization_id = t.organization_id
 WHERE t.organization_id = $1::uuid
@@ -1386,6 +1397,7 @@ WHERE t.organization_id = $1::uuid
   AND (
     CASE
       WHEN $3::text = 'open' THEN t.status IN ('todo', 'in_progress')
+                                                   AND p.status NOT IN ('completed', 'cancelled')
       WHEN $3::text = 'all' THEN TRUE
       ELSE t.status = $3::text
     END
@@ -1407,7 +1419,7 @@ ORDER BY
   END,
   t.due_date ASC NULLS LAST,
   t.created_at DESC
-LIMIT 500
+LIMIT $5::int
 `
 
 type ListTeamTasksParams struct {
@@ -1415,6 +1427,7 @@ type ListTeamTasksParams struct {
 	AssignedEmployeeID pgtype.UUID `json:"assigned_employee_id"`
 	StatusMode         string      `json:"status_mode"`
 	RestrictToUserID   pgtype.UUID `json:"restrict_to_user_id"`
+	RowLimit           int32       `json:"row_limit"`
 }
 
 type ListTeamTasksRow struct {
@@ -1434,17 +1447,22 @@ type ListTeamTasksRow struct {
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 	ProjectName        string             `json:"project_name"`
+	ProjectStatus      string             `json:"project_status"`
+	TotalCount         int64              `json:"total_count"`
 }
 
 // Görevler sekmesinin "Ekip" görünümü: erişilebilir projelerdeki TÜM
 // görevler (yönetici buradan takip eder). ListMyTasks ile aynı durum ve
 // üyelik kuralları; assigned_employee_id verilirse o kişinin görevleri.
+// total_count: LIMIT'ten ÖNCEKİ toplam -- liste sınırda kesildiyse
+// istemci bunu söyleyebilsin (eskiden 500'de sessizce kırpılıyordu).
 func (q *Queries) ListTeamTasks(ctx context.Context, arg ListTeamTasksParams) ([]ListTeamTasksRow, error) {
 	rows, err := q.db.Query(ctx, listTeamTasks,
 		arg.OrganizationID,
 		arg.AssignedEmployeeID,
 		arg.StatusMode,
 		arg.RestrictToUserID,
+		arg.RowLimit,
 	)
 	if err != nil {
 		return nil, err
@@ -1470,6 +1488,8 @@ func (q *Queries) ListTeamTasks(ctx context.Context, arg ListTeamTasksParams) ([
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ProjectName,
+			&i.ProjectStatus,
+			&i.TotalCount,
 		); err != nil {
 			return nil, err
 		}

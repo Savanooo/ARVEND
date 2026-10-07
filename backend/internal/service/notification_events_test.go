@@ -298,11 +298,11 @@ func TestNotifications(t *testing.T) {
 		}
 
 		// Ekip görünümü: yönetici (üyelik engeli yok) iki görevi de görür; kişi filtresi.
-		team, err := projectSvc.ListTeamTasks(ctx, orgA.ID, "all", "", emp.ID)
-		if err != nil || len(team) != 2 {
-			t.Fatalf("ekip listesi (kişi filtreli) 2 görev: %d %v", len(team), err)
+		team, total, err := projectSvc.ListTeamTasks(ctx, orgA.ID, "all", "", emp.ID)
+		if err != nil || len(team) != 2 || total != 2 {
+			t.Fatalf("ekip listesi (kişi filtreli) 2 görev: %d (toplam %d) %v", len(team), total, err)
 		}
-		open, _ := projectSvc.ListTeamTasks(ctx, orgA.ID, "open", "", emp.ID)
+		open, _, _ := projectSvc.ListTeamTasks(ctx, orgA.ID, "open", "", emp.ID)
 		if len(open) != 0 {
 			t.Errorf("ikisi de tamamlandı, açık görev olmamalı: %d", len(open))
 		}
