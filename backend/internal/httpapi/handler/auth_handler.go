@@ -3,7 +3,10 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
@@ -19,10 +22,15 @@ type AuthHandler struct {
 	refreshTTL   time.Duration
 	cookieDomain string
 	cookieSecure bool
+	// loginLimiter, şifre tahminini yavaşlatır (bkz. login_limiter.go).
+	loginLimiter *loginLimiter
 }
 
 func NewAuthHandler(svc *service.AuthService, authzSvc *service.AuthorizationService, accessTTL, refreshTTL time.Duration, cookieDomain string, cookieSecure bool) *AuthHandler {
-	return &AuthHandler{svc: svc, authzSvc: authzSvc, accessTTL: accessTTL, refreshTTL: refreshTTL, cookieDomain: cookieDomain, cookieSecure: cookieSecure}
+	return &AuthHandler{
+		svc: svc, authzSvc: authzSvc, accessTTL: accessTTL, refreshTTL: refreshTTL,
+		cookieDomain: cookieDomain, cookieSecure: cookieSecure, loginLimiter: newLoginLimiter(),
+	}
 }
 
 type loginRequest struct {
@@ -127,11 +135,25 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
+	ipKey, userKey := loginIPKey(r.RemoteAddr), loginUserKey(req.Username)
+	if wait := h.loginLimiter.blockedFor(ipKey, userKey); wait > 0 {
+		minutes := int(math.Ceil(wait.Minutes()))
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
+		httpjson.Error(w, http.StatusTooManyRequests,
+			fmt.Sprintf("çok fazla başarısız giriş denemesi; lütfen %d dakika sonra tekrar deneyin", minutes))
+		return
+	}
 	session, err := h.svc.Login(r.Context(), req.Username, req.Password)
 	if err != nil {
+		// Yalnızca yanlış şifre/kullanıcı adı sayılır: pasif hesap ya da
+		// askıdaki firma şifrenin DOĞRU olduğu durumlardır.
+		if errors.Is(err, domain.ErrInvalidCredentials) {
+			h.loginLimiter.fail(ipKey, userKey)
+		}
 		h.writeAuthError(w, err)
 		return
 	}
+	h.loginLimiter.succeed(userKey)
 	h.setSessionCookies(w, session.AccessToken, session.RefreshToken)
 	httpjson.Write(w, http.StatusOK, toSessionResponse(r.Context(), h.authzSvc, *session))
 }
