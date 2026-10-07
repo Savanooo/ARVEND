@@ -51,6 +51,20 @@ class User {
   /// sunucuda doğrulanır). super_admin için boştur.
   final Set<String> permissions;
 
+  /// Firmanın yaşam döngüsü durumu (`active`/`trial`/...); super_admin'de
+  /// boş. Deneme alanları YALNIZCA firma denemedeyken ve bitiş tarihi
+  /// kayıtlıyken dolu gelir (backend domain.Organization.Trial). Süre dolsa
+  /// da erişim kesilmez -- Ana Sayfa Sahip/Yönetici'ye uyarı gösterir.
+  final String organizationStatus;
+
+  /// Bitişin İstanbul takvim günü ("YYYY-MM-DD") -- istemci saat dilimi
+  /// hesabı yapmaz.
+  final String? trialEndsOn;
+
+  /// Bitiş gününe kalan gün (İstanbul günü): bitiş günü 0, geçtiyse negatif.
+  final int? trialDaysLeft;
+  final bool trialExpired;
+
   const User({
     required this.id,
     this.organizationId,
@@ -65,6 +79,10 @@ class User {
     this.organizationRoleCode = '',
     this.organizationRoleName = '',
     this.permissions = const {},
+    this.organizationStatus = '',
+    this.trialEndsOn,
+    this.trialDaysLeft,
+    this.trialExpired = false,
   });
 
   bool hasPermission(String code) => permissions.contains(code);
@@ -86,6 +104,10 @@ class User {
                 ?.cast<String>()
                 .toSet() ??
             const {},
+        organizationStatus: json['organization_status'] as String? ?? '',
+        trialEndsOn: json['trial_ends_on'] as String?,
+        trialDaysLeft: (json['trial_days_left'] as num?)?.toInt(),
+        trialExpired: json['trial_expired'] as bool? ?? false,
       );
 
   /// `fromJson`'un tersi (backend alan adlarıyla) -- yalnızca son bilinen
@@ -104,5 +126,9 @@ class User {
         'organization_role_code': organizationRoleCode,
         'organization_role_name': organizationRoleName,
         'permissions': permissions.toList(),
+        'organization_status': organizationStatus,
+        'trial_ends_on': trialEndsOn,
+        'trial_days_left': trialDaysLeft,
+        'trial_expired': trialExpired,
       };
 }

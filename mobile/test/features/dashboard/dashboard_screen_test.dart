@@ -949,4 +949,95 @@ void main() {
       expect(selectedAlt(tester), 'taseronlar');
     });
   });
+
+  // Ürün kararı 2026-10-07: deneme süresi otomatik engellenmez; Sahip/
+  // Yönetici'ye Ana Sayfa'da günlük kapatılabilir bir uyarı gösterilir.
+  group('deneme süresi uyarısı', () {
+    User inTrial(User u, {required int days, bool expired = false, String roleCode = '', String endsOn = '2026-10-10'}) =>
+        User(
+          id: u.id,
+          organizationId: u.organizationId,
+          username: u.username,
+          fullName: u.fullName,
+          role: u.role,
+          isActive: true,
+          mustChangePassword: false,
+          onboardingCompleted: true,
+          onboardingStep: 'completed',
+          organizationName: u.organizationName,
+          organizationRoleCode: roleCode.isEmpty ? u.organizationRoleCode : roleCode,
+          organizationRoleName: u.organizationRoleName,
+          permissions: u.permissions,
+          organizationStatus: 'trial',
+          trialEndsOn: endsOn,
+          trialDaysLeft: days,
+          trialExpired: expired,
+        );
+    final banner = find.byKey(const ValueKey('trial-banner'));
+
+    testWidgets('Sahip: bitişe 3 gün kala uyarı', (tester) async {
+      await _pump(tester, user: inTrial(ownerUser, days: 3), script: _script(fixtureJson('owner')));
+      expect(banner, findsOneWidget);
+      expect(find.text('Deneme süreniz 3 gün sonra bitiyor.'), findsOneWidget);
+    });
+
+    testWidgets('Yönetici: süre dolmuş -- tarih ve iletişim cümlesi', (tester) async {
+      await _pump(
+        tester,
+        user: inTrial(ownerUser, days: -6, expired: true, roleCode: 'admin', endsOn: '2026-10-01'),
+        script: _script(fixtureJson('owner')),
+      );
+      expect(
+        find.text('Deneme süreniz 01.10.2026 tarihinde bitti. Devam etmek için ARVEND ile iletişime geçin.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('7 günden fazla kaldıysa uyarı yok', (tester) async {
+      await _pump(tester, user: inTrial(ownerUser, days: 8), script: _script(fixtureJson('owner')));
+      expect(banner, findsNothing);
+    });
+
+    testWidgets('Sahip/Yönetici dışındaki roller hiçbir şey görmez', (tester) async {
+      await _pump(tester, user: inTrial(financeUser, days: -1, expired: true), script: _script(fixtureJson('finance')));
+      expect(banner, findsNothing);
+      expect(find.textContaining('Deneme süreniz'), findsNothing);
+    });
+
+    testWidgets('özet alınamasa da uyarı görünür', (tester) async {
+      await _pump(tester, user: inTrial(ownerUser, days: 0), script: _script(null, status: 500));
+      expect(find.text('Özet yüklenemedi'), findsOneWidget);
+      expect(find.text('Deneme süreniz bugün bitiyor.'), findsOneWidget);
+    });
+
+    testWidgets('Kapat: o gün için gizlenir ve hatırlanır', (tester) async {
+      final user = inTrial(ownerUser, days: 2);
+      await _pump(tester, user: user, script: _script(fixtureJson('owner')));
+      await tester.tap(find.byTooltip('Bugün için kapat'));
+      await tester.pumpAndSettle();
+      expect(banner, findsNothing);
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getString(trialNoticeDismissKey(user.organizationId!, user.id)),
+        istanbulDayKey(DateTime.now()),
+      );
+    });
+
+    testWidgets('dün kapatıldıysa bugün yeniden çıkar', (tester) async {
+      final user = inTrial(ownerUser, days: 2);
+      final key = trialNoticeDismissKey(user.organizationId!, user.id);
+      SharedPreferences.setMockInitialValues({key: istanbulDayKey(DateTime.now().subtract(const Duration(days: 1)))});
+      await _pump(tester, user: user, script: _script(fixtureJson('owner')));
+      expect(banner, findsOneWidget);
+    });
+
+    testWidgets('bugün kapatıldıysa çıkmaz', (tester) async {
+      final user = inTrial(ownerUser, days: 2);
+      SharedPreferences.setMockInitialValues({
+        trialNoticeDismissKey(user.organizationId!, user.id): istanbulDayKey(DateTime.now()),
+      });
+      await _pump(tester, user: user, script: _script(fixtureJson('owner')));
+      expect(banner, findsNothing);
+    });
+  });
 }

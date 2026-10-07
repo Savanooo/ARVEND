@@ -79,7 +79,14 @@ legacy_user|<custom>`; empty for `super_admin`), `must_change_password`,
 permission-code array, empty for `super_admin` — UX-only, the real
 enforcement boundary is always server-side per request). Since 2026-09-27
 this is the EFFECTIVE set: role permissions minus per-person revokes plus
-per-person grants (owner is never restricted).
+per-person grants (owner is never restricted). Since 2026-10-07 also
+`organization_status` (`active|trial|suspended|cancelled`, empty for
+`super_admin`) and, ONLY for a trial firm with an end date, `trial_ends_at`
+(RFC3339), `trial_ends_on` (Istanbul calendar day `YYYY-MM-DD`),
+`trial_days_left` (Istanbul days; 0 on the last day, negative after) and
+`trial_expired` (bool). An expired trial is NOT blocked — the app shows a
+per-day dismissible Ana Sayfa banner to Sahip/Yönetici only
+(`features/dashboard/domain/trial_notice.dart`).
 
 ## Dashboard (Ana Sayfa) — added 2026-09-28
 - `GET /dashboard` (`requireAuth`+tenant+onboarded; NO single `perm()` —
