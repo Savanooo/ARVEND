@@ -14,7 +14,11 @@ import type { Product } from "@/lib/types";
  *   - "linked": kaynak ürünü, son listede var (ya da henüz hiç senkron yok).
  *     Backend kaynak satırlarını (ad, birim) ile eşleştirdiğinden bu iki
  *     alan kilitlidir: değişirse bir sonraki güncelleme ürünü yeniden ekler,
- *     bu kayıt "listede yok" olarak kalıp fiyat almaz.
+ *     bu kayıt "listede yok" olarak kalıp fiyat almaz. Birim fiyat da
+ *     kilitlidir: her güncelleme (gece senkronu dahil) fiyatı tedarikçi
+ *     fiyatı + kâr oranından yeniden hesaplayıp elle girilen değerin
+ *     ÜZERİNE yazar -- elle düzenleme uyarısız geri alınıyordu. Fiyat kâr
+ *     oranıyla (Fiyat Kaynakları kartı) yönetilir.
  *   - "missing": kaynak ürünü ama son listede yok -- zaten eşleşmiyor; ad ve
  *     birim düzenlenebilir (ör. listedeki adla aynı yapıp yeniden bağlamak).
  *   - "none": elle eklenen ürün.
@@ -64,6 +68,7 @@ export function EditProductForm({
 
   const readOnly = !canManage;
   const lockNameUnit = sourceLink === "linked";
+  const lockPrice = sourceLink === "linked";
 
   return (
     <Card>
@@ -97,7 +102,7 @@ export function EditProductForm({
               step="0.01"
               min={0}
               required
-              disabled={readOnly}
+              disabled={readOnly || lockPrice}
               value={form.unit_price}
               onChange={(e) =>
                 setForm({ ...form, unit_price: parseFloat(e.target.value) || 0 })
@@ -109,6 +114,10 @@ export function EditProductForm({
               Ad ve birim {sourceName} listesinden gelir ve ürünü listeyle eşleştirmek için kullanılır, bu yüzden
               değiştirilemez. Değişselerdi bir sonraki güncelleme {sourceName} ürününü yeni bir kayıt olarak
               ekler, bu kayıt da fiyat almazdı. Farklı adla satmak için elle yeni ürün ekleyin.
+              <br />
+              Birim fiyat, {sourceName} fiyatına kâr oranı uygulanarak hesaplanır ve her fiyat güncellemesinde
+              (gece otomatik güncellemesi dahil) yeniden yazılır; elle girilen fiyat korunmazdı. Fiyatı
+              değiştirmek için {sourceName} kâr oranını (genel ya da kategori bazında) ayarlayın.
             </p>
           )}
           {!readOnly && sourceLink === "missing" && (
