@@ -111,6 +111,13 @@ const _groupParam = {
   'dokumanlar': 'Dokümanlar',
 };
 
+/// Özet'teki bir hızlı işlemin açtırmak istediği alt görünüm (ör.
+/// "Fotoğraf Ekle" -> Dokümanlar > Dosyalar). Grup sekmesi en son hangi alt
+/// görünümde bırakıldıysa (ör. Notlar) orada açılıyordu. [seq] aynı isteğin
+/// art arda tekrarını ayırt eder.
+final _subViewRequestProvider =
+    StateProvider.autoDispose.family<({String alt, int seq})?, String>((ref, projectId) => null);
+
 bool _failOpen(User? user, String permission) =>
     user == null || user.permissions.isEmpty || user.hasPermission(permission);
 
@@ -258,6 +265,8 @@ class ProjectDetailScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final projectAsync = ref.watch(projectDetailProvider(projectId));
     final user = ref.watch(authControllerProvider).valueOrNull;
+    // Alt görünüm isteği, hedef sekme henüz kurulmamışken de yaşasın.
+    ref.listen(_subViewRequestProvider(projectId), (_, _) {});
     final visibleGroups = _groupDefs.where((g) => g.visible(user)).toList();
     final requestedLabel = _groupParam[initialGroup];
     final initialIndex = requestedLabel == null ? 0 : visibleGroups.indexWhere((g) => g.label == requestedLabel);
@@ -360,9 +369,14 @@ class _OverviewTab extends ConsumerWidget {
     final user = ref.watch(authControllerProvider).valueOrNull;
     final visibleGroups = _groupDefs.where((g) => g.visible(user)).toList();
 
-    void goToGroup(String label) {
+    void goToGroup(String label, {String? alt}) {
       final index = visibleGroups.indexWhere((g) => g.label == label);
-      if (index >= 0) DefaultTabController.of(context).animateTo(index);
+      if (index < 0) return;
+      if (alt != null) {
+        final request = ref.read(_subViewRequestProvider(projectId).notifier);
+        request.state = (alt: alt, seq: (request.state?.seq ?? 0) + 1);
+      }
+      DefaultTabController.of(context).animateTo(index);
     }
 
     final canFinance = _failOpen(user, 'projects.finance.read');
@@ -410,7 +424,9 @@ class _OverviewTab extends ConsumerWidget {
         QuickActionButton(
           icon: Icons.photo_camera_outlined,
           label: 'Fotoğraf Ekle',
-          onPressed: () => goToGroup('Dokümanlar'),
+          // Dokümanlar'ın Notlar'da kalmış olabilir: doğrudan Dosyalar'ın
+          // başına (Fotoğraf Çek / Galeriden Seç) gidilir.
+          onPressed: () => goToGroup('Dokümanlar', alt: 'dosyalar'),
         ),
     ];
 
@@ -629,6 +645,11 @@ class _SubViewGroupTabState extends ConsumerState<_SubViewGroupTab> {
     final user = ref.watch(authControllerProvider).valueOrNull;
     final visible = widget.views.where((v) => v.visible(user)).toList();
     if (visible.isEmpty) return const SizedBox.shrink();
+    ref.listen(_subViewRequestProvider(widget.projectId), (_, next) {
+      if (next != null && visible.any((v) => v.alt == next.alt)) setState(() => _alt = next.alt);
+    });
+    final pending = ref.read(_subViewRequestProvider(widget.projectId));
+    if (_alt == null && pending != null && visible.any((v) => v.alt == pending.alt)) _alt = pending.alt;
     _alt ??= visible.any((v) => v.alt == widget.initialView) ? widget.initialView : visible.first.alt;
     // İzin kümesi sonradan değişip seçili görünüm gizlendiyse ilkine düşülür.
     final current = visible.firstWhere((v) => v.alt == _alt, orElse: () => visible.first);
@@ -1251,6 +1272,13 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
   String get projectId => widget.projectId;
   bool _uploading = false;
   String? _openingFileId;
+  final _scroll = ScrollController();
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
 
   bool get _canManage {
     final user = ref.read(authControllerProvider).valueOrNull;
@@ -1263,7 +1291,7 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
     final file = File(picked.path);
     final size = await file.length();
     if (exceedsMaxUploadBytes(size, AppConfig.maxUploadBytes)) {
-      _showError('Fotoğraf 25 MiB sınırını aşıyor (${(size / 1024 / 1024).toStringAsFixed(1)} MB).');
+      _showError('Fotoğraf 25 MiB sınırını aşıyor (${Formatters.fileSize(size)}).');
       return;
     }
     final meta = await _promptPhotoMeta();
@@ -1290,7 +1318,7 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
     final picked = result?.files.single;
     if (picked == null || picked.path == null) return;
     if (exceedsMaxUploadBytes(picked.size, AppConfig.maxUploadBytes)) {
-      _showError('Dosya 25 MiB sınırını aşıyor (${(picked.size / 1024 / 1024).toStringAsFixed(1)} MB).');
+      _showError('Dosya 25 MiB sınırını aşıyor (${Formatters.fileSize(picked.size)}).');
       return;
     }
     final meta = await _promptFileMeta();
@@ -1481,6 +1509,12 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
     final canManage = _canManage;
     // Kapalı projede yükleme reddedilir; silme backend'de serbest.
     final canUpload = canManage && !widget.locked;
+    // "Fotoğraf Ekle" (Özet): yükleme düğmelerinin olduğu başa dön.
+    ref.listen(_subViewRequestProvider(projectId), (_, next) {
+      if (next?.alt == 'dosyalar' && _scroll.hasClients) {
+        _scroll.animateTo(0, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+      }
+    });
 
     // Fotoğraf ızgarası TEMBEL (SliverGrid): yalnızca ekrandaki kutucuklar
     // kurulur, bayt ister ve küçük boyutta çözülür. Eskiden shrinkWrap bir
@@ -1494,6 +1528,7 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
         ref.invalidate(projectFilesProvider(projectId));
       },
       child: CustomScrollView(
+        controller: _scroll,
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           SliverPadding(
@@ -1547,29 +1582,16 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
                   isEmpty: (l) => l.isEmpty,
                   emptyBuilder: (_) => const EmptyStateView(message: 'Dosya yok.', icon: Icons.insert_drive_file_outlined),
                   data: (context, files) => Column(
-                    children: files
-                        .map((f) => AppListCard(
-                              onTap: _openingFileId != null ? null : () => _openFile(f),
-                              leading: _openingFileId == f.id
-                                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5))
-                                  : const Icon(Icons.insert_drive_file_outlined, color: AppColors.textMuted),
-                              title: f.originalName,
-                              subtitle:
-                                  '${_fileType(f.originalName)} · ${Formatters.date(f.createdAt)} · ${(f.sizeBytes / 1024).toStringAsFixed(0)} KB',
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  StatusRegistry.build(f.category, StatusRegistry.fileCategory),
-                                  if (canManage)
-                                    IconButton(
-                                      icon: const Icon(Icons.delete_outline, size: 20),
-                                      tooltip: 'Dosyayı sil',
-                                      onPressed: () => _deleteFile(f),
-                                    ),
-                                ],
-                              ),
-                            ))
-                        .toList(),
+                    children: [
+                      for (final f in files)
+                        _FileRow(
+                          file: f,
+                          type: _fileType(f.originalName),
+                          opening: _openingFileId == f.id,
+                          onTap: _openingFileId != null ? null : () => _openFile(f),
+                          onDelete: canManage ? () => _deleteFile(f) : null,
+                        ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: AppSpacing.xl),
@@ -1619,6 +1641,70 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Dosya satırı: ad, açıklama (varsa, 2 satıra kadar -- eskiden hiç
+/// gösterilmiyordu), tür · tarih · boyut, kategori rozeti ve silme.
+class _FileRow extends StatelessWidget {
+  const _FileRow({
+    required this.file,
+    required this.type,
+    required this.opening,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  final ProjectFile file;
+  final String type;
+  final bool opening;
+  final VoidCallback? onTap;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final description = file.description.trim();
+    return AppCard(
+      onTap: onTap,
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+      child: Row(
+        children: [
+          opening
+              ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5))
+              : const Icon(Icons.insert_drive_file_outlined, color: AppColors.textMuted),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(file.originalName, style: AppTypography.cardTitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+                if (description.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(description, style: AppTypography.body, maxLines: 2, overflow: TextOverflow.ellipsis),
+                ],
+                const SizedBox(height: 2),
+                Text(
+                  '$type · ${Formatters.date(file.createdAt)} · ${Formatters.fileSize(file.sizeBytes)}',
+                  style: AppTypography.metadata,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          StatusRegistry.build(file.category, StatusRegistry.fileCategory),
+          if (onDelete != null)
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 20),
+              tooltip: 'Dosyayı sil',
+              onPressed: onDelete,
+            ),
         ],
       ),
     );
@@ -1696,46 +1782,47 @@ class _PhotoViewerScreen extends ConsumerWidget {
   final ProjectPhoto photo;
   final bool canManage;
 
+  Future<void> _delete(BuildContext context, WidgetRef ref) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Fotoğrafı Sil'),
+        content: const Text('Bu fotoğraf silinsin mi?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Vazgeç')),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Sil')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ref.read(projectsRepositoryProvider).deletePhoto(projectId, photo.id);
+      unawaited(ref.read(projectPhotoCacheProvider).remove(photo.id));
+      ref.invalidate(projectPhotosProvider(projectId));
+      if (context.mounted) Navigator.of(context).pop();
+    } on ApiException catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final bytesAsync = ref.watch(projectPhotoBytesProvider((projectId: projectId, photoId: photo.id)));
+    final description = photo.description.trim();
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        title: Text(
-          photo.description.isEmpty ? photo.originalName : photo.description,
-          style: const TextStyle(fontSize: 14),
-        ),
+        title: Text(photo.originalName, style: const TextStyle(fontSize: 14)),
         actions: [
           if (canManage)
             IconButton(
               icon: const Icon(Icons.delete_outline),
-              onPressed: () async {
-                final ok = await showDialog<bool>(
-                  context: context,
-                  builder: (dialogContext) => AlertDialog(
-                    title: const Text('Fotoğrafı Sil'),
-                    content: const Text('Bu fotoğraf silinsin mi?'),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Vazgeç')),
-                      TextButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Sil')),
-                    ],
-                  ),
-                );
-                if (ok != true) return;
-                try {
-                  await ref.read(projectsRepositoryProvider).deletePhoto(projectId, photo.id);
-                  unawaited(ref.read(projectPhotoCacheProvider).remove(photo.id));
-                  ref.invalidate(projectPhotosProvider(projectId));
-                  if (context.mounted) Navigator.of(context).pop();
-                } on ApiException catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-                  }
-                }
-              },
+              tooltip: 'Fotoğrafı sil',
+              onPressed: () => _delete(context, ref),
             ),
         ],
       ),
@@ -1751,6 +1838,47 @@ class _PhotoViewerScreen extends ConsumerWidget {
           ),
           loading: () => const CircularProgressIndicator(color: Colors.white),
           error: (e, st) => const Icon(Icons.broken_image_outlined, color: Colors.white, size: 48),
+        ),
+      ),
+      // Aşama, tarih, tam açıklama ve görünür bir "Sil" -- silme eskiden
+      // yalnızca ızgarada uzun basışla (keşfedilemez) ya da etiketsiz bir
+      // simgeyle yapılabiliyordu.
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.sm, AppSpacing.sm),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              StatusRegistry.build(photo.stage, StatusRegistry.photoStage),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (description.isNotEmpty)
+                      Text(
+                        description,
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    Text(
+                      Formatters.dateTime(photo.createdAt),
+                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              if (canManage)
+                TextButton.icon(
+                  style: TextButton.styleFrom(foregroundColor: Colors.white),
+                  onPressed: () => _delete(context, ref),
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: const Text('Sil'),
+                ),
+            ],
+          ),
         ),
       ),
     );

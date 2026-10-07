@@ -20,6 +20,17 @@ void main() {
     expect(Formatters.date('2026-10-07T01:30:00+03:00'), expected);
   });
 
+  test('dosya boyutu B/KB/MB', () {
+    expect(Formatters.fileSize(0), '0 B');
+    expect(Formatters.fileSize(512), '512 B');
+    expect(Formatters.fileSize(1024), '1 KB');
+    expect(Formatters.fileSize(1536), '1,5 KB');
+    expect(Formatters.fileSize(20480), '20 KB');
+    expect(Formatters.fileSize(20971520), '20 MB');
+    expect(Formatters.fileSize(1048575), '1 MB', reason: '1023,99 KB "1.024 KB" yazılmaz');
+    expect(Formatters.fileSize(26214400), '25 MB');
+  });
+
   test('saatsiz tarih kaymaz; boş/bozuk değer korunur', () {
     expect(Formatters.date('2026-09-01'), '01.09.2026');
     expect(Formatters.date(null), '-');

@@ -206,6 +206,61 @@ void main() {
     });
   });
 
+  group('Dökümanlar küçük düzeltmeler', () {
+    testWidgets('"Fotoğraf Ekle" Notlar\'da bırakılmış Dokümanlar\'ı Dosyalar\'da (yükleme düğmeleri) açar', (tester) async {
+      await pumpProject(tester);
+
+      await tester.tap(find.widgetWithText(Tab, 'Dokümanlar'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('proje-alt-notlar')));
+      await tester.pumpAndSettle();
+      expect(find.text('Proje Notları'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(Tab, 'Özet'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(QuickActionButton, 'Fotoğraf Ekle'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Proje Notları'), findsNothing);
+      expect(find.text('Fotoğraf Çek').hitTestable(), findsOneWidget);
+      expect(tester.widget<ChoiceChip>(find.byKey(const ValueKey('proje-alt-dosyalar'))).selected, isTrue);
+    });
+
+    testWidgets('dosya boyutu B/KB/MB ve açıklama görünür', (tester) async {
+      await pumpProject(tester, group: 'dokumanlar', files: [
+        fileJson('f1', name: 'zemin-plan.dwg', size: 20971520, description: 'Zemin kat aplikasyon çizimi'),
+        fileJson('f2', name: 'not.txt', size: 512),
+      ]);
+
+      expect(find.text('Zemin kat aplikasyon çizimi'), findsOneWidget);
+      expect(find.textContaining('· 20 MB'), findsOneWidget);
+      expect(find.textContaining('· 512 B'), findsOneWidget);
+      expect(find.textContaining('20480 KB'), findsNothing);
+    });
+
+    testWidgets('fotoğraf görüntüleyicide görünür "Sil" (onaylı), aşama ve açıklama', (tester) async {
+      final photos = [photoJson('ph1', stage: 'before', description: 'Kırım öncesi banyo')];
+      final adapter = await pumpProject(tester, group: 'dokumanlar', photos: photos, extra: {
+        '/projects/p1/photos/ph1/content': [for (var i = 0; i < 3; i++) (status: 200, body: <int>[0xFF, 0xD8, 0xFF, 0xE0])],
+        '/projects/p1/photos/ph1': [(status: 200, body: {'ok': true})],
+      });
+
+      await tester.tap(find.byKey(const ValueKey('proje-foto-ph1')));
+      await tester.pumpAndSettle();
+      expect(find.text('Kırım öncesi banyo'), findsOneWidget);
+      expect(find.byTooltip('Fotoğrafı sil'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(TextButton, 'Sil'));
+      await tester.pumpAndSettle();
+      expect(find.text('Bu fotoğraf silinsin mi?'), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, 'Sil').last);
+      await tester.pumpAndSettle();
+
+      expect(adapter.calls, contains('/projects/p1/photos/ph1'));
+      expect(find.text('Kırım öncesi banyo'), findsNothing);
+    });
+  });
+
   test('fotoğraf baytları cihaz önbelleğinden okunur: tekrar ziyarette yeniden indirilmez', () async {
     final dir = await Directory.systemTemp.createTemp('arvend_photo_cache');
     addTearDown(() => dir.delete(recursive: true));

@@ -80,6 +80,17 @@ abstract final class Formatters {
   /// olmayan değerler için.
   static String decimal(num value) => _oneDecimalFormat.format((value * 10).round() / 10);
 
+  /// Dosya boyutu: "512 B", "20 KB", "1,5 MB" (1024 tabanlı, en çok 1
+  /// ondalık). Eskiden hep KB yazılıyordu ("0 KB", "20480 KB").
+  static String fileSize(int bytes) {
+    if (bytes < 1024) return '${bytes < 0 ? 0 : bytes} B';
+    final kb = (bytes / 1024 * 10).round() / 10;
+    if (kb < 1024) return '${_oneDecimalFormat.format(kb)} KB';
+    final mb = (bytes / (1024 * 1024) * 10).round() / 10;
+    if (mb < 1024) return '${_oneDecimalFormat.format(mb)} MB';
+    return '${_oneDecimalFormat.format((bytes / (1024 * 1024 * 1024) * 10).round() / 10)} GB';
+  }
+
   /// Yüzde, en çok 1 ondalık ("%59", "%62,5"). Türkçe yazımda % başta.
   static String percent(num value) => '%${_oneDecimalFormat.format((value * 10).round() / 10)}';
 
