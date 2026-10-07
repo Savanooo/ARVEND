@@ -33,7 +33,6 @@ import {
   type ProjectInvoice,
   type Subcontractor,
   type SubcontractorPayment,
-  type Employee,
   type OperationsSummary,
   type ProjectFile,
   type ProjectMember,
@@ -70,6 +69,7 @@ import {
   PhotosSection,
   ScheduleSection,
   TasksSection,
+  type ProjectAssignee,
 } from "./OperationSections";
 
 // Finans modülleri gelmeden tahsilat/masraf/kâr için sayı üretmiyoruz --
@@ -139,6 +139,10 @@ export default async function ProjeDetayPage({
   const canManageFinance = hasPermission(perms, "projects.finance.manage");
   const canManageProcurement = hasPermission(perms, "projects.procurement.manage");
   const canApproveProcurement = hasPermission(perms, "projects.procurement.approve");
+  // Operasyon düğmeleri izne göre: Saha'da tasks.create yok (Görev Ekle
+  // gizlenir), operations.manage ekle/çıkar düğmelerini açar.
+  const canCreateTasks = hasPermission(perms, "projects.tasks.create");
+  const canManageOperations = hasPermission(perms, "projects.operations.manage");
 
   // project, sayfanın var olabilmesi için ZORUNLUDUR -- ayrı ve
   // korumasız çekilir; proje yoksa (404: silinmiş/bayat bağlantı) "Kayıt
@@ -163,7 +167,7 @@ export default async function ProjeDetayPage({
 
   const [
     summaryR, planR, collectionsR, expensesR, invoicesR, subcontractorsR, subPaymentsR, eventsR,
-    opsR, membersR, scheduleR, tasksR, filesR, photosR, notesR, employeesR, changeOrdersR, contractR, accessR, orgUsersR,
+    opsR, membersR, scheduleR, tasksR, filesR, photosR, notesR, assigneesR, changeOrdersR, contractR, accessR, orgUsersR,
     costControlR, budgetR, budgetLinesR, wbsNodesR, adjustmentsR, commitmentsR, forecastsR, costCodesR,
     purchaseRequestsR, rfqsR, purchaseOrdersR, suppliersR,
   ] = await Promise.allSettled([
@@ -182,7 +186,11 @@ export default async function ProjeDetayPage({
     apiServer<{ files: ProjectFile[] }>(`${base}/files`, cookieHeader),
     apiServer<{ photos: ProjectPhoto[] }>(`${base}/photos`, cookieHeader),
     apiServer<{ notes: ProjectNote[] }>(`${base}/notes`, cookieHeader),
-    apiServer<{ employees: Employee[] }>(`/api/v1/employees?filter=aktif`, cookieHeader),
+    // Ekip/görev/plan seçicileri: ücretsiz personel listesi + proje erişimi
+    // (projects.read yeter). Eskiden /employees (employees.read) çekiliyordu;
+    // Proje Yöneticisi/Saha'da o izin olmadığı için "Personel / Ekip"
+    // bölümü hiç görünmüyordu.
+    apiServer<{ employees: ProjectAssignee[] }>(`${base}/assignees`, cookieHeader),
     apiServer<{ change_orders: ChangeOrder[] }>(`${base}/change-orders`, cookieHeader),
     // Sprint 3 -- Sözleşme (Contract). Sözleşmesi henüz oluşturulmamış bir
     // projede (backfill YOK) 404 döner -- settled() bunu null'a indirger,
@@ -234,7 +242,7 @@ export default async function ProjeDetayPage({
   const files = settled(filesR);
   const photos = settled(photosR);
   const notes = settled(notesR);
-  const employees = settled(employeesR);
+  const assignees = settled(assigneesR)?.employees ?? null;
   const changeOrders = settled(changeOrdersR);
   const contract = settled(contractR);
   const access = settled(accessR);
@@ -594,17 +602,19 @@ export default async function ProjeDetayPage({
                   project={project}
                   items={schedule.items}
                   members={members?.members}
+                  assignees={assignees ?? []}
                   locked={locked}
                 />
               </Section>
             )}
 
-            {members && employees && (
+            {members && (
               <Section title="Personel / Ekip" defaultOpen>
                 <MembersSection
                   project={project}
                   members={members.members}
-                  employees={employees.employees}
+                  assignees={assignees}
+                  canManage={canManageOperations}
                   locked={locked}
                 />
               </Section>
@@ -617,6 +627,8 @@ export default async function ProjeDetayPage({
                   tasks={tasks.tasks}
                   scheduleItems={schedule.items}
                   members={members.members}
+                  assignees={assignees ?? []}
+                  canCreate={canCreateTasks}
                   locked={locked}
                 />
               </Section>

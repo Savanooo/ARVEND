@@ -299,7 +299,7 @@ func (s *ProjectService) CreateBudgetLine(ctx context.Context, projectID, organi
 	if err != nil {
 		return nil, err
 	}
-	wbsNodeID, err := resolveWBSParentRef(ctx, txq, in.WBSNodeID, pid, orgID)
+	wbsNodeID, err := resolveBudgetLineWBSRef(ctx, txq, in.WBSNodeID, pid, orgID, pgtype.UUID{})
 	if err != nil {
 		return nil, err
 	}
@@ -389,7 +389,16 @@ func (s *ProjectService) UpdateBudgetLine(ctx context.Context, projectID, lineID
 	if err != nil {
 		return nil, err
 	}
-	wbsNodeID, err := resolveWBSParentRef(ctx, txq, in.WBSNodeID, pid, orgID)
+	// Kalemin MEVCUT düğümü sonradan arşivlenmiş olabilir: kalem başka
+	// alanları için düzenlenebilsin, yalnızca YENİ bir arşiv düğümü seçilemez.
+	currentLine, err := txq.GetBudgetLine(ctx, sqlc.GetBudgetLineParams{ID: lid, OrganizationID: orgID, ProjectID: pid})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	wbsNodeID, err := resolveBudgetLineWBSRef(ctx, txq, in.WBSNodeID, pid, orgID, currentLine.WbsNodeID)
 	if err != nil {
 		return nil, err
 	}

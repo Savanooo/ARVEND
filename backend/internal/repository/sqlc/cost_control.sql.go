@@ -131,6 +131,27 @@ func (q *Queries) BaselineProjectBudget(ctx context.Context, arg BaselineProject
 	return i, err
 }
 
+const countActiveWBSChildren = `-- name: CountActiveWBSChildren :one
+SELECT count(*)::bigint FROM project_wbs_nodes
+WHERE parent_id = $1 AND organization_id = $2 AND project_id = $3 AND is_active = true
+`
+
+type CountActiveWBSChildrenParams struct {
+	ParentID       pgtype.UUID `json:"parent_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+}
+
+// Arşivleme kapısı: aktif alt düğümü olan bir düğüm arşivlenmez (bkz.
+// ArchiveWBSNode servis notu -- arşivden geri alma ucu olmadığı için
+// alt ağacı sessizce arşivlemek geri döndürülemez olurdu).
+func (q *Queries) CountActiveWBSChildren(ctx context.Context, arg CountActiveWBSChildrenParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveWBSChildren, arg.ParentID, arg.OrganizationID, arg.ProjectID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createBudgetAdjustment = `-- name: CreateBudgetAdjustment :one
 
 INSERT INTO project_budget_adjustments (organization_id, project_id, budget_id, budget_line_id, amount, reason, created_by)

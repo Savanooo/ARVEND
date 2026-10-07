@@ -86,7 +86,7 @@ func TestListMyTasks(t *testing.T) {
 	pB1 := newProject(t, orgB.ID, "Proje B1")
 
 	userA1ID, empA1ID := newLinkedUser(t, orgA.ID, "mytasks_a1", domain.RoleKullanici)
-	_, empA2ID := newLinkedUser(t, orgA.ID, "mytasks_a2", domain.RoleKullanici)
+	userA2ID, empA2ID := newLinkedUser(t, orgA.ID, "mytasks_a2", domain.RoleKullanici)
 	ownerAID, empOwnerAID := newLinkedUser(t, orgA.ID, "mytasks_owner_a", domain.RoleAdmin)
 	userB1ID, empB1ID := newLinkedUser(t, orgB.ID, "mytasks_b1", domain.RoleKullanici)
 
@@ -101,6 +101,25 @@ func TestListMyTasks(t *testing.T) {
 	empA2 := &empA2ID
 	empOwnerA := &empOwnerAID
 	empB1 := &empB1ID
+
+	// Görev yalnızca projeyi görebilen hesaba atanabilir (bkz.
+	// requireAssigneeProjectAccess). Bu test org'larında sistem rolleri seed
+	// edilmediği için kimse bypass rolünde değil -- erişim açıkça verilir.
+	grant := func(t *testing.T, projectID, orgID, userID string) {
+		t.Helper()
+		pid, _ := repository.StringToUUID(projectID)
+		oid, _ := repository.StringToUUID(orgID)
+		uid, _ := repository.StringToUUID(userID)
+		if _, err := q.CreateProjectUser(ctx, sqlc.CreateProjectUserParams{
+			OrganizationID: oid, ProjectID: pid, UserID: uid, ProjectRole: domain.ProjectRoleMember,
+		}); err != nil {
+			t.Fatalf("proje erişimi: %v", err)
+		}
+	}
+	grant(t, pA1.ID, orgA.ID, userA1ID)
+	grant(t, pA2.ID, orgA.ID, userA2ID)
+	grant(t, pA1.ID, orgA.ID, ownerAID)
+	grant(t, pB1.ID, orgB.ID, userB1ID)
 
 	if _, err := projectSvc.CreateTask(ctx, pA1.ID, orgA.ID, service.TaskInput{Title: "A1 open -> emp A1", AssignedEmployeeID: empA1}); err != nil {
 		t.Fatalf("task a1->a1: %v", err)
@@ -236,9 +255,15 @@ func TestListMyTasks(t *testing.T) {
 		// AYNI, önceden var olan mekanizma), assigned_employee_id
 		// eşleşmesinden TAMAMEN BAĞIMSIZ, AYRI bir savunma katmanıdır: bir
 		// görev "bana atanmış" olsa bile, o projenin ÜYESİ DEĞİLSEM YİNE DE
-		// görünmemelidir. userA1'i pA1'e üye YAPMADAN, restrictToUserID
-		// dolu (üyelik-kısıtlı rol simülasyonu) verilirse -- kendi atanan
-		// görevi bile GÖRÜNMEMELİDİR.
+		// görünmemelidir. userA1'in pA1 erişimi (görev atanırken vardı)
+		// KALDIRILDIKTAN sonra, restrictToUserID dolu (üyelik-kısıtlı rol
+		// simülasyonu) verilirse -- kendi atanan görevi bile GÖRÜNMEMELİDİR.
+		pid, _ := repository.StringToUUID(pA1.ID)
+		oid, _ := repository.StringToUUID(orgA.ID)
+		uid, _ := repository.StringToUUID(userA1ID)
+		if _, err := q.DeleteProjectUser(ctx, sqlc.DeleteProjectUserParams{ProjectID: pid, UserID: uid, OrganizationID: oid}); err != nil {
+			t.Fatalf("erişim kaldırılamadı: %v", err)
+		}
 		rows, err := projectSvc.ListMyTasks(ctx, orgA.ID, "open", userA1ID, userA1ID)
 		if err != nil {
 			t.Fatalf("list: %v", err)

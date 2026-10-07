@@ -235,8 +235,15 @@ DELETE FROM project_notes WHERE id = $1 AND organization_id = $2 AND project_id 
 -- bu proje-erişim sınırından muaftır (spec: "owner/admin still means MY
 -- TASKS" -- bu muafiyet YALNIZCA proje erişimi içindir, assigned_employee_id
 -- eşleşmesi HERKES için, roldeb BAĞIMSIZ olarak ZORUNLUDUR).
+--
+-- 'open' modunda KAPALI (tamamlanmış/iptal) projelerin görevleri DÖNMEZ:
+-- o projede artık yapılacak iş yoktur ve bu görevler aksi halde sonsuza
+-- dek "açık/gecikmiş" görünürdü. Ana sayfa sayaçları (dashboard.sql
+-- Dashboard*Task*) AYNI kuralı uygular -- "Görevlerim" ile ana sayfa
+-- sayısı ayrışmasın. 'all'/somut durum filtrelerinde görünürler;
+-- project_status ile istemci "proje kapalı" diye işaretler.
 -- name: ListMyTasks :many
-SELECT t.*, p.name AS project_name
+SELECT t.*, p.name AS project_name, p.status AS project_status
 FROM project_tasks t
 INNER JOIN projects p ON p.id = t.project_id AND p.organization_id = t.organization_id
 WHERE t.organization_id = sqlc.arg(organization_id)::uuid
@@ -244,6 +251,7 @@ WHERE t.organization_id = sqlc.arg(organization_id)::uuid
   AND (
     CASE
       WHEN sqlc.arg(status_mode)::text = 'open' THEN t.status IN ('todo', 'in_progress')
+                                                   AND p.status NOT IN ('completed', 'cancelled')
       WHEN sqlc.arg(status_mode)::text = 'all' THEN TRUE
       ELSE t.status = sqlc.arg(status_mode)::text
     END
@@ -296,7 +304,10 @@ RETURNING *;
 -- Görevler sekmesinin "Ekip" görünümü: erişilebilir projelerdeki TÜM
 -- görevler (yönetici buradan takip eder). ListMyTasks ile aynı durum ve
 -- üyelik kuralları; assigned_employee_id verilirse o kişinin görevleri.
-SELECT t.*, p.name AS project_name
+-- total_count: LIMIT'ten ÖNCEKİ toplam -- liste sınırda kesildiyse
+-- istemci bunu söyleyebilsin (eskiden 500'de sessizce kırpılıyordu).
+SELECT t.*, p.name AS project_name, p.status AS project_status,
+       count(*) OVER ()::bigint AS total_count
 FROM project_tasks t
 INNER JOIN projects p ON p.id = t.project_id AND p.organization_id = t.organization_id
 WHERE t.organization_id = sqlc.arg(organization_id)::uuid
@@ -304,6 +315,7 @@ WHERE t.organization_id = sqlc.arg(organization_id)::uuid
   AND (
     CASE
       WHEN sqlc.arg(status_mode)::text = 'open' THEN t.status IN ('todo', 'in_progress')
+                                                   AND p.status NOT IN ('completed', 'cancelled')
       WHEN sqlc.arg(status_mode)::text = 'all' THEN TRUE
       ELSE t.status = sqlc.arg(status_mode)::text
     END
@@ -325,4 +337,36 @@ ORDER BY
   END,
   t.due_date ASC NULLS LAST,
   t.created_at DESC
-LIMIT 500;
+LIMIT sqlc.arg(row_limit)::int;
+
+-- ============ Atanabilirlik / proje erişimi ============
+
+-- name: ListProjectAssignees :many
+-- Görev/plan "kime" seçicisi + "Ekibe Ekle" seçicisi: firmanın aktif
+-- personeli, ÜCRET ALANI OLMADAN (maaş/yevmiye asla seçilmez -- uç
+-- employees.read istemez, proje yöneticisi/saha da çağırır). Bağlı
+-- kullanıcının proje erişimi için gereken ham bilgi (rol kodu + açık
+-- üyelik) döner; "bypass rolü mü" kararı Go'da verilir
+-- (domain.RoleBypassesProjectMembership -- tek kaynak, SQL'de tekrar
+-- yazılmaz).
+SELECT e.id, e.full_name, e.position,
+       (u.id IS NOT NULL AND u.is_active)::boolean AS has_account,
+       COALESCE(orole.code, '')::text AS organization_role_code,
+       (pu.id IS NOT NULL)::boolean AS is_project_member
+FROM employees e
+LEFT JOIN users u ON u.id = e.user_id AND u.organization_id = e.organization_id
+LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
+LEFT JOIN project_users pu ON pu.user_id = u.id AND pu.project_id = sqlc.arg(project_id)::uuid
+WHERE e.organization_id = sqlc.arg(organization_id)::uuid AND e.is_active = true
+ORDER BY e.full_name ASC;
+
+-- name: GetUserProjectAccess :one
+-- Tek kullanıcının bu projeye erişip erişemeyeceğinin ham bilgisi
+-- (atama ve bildirim alıcısı kontrolleri için; karar Go'da).
+SELECT u.is_active,
+       COALESCE(orole.code, '')::text AS organization_role_code,
+       EXISTS (SELECT 1 FROM project_users pu
+               WHERE pu.project_id = sqlc.arg(project_id)::uuid AND pu.user_id = u.id)::boolean AS is_project_member
+FROM users u
+LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
+WHERE u.id = sqlc.arg(user_id)::uuid AND u.organization_id = sqlc.arg(organization_id)::uuid;

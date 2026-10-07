@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:arvend/features/auth/domain/user.dart';
 import 'package:arvend/features/projects/ops_team/domain/project_access.dart';
 import 'package:arvend/features/projects/ops_team/ops_team_routes.dart';
-import 'package:arvend/features/projects/ops_team/presentation/widgets/ops_common.dart' show kAccessNoUserListText, kTeamNoEmployeesReadText;
+import 'package:arvend/features/projects/ops_team/presentation/widgets/ops_common.dart' show kAccessNoUserListText;
 
 import 'ops_team_test_support.dart';
 
@@ -65,16 +65,30 @@ void main() {
       expect(find.textContaining('Proje ekibini yalnızca görüntüleyebilirsin'), findsOneWidget);
     });
 
-    testWidgets('Proje Yöneticisi (operations.manage, employees.read YOK): "Ekibe Ekle" yok, çıkarabilir', (
+    testWidgets('Proje Yöneticisi (operations.manage, employees.read YOK): ekleyebilir ve çıkarabilir', (
       tester,
     ) async {
-      // Regresyon: düğme görünüyor ama personel seçicisi GET /employees'e
-      // (employees.read) takılıp hiç tamamlanamıyordu.
+      // Regresyon: seçici GET /employees (employees.read) istediği için
+      // Proje Yöneticisi/Saha ekibe hiç ekleyemiyordu; artık projenin
+      // ücretsiz assignees ucundan gelir.
       final repo = await pump(tester, location: teamPath(kProjectId), user: opsManagerUser);
-      expect(find.text('Ekibe Ekle'), findsNothing);
       expect(find.byTooltip('Ekipten Çıkar'), findsNWidgets(4));
-      expect(find.text(kTeamNoEmployeesReadText), findsOneWidget);
-      expect(repo.calls, isNot(contains('employees')));
+      expect(repo.calls.where((c) => c.startsWith('employees')), isEmpty);
+      await tester.tap(find.text('Ekibe Ekle'));
+      await tester.pumpAndSettle();
+      expect(repo.calls, contains('employees:$kProjectId'));
+      await pickDropdown(tester, const ValueKey('team-employee'), 'Zeynep Arslan — Mimar');
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Ekibe Ekle'));
+      await tester.pumpAndSettle();
+      expect(repo.addedMembers.single.employeeId, 'e7');
+    });
+
+    testWidgets('ekibe ekle: projeyi göremeyen hesap için erişim uyarısı', (tester) async {
+      await pump(tester, location: teamPath(kProjectId));
+      await tester.tap(find.text('Ekibe Ekle'));
+      await tester.pumpAndSettle();
+      await pickDropdown(tester, const ValueKey('team-employee'), 'Selim Ok — Usta (proje erişimi yok)');
+      expect(find.textContaining('ekibe eklemek erişim vermez'), findsOneWidget);
     });
 
     testWidgets('kilitli proje: ekle/çıkar yok', (tester) async {

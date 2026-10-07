@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -209,15 +210,21 @@ func (h *ProjectHandler) ListAssignees(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	// has_project_access: has_account true iken false ise kişi projeyi
+	// göremiyor -- görev/plan atanamaz (400), seçici bunu gösterir.
 	type assignee struct {
-		ID         string `json:"id"`
-		FullName   string `json:"full_name"`
-		Position   string `json:"position"`
-		HasAccount bool   `json:"has_account"`
+		ID               string `json:"id"`
+		FullName         string `json:"full_name"`
+		Position         string `json:"position"`
+		HasAccount       bool   `json:"has_account"`
+		HasProjectAccess bool   `json:"has_project_access"`
 	}
 	out := make([]assignee, len(rows))
 	for i, a := range rows {
-		out[i] = assignee{ID: a.ID, FullName: a.FullName, Position: a.Position, HasAccount: a.HasAccount}
+		out[i] = assignee{
+			ID: a.ID, FullName: a.FullName, Position: a.Position,
+			HasAccount: a.HasAccount, HasProjectAccess: a.HasProjectAccess,
+		}
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"employees": out})
 }
@@ -324,16 +331,26 @@ func (h *ProjectHandler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 
 type myTaskResponse struct {
 	taskResponse
-	ProjectID   string `json:"project_id"`
-	ProjectName string `json:"project_name"`
+	ProjectID     string `json:"project_id"`
+	ProjectName   string `json:"project_name"`
+	ProjectStatus string `json:"project_status"`
+	// ProjectClosed: proje tamamlandı/iptal -- görev artık "gecikmiş"
+	// sayılmaz (is_overdue false), istemci "proje kapalı" diye gösterir.
+	ProjectClosed bool `json:"project_closed"`
 }
 
 func toMyTaskResponse(t service.MyTask) myTaskResponse {
-	return myTaskResponse{
-		taskResponse: toTaskResponse(t.ProjectTask),
-		ProjectID:    t.ProjectID,
-		ProjectName:  t.ProjectName,
+	resp := myTaskResponse{
+		taskResponse:  toTaskResponse(t.ProjectTask),
+		ProjectID:     t.ProjectID,
+		ProjectName:   t.ProjectName,
+		ProjectStatus: t.ProjectStatus,
+		ProjectClosed: t.ProjectClosed(),
 	}
+	if resp.ProjectClosed {
+		resp.IsOverdue = false
+	}
+	return resp
 }
 
 // ListMyTasks, GET /api/v1/tasks/mine -- bana ATANAN görevler (bkz.
@@ -376,7 +393,7 @@ func (h *ProjectHandler) ListTeamTasks(w http.ResponseWriter, r *http.Request) {
 	if authz, ok := middleware.AuthzContextFromRequest(r.Context()); ok && !authz.BypassesProjectMembership() {
 		restrictToUserID = authz.UserID
 	}
-	rows, err := h.svc.ListTeamTasks(r.Context(), orgID, r.URL.Query().Get("status"), restrictToUserID, r.URL.Query().Get("assignee"))
+	rows, total, err := h.svc.ListTeamTasks(r.Context(), orgID, r.URL.Query().Get("status"), restrictToUserID, r.URL.Query().Get("assignee"))
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidEmployee) {
 			httpjson.Error(w, http.StatusBadRequest, err.Error())
@@ -389,7 +406,11 @@ func (h *ProjectHandler) ListTeamTasks(w http.ResponseWriter, r *http.Request) {
 	for i, t := range rows {
 		out[i] = toMyTaskResponse(t)
 	}
-	httpjson.Write(w, http.StatusOK, map[string]any{"tasks": out})
+	// total/truncated: liste service.TeamTaskLimit'te kesildiyse istemci
+	// "ilk N görev gösteriliyor" diyebilsin (eskiden sessizce kırpılıyordu).
+	httpjson.Write(w, http.StatusOK, map[string]any{
+		"tasks": out, "total": total, "truncated": total > int64(len(out)),
+	})
 }
 
 type taskUpdateResponse struct {
@@ -474,13 +495,24 @@ func toFileResponse(f domain.ProjectFile) fileResponse {
 	}
 }
 
+// errUploadUnreadable: multipart gövdesi çözümlenemedi. Ham Go hatası
+// ("multipart: NextPart: EOF" vb.) yalnızca sunucu loguna yazılır.
+var errUploadUnreadable = errors.New("dosya okunamadı; lütfen tekrar deneyin")
+
 // readUpload, multipart isteğinden dosyayı çıkarır. Gövde
 // MaxBytesReader ile sınırlanır: sınırı aşan bir istek diske hiç
-// yazılmadan kesilir.
+// yazılmadan kesilir. Sınır aşımı service.ErrFileTooLarge döner (413, net
+// Türkçe metin) -- eskiden "dosya okunamadı: http: request body too
+// large" ham metni 400 ile dönüyordu.
 func readUpload(w http.ResponseWriter, r *http.Request) (io.Reader, string, map[string]string, error) {
 	r.Body = http.MaxBytesReader(w, r.Body, service.MaxUploadBytes+1024)
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
-		return nil, "", nil, fmt.Errorf("dosya okunamadı: %w", err)
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return nil, "", nil, service.ErrFileTooLarge
+		}
+		log.Printf("yükleme gövdesi çözümlenemedi: %v", err)
+		return nil, "", nil, errUploadUnreadable
 	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
@@ -510,7 +542,7 @@ func (h *ProjectHandler) ListFiles(w http.ResponseWriter, r *http.Request) {
 func (h *ProjectHandler) UploadFile(w http.ResponseWriter, r *http.Request) {
 	body, name, fields, err := readUpload(w, r)
 	if err != nil {
-		httpjson.Error(w, http.StatusBadRequest, err.Error())
+		h.writeError(w, err)
 		return
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
@@ -608,7 +640,7 @@ func (h *ProjectHandler) ListPhotos(w http.ResponseWriter, r *http.Request) {
 func (h *ProjectHandler) UploadPhoto(w http.ResponseWriter, r *http.Request) {
 	body, name, fields, err := readUpload(w, r)
 	if err != nil {
-		httpjson.Error(w, http.StatusBadRequest, err.Error())
+		h.writeError(w, err)
 		return
 	}
 	var takenAt *time.Time

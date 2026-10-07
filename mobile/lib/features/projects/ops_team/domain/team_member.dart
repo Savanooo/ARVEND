@@ -41,20 +41,41 @@ class ProjectTeamMember {
       );
 }
 
-/// Ekibe eklenebilecek personel (`GET /employees?filter=aktif`) -- yalnızca
-/// seçicinin ihtiyaç duyduğu alanlar. Ücret alanları BİLİNÇLİ OLARAK
-/// okunmaz.
+/// Ekibe eklenebilecek personel (`GET /projects/{id}/assignees`) --
+/// yalnızca seçicinin ihtiyaç duyduğu alanlar; uç ücret alanı hiç
+/// döndürmez. Eskiden `GET /employees` (employees.read) kullanılıyordu;
+/// Proje Yöneticisi/Saha rollerinde o izin olmadığı için "Ekibe Ekle"
+/// onlara hiç gösterilemiyordu.
 class EmployeeOption {
-  const EmployeeOption({required this.id, required this.fullName, this.position = ''});
+  const EmployeeOption({
+    required this.id,
+    required this.fullName,
+    this.position = '',
+    this.hasAccount = false,
+    this.hasProjectAccess = true,
+  });
 
   final String id;
   final String fullName;
   final String position;
 
+  /// Aktif uygulama hesabı var mı.
+  final bool hasAccount;
+
+  /// O hesap bu projeyi görebiliyor mu (Sahip/Yönetici ya da Proje
+  /// Erişimi'nde). Ekibe eklemek erişim VERMEZ.
+  final bool hasProjectAccess;
+
+  /// Hesabı var ama projeyi göremiyor: ekibe eklenebilir, görev atanamaz.
+  bool get lacksProjectAccess => hasAccount && !hasProjectAccess;
+
   factory EmployeeOption.fromJson(Map<String, dynamic> json) => EmployeeOption(
         id: json['id'] as String,
         fullName: json['full_name'] as String? ?? '',
         position: json['position'] as String? ?? '',
+        hasAccount: json['has_account'] as bool? ?? false,
+        // Alan yoksa (eski sunucu) erişim bilinmiyor: uyarma, engelleme.
+        hasProjectAccess: json['has_project_access'] as bool? ?? true,
       );
 
   /// Web seçicisiyle aynı: "Ad — Pozisyon".

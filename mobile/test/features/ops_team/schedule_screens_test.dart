@@ -178,6 +178,27 @@ void main() {
       expect(repo.createdSchedule.single.assignedEmployeeId, 'e1');
     });
 
+    testWidgets('projeyi göremeyen hesap sorumlu seçilemez', (tester) async {
+      final repo = await pump(tester, location: scheduleNewPath(kProjectId));
+      await tester.enterText(find.byKey(const ValueKey('schedule-name')), 'Sıva');
+      await tester.tap(find.text('— Atanmadı —'));
+      await tester.pumpAndSettle();
+      final blocked = find.text('Veli Usta · Sıvacı (proje erişimi yok)').last;
+      expect(blocked, findsOneWidget);
+      await tester.tap(blocked, warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('bu projeyi göremiyor'), findsNothing);
+      // Menü kapanmadıysa kapat, sorumlusuz kaydet.
+      if (find.text('— Atanmadı —').evaluate().length > 1) {
+        await tester.tap(find.text('— Atanmadı —').last);
+        await tester.pumpAndSettle();
+      }
+      await tester.ensureVisible(find.widgetWithText(ElevatedButton, 'Aşama Ekle'));
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Aşama Ekle'));
+      await tester.pumpAndSettle();
+      expect(repo.createdSchedule.single.assignedEmployeeId, isNull);
+    });
+
     testWidgets('düzenlemede sorumlu kaldırılabilir', (tester) async {
       final repo = await pump(tester, location: scheduleItemEditPath(kProjectId, 's3'));
       expect(find.text('Mehmet Usta · Kalıpçı'), findsOneWidget);

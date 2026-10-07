@@ -5,10 +5,13 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../data/projects_providers.dart';
 import '../domain/project.dart';
+import '../ops_team/presentation/widgets/ops_common.dart' show kNoProjectAccessSuffix;
 
 /// Görev ve plan formlarının ortak "kime" alanı. Seçilen kişinin uygulama
 /// hesabı yoksa bildirimin ona ulaşmayacağını söyler -- yönetici "atadım,
-/// haberi olur" sanmasın.
+/// haberi olur" sanmasın. Hesabı olup projeyi GÖREMEYEN kişi seçilemez:
+/// backend atamayı reddeder (bildirimi açınca 403 görürdü); kişi zaten
+/// atanmışsa (erişimi sonradan kaldırıldıysa) seçili kalır ve uyarılır.
 class AssigneeField extends ConsumerWidget {
   const AssigneeField({
     super.key,
@@ -63,10 +66,18 @@ class AssigneeField extends ConsumerWidget {
     }
     final missing = selected != null && chosen == null;
     String? helper;
+    var warn = false;
     if (chosen != null) {
-      helper = chosen.hasAccount
-          ? '${chosen.fullName} bildirim alır.'
-          : 'Bu kişinin uygulama hesabı yok; bildirim gitmez.';
+      if (!chosen.hasAccount) {
+        helper = 'Bu kişinin uygulama hesabı yok; bildirim gitmez.';
+        warn = true;
+      } else if (chosen.lacksProjectAccess) {
+        helper = '${chosen.fullName} bu projeyi göremiyor; yeni görev atanamaz. '
+            'Proje Erişimi\'nden eklenmeli.';
+        warn = true;
+      } else {
+        helper = '${chosen.fullName} bildirim alır.';
+      }
     }
 
     return DropdownButtonFormField<String>(
@@ -76,9 +87,8 @@ class AssigneeField extends ConsumerWidget {
       decoration: InputDecoration(
         labelText: label,
         helperText: helper,
-        helperStyle: chosen != null && !chosen.hasAccount
-            ? AppTypography.helper.copyWith(color: AppColors.warning)
-            : null,
+        helperMaxLines: 3,
+        helperStyle: warn ? AppTypography.helper.copyWith(color: AppColors.warning) : null,
       ),
       items: [
         const DropdownMenuItem(value: '', child: Text('— Atanmadı —')),
@@ -90,9 +100,20 @@ class AssigneeField extends ConsumerWidget {
         for (final p in people)
           DropdownMenuItem(
             value: p.id,
+            // Projeyi göremeyen hesap yeni atama olarak seçilemez; mevcut
+            // atama ise seçili kalabilsin.
+            enabled: !p.lacksProjectAccess || p.id == selected,
             child: Text(
-              [p.fullName, if (p.position.isNotEmpty) p.position].join(' · ') + (p.hasAccount ? '' : ' (uygulaması yok)'),
+              [p.fullName, if (p.position.isNotEmpty) p.position].join(' · ') +
+                  (!p.hasAccount
+                      ? ' (uygulaması yok)'
+                      : p.lacksProjectAccess
+                          ? kNoProjectAccessSuffix
+                          : ''),
               overflow: TextOverflow.ellipsis,
+              style: p.lacksProjectAccess && p.id != selected
+                  ? const TextStyle(color: AppColors.textMuted)
+                  : null,
             ),
           ),
       ],

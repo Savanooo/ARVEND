@@ -49,8 +49,8 @@ final opsOwnerUser = buildUser(
 
 /// Proje yöneticisi: operasyonları yönetir, erişimi yalnızca görür (web
 /// rol matrisi: projects.access.manage yalnızca sahip/yönetici). Varsayılan
-/// rolde employees.read YOK (migration 0034) -- ekipten çıkarabilir, ekibe
-/// personel ekleyemez.
+/// rolde employees.read YOK (migration 0042) -- ekip seçicisi bu yüzden
+/// projenin ücretsiz `assignees` ucundan gelir.
 final opsManagerUser = buildUser(
   id: 'pm',
   roleCode: 'project_manager',
@@ -130,6 +130,8 @@ const kScheduleFixtures = <ScheduleItem>[
 const kAssigneeFixtures = <Assignee>[
   Assignee(id: 'e1', fullName: 'Mehmet Usta', position: 'Kalıpçı', hasAccount: true),
   Assignee(id: 'e2', fullName: 'Ali Kalfa', position: 'Demirci'),
+  // Hesabı var ama projeyi göremiyor: seçilemez (backend 400 döner).
+  Assignee(id: 'e3', fullName: 'Veli Usta', position: 'Sıvacı', hasAccount: true, hasProjectAccess: false),
 ];
 
 const kMemberFixtures = <ProjectTeamMember>[
@@ -176,6 +178,8 @@ const kEmployeeFixtures = <EmployeeOption>[
   EmployeeOption(id: 'e5', fullName: 'Hasan Çelik', position: 'Kalıpçı'),
   EmployeeOption(id: 'e7', fullName: 'Zeynep Arslan', position: 'Mimar'),
   EmployeeOption(id: 'e8', fullName: 'Burak Koç', position: 'Elektrik Teknikeri'),
+  // Uygulama hesabı var ama projeyi göremiyor (Proje Erişimi'nde değil).
+  EmployeeOption(id: 'e9', fullName: 'Selim Ok', position: 'Usta', hasAccount: true, hasProjectAccess: false),
 ];
 
 const kAccessFixtures = <ProjectAccessUser>[
@@ -354,8 +358,8 @@ class FakeOpsTeamRepository implements OpsTeamRepository {
   }
 
   @override
-  Future<List<EmployeeOption>> activeEmployees() async {
-    calls.add('employees');
+  Future<List<EmployeeOption>> activeEmployees(String projectId) async {
+    calls.add('employees:$projectId');
     if (employeesError != null) throw employeesError!;
     return [...employeeItems];
   }

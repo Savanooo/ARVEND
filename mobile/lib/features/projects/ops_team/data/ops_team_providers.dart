@@ -20,10 +20,10 @@ final opsTeamMembersProvider = FutureProvider.autoDispose.family<List<ProjectTea
   (ref, projectId) => ref.watch(opsTeamRepositoryProvider).members(projectId),
 );
 
-/// Ekibe eklenebilecek aktif personel -- yalnızca "Ekibe Ekle" formu
-/// açıldığında izlenir (gereksiz `/employees` isteği/403'ü olmasın).
-final opsEmployeeOptionsProvider = FutureProvider.autoDispose<List<EmployeeOption>>(
-  (ref) => ref.watch(opsTeamRepositoryProvider).activeEmployees(),
+/// Ekibe eklenebilecek aktif personel (projenin `assignees` ucu) --
+/// yalnızca "Ekibe Ekle" formu açıldığında izlenir.
+final opsEmployeeOptionsProvider = FutureProvider.autoDispose.family<List<EmployeeOption>, String>(
+  (ref, projectId) => ref.watch(opsTeamRepositoryProvider).activeEmployees(projectId),
 );
 
 /// Projeye açıkça erişimi olan kullanıcılar.

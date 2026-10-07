@@ -321,19 +321,34 @@ class ProjectTask {
 /// Görev/plan formunun "kime" seçicisi (GET /projects/{id}/assignees):
 /// projenin firmasındaki aktif personel, ücretsiz. `hasAccount` false ise
 /// kişinin uygulama hesabı yoktur ve atama bildirimi kimseye ulaşmaz.
+/// `hasAccount` true iken `hasProjectAccess` false ise kişi projeyi
+/// göremez: backend ona görev/plan atamayı reddeder (400) -- bildirim alıp
+/// açınca 403 görmesin diye.
 class Assignee {
-  const Assignee({required this.id, required this.fullName, this.position = '', this.hasAccount = false});
+  const Assignee({
+    required this.id,
+    required this.fullName,
+    this.position = '',
+    this.hasAccount = false,
+    this.hasProjectAccess = true,
+  });
 
   final String id;
   final String fullName;
   final String position;
   final bool hasAccount;
+  final bool hasProjectAccess;
+
+  /// Hesabı var ama projeyi göremiyor -- atanamaz.
+  bool get lacksProjectAccess => hasAccount && !hasProjectAccess;
 
   factory Assignee.fromJson(Map<String, dynamic> json) => Assignee(
         id: json['id'] as String,
         fullName: json['full_name'] as String? ?? '',
         position: json['position'] as String? ?? '',
         hasAccount: json['has_account'] as bool? ?? false,
+        // Alan yoksa (eski sunucu) erişim bilinmiyor: uyarma, engelleme.
+        hasProjectAccess: json['has_project_access'] as bool? ?? true,
       );
 }
 

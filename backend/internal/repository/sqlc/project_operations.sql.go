@@ -813,8 +813,39 @@ func (q *Queries) GetTaskForUpdate(ctx context.Context, arg GetTaskForUpdatePara
 	return i, err
 }
 
+const getUserProjectAccess = `-- name: GetUserProjectAccess :one
+SELECT u.is_active,
+       COALESCE(orole.code, '')::text AS organization_role_code,
+       EXISTS (SELECT 1 FROM project_users pu
+               WHERE pu.project_id = $1::uuid AND pu.user_id = u.id)::boolean AS is_project_member
+FROM users u
+LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
+WHERE u.id = $2::uuid AND u.organization_id = $3::uuid
+`
+
+type GetUserProjectAccessParams struct {
+	ProjectID      pgtype.UUID `json:"project_id"`
+	UserID         pgtype.UUID `json:"user_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+type GetUserProjectAccessRow struct {
+	IsActive             bool   `json:"is_active"`
+	OrganizationRoleCode string `json:"organization_role_code"`
+	IsProjectMember      bool   `json:"is_project_member"`
+}
+
+// Tek kullanıcının bu projeye erişip erişemeyeceğinin ham bilgisi
+// (atama ve bildirim alıcısı kontrolleri için; karar Go'da).
+func (q *Queries) GetUserProjectAccess(ctx context.Context, arg GetUserProjectAccessParams) (GetUserProjectAccessRow, error) {
+	row := q.db.QueryRow(ctx, getUserProjectAccess, arg.ProjectID, arg.UserID, arg.OrganizationID)
+	var i GetUserProjectAccessRow
+	err := row.Scan(&i.IsActive, &i.OrganizationRoleCode, &i.IsProjectMember)
+	return i, err
+}
+
 const listMyTasks = `-- name: ListMyTasks :many
-SELECT t.id, t.organization_id, t.project_id, t.schedule_item_id, t.title, t.description, t.assigned_employee_id, t.assigned_name, t.priority, t.status, t.due_date, t.completed_at, t.created_by, t.created_at, t.updated_at, p.name AS project_name
+SELECT t.id, t.organization_id, t.project_id, t.schedule_item_id, t.title, t.description, t.assigned_employee_id, t.assigned_name, t.priority, t.status, t.due_date, t.completed_at, t.created_by, t.created_at, t.updated_at, p.name AS project_name, p.status AS project_status
 FROM project_tasks t
 INNER JOIN projects p ON p.id = t.project_id AND p.organization_id = t.organization_id
 WHERE t.organization_id = $1::uuid
@@ -822,6 +853,7 @@ WHERE t.organization_id = $1::uuid
   AND (
     CASE
       WHEN $3::text = 'open' THEN t.status IN ('todo', 'in_progress')
+                                                   AND p.status NOT IN ('completed', 'cancelled')
       WHEN $3::text = 'all' THEN TRUE
       ELSE t.status = $3::text
     END
@@ -869,6 +901,7 @@ type ListMyTasksRow struct {
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 	ProjectName        string             `json:"project_name"`
+	ProjectStatus      string             `json:"project_status"`
 }
 
 // ============ Cross-project my tasks ============
@@ -899,6 +932,13 @@ type ListMyTasksRow struct {
 // bu proje-erişim sınırından muaftır (spec: "owner/admin still means MY
 // TASKS" -- bu muafiyet YALNIZCA proje erişimi içindir, assigned_employee_id
 // eşleşmesi HERKES için, roldeb BAĞIMSIZ olarak ZORUNLUDUR).
+//
+// 'open' modunda KAPALI (tamamlanmış/iptal) projelerin görevleri DÖNMEZ:
+// o projede artık yapılacak iş yoktur ve bu görevler aksi halde sonsuza
+// dek "açık/gecikmiş" görünürdü. Ana sayfa sayaçları (dashboard.sql
+// Dashboard*Task*) AYNI kuralı uygular -- "Görevlerim" ile ana sayfa
+// sayısı ayrışmasın. 'all'/somut durum filtrelerinde görünürler;
+// project_status ile istemci "proje kapalı" diye işaretler.
 func (q *Queries) ListMyTasks(ctx context.Context, arg ListMyTasksParams) ([]ListMyTasksRow, error) {
 	rows, err := q.db.Query(ctx, listMyTasks,
 		arg.OrganizationID,
@@ -930,6 +970,70 @@ func (q *Queries) ListMyTasks(ctx context.Context, arg ListMyTasksParams) ([]Lis
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ProjectName,
+			&i.ProjectStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectAssignees = `-- name: ListProjectAssignees :many
+
+SELECT e.id, e.full_name, e.position,
+       (u.id IS NOT NULL AND u.is_active)::boolean AS has_account,
+       COALESCE(orole.code, '')::text AS organization_role_code,
+       (pu.id IS NOT NULL)::boolean AS is_project_member
+FROM employees e
+LEFT JOIN users u ON u.id = e.user_id AND u.organization_id = e.organization_id
+LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
+LEFT JOIN project_users pu ON pu.user_id = u.id AND pu.project_id = $1::uuid
+WHERE e.organization_id = $2::uuid AND e.is_active = true
+ORDER BY e.full_name ASC
+`
+
+type ListProjectAssigneesParams struct {
+	ProjectID      pgtype.UUID `json:"project_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+type ListProjectAssigneesRow struct {
+	ID                   pgtype.UUID `json:"id"`
+	FullName             string      `json:"full_name"`
+	Position             string      `json:"position"`
+	HasAccount           bool        `json:"has_account"`
+	OrganizationRoleCode string      `json:"organization_role_code"`
+	IsProjectMember      bool        `json:"is_project_member"`
+}
+
+// ============ Atanabilirlik / proje erişimi ============
+// Görev/plan "kime" seçicisi + "Ekibe Ekle" seçicisi: firmanın aktif
+// personeli, ÜCRET ALANI OLMADAN (maaş/yevmiye asla seçilmez -- uç
+// employees.read istemez, proje yöneticisi/saha da çağırır). Bağlı
+// kullanıcının proje erişimi için gereken ham bilgi (rol kodu + açık
+// üyelik) döner; "bypass rolü mü" kararı Go'da verilir
+// (domain.RoleBypassesProjectMembership -- tek kaynak, SQL'de tekrar
+// yazılmaz).
+func (q *Queries) ListProjectAssignees(ctx context.Context, arg ListProjectAssigneesParams) ([]ListProjectAssigneesRow, error) {
+	rows, err := q.db.Query(ctx, listProjectAssignees, arg.ProjectID, arg.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProjectAssigneesRow
+	for rows.Next() {
+		var i ListProjectAssigneesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.FullName,
+			&i.Position,
+			&i.HasAccount,
+			&i.OrganizationRoleCode,
+			&i.IsProjectMember,
 		); err != nil {
 			return nil, err
 		}
@@ -1284,7 +1388,8 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]Project
 }
 
 const listTeamTasks = `-- name: ListTeamTasks :many
-SELECT t.id, t.organization_id, t.project_id, t.schedule_item_id, t.title, t.description, t.assigned_employee_id, t.assigned_name, t.priority, t.status, t.due_date, t.completed_at, t.created_by, t.created_at, t.updated_at, p.name AS project_name
+SELECT t.id, t.organization_id, t.project_id, t.schedule_item_id, t.title, t.description, t.assigned_employee_id, t.assigned_name, t.priority, t.status, t.due_date, t.completed_at, t.created_by, t.created_at, t.updated_at, p.name AS project_name, p.status AS project_status,
+       count(*) OVER ()::bigint AS total_count
 FROM project_tasks t
 INNER JOIN projects p ON p.id = t.project_id AND p.organization_id = t.organization_id
 WHERE t.organization_id = $1::uuid
@@ -1292,6 +1397,7 @@ WHERE t.organization_id = $1::uuid
   AND (
     CASE
       WHEN $3::text = 'open' THEN t.status IN ('todo', 'in_progress')
+                                                   AND p.status NOT IN ('completed', 'cancelled')
       WHEN $3::text = 'all' THEN TRUE
       ELSE t.status = $3::text
     END
@@ -1313,7 +1419,7 @@ ORDER BY
   END,
   t.due_date ASC NULLS LAST,
   t.created_at DESC
-LIMIT 500
+LIMIT $5::int
 `
 
 type ListTeamTasksParams struct {
@@ -1321,6 +1427,7 @@ type ListTeamTasksParams struct {
 	AssignedEmployeeID pgtype.UUID `json:"assigned_employee_id"`
 	StatusMode         string      `json:"status_mode"`
 	RestrictToUserID   pgtype.UUID `json:"restrict_to_user_id"`
+	RowLimit           int32       `json:"row_limit"`
 }
 
 type ListTeamTasksRow struct {
@@ -1340,17 +1447,22 @@ type ListTeamTasksRow struct {
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 	ProjectName        string             `json:"project_name"`
+	ProjectStatus      string             `json:"project_status"`
+	TotalCount         int64              `json:"total_count"`
 }
 
 // Görevler sekmesinin "Ekip" görünümü: erişilebilir projelerdeki TÜM
 // görevler (yönetici buradan takip eder). ListMyTasks ile aynı durum ve
 // üyelik kuralları; assigned_employee_id verilirse o kişinin görevleri.
+// total_count: LIMIT'ten ÖNCEKİ toplam -- liste sınırda kesildiyse
+// istemci bunu söyleyebilsin (eskiden 500'de sessizce kırpılıyordu).
 func (q *Queries) ListTeamTasks(ctx context.Context, arg ListTeamTasksParams) ([]ListTeamTasksRow, error) {
 	rows, err := q.db.Query(ctx, listTeamTasks,
 		arg.OrganizationID,
 		arg.AssignedEmployeeID,
 		arg.StatusMode,
 		arg.RestrictToUserID,
+		arg.RowLimit,
 	)
 	if err != nil {
 		return nil, err
@@ -1376,6 +1488,8 @@ func (q *Queries) ListTeamTasks(ctx context.Context, arg ListTeamTasksParams) ([
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ProjectName,
+			&i.ProjectStatus,
+			&i.TotalCount,
 		); err != nil {
 			return nil, err
 		}

@@ -18,7 +18,6 @@ import {
   SCHEDULE_STATUS_LABELS,
   TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
-  type Employee,
   type FileCategory,
   type PhotoStage,
   type Project,
@@ -30,6 +29,32 @@ import {
   type ScheduleItem,
   type TaskPriority,
 } from "@/lib/types";
+
+/**
+ * GET /projects/{id}/assignees satırı -- ücret alanı YOK, bu yüzden
+ * employees.read izni olmayan Proje Yöneticisi/Saha da çeker.
+ * has_account true iken has_project_access false ise kişi projeyi
+ * göremez: backend ona görev/plan atamayı reddeder (400). Ekibe eklemek
+ * erişim VERMEZ -- erişim yalnızca "Proje Erişimi"nden verilir.
+ */
+export interface ProjectAssignee {
+  id: string;
+  full_name: string;
+  position: string;
+  has_account: boolean;
+  has_project_access: boolean;
+}
+
+function lacksProjectAccess(a: ProjectAssignee | undefined): boolean {
+  return !!a && a.has_account && !a.has_project_access;
+}
+
+const NO_ACCESS_SUFFIX = " (proje erişimi yok)";
+
+// Backend service.MaxUploadBytes ile aynı sınır: aşan dosya hiç
+// gönderilmeden reddedilir (25 MB'ı yükleyip sonra hata almak yerine).
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+const TOO_LARGE_MESSAGE = "Dosya 25 MB'tan büyük olamaz";
 
 function useAction(locked: boolean) {
   const router = useRouter();
@@ -51,7 +76,7 @@ function useAction(locked: boolean) {
       setBusy(false);
     }
   }
-  return { busy, error, run };
+  return { busy, error, run, setError };
 }
 
 function LockedNote() {
@@ -67,21 +92,31 @@ function LockedNote() {
 export function MembersSection({
   project,
   members,
-  employees,
+  assignees,
+  canManage,
   locked,
 }: {
   project: Project;
   members: ProjectMember[];
-  employees: Employee[];
+  // Seçici GET /projects/{id}/assignees'ten gelir (ücretsiz): eskiden
+  // /employees (employees.read) istendiği için Proje Yöneticisi/Saha bu
+  // bölümü hiç göremiyordu. null = liste alınamadı (yalnızca ekle formu
+  // gizlenir, ekip listesi yine görünür).
+  assignees: ProjectAssignee[] | null;
+  // projects.operations.manage -- ekle/çıkar düğmeleri.
+  canManage: boolean;
   locked: boolean;
 }) {
   const { busy, error, run } = useAction(locked);
   const [form, setForm] = useState({ employee_id: "", role_title: "" });
+  const { confirm, dialog } = useConfirmDialog();
 
   const active = members.filter((m) => m.is_active);
   const past = members.filter((m) => !m.is_active);
   const assignedIds = new Set(active.map((m) => m.employee_id));
-  const available = employees.filter((e) => !assignedIds.has(e.id));
+  const available = (assignees ?? []).filter((e) => !assignedIds.has(e.id));
+  const byId = new Map((assignees ?? []).map((a) => [a.id, a]));
+  const selected = byId.get(form.employee_id);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -92,6 +127,17 @@ export function MembersSection({
       })
     );
     if (ok) setForm({ employee_id: "", role_title: "" });
+  }
+
+  async function remove(m: ProjectMember) {
+    const ok = await confirm({
+      title: "Ekipten Çıkar",
+      message: `${m.employee_name} ekipten çıkarılsın mı? Kayıt silinmez; bugünün tarihiyle "Geçmiş Ekip"e taşınır.`,
+      confirmLabel: "Ekipten Çıkar",
+      danger: true,
+    });
+    if (!ok) return;
+    run(() => apiClient(`/api/v1/projects/${project.id}/members/${m.id}`, { method: "DELETE" }));
   }
 
   return (
@@ -114,16 +160,20 @@ export function MembersSection({
                       {new Date(m.start_date).toLocaleDateString("tr-TR")} —
                     </span>
                   )}
+                  {lacksProjectAccess(byId.get(m.employee_id)) && (
+                    <span
+                      className="ml-2 text-xs text-gold"
+                      title="Uygulama hesabı bu projeyi göremiyor; görev atanabilmesi için Proje Erişimi'nden eklenmeli."
+                    >
+                      proje erişimi yok
+                    </span>
+                  )}
                 </span>
-                {!locked && (
+                {!locked && canManage && (
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() =>
-                      run(() =>
-                        apiClient(`/api/v1/projects/${project.id}/members/${m.id}`, { method: "DELETE" })
-                      )
-                    }
+                    onClick={() => remove(m)}
                     className="text-xs text-danger hover:underline"
                   >
                     Ekipten Çıkar
@@ -154,36 +204,75 @@ export function MembersSection({
 
       {locked ? (
         <LockedNote />
-      ) : (
-        <form onSubmit={submit} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
-          <Select
-            required
-            value={form.employee_id}
-            onChange={(e) => setForm({ ...form, employee_id: e.target.value })}
-            aria-label="Personel"
-            className="w-56"
-          >
-            <option value="">Personel seçin</option>
-            {available.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.full_name}
-                {e.position ? ` — ${e.position}` : ""}
-              </option>
-            ))}
-          </Select>
-          <Input
-            placeholder="Görev/rol (ör. Şantiye Şefi)"
-            value={form.role_title}
-            onChange={(e) => setForm({ ...form, role_title: e.target.value })}
-          />
-          <Button type="submit" loading={busy} disabled={!form.employee_id}>
-            Ekibe Ekle
-          </Button>
+      ) : canManage && assignees ? (
+        <form onSubmit={submit} className="flex flex-col gap-2 border-t border-border pt-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <Select
+              required
+              value={form.employee_id}
+              onChange={(e) => setForm({ ...form, employee_id: e.target.value })}
+              aria-label="Personel"
+              className="w-56"
+            >
+              <option value="">Personel seçin</option>
+              {available.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.full_name}
+                  {e.position ? ` — ${e.position}` : ""}
+                  {lacksProjectAccess(e) ? NO_ACCESS_SUFFIX : ""}
+                </option>
+              ))}
+            </Select>
+            <Input
+              placeholder="Görev/rol (ör. Şantiye Şefi)"
+              maxLength={120}
+              value={form.role_title}
+              onChange={(e) => setForm({ ...form, role_title: e.target.value })}
+            />
+            <Button type="submit" loading={busy} disabled={!form.employee_id}>
+              Ekibe Ekle
+            </Button>
+          </div>
+          {lacksProjectAccess(selected) && (
+            <p className="text-xs text-gold">
+              Ekibe eklemek proje erişimi vermez: {selected?.full_name} bu projeyi uygulamada göremez ve
+              ona görev atanamaz. Erişim, Proje Erişimi bölümünden verilir.
+            </p>
+          )}
         </form>
-      )}
+      ) : null}
       {error && <p className="text-xs text-danger">{error}</p>}
+      {dialog}
     </div>
   );
+}
+
+// assigneeOptions: görev/plan "kime" seçicisi -- proje ekibi; projeyi
+// göremeyen hesaplar seçilemez (backend zaten reddeder, 400), mevcut bir
+// atama ise (ör. erişim sonradan kaldırıldıysa) seçili kalabilsin diye
+// listede durur.
+function assigneeOptions(
+  members: ProjectMember[],
+  byId: Map<string, ProjectAssignee>,
+  current?: { id: string | null; name: string }
+) {
+  const opts = members.map((m) => {
+    const blocked = lacksProjectAccess(byId.get(m.employee_id)) && m.employee_id !== current?.id;
+    return (
+      <option key={m.employee_id} value={m.employee_id} disabled={blocked}>
+        {m.employee_name}
+        {lacksProjectAccess(byId.get(m.employee_id)) ? NO_ACCESS_SUFFIX : ""}
+      </option>
+    );
+  });
+  if (current?.id && !members.some((m) => m.employee_id === current.id)) {
+    opts.unshift(
+      <option key={current.id} value={current.id}>
+        {current.name}
+      </option>
+    );
+  }
+  return opts;
 }
 
 // ---------- Planlama ----------
@@ -192,6 +281,7 @@ export function ScheduleSection({
   project,
   items,
   members = [],
+  assignees = [],
   locked,
 }: {
   project: Project;
@@ -199,11 +289,15 @@ export function ScheduleSection({
   // Sorumlu seçicisi proje ekibinden (Görevler'deki "Atanan" ile aynı);
   // seçilen kişiye "plan ataması" bildirimi gider.
   members?: ProjectMember[];
+  // Ekip üyesinin proje erişimi (bkz. ProjectAssignee) -- projeyi
+  // göremeyen hesap sorumlu seçilemez.
+  assignees?: ProjectAssignee[];
   locked: boolean;
 }) {
   const { busy, error, run } = useAction(locked);
   const [form, setForm] = useState({ name: "", start_date: "", end_date: "", assigned_employee_id: "" });
   const activeMembers = members.filter((m) => m.is_active);
+  const byId = new Map(assignees.map((a) => [a.id, a]));
 
   function updateItem(it: ScheduleItem, patch: Partial<{ status: string; assigned_employee_id: string | null }>) {
     return run(() =>
@@ -294,15 +388,10 @@ export function ScheduleSection({
                     className="py-1 text-xs"
                   >
                     <option value="">Atanmadı</option>
-                    {it.assigned_employee_id &&
-                      !activeMembers.some((m) => m.employee_id === it.assigned_employee_id) && (
-                        <option value={it.assigned_employee_id}>{it.assigned_name}</option>
-                      )}
-                    {activeMembers.map((m) => (
-                      <option key={m.employee_id} value={m.employee_id}>
-                        {m.employee_name}
-                      </option>
-                    ))}
+                    {assigneeOptions(activeMembers, byId, {
+                      id: it.assigned_employee_id,
+                      name: it.assigned_name,
+                    })}
                   </Select>
                 )}
               </div>
@@ -318,6 +407,7 @@ export function ScheduleSection({
           <Input
             placeholder="Aşama adı (ör. Kaba İnşaat)"
             required
+            maxLength={200}
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
@@ -338,11 +428,7 @@ export function ScheduleSection({
             className="w-44"
           >
             <option value="">Sorumlu (opsiyonel)</option>
-            {activeMembers.map((m) => (
-              <option key={m.employee_id} value={m.employee_id}>
-                {m.employee_name}
-              </option>
-            ))}
+            {assigneeOptions(activeMembers, byId)}
           </Select>
           <Button type="submit" loading={busy}>
             Aşama Ekle
@@ -361,12 +447,21 @@ export function TasksSection({
   tasks,
   scheduleItems,
   members,
+  assignees = [],
+  canCreate,
   locked,
 }: {
   project: Project;
   tasks: ProjectTask[];
   scheduleItems: ScheduleItem[];
   members: ProjectMember[];
+  // Ekip üyesinin proje erişimi -- projeyi göremeyen hesaba görev
+  // atanamaz (bkz. ProjectAssignee).
+  assignees?: ProjectAssignee[];
+  // projects.tasks.create: Saha rolünde yok -- form gösterilip doldurulduktan
+  // sonra 403 almak yerine hiç gösterilmez (durum değiştirme tasks.update
+  // ile ayrı; Saha'da var).
+  canCreate: boolean;
   locked: boolean;
 }) {
   const { busy, error, run } = useAction(locked);
@@ -379,6 +474,7 @@ export function TasksSection({
   });
 
   const activeMembers = members.filter((m) => m.is_active);
+  const byId = new Map(assignees.map((a) => [a.id, a]));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -474,11 +570,12 @@ export function TasksSection({
 
       {locked ? (
         <LockedNote />
-      ) : (
+      ) : !canCreate ? null : (
         <form onSubmit={submit} className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
           <Input
             placeholder="Görev başlığı"
             required
+            maxLength={200}
             value={form.title}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
           />
@@ -502,11 +599,7 @@ export function TasksSection({
             className="w-44"
           >
             <option value="">Atanan (opsiyonel)</option>
-            {activeMembers.map((m) => (
-              <option key={m.employee_id} value={m.employee_id}>
-                {m.employee_name}
-              </option>
-            ))}
+            {assigneeOptions(activeMembers, byId)}
           </Select>
           <Select
             value={form.priority}
@@ -554,11 +647,55 @@ async function uploadMultipart(path: string, form: FormData) {
     body: form,
   });
   const text = await res.text();
-  const body = text ? JSON.parse(text) : null;
+  // Sınırı aşan gövdeyi önündeki ters vekil (proxy) JSON olmayan bir 413
+  // sayfasıyla da kesebilir -- o durumda da anlaşılır mesaj gösterilir.
+  let body: { error?: string } | null = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = null;
+  }
   if (!res.ok) {
-    throw new ApiError(res.status, body?.error ?? "Yükleme başarısız");
+    const fallback = res.status === 413 ? TOO_LARGE_MESSAGE : "Yükleme başarısız";
+    throw new ApiError(res.status, body?.error ?? fallback);
   }
   return body;
+}
+
+// downloadFile: düz <a href> oturum yenilemesini atlıyordu -- erişim
+// çerezi ~15 dk sonra dolunca tarayıcı sayfada ham
+// {"error":"oturum bulunamadı"} JSON'unu gösteriyordu. fetchWithSession
+// 401'de oturumu yeniler; içerik blob olarak alınıp sunucunun verdiği adla
+// kaydedilir.
+async function downloadFile(path: string, filename: string) {
+  const res = await fetchWithSession(path);
+  if (!res.ok) {
+    let message = "Dosya indirilemedi";
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body?.error) message = body.error;
+    } catch {
+      // JSON olmayan hata gövdesi -- genel mesaj kalır.
+    }
+    throw new ApiError(res.status, message);
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Tıklama indirmeyi başlattıktan sonra bırakılır.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// tooLarge: seçilen dosya sınırı aşıyorsa mesajı gösterip true döner --
+// 25 MB'ı yükledikten sonra reddedilmek yerine hiç gönderilmez.
+function tooLarge(file: File, setError: (m: string) => void): boolean {
+  if (file.size <= MAX_UPLOAD_BYTES) return false;
+  setError(TOO_LARGE_MESSAGE);
+  return true;
 }
 
 export function FilesSection({
@@ -570,16 +707,29 @@ export function FilesSection({
   files: ProjectFile[];
   locked: boolean;
 }) {
-  const { busy, error, run } = useAction(locked);
+  const { busy, error, run, setError } = useAction(locked);
   const [category, setCategory] = useState<FileCategory>("other");
   const [description, setDescription] = useState("");
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const { confirm, dialog } = useConfirmDialog();
+
+  async function download(f: ProjectFile) {
+    setDownloadingId(f.id);
+    setError(null);
+    try {
+      await downloadFile(`/api/v1/projects/${project.id}/files/${f.id}/download`, f.original_name);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
+    } finally {
+      setDownloadingId(null);
+    }
+  }
 
   function upload(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const input = e.currentTarget.elements.namedItem("file") as HTMLInputElement;
     const file = input.files?.[0];
-    if (!file) return;
+    if (!file || tooLarge(file, setError)) return;
     const fd = new FormData();
     fd.append("file", file);
     fd.append("category", category);
@@ -607,12 +757,15 @@ export function FilesSection({
           {files.map((f) => (
             <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
               <span>
-                <a
-                  href={`${API_BASE}/api/v1/projects/${project.id}/files/${f.id}/download`}
-                  className="font-medium hover:text-gold hover:underline"
+                <button
+                  type="button"
+                  disabled={downloadingId === f.id}
+                  onClick={() => download(f)}
+                  className="text-left font-medium hover:text-gold hover:underline disabled:opacity-60"
                 >
                   {f.original_name}
-                </a>
+                  {downloadingId === f.id && " …"}
+                </button>
                 <span className="ml-2 text-xs text-text-muted">
                   {FILE_CATEGORY_LABELS[f.category]} · {formatSize(f.size_bytes)}
                 </span>
@@ -652,6 +805,7 @@ export function FilesSection({
           </Select>
           <Input
             placeholder="Açıklama"
+            maxLength={500}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
@@ -677,15 +831,26 @@ export function PhotosSection({
   photos: ProjectPhoto[];
   locked: boolean;
 }) {
-  const { busy, error, run } = useAction(locked);
+  const { busy, error, run, setError } = useAction(locked);
   const [stage, setStage] = useState<PhotoStage>("progress");
   const [description, setDescription] = useState("");
+  const { confirm, dialog } = useConfirmDialog();
+
+  async function handleDelete(p: ProjectPhoto) {
+    const ok = await confirm({
+      title: "Fotoğrafı Sil",
+      message: `${p.description || p.original_name} silinsin mi?`,
+      danger: true,
+    });
+    if (!ok) return;
+    run(() => apiClient(`/api/v1/projects/${project.id}/photos/${p.id}`, { method: "DELETE" }));
+  }
 
   function upload(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const input = e.currentTarget.elements.namedItem("file") as HTMLInputElement;
     const file = input.files?.[0];
-    if (!file) return;
+    if (!file || tooLarge(file, setError)) return;
     const fd = new FormData();
     fd.append("file", file);
     fd.append("stage", stage);
@@ -734,13 +899,7 @@ export function PhotosSection({
                         <button
                           type="button"
                           disabled={busy}
-                          onClick={() =>
-                            run(() =>
-                              apiClient(`/api/v1/projects/${project.id}/photos/${p.id}`, {
-                                method: "DELETE",
-                              })
-                            )
-                          }
+                          onClick={() => handleDelete(p)}
                           className="shrink-0 text-danger hover:underline"
                         >
                           Sil
@@ -774,6 +933,7 @@ export function PhotosSection({
           </Select>
           <Input
             placeholder="Açıklama"
+            maxLength={500}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
@@ -783,6 +943,7 @@ export function PhotosSection({
         </form>
       )}
       {error && <p className="text-xs text-danger">{error}</p>}
+      {dialog}
     </div>
   );
 }

@@ -128,7 +128,13 @@ func (s *ProjectService) CreateFromOffer(ctx context.Context, offerID, organizat
 
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
-		name = fmt.Sprintf("%s - %s", revRow.CustomerName, offerRow.OfferNo)
+		// Varsayılan ad (müşteri adı 200'e kadar olabilir) sütuna sığsın.
+		name = truncateRunes(fmt.Sprintf("%s - %s", revRow.CustomerName, offerRow.OfferNo), maxProjectNameRunes)
+	} else if err := checkFieldLen(name, "Proje adı", maxProjectNameRunes); err != nil {
+		return nil, err
+	}
+	if err := checkFieldLen(strings.TrimSpace(in.ProjectType), "Proje tipi", maxProjectTypeRunes); err != nil {
+		return nil, err
 	}
 
 	var createdBy pgtype.UUID
@@ -460,6 +466,12 @@ func (s *ProjectService) Update(ctx context.Context, id, organizationID string, 
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
 		return nil, errors.New("proje adı zorunludur")
+	}
+	if err := checkFieldLen(name, "Proje adı", maxProjectNameRunes); err != nil {
+		return nil, err
+	}
+	if err := checkFieldLen(strings.TrimSpace(in.ProjectType), "Proje tipi", maxProjectTypeRunes); err != nil {
+		return nil, err
 	}
 	status := in.Status
 	if status == "" {

@@ -318,16 +318,19 @@ func TestProjectOperations(t *testing.T) {
 		}
 		rc.Close()
 
-		// Aynı içerik ikinci kez yüklenince yeni kayıt açılmamalı.
-		f2, err := projectSvc.UploadFile(ctx, p.ID, orgA.ID, service.UploadInput{
+		// Aynı içerik ikinci kez yüklenince yeni kayıt açılmamalı ve bu
+		// SESSİZCE "başarılı" görünmemeli: 409 (ErrDuplicateContent),
+		// mevcut dosyanın adıyla.
+		_, err = projectSvc.UploadFile(ctx, p.ID, orgA.ID, service.UploadInput{
 			OriginalName: "sozlesme-kopya.pdf", Reader: strings.NewReader(content),
 			Category: domain.FileCategoryContract,
 		})
-		if err != nil {
-			t.Fatalf("ikinci yükleme: %v", err)
+		if !errors.Is(err, service.ErrDuplicateContent) || !strings.Contains(err.Error(), "sozlesme.pdf") {
+			t.Fatalf("ikinci yükleme ErrDuplicateContent (mevcut adla) dönmeli: %v", err)
 		}
-		if f2.ID != f.ID {
-			t.Errorf("aynı içerik iki kez kaydedildi: %s != %s", f2.ID, f.ID)
+		files, err := projectSvc.ListFiles(ctx, p.ID, orgA.ID)
+		if err != nil || len(files) != 1 {
+			t.Errorf("aynı içerik iki kez kaydedildi: %d %v", len(files), err)
 		}
 	})
 
