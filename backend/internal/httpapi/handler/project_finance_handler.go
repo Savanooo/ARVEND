@@ -776,9 +776,13 @@ type financialSummaryResponse struct {
 	EstimatedMarginPercent       float64 `json:"estimated_margin_percent"`
 
 	// KDV hariç karşılıklar (bkz. domain.ProjectFinancialSummary).
+	// expense_vat_total: onaylı masrafların içindeki KDV; *_cost_net bundan.
 	ContractVATAmount         float64 `json:"contract_vat_amount"`
 	ContractVATKnown          bool    `json:"contract_vat_known"`
 	CurrentContractValueNet   float64 `json:"current_contract_value_net"`
+	ExpenseVATTotal           float64 `json:"expense_vat_total"`
+	RealizedCostNet           float64 `json:"realized_cost_net"`
+	CommittedCostNet          float64 `json:"committed_cost_net"`
 	RealizedGrossProfitNet    float64 `json:"realized_gross_profit_net"`
 	EstimatedGrossProfitNet   float64 `json:"estimated_gross_profit_net"`
 	RealizedMarginPercentNet  float64 `json:"realized_margin_percent_net"`
@@ -788,6 +792,7 @@ type financialSummaryResponse struct {
 	// commitments (taahhüt bazlı).
 	ForecastBasis            string  `json:"forecast_basis"`
 	ForecastCost             float64 `json:"forecast_cost"`
+	ForecastCostNet          float64 `json:"forecast_cost_net"`
 	ForecastProfit           float64 `json:"forecast_profit"`
 	ForecastProfitNet        float64 `json:"forecast_profit_net"`
 	ForecastMarginPercent    float64 `json:"forecast_margin_percent"`
@@ -819,9 +824,10 @@ func (h *ProjectHandler) FinancialSummary(w http.ResponseWriter, r *http.Request
 		RealizedMarginPercent: s.RealizedMarginPercent, EstimatedMarginPercent: s.EstimatedMarginPercent,
 		ContractVATAmount: s.ContractVATAmount, ContractVATKnown: s.ContractVATKnown,
 		CurrentContractValueNet: s.CurrentContractValueNet,
-		RealizedGrossProfitNet:  s.RealizedGrossProfitNet, EstimatedGrossProfitNet: s.EstimatedGrossProfitNet,
+		ExpenseVATTotal:         s.ExpenseVATTotal, RealizedCostNet: s.RealizedCostNet, CommittedCostNet: s.CommittedCostNet,
+		RealizedGrossProfitNet: s.RealizedGrossProfitNet, EstimatedGrossProfitNet: s.EstimatedGrossProfitNet,
 		RealizedMarginPercentNet: s.RealizedMarginPercentNet, EstimatedMarginPercentNet: s.EstimatedMarginPercentNet,
-		ForecastBasis: s.ForecastBasis, ForecastCost: s.ForecastCost,
+		ForecastBasis: s.ForecastBasis, ForecastCost: s.ForecastCost, ForecastCostNet: s.ForecastCostNet,
 		ForecastProfit: s.ForecastProfit, ForecastProfitNet: s.ForecastProfitNet,
 		ForecastMarginPercent: s.ForecastMarginPercent, ForecastMarginPercentNet: s.ForecastMarginPercentNet,
 	})

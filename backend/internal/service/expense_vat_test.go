@@ -35,6 +35,7 @@ func TestExpenseVAT(t *testing.T) {
 	settingsSvc := service.NewSettingsService(q, box)
 	offerSvc := service.NewOfferService(pool, q, settingsSvc, "http://localhost:3000")
 	projectSvc := service.NewProjectService(pool, q, mustTestStore(t), settingsSvc, "http://localhost:3000")
+	costCodeSvc := service.NewCostCodeService(pool, q)
 
 	org := mustCreateOrg(t, ctx, orgSvc, pool, "Masraf KDV Firma", "masraf-kdv-firma")
 	today := time.Now()
@@ -138,6 +139,63 @@ func TestExpenseVAT(t *testing.T) {
 		}
 	})
 
+	t.Run("3_summary_nets_only_approved_expense_vat", func(t *testing.T) {
+		p := newVATProject(t)
+		e, err := projectSvc.CreateExpense(ctx, p.ID, org.ID, expense(120000, ptrFloat(20)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Onay bekleyen masraf ne maliyete ne KDV'ye girer.
+		if fs := summary(t, p); fs.ExpenseVATTotal != 0 || fs.RealizedCost != 0 || fs.RealizedCostNet != 0 {
+			t.Fatalf("onay bekleyen sayıldı: %v %v %v", fs.ExpenseVATTotal, fs.RealizedCost, fs.RealizedCostNet)
+		}
+		if _, err := projectSvc.ApproveExpense(ctx, p.ID, e.ID, org.ID, ""); err != nil {
+			t.Fatal(err)
+		}
+		// İkinci bir bekleyen ve onaylanıp iptal edilen masraf: hiçbiri sayılmaz.
+		if _, err := projectSvc.CreateExpense(ctx, p.ID, org.ID, expense(60000, ptrFloat(20))); err != nil {
+			t.Fatal(err)
+		}
+		voided, err := createApprovedExpense(ctx, projectSvc, p.ID, org.ID, expense(12000, ptrFloat(20)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.VoidExpense(ctx, p.ID, voided.ID, org.ID, "", "Mükerrer"); err != nil {
+			t.Fatal(err)
+		}
+
+		fs := summary(t, p)
+		if fs.ExpenseVATTotal != 20000 || fs.RealizedCost != 120000 || fs.RealizedCostNet != 100000 {
+			t.Fatalf("KDV/maliyet: %v %v %v", fs.ExpenseVATTotal, fs.RealizedCost, fs.RealizedCostNet)
+		}
+		if fs.CommittedCostNet != 100000 {
+			t.Errorf("taahhüt KDV hariç: %v", fs.CommittedCostNet)
+		}
+		// Kâr: KDV dahil 1.200.000 - 120.000; KDV hariç 1.000.000 - 100.000.
+		if fs.RealizedGrossProfit != 1080000 || fs.RealizedGrossProfitNet != 900000 || fs.RealizedMarginPercentNet != 90 {
+			t.Errorf("gerçekleşen kâr dahil/hariç/marj: %v %v %v", fs.RealizedGrossProfit, fs.RealizedGrossProfitNet, fs.RealizedMarginPercentNet)
+		}
+		if fs.EstimatedGrossProfitNet != 900000 || fs.EstimatedMarginPercentNet != 90 {
+			t.Errorf("tahmini (taahhüt) kâr hariç: %v %v", fs.EstimatedGrossProfitNet, fs.EstimatedMarginPercentNet)
+		}
+		if fs.ForecastBasis != domain.ForecastBasisCommitments || fs.ForecastCost != 120000 || fs.ForecastCostNet != 100000 ||
+			fs.ForecastProfitNet != 900000 || fs.ForecastProfit != 1080000 {
+			t.Errorf("tahmin: %v %v %v %v %v", fs.ForecastBasis, fs.ForecastCost, fs.ForecastCostNet, fs.ForecastProfitNet, fs.ForecastProfit)
+		}
+
+		// Oranı belirtilmemiş onaylı masraf tutarının TAMAMIYLA maliyettir.
+		if _, err := createApprovedExpense(ctx, projectSvc, p.ID, org.ID, expense(30000, nil)); err != nil {
+			t.Fatal(err)
+		}
+		fs = summary(t, p)
+		if fs.ExpenseVATTotal != 20000 || fs.RealizedCost != 150000 || fs.RealizedCostNet != 130000 {
+			t.Fatalf("belirtilmemiş KDV: %v %v %v", fs.ExpenseVATTotal, fs.RealizedCost, fs.RealizedCostNet)
+		}
+		if fs.RealizedGrossProfitNet != 870000 || fs.ForecastProfitNet != 870000 {
+			t.Errorf("kâr hariç: %v %v", fs.RealizedGrossProfitNet, fs.ForecastProfitNet)
+		}
+	})
+
 	t.Run("4_edit_rewrites_vat_and_links_and_goes_back_to_pending", func(t *testing.T) {
 		p := newVATProject(t)
 		co, err := projectSvc.CreateChangeOrder(ctx, p.ID, org.ID, service.ChangeOrderInput{
@@ -151,8 +209,8 @@ func TestExpenseVAT(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if fs := summary(t, p); fs.RealizedCost != 120000 {
-			t.Fatalf("onaylı masraf: %v", fs.RealizedCost)
+		if fs := summary(t, p); fs.ExpenseVATTotal != 20000 {
+			t.Fatalf("onaylı KDV: %v", fs.ExpenseVATTotal)
 		}
 
 		in := expense(110000, ptrFloat(10))
@@ -173,8 +231,8 @@ func TestExpenseVAT(t *testing.T) {
 			t.Errorf("alanlar yazılmalı: %+v", updated)
 		}
 		// Yeniden onay bekliyor: özetten düştü.
-		if fs := summary(t, p); fs.RealizedCost != 0 {
-			t.Errorf("bekleyen düzenleme sayıldı: %v", fs.RealizedCost)
+		if fs := summary(t, p); fs.ExpenseVATTotal != 0 || fs.RealizedCost != 0 {
+			t.Errorf("bekleyen düzenleme sayıldı: %v %v", fs.ExpenseVATTotal, fs.RealizedCost)
 		}
 
 		// Reddedilen masraf düzeltilip yeniden onaya gönderilebilir; oran
@@ -206,6 +264,42 @@ func TestExpenseVAT(t *testing.T) {
 		bad.ChangeOrderID = otherCO.ID
 		if _, err := projectSvc.UpdateExpense(ctx, p.ID, e.ID, org.ID, bad); !errors.Is(err, service.ErrInvalidChangeOrderRef) {
 			t.Errorf("başka projenin ek işi reddedilmeli: %v", err)
+		}
+	})
+
+	t.Run("5_budget_forecast_nets_only_coded_expense_vat", func(t *testing.T) {
+		p := newVATProject(t)
+		cc, err := costCodeSvc.Create(ctx, org.ID, service.CostCodeInput{Code: "KDV-" + p.ID[:8], Name: "KDV testi", Category: "Malzeme"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		line, err := projectSvc.CreateBudgetLine(ctx, p.ID, org.ID, service.BudgetLineInput{
+			CostCodeID: cc.ID, Description: "Malzeme", OriginalAmount: 500000,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		coded := expense(60000, ptrFloat(20)) // KDV 10.000, EAC'nin içinde
+		coded.BudgetLineID = line.ID
+		if _, err := createApprovedExpense(ctx, projectSvc, p.ID, org.ID, coded); err != nil {
+			t.Fatal(err)
+		}
+		// Kodsuz masraf EAC'de yok: KDV'si bütçe tahmininden düşülmemeli.
+		if _, err := createApprovedExpense(ctx, projectSvc, p.ID, org.ID, expense(120000, ptrFloat(20))); err != nil {
+			t.Fatal(err)
+		}
+
+		fs := summary(t, p)
+		if fs.ExpenseVATTotal != 30000 || fs.RealizedCostNet != 150000 {
+			t.Fatalf("toplam KDV / gerçekleşen hariç: %v %v", fs.ExpenseVATTotal, fs.RealizedCostNet)
+		}
+		// EAC = gerçekleşen 60.000 + kalan 440.000 = 500.000; KDV hariç
+		// gerçekleşen 50.000 + aynı kalan = 490.000.
+		if fs.ForecastBasis != domain.ForecastBasisBudget || fs.ForecastCost != 500000 || fs.ForecastCostNet != 490000 {
+			t.Fatalf("bütçe tahmini: %v %v %v", fs.ForecastBasis, fs.ForecastCost, fs.ForecastCostNet)
+		}
+		if fs.ForecastProfit != 700000 || fs.ForecastProfitNet != 510000 || fs.ForecastMarginPercentNet != 51 {
+			t.Errorf("tahmini kâr: %v %v %v", fs.ForecastProfit, fs.ForecastProfitNet, fs.ForecastMarginPercentNet)
 		}
 	})
 }

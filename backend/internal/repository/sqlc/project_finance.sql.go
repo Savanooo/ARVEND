@@ -935,7 +935,15 @@ planned AS (
 expense_total AS (
     -- Yalnızca ONAYLI masraflar (migration 0060): onay bekleyen/reddedilen
     -- kayıt gerçekleşen maliyete ve kâra girmez.
-    SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
+    -- vat_total: bu masrafların İÇİNDEKİ KDV (migration 0065; oranı
+    -- belirtilmemiş masrafta NULL -> sayılmaz, tutarın tamamı maliyettir).
+    -- coded_vat_total: yalnızca maliyet koduna/bütçe kalemine bağlı olanlar
+    -- -- Maliyet Kontrolü'nün EAC'si yalnızca onları içerir (bkz.
+    -- cost_control.sql actual_by_line/unbudgeted_actual).
+    SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total,
+        COALESCE(sum(vat_amount), 0)::numeric(18,2) AS vat_total,
+        COALESCE(sum(vat_amount) FILTER (WHERE cost_code_id IS NOT NULL OR budget_line_id IS NOT NULL), 0)::numeric(18,2)
+            AS coded_vat_total
     FROM project_expenses WHERE project_id = $1 AND voided_at IS NULL AND approval_status = 'approved'
 ),
 subpay AS (
@@ -1066,6 +1074,10 @@ SELECT
     coll.total    AS collected_amount,
     (current_value.total - coll.total)::numeric(18,2) AS remaining_receivable,
     expense_total.total     AS total_expenses,
+    -- Onaylı masrafların içindeki KDV; KDV hariç maliyetler Go'da bundan
+    -- türetilir (ProjectService.applyNetFigures/applyForecast).
+    expense_total.vat_total       AS expense_vat_total,
+    expense_total.coded_vat_total AS coded_expense_vat_total,
     subcommit.total    AS total_subcontractor_commitment,
     subpay.total       AS subcontractor_paid,
     subremaining.total AS subcontractor_remaining,
@@ -1120,6 +1132,8 @@ type GetProjectFinancialSummaryRow struct {
 	CollectedAmount              pgtype.Numeric `json:"collected_amount"`
 	RemainingReceivable          pgtype.Numeric `json:"remaining_receivable"`
 	TotalExpenses                pgtype.Numeric `json:"total_expenses"`
+	ExpenseVatTotal              pgtype.Numeric `json:"expense_vat_total"`
+	CodedExpenseVatTotal         pgtype.Numeric `json:"coded_expense_vat_total"`
 	TotalSubcontractorCommitment pgtype.Numeric `json:"total_subcontractor_commitment"`
 	SubcontractorPaid            pgtype.Numeric `json:"subcontractor_paid"`
 	SubcontractorRemaining       pgtype.Numeric `json:"subcontractor_remaining"`
@@ -1178,6 +1192,8 @@ func (q *Queries) GetProjectFinancialSummary(ctx context.Context, arg GetProject
 		&i.CollectedAmount,
 		&i.RemainingReceivable,
 		&i.TotalExpenses,
+		&i.ExpenseVatTotal,
+		&i.CodedExpenseVatTotal,
 		&i.TotalSubcontractorCommitment,
 		&i.SubcontractorPaid,
 		&i.SubcontractorRemaining,

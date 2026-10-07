@@ -1521,15 +1521,26 @@ func (s *ProjectService) FinancialSummaryForViewer(ctx context.Context, projectI
 	return &out, nil
 }
 
-// applyNetFigures: KDV hariç bedel, kâr ve marjlar. Maliyetler girildiği
-// gibi kullanılır (masraflarda KDV ayrı tutulmuyor).
+// applyNetFigures: KDV hariç bedel, maliyet, kâr ve marjlar. Maliyetten
+// onaylı masrafların içindeki KDV düşülür (KDV'si belirtilmemiş masraf
+// tutarının tamamıyla kalır; taşeron ödemelerinde KDV bilgisi yok).
 func applyNetFigures(s *domain.ProjectFinancialSummary) {
-	s.CurrentContractValueNet = math.Round((s.CurrentContractValue-s.ContractVATAmount)*100) / 100
-	s.RealizedGrossProfitNet = math.Round((s.CurrentContractValueNet-s.RealizedCost)*100) / 100
-	s.EstimatedGrossProfitNet = math.Round((s.CurrentContractValueNet-s.CommittedCost)*100) / 100
+	s.CurrentContractValueNet = roundKurus(s.CurrentContractValue - s.ContractVATAmount)
+	s.RealizedCostNet = roundKurus(s.RealizedCost - s.ExpenseVATTotal)
+	s.CommittedCostNet = roundKurus(s.CommittedCost - s.ExpenseVATTotal)
+	realized, committed := s.RealizedCostNet, s.CommittedCostNet
+	if !s.ContractVATKnown {
+		// Sözleşmenin KDV'si bilinmiyor (bedel KDV dahil kalıyor): KDV hariç
+		// maliyeti çıkarmak kârı şişirirdi -- kâr "net"i KDV dahille aynı kalır.
+		realized, committed = s.RealizedCost, s.CommittedCost
+	}
+	s.RealizedGrossProfitNet = roundKurus(s.CurrentContractValueNet - realized)
+	s.EstimatedGrossProfitNet = roundKurus(s.CurrentContractValueNet - committed)
 	s.RealizedMarginPercentNet = domain.MarginPercent(s.RealizedGrossProfitNet, s.CurrentContractValueNet)
 	s.EstimatedMarginPercentNet = domain.MarginPercent(s.EstimatedGrossProfitNet, s.CurrentContractValueNet)
 }
+
+func roundKurus(v float64) float64 { return math.Round(v*100) / 100 }
 
 // applyForecast: "Tahmini" bölümünün kaynağı. Her yeni projeye boş bir
 // bütçe otomatik açıldığı için HasBudget tek başına "bütçe girildi" demek
@@ -1537,16 +1548,27 @@ func applyNetFigures(s *domain.ProjectFinancialSummary) {
 // (RevisedBudget > 0) kullanılır. Eski (legacy) taşeron kayıtları Maliyet
 // Kontrolü'ne hiç girmez; EAC'ye ayrıca eklenir -- önceden mobil bütçeli
 // her projede EAC'yi kullanıyor, bu taşeron ödemelerini görmüyordu.
+//
+// KDV hariç tahmini maliyet: EAC = gerçekleşen + kalan (ETC); gerçekleşenin
+// içindeki masraf KDV'si düşülür, kalanın KDV'si bilinmediği için olduğu gibi
+// kalır. EAC yalnızca maliyet koduna bağlı masrafları içerir -- düşülen KDV
+// de yalnızca onlarınki (kodsuz masrafın KDV'si EAC'de hiç yok).
 func applyForecast(s *domain.ProjectFinancialSummary, cc *domain.CostControlSummary) {
 	if cc != nil && cc.HasBudget && cc.RevisedBudget > 0 {
 		s.ForecastBasis = domain.ForecastBasisBudget
-		s.ForecastCost = math.Round((cc.EACTotal+s.SubcontractorPaid+s.SubcontractorRemaining)*100) / 100
+		s.ForecastCost = roundKurus(cc.EACTotal + s.SubcontractorPaid + s.SubcontractorRemaining)
+		s.ForecastCostNet = roundKurus(s.ForecastCost - s.CodedExpenseVATTotal)
 	} else {
 		s.ForecastBasis = domain.ForecastBasisCommitments
 		s.ForecastCost = s.CommittedCost
+		s.ForecastCostNet = s.CommittedCostNet
 	}
-	s.ForecastProfit = math.Round((s.CurrentContractValue-s.ForecastCost)*100) / 100
-	s.ForecastProfitNet = math.Round((s.CurrentContractValueNet-s.ForecastCost)*100) / 100
+	cost := s.ForecastCostNet
+	if !s.ContractVATKnown {
+		cost = s.ForecastCost // bkz. applyNetFigures
+	}
+	s.ForecastProfit = roundKurus(s.CurrentContractValue - s.ForecastCost)
+	s.ForecastProfitNet = roundKurus(s.CurrentContractValueNet - cost)
 	s.ForecastMarginPercent = domain.MarginPercent(s.ForecastProfit, s.CurrentContractValue)
 	s.ForecastMarginPercentNet = domain.MarginPercent(s.ForecastProfitNet, s.CurrentContractValueNet)
 }
