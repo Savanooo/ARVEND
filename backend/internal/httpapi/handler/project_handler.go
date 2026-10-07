@@ -244,6 +244,10 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	// UserID: proje güncelleme/durum değişikliği olayının yazarı -- eskiden
+	// geçirilmediği için aktivite geçmişinde bu olaylar yazarsız (user_id
+	// NULL) görünüyordu.
+	userID, _ := middleware.UserIDFromContext(r.Context())
 	p, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), orgID, service.UpdateProjectInput{
 		Name:          req.Name,
 		ProjectType:   req.ProjectType,
@@ -252,6 +256,7 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 		EndDate:       parseDateParam(req.EndDate),
 		Description:   req.Description,
 		InternalNotes: req.InternalNotes,
+		UserID:        userID,
 	})
 	if err != nil {
 		h.writeError(w, err)
