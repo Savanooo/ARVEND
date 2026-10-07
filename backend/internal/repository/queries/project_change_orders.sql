@@ -57,7 +57,12 @@ SELECT co.*,
     (SELECT l.token FROM project_change_order_share_links l
      WHERE l.change_order_id = co.id AND co.status = 'sent'
        AND l.revoked_at IS NULL AND (l.expires_at IS NULL OR l.expires_at > now())
-     ORDER BY l.created_at DESC LIMIT 1) AS active_share_token
+     ORDER BY l.created_at DESC LIMIT 1) AS active_share_token,
+    -- Kararı personel kaydettiyse kim (migration 0063); aynı firmanın
+    -- kullanıcısı olmak zorunda. Müşteri kararında (NULL) boş metin.
+    COALESCE((SELECT u.full_name FROM users u
+              WHERE u.id = co.decision_recorded_by AND u.organization_id = co.organization_id), '')::text
+        AS decision_recorded_by_name
 FROM project_change_orders co
 WHERE co.project_id = $1 AND co.organization_id = $2
 ORDER BY co.sequence_no ASC;
@@ -138,12 +143,16 @@ RETURNING *;
 -- decision, 'approved' ya da 'rejected' olmalıdır (servis katmanında
 -- doğrulanır). Yalnızca 'sent' durumundaki bir kayıt yanıtlanabilir --
 -- bu WHERE koşulu, aynı bağlantıya ikinci bir yanıtın (double-submit)
--- da doğal olarak reddedilmesini sağlar.
+-- da doğal olarak reddedilmesini sağlar. decision_recorded_by: kararı
+-- personel kaydettiyse o kullanıcı (migration 0063); müşterinin kendi
+-- linkinden gelen kararda NULL.
 -- name: RespondChangeOrder :one
 UPDATE project_change_orders
 SET status = sqlc.arg(status)::varchar, responded_at = now(),
     approved_at = CASE WHEN sqlc.arg(status)::varchar = 'approved' THEN now() ELSE approved_at END,
-    rejected_at = CASE WHEN sqlc.arg(status)::varchar = 'rejected' THEN now() ELSE rejected_at END
+    rejected_at = CASE WHEN sqlc.arg(status)::varchar = 'rejected' THEN now() ELSE rejected_at END,
+    decision_recorded_by = sqlc.narg(decision_recorded_by)::uuid,
+    decision_note = sqlc.arg(decision_note)::varchar
 WHERE id = $1 AND organization_id = $2 AND status = 'sent'
 RETURNING *;
 

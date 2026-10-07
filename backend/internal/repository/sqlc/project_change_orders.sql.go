@@ -15,7 +15,7 @@ const cancelChangeOrder = `-- name: CancelChangeOrder :one
 UPDATE project_change_orders
 SET status = 'cancelled', cancelled_at = now()
 WHERE id = $1 AND organization_id = $2 AND status IN ('draft', 'sent') AND project_id = $3
-RETURNING id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id
+RETURNING id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id, decision_recorded_by, decision_note
 `
 
 type CancelChangeOrderParams struct {
@@ -53,6 +53,8 @@ func (q *Queries) CancelChangeOrder(ctx context.Context, arg CancelChangeOrderPa
 		&i.RejectedAt,
 		&i.CancelledAt,
 		&i.SupersedesChangeOrderID,
+		&i.DecisionRecordedBy,
+		&i.DecisionNote,
 	)
 	return i, err
 }
@@ -99,7 +101,7 @@ INSERT INTO project_change_orders (
     organization_id, project_id, sequence_no, change_type, title, description,
     vat_rate, currency, internal_notes, customer_notes, created_by, supersedes_change_order_id
 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-RETURNING id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id
+RETURNING id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id, decision_recorded_by, decision_note
 `
 
 type CreateChangeOrderParams struct {
@@ -159,6 +161,8 @@ func (q *Queries) CreateChangeOrder(ctx context.Context, arg CreateChangeOrderPa
 		&i.RejectedAt,
 		&i.CancelledAt,
 		&i.SupersedesChangeOrderID,
+		&i.DecisionRecordedBy,
+		&i.DecisionNote,
 	)
 	return i, err
 }
@@ -360,7 +364,7 @@ func (q *Queries) GetActiveChangeOrderShareLink(ctx context.Context, changeOrder
 }
 
 const getChangeOrderByID = `-- name: GetChangeOrderByID :one
-SELECT id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id FROM project_change_orders WHERE id = $1 AND organization_id = $2 AND project_id = $3
+SELECT id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id, decision_recorded_by, decision_note FROM project_change_orders WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type GetChangeOrderByIDParams struct {
@@ -402,6 +406,8 @@ func (q *Queries) GetChangeOrderByID(ctx context.Context, arg GetChangeOrderByID
 		&i.RejectedAt,
 		&i.CancelledAt,
 		&i.SupersedesChangeOrderID,
+		&i.DecisionRecordedBy,
+		&i.DecisionNote,
 	)
 	return i, err
 }
@@ -452,7 +458,7 @@ func (q *Queries) GetChangeOrderEffectTotals(ctx context.Context, arg GetChangeO
 }
 
 const getChangeOrderForUpdate = `-- name: GetChangeOrderForUpdate :one
-SELECT id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id FROM project_change_orders WHERE id = $1 AND organization_id = $2 AND project_id = $3 FOR UPDATE
+SELECT id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id, decision_recorded_by, decision_note FROM project_change_orders WHERE id = $1 AND organization_id = $2 AND project_id = $3 FOR UPDATE
 `
 
 type GetChangeOrderForUpdateParams struct {
@@ -493,6 +499,8 @@ func (q *Queries) GetChangeOrderForUpdate(ctx context.Context, arg GetChangeOrde
 		&i.RejectedAt,
 		&i.CancelledAt,
 		&i.SupersedesChangeOrderID,
+		&i.DecisionRecordedBy,
+		&i.DecisionNote,
 	)
 	return i, err
 }
@@ -612,7 +620,7 @@ func (q *Queries) ListChangeOrderItems(ctx context.Context, arg ListChangeOrderI
 }
 
 const listChangeOrders = `-- name: ListChangeOrders :many
-SELECT co.id, co.organization_id, co.project_id, co.sequence_no, co.change_type, co.title, co.description, co.status, co.subtotal, co.vat_rate, co.vat_amount, co.grand_total, co.currency, co.internal_notes, co.customer_notes, co.created_by, co.created_at, co.updated_at, co.sent_at, co.responded_at, co.approved_at, co.rejected_at, co.cancelled_at, co.supersedes_change_order_id,
+SELECT co.id, co.organization_id, co.project_id, co.sequence_no, co.change_type, co.title, co.description, co.status, co.subtotal, co.vat_rate, co.vat_amount, co.grand_total, co.currency, co.internal_notes, co.customer_notes, co.created_by, co.created_at, co.updated_at, co.sent_at, co.responded_at, co.approved_at, co.rejected_at, co.cancelled_at, co.supersedes_change_order_id, co.decision_recorded_by, co.decision_note,
     COALESCE((SELECT sum(e.amount) FROM project_expenses e
               WHERE e.change_order_id = co.id AND e.voided_at IS NULL), 0)::numeric(18,2)
         AS realized_expense_cost,
@@ -635,7 +643,12 @@ SELECT co.id, co.organization_id, co.project_id, co.sequence_no, co.change_type,
     (SELECT l.token FROM project_change_order_share_links l
      WHERE l.change_order_id = co.id AND co.status = 'sent'
        AND l.revoked_at IS NULL AND (l.expires_at IS NULL OR l.expires_at > now())
-     ORDER BY l.created_at DESC LIMIT 1) AS active_share_token
+     ORDER BY l.created_at DESC LIMIT 1) AS active_share_token,
+    -- Kararı personel kaydettiyse kim (migration 0063); aynı firmanın
+    -- kullanıcısı olmak zorunda. Müşteri kararında (NULL) boş metin.
+    COALESCE((SELECT u.full_name FROM users u
+              WHERE u.id = co.decision_recorded_by AND u.organization_id = co.organization_id), '')::text
+        AS decision_recorded_by_name
 FROM project_change_orders co
 WHERE co.project_id = $1 AND co.organization_id = $2
 ORDER BY co.sequence_no ASC
@@ -671,10 +684,13 @@ type ListChangeOrdersRow struct {
 	RejectedAt                       pgtype.Timestamptz `json:"rejected_at"`
 	CancelledAt                      pgtype.Timestamptz `json:"cancelled_at"`
 	SupersedesChangeOrderID          pgtype.UUID        `json:"supersedes_change_order_id"`
+	DecisionRecordedBy               pgtype.UUID        `json:"decision_recorded_by"`
+	DecisionNote                     string             `json:"decision_note"`
 	RealizedExpenseCost              pgtype.Numeric     `json:"realized_expense_cost"`
 	RealizedSubcontractorCost        pgtype.Numeric     `json:"realized_subcontractor_cost"`
 	SubcontractorRemainingCommitment pgtype.Numeric     `json:"subcontractor_remaining_commitment"`
 	ActiveShareToken                 pgtype.UUID        `json:"active_share_token"`
+	DecisionRecordedByName           string             `json:"decision_recorded_by_name"`
 }
 
 // ListChangeOrders, her kaydın taşeron/masraf kayıtlarından GERÇEKLEŞEN
@@ -715,10 +731,13 @@ func (q *Queries) ListChangeOrders(ctx context.Context, arg ListChangeOrdersPara
 			&i.RejectedAt,
 			&i.CancelledAt,
 			&i.SupersedesChangeOrderID,
+			&i.DecisionRecordedBy,
+			&i.DecisionNote,
 			&i.RealizedExpenseCost,
 			&i.RealizedSubcontractorCost,
 			&i.SubcontractorRemainingCommitment,
 			&i.ActiveShareToken,
+			&i.DecisionRecordedByName,
 		); err != nil {
 			return nil, err
 		}
@@ -755,7 +774,7 @@ FROM (
     FROM project_change_order_items WHERE change_order_id = $1
 ) sub
 WHERE co.id = $1 AND co.organization_id = $2 AND co.project_id = $3
-RETURNING co.id, co.organization_id, co.project_id, co.sequence_no, co.change_type, co.title, co.description, co.status, co.subtotal, co.vat_rate, co.vat_amount, co.grand_total, co.currency, co.internal_notes, co.customer_notes, co.created_by, co.created_at, co.updated_at, co.sent_at, co.responded_at, co.approved_at, co.rejected_at, co.cancelled_at, co.supersedes_change_order_id
+RETURNING co.id, co.organization_id, co.project_id, co.sequence_no, co.change_type, co.title, co.description, co.status, co.subtotal, co.vat_rate, co.vat_amount, co.grand_total, co.currency, co.internal_notes, co.customer_notes, co.created_by, co.created_at, co.updated_at, co.sent_at, co.responded_at, co.approved_at, co.rejected_at, co.cancelled_at, co.supersedes_change_order_id, co.decision_recorded_by, co.decision_note
 `
 
 type RecomputeChangeOrderTotalsParams struct {
@@ -797,6 +816,8 @@ func (q *Queries) RecomputeChangeOrderTotals(ctx context.Context, arg RecomputeC
 		&i.RejectedAt,
 		&i.CancelledAt,
 		&i.SupersedesChangeOrderID,
+		&i.DecisionRecordedBy,
+		&i.DecisionNote,
 	)
 	return i, err
 }
@@ -805,23 +826,35 @@ const respondChangeOrder = `-- name: RespondChangeOrder :one
 UPDATE project_change_orders
 SET status = $3::varchar, responded_at = now(),
     approved_at = CASE WHEN $3::varchar = 'approved' THEN now() ELSE approved_at END,
-    rejected_at = CASE WHEN $3::varchar = 'rejected' THEN now() ELSE rejected_at END
+    rejected_at = CASE WHEN $3::varchar = 'rejected' THEN now() ELSE rejected_at END,
+    decision_recorded_by = $4::uuid,
+    decision_note = $5::varchar
 WHERE id = $1 AND organization_id = $2 AND status = 'sent'
-RETURNING id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id
+RETURNING id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id, decision_recorded_by, decision_note
 `
 
 type RespondChangeOrderParams struct {
-	ID             pgtype.UUID `json:"id"`
-	OrganizationID pgtype.UUID `json:"organization_id"`
-	Status         string      `json:"status"`
+	ID                 pgtype.UUID `json:"id"`
+	OrganizationID     pgtype.UUID `json:"organization_id"`
+	Status             string      `json:"status"`
+	DecisionRecordedBy pgtype.UUID `json:"decision_recorded_by"`
+	DecisionNote       string      `json:"decision_note"`
 }
 
 // decision, 'approved' ya da 'rejected' olmalıdır (servis katmanında
 // doğrulanır). Yalnızca 'sent' durumundaki bir kayıt yanıtlanabilir --
 // bu WHERE koşulu, aynı bağlantıya ikinci bir yanıtın (double-submit)
-// da doğal olarak reddedilmesini sağlar.
+// da doğal olarak reddedilmesini sağlar. decision_recorded_by: kararı
+// personel kaydettiyse o kullanıcı (migration 0063); müşterinin kendi
+// linkinden gelen kararda NULL.
 func (q *Queries) RespondChangeOrder(ctx context.Context, arg RespondChangeOrderParams) (ProjectChangeOrder, error) {
-	row := q.db.QueryRow(ctx, respondChangeOrder, arg.ID, arg.OrganizationID, arg.Status)
+	row := q.db.QueryRow(ctx, respondChangeOrder,
+		arg.ID,
+		arg.OrganizationID,
+		arg.Status,
+		arg.DecisionRecordedBy,
+		arg.DecisionNote,
+	)
 	var i ProjectChangeOrder
 	err := row.Scan(
 		&i.ID,
@@ -848,6 +881,8 @@ func (q *Queries) RespondChangeOrder(ctx context.Context, arg RespondChangeOrder
 		&i.RejectedAt,
 		&i.CancelledAt,
 		&i.SupersedesChangeOrderID,
+		&i.DecisionRecordedBy,
+		&i.DecisionNote,
 	)
 	return i, err
 }
@@ -867,7 +902,7 @@ const sendChangeOrder = `-- name: SendChangeOrder :one
 UPDATE project_change_orders
 SET status = 'sent', sent_at = now()
 WHERE id = $1 AND organization_id = $2 AND status = 'draft' AND project_id = $3
-RETURNING id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id
+RETURNING id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id, decision_recorded_by, decision_note
 `
 
 type SendChangeOrderParams struct {
@@ -905,6 +940,8 @@ func (q *Queries) SendChangeOrder(ctx context.Context, arg SendChangeOrderParams
 		&i.RejectedAt,
 		&i.CancelledAt,
 		&i.SupersedesChangeOrderID,
+		&i.DecisionRecordedBy,
+		&i.DecisionNote,
 	)
 	return i, err
 }
@@ -913,7 +950,7 @@ const supersedeChangeOrder = `-- name: SupersedeChangeOrder :one
 UPDATE project_change_orders
 SET status = 'superseded'
 WHERE id = $1 AND organization_id = $2 AND status IN ('sent', 'rejected') AND project_id = $3
-RETURNING id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id
+RETURNING id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id, decision_recorded_by, decision_note
 `
 
 type SupersedeChangeOrderParams struct {
@@ -951,6 +988,8 @@ func (q *Queries) SupersedeChangeOrder(ctx context.Context, arg SupersedeChangeO
 		&i.RejectedAt,
 		&i.CancelledAt,
 		&i.SupersedesChangeOrderID,
+		&i.DecisionRecordedBy,
+		&i.DecisionNote,
 	)
 	return i, err
 }
@@ -960,7 +999,7 @@ UPDATE project_change_orders
 SET change_type = $3, title = $4, description = $5, vat_rate = $6,
     customer_notes = $7, internal_notes = $8
 WHERE id = $1 AND organization_id = $2 AND status = 'draft' AND project_id = $9
-RETURNING id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id
+RETURNING id, organization_id, project_id, sequence_no, change_type, title, description, status, subtotal, vat_rate, vat_amount, grand_total, currency, internal_notes, customer_notes, created_by, created_at, updated_at, sent_at, responded_at, approved_at, rejected_at, cancelled_at, supersedes_change_order_id, decision_recorded_by, decision_note
 `
 
 type UpdateChangeOrderDraftParams struct {
@@ -1017,6 +1056,8 @@ func (q *Queries) UpdateChangeOrderDraft(ctx context.Context, arg UpdateChangeOr
 		&i.RejectedAt,
 		&i.CancelledAt,
 		&i.SupersedesChangeOrderID,
+		&i.DecisionRecordedBy,
+		&i.DecisionNote,
 	)
 	return i, err
 }

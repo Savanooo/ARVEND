@@ -442,6 +442,7 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrChangeOrderNotSendable),
 		errors.Is(err, service.ErrChangeOrderNotCancellable),
 		errors.Is(err, service.ErrChangeOrderNotRevisable),
+		errors.Is(err, service.ErrChangeOrderNotRespondable),
 		errors.Is(err, service.ErrChangeOrderWouldGoNegative):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrFileTooLarge):

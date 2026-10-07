@@ -13,7 +13,7 @@ import (
 	"github.com/Savanooo/ARVEND/backend/internal/service"
 )
 
-// Varsayılan sistem rollerinin izin kümeleri (migration 0034-0062 seed'i;
+// Varsayılan sistem rollerinin izin kümeleri (migration 0034-0063 seed'i;
 // yerel dev DB'deki role_permissions ile aynı).
 var (
 	permsField = []string{
@@ -61,6 +61,7 @@ var (
 		domain.PermProjectsCostControlRead, domain.PermProjectsCostControlManage,
 		domain.PermOrganizationCostCodesRead, domain.PermOrganizationCostCodesManage,
 		domain.PermProjectsContractsRead, domain.PermProjectsContractsManage, domain.PermProjectsContractsLifecycle,
+		domain.PermProjectsChangeOrdersApprove,
 		domain.PermOrganizationSuppliersRead, domain.PermOrganizationSuppliersManage,
 		domain.PermProjectsProcurementRead, domain.PermProjectsProcurementManage, domain.PermProjectsProcurementApprove,
 		domain.PermProjectsSubcontractsRead, domain.PermProjectsSubcontractsManage, domain.PermProjectsSubcontractsApprove,

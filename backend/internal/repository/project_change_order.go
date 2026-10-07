@@ -53,6 +53,11 @@ func ToDomainChangeOrder(c sqlc.ProjectChangeOrder) domain.ChangeOrder {
 		s := c.SupersedesChangeOrderID.String()
 		co.SupersedesChangeOrderID = &s
 	}
+	if c.DecisionRecordedBy.Valid {
+		s := c.DecisionRecordedBy.String()
+		co.DecisionRecordedBy = &s
+	}
+	co.DecisionNote = c.DecisionNote
 	return co
 }
 
@@ -71,7 +76,9 @@ func ToDomainChangeOrderListItem(r sqlc.ListChangeOrdersRow) (domain.ChangeOrder
 		SentAt: r.SentAt, RespondedAt: r.RespondedAt, ApprovedAt: r.ApprovedAt,
 		RejectedAt: r.RejectedAt, CancelledAt: r.CancelledAt,
 		SupersedesChangeOrderID: r.SupersedesChangeOrderID,
+		DecisionRecordedBy:      r.DecisionRecordedBy, DecisionNote: r.DecisionNote,
 	})
+	co.DecisionRecordedByName = r.DecisionRecordedByName
 
 	realizedCost := NumericToFloat64(r.RealizedExpenseCost) + NumericToFloat64(r.RealizedSubcontractorCost)
 	committedCost := realizedCost + NumericToFloat64(r.SubcontractorRemainingCommitment)

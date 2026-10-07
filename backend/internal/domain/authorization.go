@@ -136,6 +136,12 @@ const (
 	PermProjectsContractsManage    = "projects.contracts.manage"
 	PermProjectsContractsLifecycle = "projects.contracts.lifecycle"
 
+	// Ek işte müşteri kararını personelin kaydetmesi ("Müşteri onayladı/
+	// reddetti olarak işaretle", migration 0063). Ek iş yazmaları
+	// projects.finance.manage ister; bu izin ondan AYRI çünkü karar sözleşme
+	// bedelini doğrudan değiştirir. Varsayılan yalnızca Sahip/Yönetici.
+	PermProjectsChangeOrdersApprove = "projects.change_orders.approve"
+
 	// Sprint 4 -- Procurement Foundation (Suppliers, Purchase Request,
 	// RFQ, Supplier Quotations, Purchase Order). suppliers.* organizasyon-
 	// seviyelidir (organization_cost_codes İLE AYNI kardinalite). procurement.*

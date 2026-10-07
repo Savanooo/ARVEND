@@ -527,6 +527,8 @@ type ProjectChangeOrder struct {
 	RejectedAt              pgtype.Timestamptz `json:"rejected_at"`
 	CancelledAt             pgtype.Timestamptz `json:"cancelled_at"`
 	SupersedesChangeOrderID pgtype.UUID        `json:"supersedes_change_order_id"`
+	DecisionRecordedBy      pgtype.UUID        `json:"decision_recorded_by"`
+	DecisionNote            string             `json:"decision_note"`
 }
 
 type ProjectChangeOrderEmailLog struct {

@@ -298,6 +298,13 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/change-orders/{changeOrderId}/revise", d.Projects.ReviseChangeOrder)
 				r.Post("/{id}/change-orders/{changeOrderId}/cancel", d.Projects.CancelChangeOrder)
 			})
+			// Müşteri telefonla/yazılı onayladıysa (ya da reddettiyse) kararı
+			// personel kaydeder -- sözleşme bedelini değiştirdiği için
+			// finance.manage'den AYRI izin (migration 0063).
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsChangeOrdersApprove))
+				r.Post("/{id}/change-orders/{changeOrderId}/record-decision", d.Projects.RecordChangeOrderDecision)
+			})
 
 			// --- Sprint 2: WBS + Proje Bütçesi (planlama katmanı) ---
 			// budget.read/manage, WBS+bütçe+kalem+revizyon YAPISINI kapsar;
