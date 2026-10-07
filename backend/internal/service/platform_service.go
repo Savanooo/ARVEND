@@ -580,6 +580,50 @@ func (s *PlatformService) CreateSuperAdmin(ctx context.Context, username, passwo
 	return &u, nil
 }
 
+// ResetSuperAdminPassword, bir Super Admin'in şifresini değiştirir --
+// yalnızca sunucudaki CLI'dan (cmd/reset-platform-admin-password) çağrılır.
+// Super Admin'in web'de ya da API'de kendi şifresini değiştireceği bir yer
+// yok: /users/me/password firma (tenant) ister, Profilim sayfası firma
+// kabuğunda. CreateSuperAdmin gibi bu da HTTP'ye açılmaz.
+//
+// Eski şifreyle açılmış bütün oturumlar kapanır (şifre değişimi bir sızıntı
+// sebebiyle yapılıyor olabilir) ve işlem platform denetim kaydına yazılır.
+func (s *PlatformService) ResetSuperAdminPassword(ctx context.Context, username, password string) error {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return errors.New("kullanıcı adı zorunludur")
+	}
+	if !domain.ValidPasswordLength(password) {
+		return domain.ErrPasswordTooShort
+	}
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		return err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+	id, err := txq.SetSuperAdminPassword(ctx, sqlc.SetSuperAdminPasswordParams{Username: username, PasswordHash: hash})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		return err
+	}
+	if err := txq.RevokeAllUserRefreshTokens(ctx, id); err != nil {
+		return err
+	}
+	if err := s.writeAuditEvent(ctx, txq, "", domain.AuditActionUserPasswordReset, nil, &id, map[string]any{
+		"target": "super_admin", "source": "cli",
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // writeAuditEvent, platform_audit_events'e değişmez bir denetim kaydı
 // yazar. actorUserID boşsa (ör. CLI'dan/sistemden tetiklenen işlemler)
 // actor_user_id NULL kalır -- offer_events/logOfferEvent ile aynı desen.
