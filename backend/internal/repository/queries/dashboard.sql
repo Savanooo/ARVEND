@@ -382,6 +382,43 @@ FROM flows
 GROUP BY flows.currency, flows.m
 ORDER BY flows.currency, flows.m;
 
+-- name: DashboardPendingExpensesTotals :many
+-- Onay bekleyen masraflar (migration 0060), projenin para biriminde. Kapalı
+-- (tamamlanmış/iptal) projelerde karar verilemez (finans kilidi) -- gündeme
+-- girmez. idx_expenses_pending bu kümeyi tarar.
+WITH ap AS (
+    SELECT p.* FROM projects p
+    WHERE p.organization_id = @org_id::uuid
+      AND (sqlc.narg('restrict_to_user_id')::uuid IS NULL OR EXISTS (
+           SELECT 1 FROM project_users pu
+           WHERE pu.project_id = p.id AND pu.user_id = sqlc.narg('restrict_to_user_id')::uuid))
+)
+SELECT ap.currency::text AS currency, count(*)::int AS cnt,
+       COALESCE(sum(e.amount), 0)::numeric(18,2) AS amount,
+       min((e.created_at AT TIME ZONE 'Europe/Istanbul')::date)::date AS oldest
+FROM project_expenses e
+JOIN ap ON ap.id = e.project_id AND ap.status IN ('planned', 'active', 'paused')
+WHERE e.organization_id = @org_id::uuid AND e.approval_status = 'pending' AND e.voided_at IS NULL
+GROUP BY ap.currency
+ORDER BY ap.currency;
+
+-- name: DashboardPendingExpensesTop :many
+-- En eski 3 onay bekleyen masraf (DashboardPendingExpensesTotals ile aynı küme).
+WITH ap AS (
+    SELECT p.* FROM projects p
+    WHERE p.organization_id = @org_id::uuid
+      AND (sqlc.narg('restrict_to_user_id')::uuid IS NULL OR EXISTS (
+           SELECT 1 FROM project_users pu
+           WHERE pu.project_id = p.id AND pu.user_id = sqlc.narg('restrict_to_user_id')::uuid))
+)
+SELECT e.id, e.project_id, e.description, ap.name AS project_name, ap.currency::text AS currency, e.amount,
+       (e.created_at AT TIME ZONE 'Europe/Istanbul')::date AS since_date
+FROM project_expenses e
+JOIN ap ON ap.id = e.project_id AND ap.status IN ('planned', 'active', 'paused')
+WHERE e.organization_id = @org_id::uuid AND e.approval_status = 'pending' AND e.voided_at IS NULL
+ORDER BY e.created_at ASC, e.id
+LIMIT 3;
+
 -- name: DashboardPlanItemsDue :many
 -- Kalan tutarı olan (iptal dışı) ödeme planı kalemleri, vade aralığında,
 -- en eski vade önce. Vadesi geçenler için from = NULL, to = dün;

@@ -556,6 +556,7 @@ String attentionTitle(AttentionGroup g) {
   return switch (g.code) {
     'plan_item_overdue' => '$n ödeme planı kaleminin vadesi geçti',
     'sales_invoice_overdue' => '$n satış faturasının vadesi geçti',
+    'expense_approval' => '$n masraf onay bekliyor',
     'change_order_awaiting_customer' => '$n ek iş müşteri onayında',
     'offer_expired_awaiting' => '$n teklifin süresi doldu, müşteri yanıt vermedi',
     'offer_accepted_not_converted' => '$n kabul edilen teklif projeye dönüştürülmedi',
@@ -635,6 +636,7 @@ const _daysPhrase = <String, String Function(int)>{
   'purchase_request_approval': _waiting,
   'progress_claim_certify': _waiting,
   'budget_adjustment_approval': _waiting,
+  'expense_approval': _waiting,
   'offer_expired_awaiting': _expired,
   'rfq_no_quote': _passed,
   'contract_past_completion': _passed,

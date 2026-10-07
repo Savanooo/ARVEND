@@ -482,6 +482,27 @@ void main() {
       expect(attentionTitle(g(empty, 'price_sync_never')), 'Demir Profil fiyat kaynağı hiç senkronlanmadı');
     });
 
+    test('onay bekleyen masraf: başlık, bekleme süresi; tek kayıt projenin Finans görünümünü açar', () {
+      const rec = AttentionRecord(
+        ref: DashRef(kind: 'project_finance', id: 'p1', projectId: 'p1'),
+        label: 'Çimento',
+        projectName: 'Kadıköy Konut Projesi',
+        days: 2,
+      );
+      const group = AttentionGroup(
+        code: 'expense_approval',
+        module: 'finance',
+        lane: 'mine',
+        severity: 'action',
+        count: 1,
+        amounts: [],
+        items: [rec],
+      );
+      expect(attentionTitle(group), '1 masraf onay bekliyor');
+      expect(attentionRecordLine(rec, 'expense_approval'), 'Çimento · Kadıköy Konut Projesi · 2${kNbsp}gündür bekliyor');
+      expect(mobileRouteFor(rec.ref), '/projeler/p1?grup=finans&alt=finans');
+    });
+
     test('yaklaşan etiketleri ve Bugün/Yarın', () {
       expect(upcomingLabel('plan_item_due'), 'Ödeme planı');
       expect(upcomingLabel('offer_expiry'), 'Teklif süresi doluyor');

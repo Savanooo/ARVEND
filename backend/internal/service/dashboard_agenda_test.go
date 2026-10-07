@@ -31,6 +31,7 @@ var (
 		"projects.subcontract_claims.manage", "projects.subcontract_claims.read",
 		"projects.subcontract_payments.manage", "projects.subcontract_payments.read",
 		"projects.subcontracts.approve", "projects.subcontracts.manage", "projects.subcontracts.read",
+		"projects.expenses.approve",
 	}
 	permsProjectManager = []string{
 		"calculations.read", "customers.read", "notifications.read", "organization.cost_codes.read",
@@ -67,7 +68,7 @@ var (
 		domain.PermProjectsSubcontractClaimsRead, domain.PermProjectsSubcontractClaimsManage,
 		domain.PermProjectsSubcontractClaimsCertify,
 		domain.PermProjectsSubcontractPaymentsRead, domain.PermProjectsSubcontractPaymentsManage,
-		domain.PermNotificationsRead,
+		domain.PermNotificationsRead, domain.PermProjectsExpensesApprove,
 	}
 )
 

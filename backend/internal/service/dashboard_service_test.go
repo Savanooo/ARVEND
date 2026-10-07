@@ -202,6 +202,9 @@ func TestDashboardFinanceSection(t *testing.T) {
 	           VALUES ($1, $2, 'material', 'Malzeme', 8000, 'TRY', $3::date, 'approved'),
 	                  ($1, $2, 'material', 'Onay bekleyen', 4000, 'TRY', $3::date, 'pending'),
 	                  ($1, $2, 'material', 'Reddedilen', 700, 'TRY', $3::date, 'rejected')`, org, pA.ID, ms)
+	// İptal edilmiş projede karar verilemez (finans kilidi): gündeme girmez.
+	e.exec(t, `INSERT INTO project_expenses (organization_id, project_id, category, description, amount, currency, expense_date, approval_status)
+	           VALUES ($1, $2, 'material', 'Kapalı projede bekleyen', 900, 'TRY', $3::date, 'pending')`, org, pC.ID, ms)
 	legacySub := e.scalar(t, `INSERT INTO project_subcontractors (organization_id, project_id, name, contract_amount, currency)
 	           VALUES ($1, $2, 'Eski Taşeron', 10000, 'TRY') RETURNING id::text`, org, pA.ID)
 	e.exec(t, `INSERT INTO project_subcontractor_payments (organization_id, project_id, subcontractor_id, amount, currency, paid_date)
@@ -292,6 +295,13 @@ func TestDashboardFinanceSection(t *testing.T) {
 	}
 	if g := findGroup(d, domain.AttnSalesInvoiceOverdue); g == nil || g.Count != 1 || g.Items[0].Label != "DASH-F1" {
 		t.Errorf("sales_invoice_overdue grubu: %+v", g)
+	}
+	// Onay bekleyen masraf (A'da 4.000) onaylayabilen Sahip'in sırasında;
+	// satır projenin Finans görünümünü açar.
+	if g := findGroup(d, domain.AttnExpenseApproval); g == nil || g.Count != 1 || g.Lane != domain.LaneMine ||
+		len(g.Items) != 1 || g.Items[0].Label != "Onay bekleyen" || g.Items[0].Ref.Kind != domain.RefKindProjectFinance ||
+		g.Items[0].Ref.ID != pA.ID || len(g.Amounts) != 1 || !approx(g.Amounts[0].Amount, 4000) {
+		t.Errorf("expense_approval grubu: %+v", g)
 	}
 	foundDue := false
 	for _, u := range d.Agenda.Upcoming {

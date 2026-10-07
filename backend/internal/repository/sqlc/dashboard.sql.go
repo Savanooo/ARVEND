@@ -2251,6 +2251,125 @@ func (q *Queries) DashboardPendingAdjustmentsTotals(ctx context.Context, arg Das
 	return items, nil
 }
 
+const dashboardPendingExpensesTop = `-- name: DashboardPendingExpensesTop :many
+WITH ap AS (
+    SELECT p.id, p.organization_id, p.project_no, p.name, p.project_type, p.source_offer_id, p.source_revision_id, p.customer_id, p.customer_name, p.customer_phone, p.customer_email, p.customer_address, p.contract_amount, p.currency, p.status, p.start_date, p.end_date, p.description, p.internal_notes, p.created_by, p.created_at, p.updated_at FROM projects p
+    WHERE p.organization_id = $1::uuid
+      AND ($2::uuid IS NULL OR EXISTS (
+           SELECT 1 FROM project_users pu
+           WHERE pu.project_id = p.id AND pu.user_id = $2::uuid))
+)
+SELECT e.id, e.project_id, e.description, ap.name AS project_name, ap.currency::text AS currency, e.amount,
+       (e.created_at AT TIME ZONE 'Europe/Istanbul')::date AS since_date
+FROM project_expenses e
+JOIN ap ON ap.id = e.project_id AND ap.status IN ('planned', 'active', 'paused')
+WHERE e.organization_id = $1::uuid AND e.approval_status = 'pending' AND e.voided_at IS NULL
+ORDER BY e.created_at ASC, e.id
+LIMIT 3
+`
+
+type DashboardPendingExpensesTopParams struct {
+	OrgID            pgtype.UUID `json:"org_id"`
+	RestrictToUserID pgtype.UUID `json:"restrict_to_user_id"`
+}
+
+type DashboardPendingExpensesTopRow struct {
+	ID          pgtype.UUID    `json:"id"`
+	ProjectID   pgtype.UUID    `json:"project_id"`
+	Description string         `json:"description"`
+	ProjectName string         `json:"project_name"`
+	Currency    string         `json:"currency"`
+	Amount      pgtype.Numeric `json:"amount"`
+	SinceDate   pgtype.Date    `json:"since_date"`
+}
+
+// En eski 3 onay bekleyen masraf (DashboardPendingExpensesTotals ile aynı küme).
+func (q *Queries) DashboardPendingExpensesTop(ctx context.Context, arg DashboardPendingExpensesTopParams) ([]DashboardPendingExpensesTopRow, error) {
+	rows, err := q.db.Query(ctx, dashboardPendingExpensesTop, arg.OrgID, arg.RestrictToUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DashboardPendingExpensesTopRow
+	for rows.Next() {
+		var i DashboardPendingExpensesTopRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.Description,
+			&i.ProjectName,
+			&i.Currency,
+			&i.Amount,
+			&i.SinceDate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const dashboardPendingExpensesTotals = `-- name: DashboardPendingExpensesTotals :many
+WITH ap AS (
+    SELECT p.id, p.organization_id, p.project_no, p.name, p.project_type, p.source_offer_id, p.source_revision_id, p.customer_id, p.customer_name, p.customer_phone, p.customer_email, p.customer_address, p.contract_amount, p.currency, p.status, p.start_date, p.end_date, p.description, p.internal_notes, p.created_by, p.created_at, p.updated_at FROM projects p
+    WHERE p.organization_id = $1::uuid
+      AND ($2::uuid IS NULL OR EXISTS (
+           SELECT 1 FROM project_users pu
+           WHERE pu.project_id = p.id AND pu.user_id = $2::uuid))
+)
+SELECT ap.currency::text AS currency, count(*)::int AS cnt,
+       COALESCE(sum(e.amount), 0)::numeric(18,2) AS amount,
+       min((e.created_at AT TIME ZONE 'Europe/Istanbul')::date)::date AS oldest
+FROM project_expenses e
+JOIN ap ON ap.id = e.project_id AND ap.status IN ('planned', 'active', 'paused')
+WHERE e.organization_id = $1::uuid AND e.approval_status = 'pending' AND e.voided_at IS NULL
+GROUP BY ap.currency
+ORDER BY ap.currency
+`
+
+type DashboardPendingExpensesTotalsParams struct {
+	OrgID            pgtype.UUID `json:"org_id"`
+	RestrictToUserID pgtype.UUID `json:"restrict_to_user_id"`
+}
+
+type DashboardPendingExpensesTotalsRow struct {
+	Currency string         `json:"currency"`
+	Cnt      int32          `json:"cnt"`
+	Amount   pgtype.Numeric `json:"amount"`
+	Oldest   pgtype.Date    `json:"oldest"`
+}
+
+// Onay bekleyen masraflar (migration 0060), projenin para biriminde. Kapalı
+// (tamamlanmış/iptal) projelerde karar verilemez (finans kilidi) -- gündeme
+// girmez. idx_expenses_pending bu kümeyi tarar.
+func (q *Queries) DashboardPendingExpensesTotals(ctx context.Context, arg DashboardPendingExpensesTotalsParams) ([]DashboardPendingExpensesTotalsRow, error) {
+	rows, err := q.db.Query(ctx, dashboardPendingExpensesTotals, arg.OrgID, arg.RestrictToUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DashboardPendingExpensesTotalsRow
+	for rows.Next() {
+		var i DashboardPendingExpensesTotalsRow
+		if err := rows.Scan(
+			&i.Currency,
+			&i.Cnt,
+			&i.Amount,
+			&i.Oldest,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const dashboardPlanItemsDue = `-- name: DashboardPlanItemsDue :many
 WITH ap AS (
     SELECT p.id, p.organization_id, p.project_no, p.name, p.project_type, p.source_offer_id, p.source_revision_id, p.customer_id, p.customer_name, p.customer_phone, p.customer_email, p.customer_address, p.contract_amount, p.currency, p.status, p.start_date, p.end_date, p.description, p.internal_notes, p.created_by, p.created_at, p.updated_at FROM projects p
