@@ -144,7 +144,13 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 	}
 	session, err := h.svc.Refresh(r.Context(), cookie.Value)
 	if err != nil {
-		h.clearSessionCookies(w)
+		// Cookie'ler YALNIZCA oturumun gerçekten bittiği durumlarda (geçersiz/
+		// süresi dolmuş/iptal edilmiş token, pasif kullanıcı, askıdaki firma
+		// -- 401/403) silinir. Geçici bir sunucu/veritabanı hatasında
+		// silinseydi, kesinti geçince yenilenebilecek oturum da giderdi.
+		if isSessionEndingError(err) {
+			h.clearSessionCookies(w)
+		}
 		h.writeAuthError(w, err)
 		return
 	}
@@ -172,6 +178,15 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpjson.Write(w, http.StatusOK, toSessionResponse(r.Context(), h.authzSvc, *session))
+}
+
+// isSessionEndingError: writeAuthError'ın 401/403'e çevirdiği hatalar --
+// bu oturum bir daha yenilenemez.
+func isSessionEndingError(err error) bool {
+	return errors.Is(err, domain.ErrInvalidToken) ||
+		errors.Is(err, domain.ErrInactiveUser) ||
+		errors.Is(err, domain.ErrOrganizationSuspended) ||
+		errors.Is(err, domain.ErrInvalidCredentials)
 }
 
 func (h *AuthHandler) writeAuthError(w http.ResponseWriter, err error) {

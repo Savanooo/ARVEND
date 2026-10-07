@@ -1062,6 +1062,7 @@ type RefreshToken struct {
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	RotatedAt pgtype.Timestamptz `json:"rotated_at"`
 }
 
 type Rfq struct {

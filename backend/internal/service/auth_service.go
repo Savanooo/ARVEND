@@ -63,19 +63,45 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (*Se
 	return session, nil
 }
 
+// refreshReuseGrace, yenileme ile az önce iptal edilmiş bir refresh
+// token'ın bir kez daha kabul edildiği süredir. Refresh token tek
+// kullanımlık; iki sekme (ya da sekme + Next sunucusu, mobil arka plan
+// isteği) aynı token'la aynı anda yenileyince geç kalan "geçersiz token"
+// alıyor, cookie'ler siliniyor ve kullanıcının BÜTÜN sekmeleri oturumdan
+// düşüyordu. Pencere kısa tutulur: çalınmış bir token'la elde edilebilecek
+// ek süre en fazla budur ve çıkış/şifre değişikliği/pasifleştirme toleransı
+// hemen kaldırır (bkz. RevokeAllUserRefreshTokens, RevokeRefreshTokenForLogout).
+const refreshReuseGrace = 30 * time.Second
+
 // Refresh, geçerli bir refresh token karşılığında yeni bir çift üretir ve
 // eskisini iptal eder (rotasyon — çalınmış bir refresh token'ın tekrar
-// kullanılmasını zorlaştırır).
+// kullanılmasını zorlaştırır). Rotasyon tek atomik UPDATE'tir: aynı token'la
+// gelen eşzamanlı isteklerden yalnızca biri onu alır. Diğerleri, token
+// refreshReuseGrace içinde YENİLEME ile iptal edildiyse aynı kullanıcı için
+// yeni bir çift alır; daha eski ya da çıkış/şifre değişikliği ile iptal
+// edilmiş token her zaman reddedilir.
 func (s *AuthService) Refresh(ctx context.Context, rawRefreshToken string) (*Session, error) {
 	hash := auth.HashRefreshToken(rawRefreshToken)
-	rt, err := s.q.GetValidRefreshToken(ctx, hash)
+	rt, err := s.q.RotateRefreshToken(ctx, hash)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrInvalidToken
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
 		}
-		return nil, err
+		rt, err = s.q.GetRecentlyRotatedRefreshToken(ctx, sqlc.GetRecentlyRotatedRefreshTokenParams{
+			TokenHash:    hash,
+			RotatedAfter: pgTimestamptz(time.Now().Add(-refreshReuseGrace)),
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, domain.ErrInvalidToken
+			}
+			return nil, err
+		}
 	}
 
+	// Kullanıcı ve firma durumu HER iki yolda da yeniden okunur: tolerans,
+	// pasifleştirilmiş birinin ya da askıya alınmış bir firmanın oturumunu
+	// uzatamaz.
 	userRow, err := s.q.GetUserByID(ctx, rt.UserID)
 	if err != nil {
 		return nil, domain.ErrInvalidToken
@@ -88,15 +114,14 @@ func (s *AuthService) Refresh(ctx context.Context, rawRefreshToken string) (*Ses
 	if err != nil {
 		return nil, err
 	}
-
-	if err := s.q.RevokeRefreshToken(ctx, hash); err != nil {
-		return nil, err
-	}
 	return s.issueSession(ctx, user, org)
 }
 
+// Logout, bu cihazın refresh token'ını iptal eder ve kullanıcının yenileme
+// toleransındaki token'larının toleransını kaldırır -- çıkıştan hemen sonra
+// bir önceki token'la oturum geri açılamaz.
 func (s *AuthService) Logout(ctx context.Context, rawRefreshToken string) error {
-	return s.q.RevokeRefreshToken(ctx, auth.HashRefreshToken(rawRefreshToken))
+	return s.q.RevokeRefreshTokenForLogout(ctx, auth.HashRefreshToken(rawRefreshToken))
 }
 
 // Me, /auth/me için mevcut oturumun kullanıcısını VE (varsa) organizasyonunu
