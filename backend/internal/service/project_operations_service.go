@@ -837,7 +837,14 @@ func (s *ProjectService) UpdateTask(ctx context.Context, projectID, taskID, orga
 	if err != nil {
 		return nil, err
 	}
-	if employeeID.Valid && employeeID != current.AssignedEmployeeID {
+	// Tamamlanma ve yeniden atama BİRBİRİNDEN BAĞIMSIZ değerlendirilir:
+	// eskiden tek bir switch ilk eşleşende durduğu için aynı kayıtta
+	// tamamlanıp başkasına atanan görevin yeni sahibine "Yeni görev atandı"
+	// gitmiyor, düzenleme ekranından tamamlamak da hiç bildirim üretmiyordu
+	// (/complete ve "Bilgi Ver" üretirken).
+	completedNow := in.Status == domain.TaskStatusCompleted && current.Status != domain.TaskStatusCompleted
+	reassigned := employeeID.Valid && employeeID != current.AssignedEmployeeID
+	if reassigned {
 		// Yalnızca kişi DEĞİŞİRKEN: eski bir atama, başka alanlar
 		// kaydedilirken reddedilmesin.
 		if err := requireAssigneeProjectAccess(ctx, txq, orgID, current.ProjectID, employeeUserID, employeeName); err != nil {
@@ -866,27 +873,42 @@ func (s *ProjectService) UpdateTask(ctx context.Context, projectID, taskID, orga
 	}
 
 	actor := actorUUID(in.UserID)
-	switch {
-	case in.Status == domain.TaskStatusCompleted && current.Status != domain.TaskStatusCompleted:
-		err = logProjectEvent(ctx, txq, orgID, current.ProjectID, domain.ProjectEventTaskCompleted, actor,
-			map[string]any{"task_id": taskID, "title": title})
-	case employeeID.Valid && employeeID.String() != current.AssignedEmployeeID.String():
-		err = logProjectEvent(ctx, txq, orgID, current.ProjectID, domain.ProjectEventTaskAssigned, actor,
-			map[string]any{"task_id": taskID, "title": title, "employee_name": employeeName})
-		if err == nil {
-			err = createNotification(ctx, txq, CreateNotificationInput{
-				OrganizationID: orgID, UserID: employeeUserID, Type: domain.NotificationTaskAssigned,
-				Title: "Yeni görev atandı", Body: title,
-				EntityType: domain.NotificationEntityTask, EntityID: tid, ProjectID: current.ProjectID,
-				ActionTarget: "/projeler/" + current.ProjectID.String() + "/gorevler/" + taskID,
-			})
+	target := "/projeler/" + current.ProjectID.String() + "/gorevler/" + taskID
+	if completedNow {
+		if err := logProjectEvent(ctx, txq, orgID, current.ProjectID, domain.ProjectEventTaskCompleted, actor,
+			map[string]any{"task_id": taskID, "title": title}); err != nil {
+			return nil, err
 		}
-	default:
-		err = logProjectEvent(ctx, txq, orgID, current.ProjectID, domain.ProjectEventTaskUpdated, actor,
-			map[string]any{"task_id": taskID, "title": title, "status": in.Status})
+		// /complete ile aynı alıcılar; taraflar kaydedilmeden ÖNCEKİ
+		// halden (current) okunur -- görevi o ana dek yürüten kişi haber
+		// alsın (yeni sahibi aşağıda ayrıca "atandı" bildirimi alır).
+		if err := notifyTaskParties(ctx, txq, orgID, current, actor, CreateNotificationInput{
+			OrganizationID: orgID, Type: domain.NotificationTaskCompleted, Title: "Görev tamamlandı", Body: title,
+			EntityType: domain.NotificationEntityTask, EntityID: tid, ProjectID: current.ProjectID,
+			ActionTarget: target,
+		}); err != nil {
+			return nil, err
+		}
 	}
-	if err != nil {
-		return nil, err
+	if reassigned {
+		if err := logProjectEvent(ctx, txq, orgID, current.ProjectID, domain.ProjectEventTaskAssigned, actor,
+			map[string]any{"task_id": taskID, "title": title, "employee_name": employeeName}); err != nil {
+			return nil, err
+		}
+		if err := createNotification(ctx, txq, CreateNotificationInput{
+			OrganizationID: orgID, UserID: employeeUserID, Type: domain.NotificationTaskAssigned,
+			Title: "Yeni görev atandı", Body: title,
+			EntityType: domain.NotificationEntityTask, EntityID: tid, ProjectID: current.ProjectID,
+			ActionTarget: target,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	if !completedNow && !reassigned {
+		if err := logProjectEvent(ctx, txq, orgID, current.ProjectID, domain.ProjectEventTaskUpdated, actor,
+			map[string]any{"task_id": taskID, "title": title, "status": in.Status}); err != nil {
+			return nil, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
