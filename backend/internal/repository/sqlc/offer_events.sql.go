@@ -94,3 +94,26 @@ func (q *Queries) ListOfferEvents(ctx context.Context, arg ListOfferEventsParams
 	}
 	return items, nil
 }
+
+const offerRevisionFirstOpenLogged = `-- name: OfferRevisionFirstOpenLogged :one
+SELECT EXISTS (
+    SELECT 1 FROM offer_events
+    WHERE offer_id = $1 AND revision_id = $2 AND event_type = 'customer_viewed'
+      AND metadata @> '{"first_open": true}'::jsonb
+)::boolean AS logged
+`
+
+type OfferRevisionFirstOpenLoggedParams struct {
+	OfferID    pgtype.UUID `json:"offer_id"`
+	RevisionID pgtype.UUID `json:"revision_id"`
+}
+
+// Müşterinin bu revizyonu karar beklerken İLK açışı zaten kaydedildi mi
+// (first_open işaretli customer_viewed, bkz. OfferService.recordCustomerView).
+// idx_offer_events_offer_id ile yalnızca teklifin kendi olayları taranır.
+func (q *Queries) OfferRevisionFirstOpenLogged(ctx context.Context, arg OfferRevisionFirstOpenLoggedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, offerRevisionFirstOpenLogged, arg.OfferID, arg.RevisionID)
+	var logged bool
+	err := row.Scan(&logged)
+	return logged, err
+}

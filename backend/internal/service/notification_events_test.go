@@ -394,8 +394,9 @@ func TestNotifications(t *testing.T) {
 
 	// ---------- Teklif kabul/red ----------
 
-	t.Run("4_offer_accepted_via_staff_updatestatus_notifies_creator", func(t *testing.T) {
+	t.Run("4_offer_accepted_via_staff_updatestatus_notifies_creator_not_the_actor", func(t *testing.T) {
 		creator := mustRoleUser(t, orgA.ID, "notif_offer_creator4", domain.OrgRoleOwner)
+		actor := mustRoleUser(t, orgA.ID, "notif_offer_actor4", domain.OrgRoleOwner)
 		o, err := offerSvc.Create(ctx, service.CreateOfferInput{
 			OrganizationID: orgA.ID, UserID: creator.ID, CustomerName: "Kabul Testi Müşteri", VatRate: ptrFloat(0),
 			Items: []service.OfferItemInput{{ProductName: "Kalem", Quantity: 1, UnitPrice: 1000}},
@@ -404,7 +405,8 @@ func TestNotifications(t *testing.T) {
 			t.Fatalf("teklif oluşturulamadı: %v", err)
 		}
 		before, _ := notifSvc.UnreadCount(ctx, creator.ID, orgA.ID)
-		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusKabulEdildi, creator.ID); err != nil {
+		actorBefore, _ := notifSvc.UnreadCount(ctx, actor.ID, orgA.ID)
+		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusKabulEdildi, actor.ID); err != nil {
 			t.Fatalf("kabul edilemedi: %v", err)
 		}
 		after, _ := notifSvc.UnreadCount(ctx, creator.ID, orgA.ID)
@@ -414,6 +416,10 @@ func TestNotifications(t *testing.T) {
 		codes := unreadCodes(t, creator.ID, orgA.ID)
 		if !contains(codes, domain.NotificationOfferAccepted) {
 			t.Fatalf("offer_accepted bildirimi bulunamadı: %v", codes)
+		}
+		// Durumu işaretleyen kendi eylemi için bildirim almaz.
+		if actorAfter, _ := notifSvc.UnreadCount(ctx, actor.ID, orgA.ID); actorAfter != actorBefore {
+			t.Fatalf("işaretleyen kendine bildirim almamalı: önce=%d sonra=%d", actorBefore, actorAfter)
 		}
 	})
 

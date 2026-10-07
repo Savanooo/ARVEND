@@ -11,6 +11,14 @@ import "time"
 // ticari veri İÇERMEZ -- yalnızca varlık numarası/başlığı gibi nötr bir
 // referans taşır (bkz. notification_service.go şablonları). Detay için
 // kullanıcı ActionTarget'ı açıp kimlik doğrulamalı uygulamadan görür.
+//
+// TEK istisna müşterinin paylaşım linkindeki hareketleridir (teklif/ek iş
+// kararı, teklifin ilk açılışı -- bkz. customer_link_notify.go): gövde
+// teklif no + müşteri adı + tutar taşır. Ürün sahibinin isteği (2026-10):
+// "müşteri onaylayınca bildirim gelsin" -- telefonda HANGİ teklifin
+// kazanıldığı bir bakışta görünmeli. Alıcıların hepsi o kaydı zaten
+// açabilen kişilerdir (okuma izni + proje erişimi süzülür), bildirim
+// yetkisi olmayana veri taşımaz.
 type Notification struct {
 	ID             string
 	OrganizationID string
@@ -37,10 +45,19 @@ const (
 	NotificationTaskAssigned = "task_assigned"
 	// Göreve not yazıldı / durum değişti / tamamlandı (migration 0051):
 	// görevi atayana ve atanan kişiye -- yazan hariç.
-	NotificationTaskUpdated                     = "task_updated"
-	NotificationTaskCompleted                   = "task_completed"
-	NotificationOfferAccepted                   = "offer_accepted"
-	NotificationOfferRejected                   = "offer_rejected"
+	NotificationTaskUpdated   = "task_updated"
+	NotificationTaskCompleted = "task_completed"
+	// Teklif kararı -- müşterinin linkinden ya da personelin durum
+	// değişikliğinden (UpdateStatus): bkz. resolveOfferDecisionAudience.
+	NotificationOfferAccepted = "offer_accepted"
+	NotificationOfferRejected = "offer_rejected"
+	// Müşteri teklif linkini, revizyon kararını beklerken İLK kez açtı
+	// (revizyon başına bir kez): teklifi hazırlayana.
+	NotificationOfferViewed = "offer_viewed"
+	// Ek işte müşteri kararı -- linkten ya da personelin kaydı (record-
+	// decision): bkz. resolveChangeOrderDecisionAudience.
+	NotificationChangeOrderApproved             = "change_order_approved"
+	NotificationChangeOrderRejected             = "change_order_rejected"
 	NotificationSubcontractActivated            = "subcontract_activated"
 	NotificationSubcontractChangeOrderSubmitted = "subcontract_change_order_submitted"
 	NotificationSubcontractChangeOrderApproved  = "subcontract_change_order_approved"
@@ -76,6 +93,7 @@ const (
 const (
 	NotificationEntityTask                   = "task"
 	NotificationEntityOffer                  = "offer"
+	NotificationEntityChangeOrder            = "change_order"
 	NotificationEntitySubcontract            = "subcontract"
 	NotificationEntitySubcontractChangeOrder = "subcontract_change_order"
 	NotificationEntityProgressClaim          = "progress_claim"
