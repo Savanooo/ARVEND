@@ -11,6 +11,7 @@ import '../../../core/widgets/app_buttons.dart';
 import '../data/projects_providers.dart';
 import '../domain/subcontract.dart';
 import 'form_number_input.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 Future<SubcontractPayment?> showSubcontractPaymentFormSheet(
   BuildContext context,
@@ -18,7 +19,7 @@ Future<SubcontractPayment?> showSubcontractPaymentFormSheet(
   String subcontractId, {
   required String currency,
 }) {
-  return showModalBottomSheet<SubcontractPayment>(
+  return showAppSheet<SubcontractPayment>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,

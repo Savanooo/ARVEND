@@ -22,6 +22,7 @@ import '../../projects/data/projects_providers.dart';
 import '../data/customers_providers.dart';
 import '../domain/customer.dart';
 import 'customer_form_sheet.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 /// Müşteri detay -- "Teklifler"/"Projeler" bölümleri backend'in ZATEN var
 /// olan uçlarını (bkz. bu modülün backend değişikliği: `GET /offers?
@@ -216,7 +217,7 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
   }
 
   void _showFormSheet(Customer existing) {
-    showModalBottomSheet(
+    showAppSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,

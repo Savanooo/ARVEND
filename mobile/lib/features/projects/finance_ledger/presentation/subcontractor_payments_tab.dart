@@ -25,6 +25,7 @@ import '../data/finance_ledger_providers.dart';
 import '../domain/legacy_subcontractor.dart';
 import 'ledger_entry_sheet.dart';
 import 'ledger_ui.dart';
+import '../../../../core/widgets/app_sheet.dart';
 
 /// Finans > "Taşeron Ödemeleri" (`?grup=finans&alt=taseron-odemeleri`) --
 /// web proje Finans sekmesindeki "Taşeronlar" bölümünün (`Subcontractors
@@ -360,14 +361,10 @@ Future<LegacySubcontractor?> showLegacySubcontractorFormSheet(
   required String currency,
   LegacySubcontractor? existing,
 }) {
-  return showModalBottomSheet<LegacySubcontractor>(
+  return showAppSheet<LegacySubcontractor>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    // Kayıt sürerken sayfa kapanamaz (UnsavedChangesScope + sürükleme kapalı):
-    // aksi halde kayıt oluşur ama liste tazelenmez ve kullanıcı tekrar
-    // eklerdi (taşeron oluşturma ucunda idempotency anahtarı yok).
-    enableDrag: false,
     builder: (_) => _SubcontractorFormSheet(projectId: projectId, currency: currency, existing: existing),
   );
 }
@@ -499,14 +496,10 @@ Future<LegacySubcontractorPayment?> showLegacySubcontractorPaymentSheet(
   required String projectId,
   required LegacySubcontractor subcontractor,
 }) {
-  return showModalBottomSheet<LegacySubcontractorPayment>(
+  return showAppSheet<LegacySubcontractorPayment>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    // Kayıt sürerken sayfa kapanamaz (UnsavedChangesScope + sürükleme kapalı):
-    // aksi halde kayıt oluşur ama liste tazelenmez ve kullanıcı tekrar
-    // eklerdi (taşeron oluşturma ucunda idempotency anahtarı yok).
-    enableDrag: false,
     builder: (_) => _PaymentSheet(projectId: projectId, subcontractor: subcontractor),
   );
 }

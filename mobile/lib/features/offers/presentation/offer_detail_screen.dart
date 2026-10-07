@@ -22,6 +22,7 @@ import '../data/offers_providers.dart';
 import '../domain/offer.dart';
 import '../history/offer_history_routes.dart' show OfferHistorySection, invalidateOfferHistory;
 import 'offer_pdf.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 class OfferDetailScreen extends ConsumerStatefulWidget {
   const OfferDetailScreen({super.key, required this.offerId});
@@ -132,7 +133,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
   /// dönüştürülüyordu.
   Future<void> _convert(Offer offer) async {
     final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
-    final result = await showModalBottomSheet<Map<String, dynamic>>(
+    final result = await showAppSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
