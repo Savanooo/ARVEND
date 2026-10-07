@@ -381,6 +381,7 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrInvalidSchedule),
 		errors.Is(err, service.ErrUnsupportedType),
 		errors.Is(err, service.ErrEmptyFile),
+		errors.Is(err, service.ErrAssigneeNoProjectAccess),
 		errors.Is(err, service.ErrProjectFieldTooLong),
 		errors.Is(err, service.ErrInvalidChangeOrderRef),
 		errors.Is(err, service.ErrNoChangeOrderItems):

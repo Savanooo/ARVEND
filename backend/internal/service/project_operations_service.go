@@ -216,6 +216,9 @@ func (s *ProjectService) AssignMember(ctx context.Context, projectID, organizati
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	// Ekip (İK/puantaj roster'ı) proje ERİŞİMİ vermez -- bkz.
+	// requireAssigneeProjectAccess notu: "Ekibe Ekle"yi Saha rolü de
+	// yapabilir, erişim ise yalnızca Proje Erişimi ekranından verilir.
 	if _, err := s.requireOpenProjectForOps(ctx, txq, pid, orgID); err != nil {
 		return nil, err
 	}
@@ -385,6 +388,9 @@ func (s *ProjectService) CreateScheduleItem(ctx context.Context, projectID, orga
 		if assigneeID, assigneeName, assigneeUser, err = resolveEmployeeAssignee(ctx, txq, orgID, in.AssignedEmployeeID); err != nil {
 			return nil, err
 		}
+		if err := requireAssigneeProjectAccess(ctx, txq, orgID, pid, assigneeUser, assigneeName); err != nil {
+			return nil, err
+		}
 	}
 
 	row, err := txq.CreateScheduleItem(ctx, sqlc.CreateScheduleItemParams{
@@ -478,8 +484,14 @@ func (s *ProjectService) UpdateScheduleItem(ctx context.Context, projectID, item
 		}
 	}
 	// Bildirim yalnızca sorumlu DEĞİŞTİYSE (aynı kişiyle kaydetmek yeniden
-	// bildirim atmaz).
+	// bildirim atmaz). Erişim kontrolü de yalnızca o zaman: mevcut (eski)
+	// bir atama, başka alanlar kaydedilirken reddedilmesin.
 	assigneeChanged := assigneeID.Valid && assigneeID != current.AssignedEmployeeID
+	if assigneeChanged {
+		if err := requireAssigneeProjectAccess(ctx, txq, orgID, pid, assigneeUser, assigneeName); err != nil {
+			return nil, err
+		}
+	}
 
 	row, err := txq.UpdateScheduleItem(ctx, sqlc.UpdateScheduleItemParams{
 		ID:                 iid,
@@ -618,6 +630,11 @@ func (s *ProjectService) CreateTask(ctx context.Context, projectID, organization
 	scheduleID, employeeID, employeeName, employeeUserID, err := s.resolveTaskRelations(ctx, txq, pid, orgID, in)
 	if err != nil {
 		return nil, err
+	}
+	if employeeID.Valid {
+		if err := requireAssigneeProjectAccess(ctx, txq, orgID, pid, employeeUserID, employeeName); err != nil {
+			return nil, err
+		}
 	}
 
 	row, err := txq.CreateTask(ctx, sqlc.CreateTaskParams{
@@ -819,6 +836,13 @@ func (s *ProjectService) UpdateTask(ctx context.Context, projectID, taskID, orga
 	scheduleID, employeeID, employeeName, employeeUserID, err := s.resolveTaskRelations(ctx, txq, current.ProjectID, orgID, in)
 	if err != nil {
 		return nil, err
+	}
+	if employeeID.Valid && employeeID != current.AssignedEmployeeID {
+		// Yalnızca kişi DEĞİŞİRKEN: eski bir atama, başka alanlar
+		// kaydedilirken reddedilmesin.
+		if err := requireAssigneeProjectAccess(ctx, txq, orgID, current.ProjectID, employeeUserID, employeeName); err != nil {
+			return nil, err
+		}
 	}
 
 	row, err := txq.UpdateTask(ctx, sqlc.UpdateTaskParams{

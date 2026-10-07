@@ -103,6 +103,16 @@ func TestNotifications(t *testing.T) {
 		return e
 	}
 
+	// grantAccess: kullanıcıyı projenin Erişim listesine ekler. Görev/plan
+	// yalnızca projeyi görebilen (bypass rolü ya da Erişim'de olan) hesaba
+	// atanabilir (bkz. requireAssigneeProjectAccess).
+	grantAccess := func(t *testing.T, projectID, orgID, userID, by string) {
+		t.Helper()
+		if _, err := authzSvc.AddProjectUser(ctx, projectID, orgID, service.ProjectUserInput{UserID: userID, ProjectRole: "member", CreatedBy: by}); err != nil {
+			t.Fatalf("proje erişimi verilemedi: %v", err)
+		}
+	}
+
 	newProject := func(t *testing.T, orgID, creatorUserID string) *domain.Project {
 		t.Helper()
 		o, err := offerSvc.Create(ctx, service.CreateOfferInput{
@@ -151,6 +161,7 @@ func TestNotifications(t *testing.T) {
 		assignee := mustRoleUser(t, orgA.ID, "notif_assignee1", domain.OrgRoleField)
 		emp := mustLinkedEmployee(t, orgA.ID, "Atanan Personel 1", assignee.ID)
 		p := newProject(t, orgA.ID, owner.ID)
+		grantAccess(t, p.ID, orgA.ID, assignee.ID, owner.ID)
 
 		before, err := notifSvc.UnreadCount(ctx, assignee.ID, orgA.ID)
 		if err != nil {
@@ -195,6 +206,7 @@ func TestNotifications(t *testing.T) {
 		assignee := mustRoleUser(t, orgA.ID, "notif_assignee1b", domain.OrgRoleField)
 		emp := mustLinkedEmployee(t, orgA.ID, "Atanan Personel 1b", assignee.ID)
 		p := newProject(t, orgA.ID, owner.ID)
+		grantAccess(t, p.ID, orgA.ID, assignee.ID, owner.ID)
 		task, err := projectSvc.CreateTask(ctx, p.ID, orgA.ID, service.TaskInput{
 			Title: "Duvar örümü", Priority: domain.TaskPriorityNormal, Status: domain.TaskStatusTodo,
 			AssignedEmployeeID: &emp.ID, UserID: owner.ID,
@@ -331,6 +343,8 @@ func TestNotifications(t *testing.T) {
 		e1 := mustLinkedEmployee(t, orgA.ID, "Personel A3", u1.ID)
 		e2 := mustLinkedEmployee(t, orgA.ID, "Personel B3", u2.ID)
 		p := newProject(t, orgA.ID, owner.ID)
+		grantAccess(t, p.ID, orgA.ID, u1.ID, owner.ID)
+		grantAccess(t, p.ID, orgA.ID, u2.ID, owner.ID)
 
 		task, err := projectSvc.CreateTask(ctx, p.ID, orgA.ID, service.TaskInput{
 			Title: "Yeniden atama testi", Priority: domain.TaskPriorityNormal, Status: domain.TaskStatusTodo,
@@ -547,6 +561,7 @@ func TestNotifications(t *testing.T) {
 		assignee := mustRoleUser(t, orgA.ID, "notif_iso_assignee8", domain.OrgRoleField)
 		emp := mustLinkedEmployee(t, orgA.ID, "İzolasyon Personeli", assignee.ID)
 		p := newProject(t, orgA.ID, owner.ID)
+		grantAccess(t, p.ID, orgA.ID, assignee.ID, owner.ID)
 		if _, err := projectSvc.CreateTask(ctx, p.ID, orgA.ID, service.TaskInput{
 			Title: "İzolasyon görevi", Priority: domain.TaskPriorityNormal, Status: domain.TaskStatusTodo,
 			AssignedEmployeeID: &emp.ID, UserID: owner.ID,
@@ -580,6 +595,7 @@ func TestNotifications(t *testing.T) {
 		u2 := mustRoleUser(t, orgA.ID, "notif_mr_u2_9", domain.OrgRoleField)
 		e1 := mustLinkedEmployee(t, orgA.ID, "Personel MR1", u1.ID)
 		p := newProject(t, orgA.ID, owner.ID)
+		grantAccess(t, p.ID, orgA.ID, u1.ID, owner.ID)
 		task, err := projectSvc.CreateTask(ctx, p.ID, orgA.ID, service.TaskInput{
 			Title: "Okundu testi", Priority: domain.TaskPriorityNormal, Status: domain.TaskStatusTodo,
 			AssignedEmployeeID: &e1.ID, UserID: owner.ID,
@@ -639,6 +655,7 @@ func TestNotifications(t *testing.T) {
 		u1 := mustRoleUser(t, orgA.ID, "notif_mar_u1_10", domain.OrgRoleField)
 		e1 := mustLinkedEmployee(t, orgA.ID, "Personel MAR1", u1.ID)
 		p := newProject(t, orgA.ID, owner.ID)
+		grantAccess(t, p.ID, orgA.ID, u1.ID, owner.ID)
 
 		// Üç ayrı görev ataması -- üç ayrı bildirim.
 		for i := 0; i < 3; i++ {

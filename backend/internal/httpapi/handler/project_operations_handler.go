@@ -210,15 +210,21 @@ func (h *ProjectHandler) ListAssignees(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	// has_project_access: has_account true iken false ise kişi projeyi
+	// göremiyor -- görev/plan atanamaz (400), seçici bunu gösterir.
 	type assignee struct {
-		ID         string `json:"id"`
-		FullName   string `json:"full_name"`
-		Position   string `json:"position"`
-		HasAccount bool   `json:"has_account"`
+		ID               string `json:"id"`
+		FullName         string `json:"full_name"`
+		Position         string `json:"position"`
+		HasAccount       bool   `json:"has_account"`
+		HasProjectAccess bool   `json:"has_project_access"`
 	}
 	out := make([]assignee, len(rows))
 	for i, a := range rows {
-		out[i] = assignee{ID: a.ID, FullName: a.FullName, Position: a.Position, HasAccount: a.HasAccount}
+		out[i] = assignee{
+			ID: a.ID, FullName: a.FullName, Position: a.Position,
+			HasAccount: a.HasAccount, HasProjectAccess: a.HasProjectAccess,
+		}
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"employees": out})
 }

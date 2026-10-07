@@ -177,6 +177,65 @@ func joinNonEmpty(sep string, parts ...string) string {
 	return strings.Join(out, sep)
 }
 
+// canAccessProject: (kullanıcı aktif mi, projeye erişebilir mi). Erişim
+// kuralı middleware ile aynıdır: bypass rolü (domain.
+// RoleBypassesProjectMembership) ya da project_users'ta açık üyelik.
+// Kullanıcı bu firmada yoksa (false, false).
+func canAccessProject(ctx context.Context, txq *sqlc.Queries, orgID, projectID, userID pgtype.UUID) (active, access bool, err error) {
+	row, err := txq.GetUserProjectAccess(ctx, sqlc.GetUserProjectAccessParams{
+		ProjectID: projectID, UserID: userID, OrganizationID: orgID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, false, nil
+		}
+		return false, false, err
+	}
+	return row.IsActive, row.IsActive && (domain.RoleBypassesProjectMembership(row.OrganizationRoleCode) || row.IsProjectMember), nil
+}
+
+// ErrAssigneeNoProjectAccess: görev/plan, uygulama hesabı olan ama projeyi
+// GÖREMEYEN birine atanmak istendi (errors.Is ile yakalanır; metin kişinin
+// adını taşır, bkz. assigneeNoAccessError).
+var ErrAssigneeNoProjectAccess = errors.New("atanan kişinin bu projeye erişimi yok")
+
+type assigneeNoAccessError struct{ name string }
+
+func (e *assigneeNoAccessError) Error() string {
+	return e.name + " bu projeye erişimi olmadığı için atanamaz; önce Proje Erişimi'nden projeye eklenmeli."
+}
+
+func (e *assigneeNoAccessError) Is(target error) bool { return target == ErrAssigneeNoProjectAccess }
+
+// requireAssigneeProjectAccess: atanan personelin bağlı ve AKTİF bir
+// uygulama hesabı varsa, o hesap projeye erişebilmelidir. Aksi halde kişi
+// "Yeni görev atandı" bildirimini (ve telefon push'unu) alır, dokununca
+// 403 görür ve görev "Görevlerim"de hiç çıkmaz.
+//
+// Neden otomatik erişim VERMİYORUZ: proje erişimi yalnızca
+// projects.access.manage sahibinin (Sahip/Yönetici) Proje Erişimi
+// ekranından verdiği bir yetkidir. Görev atayabilen proje yöneticisi bu
+// izne sahip değil; atama erişim verseydi, kendisinin veremeyeceği
+// erişimi (ör. bir Finans kullanıcısına projenin finans verisini) dolaylı
+// yoldan vermiş olurdu. Aynı gerekçeyle "Ekibe Ekle" (İK roster'ı, Saha
+// rolü de yapabilir) erişim vermez.
+//
+// Hesabı olmayan ya da pasif hesaplı personel atanabilir (bildirim
+// gitmez; açacağı bir ekran da yok).
+func requireAssigneeProjectAccess(ctx context.Context, txq *sqlc.Queries, orgID, projectID, userID pgtype.UUID, name string) error {
+	if !userID.Valid {
+		return nil
+	}
+	active, access, err := canAccessProject(ctx, txq, orgID, projectID, userID)
+	if err != nil {
+		return err
+	}
+	if active && !access {
+		return &assigneeNoAccessError{name: name}
+	}
+	return nil
+}
+
 // Assignee, görev/plan formundaki "kime" seçicisinin satırı. Ücret yok:
 // projeyi görebilen herkes (proje yöneticisi dahil -- onda employees.read
 // yok) seçiciyi doldurabilsin, ama personel listesi maaş göstermesin.
@@ -184,9 +243,14 @@ type Assignee struct {
 	ID       string
 	FullName string
 	Position string
-	// HasAccount: personelin uygulama hesabı var mı -- yoksa atama
-	// bildirimi kimseye ulaşmaz; form bunu söyler.
+	// HasAccount: personelin AKTİF bir uygulama hesabı var mı -- yoksa
+	// atama bildirimi kimseye ulaşmaz; form bunu söyler.
 	HasAccount bool
+	// HasProjectAccess: o hesap bu projeyi görebiliyor mu (bypass rolü ya
+	// da Proje Erişimi'nde). HasAccount true iken false ise kişiye görev/
+	// plan ATANAMAZ (bkz. requireAssigneeProjectAccess) -- seçici bunu
+	// gösterir.
+	HasProjectAccess bool
 }
 
 // ListAssignees: projenin firmasındaki aktif personel (projeyi
@@ -202,14 +266,16 @@ func (s *ProjectService) ListAssignees(ctx context.Context, projectID, organizat
 		}
 		return nil, err
 	}
-	active := true
-	rows, err := s.q.ListEmployees(ctx, sqlc.ListEmployeesParams{OrganizationID: orgID, IsActive: &active})
+	rows, err := s.q.ListProjectAssignees(ctx, sqlc.ListProjectAssigneesParams{ProjectID: pid, OrganizationID: orgID})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]Assignee, len(rows))
 	for i, e := range rows {
-		out[i] = Assignee{ID: e.ID.String(), FullName: e.FullName, Position: e.Position, HasAccount: e.UserID.Valid}
+		out[i] = Assignee{
+			ID: e.ID.String(), FullName: e.FullName, Position: e.Position, HasAccount: e.HasAccount,
+			HasProjectAccess: e.HasAccount && (domain.RoleBypassesProjectMembership(e.OrganizationRoleCode) || e.IsProjectMember),
+		}
 	}
 	return out, nil
 }

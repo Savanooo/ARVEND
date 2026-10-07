@@ -326,3 +326,35 @@ ORDER BY
   t.due_date ASC NULLS LAST,
   t.created_at DESC
 LIMIT 500;
+
+-- ============ Atanabilirlik / proje erişimi ============
+
+-- name: ListProjectAssignees :many
+-- Görev/plan "kime" seçicisi + "Ekibe Ekle" seçicisi: firmanın aktif
+-- personeli, ÜCRET ALANI OLMADAN (maaş/yevmiye asla seçilmez -- uç
+-- employees.read istemez, proje yöneticisi/saha da çağırır). Bağlı
+-- kullanıcının proje erişimi için gereken ham bilgi (rol kodu + açık
+-- üyelik) döner; "bypass rolü mü" kararı Go'da verilir
+-- (domain.RoleBypassesProjectMembership -- tek kaynak, SQL'de tekrar
+-- yazılmaz).
+SELECT e.id, e.full_name, e.position,
+       (u.id IS NOT NULL AND u.is_active)::boolean AS has_account,
+       COALESCE(orole.code, '')::text AS organization_role_code,
+       (pu.id IS NOT NULL)::boolean AS is_project_member
+FROM employees e
+LEFT JOIN users u ON u.id = e.user_id AND u.organization_id = e.organization_id
+LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
+LEFT JOIN project_users pu ON pu.user_id = u.id AND pu.project_id = sqlc.arg(project_id)::uuid
+WHERE e.organization_id = sqlc.arg(organization_id)::uuid AND e.is_active = true
+ORDER BY e.full_name ASC;
+
+-- name: GetUserProjectAccess :one
+-- Tek kullanıcının bu projeye erişip erişemeyeceğinin ham bilgisi
+-- (atama ve bildirim alıcısı kontrolleri için; karar Go'da).
+SELECT u.is_active,
+       COALESCE(orole.code, '')::text AS organization_role_code,
+       EXISTS (SELECT 1 FROM project_users pu
+               WHERE pu.project_id = sqlc.arg(project_id)::uuid AND pu.user_id = u.id)::boolean AS is_project_member
+FROM users u
+LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
+WHERE u.id = sqlc.arg(user_id)::uuid AND u.organization_id = sqlc.arg(organization_id)::uuid;

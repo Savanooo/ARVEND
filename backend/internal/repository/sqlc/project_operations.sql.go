@@ -813,6 +813,37 @@ func (q *Queries) GetTaskForUpdate(ctx context.Context, arg GetTaskForUpdatePara
 	return i, err
 }
 
+const getUserProjectAccess = `-- name: GetUserProjectAccess :one
+SELECT u.is_active,
+       COALESCE(orole.code, '')::text AS organization_role_code,
+       EXISTS (SELECT 1 FROM project_users pu
+               WHERE pu.project_id = $1::uuid AND pu.user_id = u.id)::boolean AS is_project_member
+FROM users u
+LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
+WHERE u.id = $2::uuid AND u.organization_id = $3::uuid
+`
+
+type GetUserProjectAccessParams struct {
+	ProjectID      pgtype.UUID `json:"project_id"`
+	UserID         pgtype.UUID `json:"user_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+type GetUserProjectAccessRow struct {
+	IsActive             bool   `json:"is_active"`
+	OrganizationRoleCode string `json:"organization_role_code"`
+	IsProjectMember      bool   `json:"is_project_member"`
+}
+
+// Tek kullanıcının bu projeye erişip erişemeyeceğinin ham bilgisi
+// (atama ve bildirim alıcısı kontrolleri için; karar Go'da).
+func (q *Queries) GetUserProjectAccess(ctx context.Context, arg GetUserProjectAccessParams) (GetUserProjectAccessRow, error) {
+	row := q.db.QueryRow(ctx, getUserProjectAccess, arg.ProjectID, arg.UserID, arg.OrganizationID)
+	var i GetUserProjectAccessRow
+	err := row.Scan(&i.IsActive, &i.OrganizationRoleCode, &i.IsProjectMember)
+	return i, err
+}
+
 const listMyTasks = `-- name: ListMyTasks :many
 SELECT t.id, t.organization_id, t.project_id, t.schedule_item_id, t.title, t.description, t.assigned_employee_id, t.assigned_name, t.priority, t.status, t.due_date, t.completed_at, t.created_by, t.created_at, t.updated_at, p.name AS project_name
 FROM project_tasks t
@@ -930,6 +961,69 @@ func (q *Queries) ListMyTasks(ctx context.Context, arg ListMyTasksParams) ([]Lis
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ProjectName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProjectAssignees = `-- name: ListProjectAssignees :many
+
+SELECT e.id, e.full_name, e.position,
+       (u.id IS NOT NULL AND u.is_active)::boolean AS has_account,
+       COALESCE(orole.code, '')::text AS organization_role_code,
+       (pu.id IS NOT NULL)::boolean AS is_project_member
+FROM employees e
+LEFT JOIN users u ON u.id = e.user_id AND u.organization_id = e.organization_id
+LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
+LEFT JOIN project_users pu ON pu.user_id = u.id AND pu.project_id = $1::uuid
+WHERE e.organization_id = $2::uuid AND e.is_active = true
+ORDER BY e.full_name ASC
+`
+
+type ListProjectAssigneesParams struct {
+	ProjectID      pgtype.UUID `json:"project_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+type ListProjectAssigneesRow struct {
+	ID                   pgtype.UUID `json:"id"`
+	FullName             string      `json:"full_name"`
+	Position             string      `json:"position"`
+	HasAccount           bool        `json:"has_account"`
+	OrganizationRoleCode string      `json:"organization_role_code"`
+	IsProjectMember      bool        `json:"is_project_member"`
+}
+
+// ============ Atanabilirlik / proje erişimi ============
+// Görev/plan "kime" seçicisi + "Ekibe Ekle" seçicisi: firmanın aktif
+// personeli, ÜCRET ALANI OLMADAN (maaş/yevmiye asla seçilmez -- uç
+// employees.read istemez, proje yöneticisi/saha da çağırır). Bağlı
+// kullanıcının proje erişimi için gereken ham bilgi (rol kodu + açık
+// üyelik) döner; "bypass rolü mü" kararı Go'da verilir
+// (domain.RoleBypassesProjectMembership -- tek kaynak, SQL'de tekrar
+// yazılmaz).
+func (q *Queries) ListProjectAssignees(ctx context.Context, arg ListProjectAssigneesParams) ([]ListProjectAssigneesRow, error) {
+	rows, err := q.db.Query(ctx, listProjectAssignees, arg.ProjectID, arg.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProjectAssigneesRow
+	for rows.Next() {
+		var i ListProjectAssigneesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.FullName,
+			&i.Position,
+			&i.HasAccount,
+			&i.OrganizationRoleCode,
+			&i.IsProjectMember,
 		); err != nil {
 			return nil, err
 		}
