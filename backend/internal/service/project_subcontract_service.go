@@ -103,7 +103,10 @@ func insertSubcontractItems(ctx context.Context, txq *sqlc.Queries, orgID, pid, 
 		if it.Quantity != nil && it.UnitPrice != nil {
 			effectiveAmount = *it.Quantity * *it.UnitPrice
 		}
-		if desc == "" || effectiveAmount <= 0 {
+		if desc == "" {
+			return ErrItemDescriptionRequired
+		}
+		if effectiveAmount <= 0 {
 			return ErrInvalidAmount
 		}
 		if _, err := txq.CreateSubcontractItem(ctx, sqlc.CreateSubcontractItemParams{
@@ -129,7 +132,10 @@ func (s *ProjectService) CreateSubcontract(ctx context.Context, projectID, organ
 	}
 	supplierID, err := repository.StringToUUID(in.SupplierID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, ErrSupplierRefNotFound
+	}
+	if err := validateSubcontractTerms(in); err != nil {
+		return nil, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -147,7 +153,7 @@ func (s *ProjectService) CreateSubcontract(ctx context.Context, projectID, organ
 	supplier, err := txq.GetSupplier(ctx, sqlc.GetSupplierParams{ID: supplierID, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
+			return nil, ErrSupplierRefNotFound
 		}
 		return nil, err
 	}
@@ -157,7 +163,7 @@ func (s *ProjectService) CreateSubcontract(ctx context.Context, projectID, organ
 
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
-		return nil, ErrInvalidAmount
+		return nil, ErrTitleRequired
 	}
 
 	scNo, err := s.generateSubcontractNo(ctx, txq, orgID)
@@ -322,7 +328,10 @@ func (s *ProjectService) UpdateSubcontractDraft(ctx context.Context, projectID, 
 	}
 	supplierID, err := repository.StringToUUID(in.SupplierID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, ErrSupplierRefNotFound
+	}
+	if err := validateSubcontractTerms(in); err != nil {
+		return nil, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -342,10 +351,26 @@ func (s *ProjectService) UpdateSubcontractDraft(ctx context.Context, projectID, 
 	if current.Status != domain.SubcontractStatusDraft {
 		return nil, ErrSubcontractNotEditable
 	}
+	// Tedarikçi değiştiriliyorsa CreateSubcontract İLE AYNI kontrol: bu
+	// firmanın aktif bir tedarikçisi olmalı (önceden hiç kontrol
+	// edilmiyordu; başka firmanın tedarikçisi DB tetikleyicisinde 500
+	// dönüyordu, arşivlenmiş tedarikçi ise sessizce kabul ediliyordu).
+	if supplierID != current.SupplierID {
+		supplier, err := txq.GetSupplier(ctx, sqlc.GetSupplierParams{ID: supplierID, OrganizationID: orgID})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ErrSupplierRefNotFound
+			}
+			return nil, err
+		}
+		if !supplier.IsActive {
+			return nil, ErrSubcontractSupplierInactive
+		}
+	}
 
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
-		return nil, ErrInvalidAmount
+		return nil, ErrTitleRequired
 	}
 
 	row, err := txq.UpdateSubcontractDraft(ctx, sqlc.UpdateSubcontractDraftParams{

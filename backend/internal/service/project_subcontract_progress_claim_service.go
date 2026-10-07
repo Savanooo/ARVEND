@@ -78,7 +78,7 @@ func insertProgressClaimItems(ctx context.Context, txq *sqlc.Queries, orgID, pid
 	for i, it := range items {
 		sovItem, ok := caps.items[it.SubcontractItemID]
 		if !ok {
-			return domain.ErrNotFound
+			return ErrSOVItemRefNotFound
 		}
 		id := sovItem.ID.String()
 		// Aynı SOV kalemi bir hakedişte iki kez yer alamaz: her satır aynı
@@ -89,7 +89,7 @@ func insertProgressClaimItems(ctx context.Context, txq *sqlc.Queries, orgID, pid
 			return ErrProgressClaimDuplicateItem
 		}
 		if it.CurrentProgressAmount < 0 {
-			return ErrInvalidAmount
+			return ErrNegativeProgress
 		}
 		// Kuruş karşılaştırması decimal'dir: float64 toplama (ör. 50,10 +
 		// 50,20 = 100,30000000000001) tam %100'e çıkan son hakedişi
@@ -123,6 +123,9 @@ func (s *ProjectService) CreateProgressClaim(ctx context.Context, projectID, sub
 	}
 	if len(in.Items) == 0 {
 		return nil, ErrProgressClaimItemsRequired
+	}
+	if err := validateProgressClaimTerms(in); err != nil {
+		return nil, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -250,6 +253,9 @@ func (s *ProjectService) UpdateProgressClaimDraft(ctx context.Context, projectID
 	}
 	if len(in.Items) == 0 {
 		return nil, ErrProgressClaimItemsRequired
+	}
+	if err := validateProgressClaimTerms(in); err != nil {
+		return nil, err
 	}
 
 	tx, err := s.pool.Begin(ctx)

@@ -106,8 +106,14 @@ func insertPurchaseOrderItems(ctx context.Context, txq *sqlc.Queries, orgID, pid
 			return err
 		}
 		desc := strings.TrimSpace(it.Description)
-		if desc == "" || it.Quantity <= 0 || it.UnitPrice <= 0 {
-			return ErrInvalidAmount
+		if desc == "" {
+			return ErrItemDescriptionRequired
+		}
+		if it.Quantity <= 0 {
+			return ErrInvalidQuantity
+		}
+		if it.UnitPrice <= 0 {
+			return ErrInvalidUnitPrice
 		}
 		if _, err := txq.CreatePurchaseOrderItem(ctx, sqlc.CreatePurchaseOrderItemParams{
 			OrganizationID: orgID, ProjectID: pid, PurchaseOrderID: poID,
@@ -128,10 +134,13 @@ func (s *ProjectService) CreatePurchaseOrder(ctx context.Context, projectID, org
 	}
 	supplierID, err := repository.StringToUUID(strings.TrimSpace(in.SupplierID))
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, ErrSupplierRefNotFound
 	}
 	if len(in.Items) == 0 {
 		return nil, ErrPurchaseOrderItemsRequired
+	}
+	if err := validatePercent(in.TaxRate, ErrInvalidTaxRate); err != nil {
+		return nil, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -147,7 +156,10 @@ func (s *ProjectService) CreatePurchaseOrder(ctx context.Context, projectID, org
 	}
 	supplier, err := txq.GetSupplier(ctx, sqlc.GetSupplierParams{ID: supplierID, OrganizationID: orgID})
 	if err != nil {
-		return nil, domain.ErrNotFound
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrSupplierRefNotFound
+		}
+		return nil, err
 	}
 	if !supplier.IsActive {
 		return nil, ErrPurchaseOrderSupplierInactive
@@ -157,16 +169,19 @@ func (s *ProjectService) CreatePurchaseOrder(ctx context.Context, projectID, org
 	if v := strings.TrimSpace(in.SourceRFQID); v != "" {
 		rfqID, err = repository.StringToUUID(v)
 		if err != nil {
-			return nil, domain.ErrNotFound
+			return nil, ErrSourceRFQRefNotFound
 		}
 		if _, err := txq.GetRFQ(ctx, sqlc.GetRFQParams{ID: rfqID, OrganizationID: orgID, ProjectID: pid}); err != nil {
-			return nil, domain.ErrNotFound
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ErrSourceRFQRefNotFound
+			}
+			return nil, err
 		}
 	}
 	if v := strings.TrimSpace(in.SourceQuotationID); v != "" {
 		quotationID, err = repository.StringToUUID(v)
 		if err != nil {
-			return nil, domain.ErrNotFound
+			return nil, ErrSourceQuotationNotFound
 		}
 		// Teklif satırı KİLİTLENİR: aynı teklifle eşzamanlı iki sipariş
 		// açma isteği serileşir, ikincisi aşağıdaki "zaten siparişe
@@ -174,7 +189,7 @@ func (s *ProjectService) CreatePurchaseOrder(ctx context.Context, projectID, org
 		quotation, err := txq.GetSupplierQuotationForUpdate(ctx, sqlc.GetSupplierQuotationForUpdateParams{ID: quotationID, OrganizationID: orgID, ProjectID: pid})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return nil, domain.ErrNotFound
+				return nil, ErrSourceQuotationNotFound
 			}
 			return nil, err
 		}

@@ -9,6 +9,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -1279,6 +1280,74 @@ func TestSubcontracts(t *testing.T) {
 			},
 		}); err != nil {
 			t.Fatalf("grup toplamı tam 250 kabul edilmeli: %v", err)
+		}
+	})
+
+	t.Run("43_specific_validation_errors", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 300000)
+		cc := newCostCode(t, orgA.ID, "S43-CC")
+		s := newSupplier(t, orgA.ID, "S43-S")
+		items := []service.SubcontractItemInput{{CostCodeID: cc.ID, Description: "İmalat", OriginalAmount: 1000}}
+		if _, err := projectSvc.CreateSubcontract(ctx, p.ID, orgA.ID, service.SubcontractInput{SupplierID: s.ID, Title: " ", Items: items}); !errors.Is(err, service.ErrTitleRequired) {
+			t.Errorf("boş başlık ErrTitleRequired dönmeli, geldi: %v", err)
+		}
+		bad := 150.0
+		if _, err := projectSvc.CreateSubcontract(ctx, p.ID, orgA.ID, service.SubcontractInput{SupplierID: s.ID, Title: "T", RetentionPercent: &bad, Items: items}); !errors.Is(err, service.ErrInvalidRetentionPercent) {
+			t.Errorf("%%150 teminat reddedilmeli, geldi: %v", err)
+		}
+		neg := -1.0
+		if _, err := projectSvc.CreateSubcontract(ctx, p.ID, orgA.ID, service.SubcontractInput{SupplierID: s.ID, Title: "T", AdvanceAmount: &neg, Items: items}); !errors.Is(err, service.ErrNegativeAdvance) {
+			t.Errorf("negatif avans reddedilmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateSubcontract(ctx, p.ID, orgA.ID, service.SubcontractInput{
+			SupplierID: s.ID, Title: "T",
+			Items: []service.SubcontractItemInput{{CostCodeID: cc.ID, BudgetLineID: "00000000-0000-0000-0000-000000000000", Description: "x", OriginalAmount: 1}},
+		}); !errors.Is(err, domain.ErrNotFound) || !strings.Contains(err.Error(), "bütçe kalemi") {
+			t.Errorf("geçersiz bütçe kalemi 404 + 'bütçe kalemi' demeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateSubcontract(ctx, p.ID, orgA.ID, service.SubcontractInput{
+			SupplierID: "00000000-0000-0000-0000-000000000000", Title: "T", Items: items,
+		}); !errors.Is(err, domain.ErrNotFound) || !strings.Contains(err.Error(), "tedarikçi") {
+			t.Errorf("geçersiz tedarikçi 404 + 'tedarikçi' demeli, geldi: %v", err)
+		}
+
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 10000)
+		if _, err := projectSvc.CreateSubcontractChangeOrder(ctx, p.ID, sc.ID, orgA.ID, service.SubcontractChangeOrderInput{
+			Title: "X", ChangeType: "increase",
+			Items: []service.SubcontractChangeOrderItemInput{{CostCodeID: cc.ID, Description: "K", Amount: 1}},
+		}); !errors.Is(err, service.ErrInvalidChangeType) {
+			t.Errorf("geçersiz değişiklik tipi ErrInvalidChangeType dönmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateSubcontractChangeOrder(ctx, p.ID, sc.ID, orgA.ID, service.SubcontractChangeOrderInput{
+			Title: "X", ChangeType: domain.SubcontractChangeTypeAddition,
+			Items: []service.SubcontractChangeOrderItemInput{{CostCodeID: cc.ID, Description: "", Amount: 1}},
+		}); !errors.Is(err, service.ErrItemDescriptionRequired) {
+			t.Errorf("boş kalem açıklaması ErrItemDescriptionRequired dönmeli, geldi: %v", err)
+		}
+
+		sovItems, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc.ID, orgA.ID)
+		claimItems := []service.ProgressClaimItemInput{{SubcontractItemID: sovItems[0].ID, CurrentProgressAmount: 1000}}
+		r := 500.0
+		if _, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), RetentionPercent: &r, Items: claimItems,
+		}); !errors.Is(err, service.ErrInvalidRetentionPercent) {
+			t.Errorf("%%500 teminat (net negatif) reddedilmeli, geldi: %v", err)
+		}
+		r = 1500
+		if _, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), RetentionPercent: &r, Items: claimItems,
+		}); !errors.Is(err, service.ErrInvalidRetentionPercent) {
+			t.Errorf("%%1500 teminat 500 yerine doğrulama hatası dönmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), AdvanceRecoveryAmount: -5, Items: claimItems,
+		}); !errors.Is(err, service.ErrNegativeDeduction) {
+			t.Errorf("negatif avans mahsubu reddedilmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: "00000000-0000-0000-0000-000000000000", CurrentProgressAmount: 1}},
+		}); !errors.Is(err, domain.ErrNotFound) || !strings.Contains(err.Error(), "SOV kalemi") {
+			t.Errorf("geçersiz SOV kalemi 404 + 'SOV kalemi' demeli, geldi: %v", err)
 		}
 	})
 

@@ -91,8 +91,11 @@ func (s *ProjectService) insertPurchaseRequestItems(
 			return sqlc.PurchaseRequest{}, err
 		}
 		desc := strings.TrimSpace(it.Description)
-		if desc == "" || it.Quantity <= 0 {
-			return sqlc.PurchaseRequest{}, ErrInvalidAmount
+		if desc == "" {
+			return sqlc.PurchaseRequest{}, ErrItemDescriptionRequired
+		}
+		if it.Quantity <= 0 {
+			return sqlc.PurchaseRequest{}, ErrInvalidQuantity
 		}
 		if _, err := txq.CreatePurchaseRequestItem(ctx, sqlc.CreatePurchaseRequestItemParams{
 			OrganizationID: orgID, ProjectID: pid, PurchaseRequestID: prID,
@@ -117,7 +120,7 @@ func (s *ProjectService) CreatePurchaseRequest(ctx context.Context, projectID, o
 	}
 	in.Title = strings.TrimSpace(in.Title)
 	if in.Title == "" {
-		return nil, ErrInvalidAmount
+		return nil, ErrTitleRequired
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -218,7 +221,7 @@ func (s *ProjectService) UpdatePurchaseRequestDraft(ctx context.Context, project
 	}
 	in.Title = strings.TrimSpace(in.Title)
 	if in.Title == "" {
-		return nil, ErrInvalidAmount
+		return nil, ErrTitleRequired
 	}
 
 	tx, err := s.pool.Begin(ctx)

@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
@@ -53,17 +55,33 @@ func requireOpenRFQForQuotation(rfq sqlc.Rfq) error {
 	return nil
 }
 
-func insertQuotationItems(ctx context.Context, txq *sqlc.Queries, orgID, pid, quotationID pgtype.UUID, items []QuotationItemInput) error {
+func insertQuotationItems(ctx context.Context, txq *sqlc.Queries, orgID, pid, rfqID, quotationID pgtype.UUID, items []QuotationItemInput) error {
 	if err := txq.DeleteQuotationItems(ctx, sqlc.DeleteQuotationItemsParams{QuotationID: quotationID, OrganizationID: orgID, ProjectID: pid}); err != nil {
 		return err
 	}
+	seen := make(map[pgtype.UUID]bool, len(items))
 	for _, it := range items {
 		rfqItemID, err := repository.StringToUUID(strings.TrimSpace(it.RFQItemID))
 		if err != nil {
-			return domain.ErrNotFound
+			return ErrRFQItemRefNotFound
 		}
-		if it.Quantity <= 0 || it.UnitPrice <= 0 {
-			return ErrInvalidAmount
+		// Kalem bu RFQ'ya ait olmalı ve bir kez yer almalı -- önceden bu
+		// durumlar DB tetikleyicisine/UNIQUE'e takılıp 500 dönüyordu.
+		if _, err := txq.GetRFQItem(ctx, sqlc.GetRFQItemParams{ID: rfqItemID, RfqID: rfqID}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrRFQItemRefNotFound
+			}
+			return err
+		}
+		if seen[rfqItemID] {
+			return ErrQuotationDuplicateItem
+		}
+		seen[rfqItemID] = true
+		if it.Quantity <= 0 {
+			return ErrInvalidQuantity
+		}
+		if it.UnitPrice <= 0 {
+			return ErrInvalidUnitPrice
 		}
 		if _, err := txq.CreateQuotationItem(ctx, sqlc.CreateQuotationItemParams{
 			OrganizationID: orgID, ProjectID: pid, QuotationID: quotationID, RfqItemID: rfqItemID,
@@ -86,10 +104,13 @@ func (s *ProjectService) CreateQuotation(ctx context.Context, projectID, rfqID, 
 	}
 	supplierID, err := repository.StringToUUID(strings.TrimSpace(in.SupplierID))
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, ErrSupplierRefNotFound
 	}
 	if len(in.Items) == 0 {
 		return nil, ErrQuotationItemsRequired
+	}
+	if err := validateQuotationTerms(in); err != nil {
+		return nil, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -138,7 +159,7 @@ func (s *ProjectService) CreateQuotation(ctx context.Context, projectID, rfqID, 
 		}
 		return nil, err
 	}
-	if err := insertQuotationItems(ctx, txq, orgID, pid, row.ID, in.Items); err != nil {
+	if err := insertQuotationItems(ctx, txq, orgID, pid, rid, row.ID, in.Items); err != nil {
 		return nil, err
 	}
 	row, err = txq.RecomputeSupplierQuotationTotals(ctx, sqlc.RecomputeSupplierQuotationTotalsParams{ID: row.ID, OrganizationID: orgID, ProjectID: pid})
@@ -230,6 +251,9 @@ func (s *ProjectService) UpdateQuotation(ctx context.Context, projectID, quotati
 	if len(in.Items) == 0 {
 		return nil, ErrQuotationItemsRequired
 	}
+	if err := validateQuotationTerms(in); err != nil {
+		return nil, err
+	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -259,7 +283,7 @@ func (s *ProjectService) UpdateQuotation(ctx context.Context, projectID, quotati
 	if err != nil {
 		return nil, err
 	}
-	if err := insertQuotationItems(ctx, txq, orgID, pid, id, in.Items); err != nil {
+	if err := insertQuotationItems(ctx, txq, orgID, pid, current.RfqID, id, in.Items); err != nil {
 		return nil, err
 	}
 	row, err = txq.RecomputeSupplierQuotationTotals(ctx, sqlc.RecomputeSupplierQuotationTotalsParams{ID: id, OrganizationID: orgID, ProjectID: pid})

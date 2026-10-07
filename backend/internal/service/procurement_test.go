@@ -9,6 +9,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -1116,6 +1117,57 @@ func TestProcurement(t *testing.T) {
 		}
 		if _, err := projectSvc.GetBidComparison(ctx, pA.ID, rfq.ID, orgA.ID); !errors.Is(err, domain.ErrNotFound) {
 			t.Fatalf("Proje A URL'sinden B'nin karşılaştırması okunamamalı, geldi: %v", err)
+		}
+	})
+
+	t.Run("43_specific_validation_errors", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 100000)
+		cc := newCostCode(t, orgA.ID, "VAL-CC")
+		if _, err := projectSvc.CreatePurchaseRequest(ctx, p.ID, orgA.ID, service.PurchaseRequestInput{Title: "  "}); !errors.Is(err, service.ErrTitleRequired) {
+			t.Errorf("boş PR başlığı ErrTitleRequired dönmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateRFQ(ctx, p.ID, orgA.ID, service.RFQInput{Title: "", IssueDate: time.Now()}); !errors.Is(err, service.ErrTitleRequired) {
+			t.Errorf("boş RFQ başlığı ErrTitleRequired dönmeli, geldi: %v", err)
+		}
+		s := newSupplier(t, orgA.ID, "VAL-S")
+		poItems := func(qty, price float64, desc string) []service.PurchaseOrderItemInput {
+			return []service.PurchaseOrderItemInput{{CostCodeID: cc.ID, Description: desc, Quantity: qty, UnitPrice: price}}
+		}
+		if _, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, service.PurchaseOrderInput{SupplierID: s.ID, IssueDate: time.Now(), Items: poItems(0, 10, "K")}); !errors.Is(err, service.ErrInvalidQuantity) {
+			t.Errorf("sıfır miktar ErrInvalidQuantity dönmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, service.PurchaseOrderInput{SupplierID: s.ID, IssueDate: time.Now(), Items: poItems(1, 10, "")}); !errors.Is(err, service.ErrItemDescriptionRequired) {
+			t.Errorf("boş açıklama ErrItemDescriptionRequired dönmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, service.PurchaseOrderInput{SupplierID: s.ID, IssueDate: time.Now(), TaxRate: -1, Items: poItems(1, 10, "K")}); !errors.Is(err, service.ErrInvalidTaxRate) {
+			t.Errorf("negatif KDV 500 yerine ErrInvalidTaxRate dönmeli, geldi: %v", err)
+		}
+		pr := newApprovedPR(t, orgA.ID, p.ID, cc.ID)
+		rfq := newIssuedRFQ(t, orgA.ID, p.ID, pr, []string{s.ID})
+		items, _ := projectSvc.ListRFQItems(ctx, p.ID, rfq.ID, orgA.ID)
+		qItems := []service.QuotationItemInput{{RFQItemID: items[0].ID, Quantity: 1, UnitPrice: 10}}
+		if _, err := projectSvc.CreateQuotation(ctx, p.ID, rfq.ID, orgA.ID, service.QuotationInput{SupplierID: s.ID, QuotationDate: time.Now(), Discount: -5, Items: qItems}); !errors.Is(err, service.ErrNegativeDiscount) {
+			t.Errorf("negatif indirim 500 yerine ErrNegativeDiscount dönmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateQuotation(ctx, p.ID, rfq.ID, orgA.ID, service.QuotationInput{SupplierID: s.ID, QuotationDate: time.Now(), TaxRate: -20, Items: qItems}); !errors.Is(err, service.ErrInvalidTaxRate) {
+			t.Errorf("negatif KDV 500 yerine ErrInvalidTaxRate dönmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateQuotation(ctx, p.ID, rfq.ID, orgA.ID, service.QuotationInput{SupplierID: s.ID, QuotationDate: time.Now(), Items: append(qItems, qItems[0])}); !errors.Is(err, service.ErrQuotationDuplicateItem) {
+			t.Errorf("aynı RFQ kalemi iki kez 500 yerine ErrQuotationDuplicateItem dönmeli, geldi: %v", err)
+		}
+		// Başka bir RFQ'nun kalemi.
+		pr2 := newApprovedPR(t, orgA.ID, p.ID, cc.ID)
+		rfq2 := newIssuedRFQ(t, orgA.ID, p.ID, pr2, []string{s.ID})
+		items2, _ := projectSvc.ListRFQItems(ctx, p.ID, rfq2.ID, orgA.ID)
+		if _, err := projectSvc.CreateQuotation(ctx, p.ID, rfq.ID, orgA.ID, service.QuotationInput{
+			SupplierID: s.ID, QuotationDate: time.Now(), Items: []service.QuotationItemInput{{RFQItemID: items2[0].ID, Quantity: 1, UnitPrice: 10}},
+		}); !errors.Is(err, domain.ErrNotFound) || !strings.Contains(err.Error(), "RFQ kalemi") {
+			t.Errorf("başka RFQ'nun kalemi 500 yerine 404 'RFQ kalemi' dönmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateCommitment(ctx, p.ID, orgA.ID, service.CommitmentInput{
+			CostCodeID: cc.ID, BudgetLineID: "00000000-0000-0000-0000-000000000000", CommittedAmount: 1, CommittedAt: time.Now(),
+		}); !errors.Is(err, domain.ErrNotFound) || !strings.Contains(err.Error(), "bütçe kalemi") {
+			t.Errorf("geçersiz bütçe kalemi 404 + 'bütçe kalemi' demeli, geldi: %v", err)
 		}
 	})
 }

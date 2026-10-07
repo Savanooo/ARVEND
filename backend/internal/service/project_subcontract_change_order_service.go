@@ -79,7 +79,10 @@ func insertSubcontractChangeOrderItems(ctx context.Context, txq *sqlc.Queries, o
 			return err
 		}
 		desc := strings.TrimSpace(it.Description)
-		if desc == "" || it.Amount <= 0 {
+		if desc == "" {
+			return ErrItemDescriptionRequired
+		}
+		if it.Amount <= 0 {
 			return ErrInvalidAmount
 		}
 		if _, err := txq.CreateSubcontractChangeOrderItem(ctx, sqlc.CreateSubcontractChangeOrderItemParams{
@@ -106,11 +109,11 @@ func (s *ProjectService) CreateSubcontractChangeOrder(ctx context.Context, proje
 		return nil, ErrSubcontractChangeOrderItemsRequired
 	}
 	if in.ChangeType != domain.SubcontractChangeTypeAddition && in.ChangeType != domain.SubcontractChangeTypeDeduction {
-		return nil, ErrInvalidAmount
+		return nil, ErrInvalidChangeType
 	}
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
-		return nil, ErrInvalidAmount
+		return nil, ErrTitleRequired
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -226,11 +229,11 @@ func (s *ProjectService) UpdateSubcontractChangeOrderDraft(ctx context.Context, 
 		return nil, ErrSubcontractChangeOrderItemsRequired
 	}
 	if in.ChangeType != domain.SubcontractChangeTypeAddition && in.ChangeType != domain.SubcontractChangeTypeDeduction {
-		return nil, ErrInvalidAmount
+		return nil, ErrInvalidChangeType
 	}
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
-		return nil, ErrInvalidAmount
+		return nil, ErrTitleRequired
 	}
 
 	tx, err := s.pool.Begin(ctx)

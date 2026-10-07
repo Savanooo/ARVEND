@@ -261,7 +261,12 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
+	var notFound *service.NotFoundError
 	switch {
+	case errors.As(err, &notFound):
+		// İstekte gönderilen bir referans (bütçe kalemi, tedarikçi, SOV
+		// kalemi...) bulunamadı -- "proje bulunamadı" yanıltıcı olurdu.
+		httpjson.Error(w, http.StatusNotFound, notFound.Error())
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "proje bulunamadı")
 	case errors.Is(err, service.ErrPaymentExceedsContract),
@@ -364,6 +369,20 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, service.ErrSubcontractReasonRequired),
 		errors.Is(err, service.ErrSubcontractChangeOrderReasonRequired),
 		errors.Is(err, service.ErrProgressClaimReasonRequired):
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, service.ErrTitleRequired),
+		errors.Is(err, service.ErrItemDescriptionRequired),
+		errors.Is(err, service.ErrInvalidQuantity),
+		errors.Is(err, service.ErrInvalidUnitPrice),
+		errors.Is(err, service.ErrInvalidChangeType),
+		errors.Is(err, service.ErrInvalidRetentionPercent),
+		errors.Is(err, service.ErrInvalidTaxRate),
+		errors.Is(err, service.ErrNegativeDeduction),
+		errors.Is(err, service.ErrNegativeDiscount),
+		errors.Is(err, service.ErrNegativeAdvance),
+		errors.Is(err, service.ErrNegativeProgress),
+		errors.Is(err, service.ErrQuotationDuplicateItem),
+		errors.Is(err, service.ErrInvalidAmount):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, service.ErrOfferNotAccepted),
 		errors.Is(err, service.ErrInvalidProjectState),
