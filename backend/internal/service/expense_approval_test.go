@@ -162,7 +162,7 @@ func TestExpenseApproval(t *testing.T) {
 		return out
 	}
 
-	t.Run("1_permission_seeded_for_owner_admin_finance_only", func(t *testing.T) {
+	t.Run("1_permission_seeded_for_owner_admin_only", func(t *testing.T) {
 		rows, err := pool.Query(ctx, `SELECT r.code FROM role_permissions rp
 			JOIN organization_roles r ON r.id = rp.organization_role_id
 			WHERE r.organization_id = $1 AND rp.permission_code = $2 ORDER BY r.code`, orgA.ID, domain.PermProjectsExpensesApprove)
@@ -177,8 +177,10 @@ func TestExpenseApproval(t *testing.T) {
 			}
 			codes = append(codes, c)
 		}
-		if strings.Join(codes, ",") != "admin,finance,owner" {
-			t.Errorf("yeni firmada onay izni yalnızca Sahip/Yönetici/Finans'ta olmalı, geldi: %v", codes)
+		// Finans masraf girer ama onaylamaz (migration 0066, ürün sahibi
+		// kararı: "onaylamayı sadece yönetici yapacak").
+		if strings.Join(codes, ",") != "admin,owner" {
+			t.Errorf("yeni firmada onay izni yalnızca Sahip/Yönetici'de olmalı, geldi: %v", codes)
 		}
 		var desc, category string
 		if err := pool.QueryRow(ctx, `SELECT description, category FROM permissions WHERE code = $1`,
@@ -211,7 +213,7 @@ func TestExpenseApproval(t *testing.T) {
 		expense(t, p, clerk.ID, 100)
 		expense(t, p, clerk.ID, 200)
 		target := "/projeler/" + p.ID + "?grup=finans&alt=finans"
-		for _, u := range []*domain.User{owner, admin, finance} {
+		for _, u := range []*domain.User{owner, admin} {
 			var mine []domain.Notification
 			for _, n := range notices(t, u.ID, domain.NotificationExpensePendingApproval) {
 				if n.ProjectID != nil && *n.ProjectID == p.ID {
@@ -226,8 +228,9 @@ func TestExpenseApproval(t *testing.T) {
 				t.Errorf("gövde giren kişiyi taşımalı, tutarı taşımamalı: %q", mine[0].Body)
 			}
 		}
-		// Projeye erişimi olmayan Finans, onay izni olmayan PM ve giren kişi almaz.
-		for _, u := range []*domain.User{financeOutside, pm, clerk} {
+		// Onay izni olmayan Finans (projede olsa da, 0066), PM ve giren kişi
+		// almaz.
+		for _, u := range []*domain.User{finance, financeOutside, pm, clerk} {
 			if n := len(notices(t, u.ID, domain.NotificationExpensePendingApproval)); n != 0 {
 				t.Errorf("%s bildirim almamalı (%d)", u.Username, n)
 			}
@@ -237,11 +240,11 @@ func TestExpenseApproval(t *testing.T) {
 	t.Run("4_approve_counts_and_tells_the_creator", func(t *testing.T) {
 		p := newProject(t, orgA.ID)
 		e := expense(t, p, clerk.ID, 1000)
-		got, err := projectSvc.ApproveExpense(ctx, p.ID, e.ID, orgA.ID, finance.ID)
+		got, err := projectSvc.ApproveExpense(ctx, p.ID, e.ID, orgA.ID, admin.ID)
 		if err != nil {
 			t.Fatalf("onaylanamadı: %v", err)
 		}
-		if got.ApprovalStatus != domain.ExpenseApprovalApproved || got.DecidedBy == nil || *got.DecidedBy != finance.ID || got.DecidedAt == nil {
+		if got.ApprovalStatus != domain.ExpenseApprovalApproved || got.DecidedBy == nil || *got.DecidedBy != admin.ID || got.DecidedAt == nil {
 			t.Errorf("onay izi eksik: %+v", got)
 		}
 		if total := totalExpenses(t, p); total != 1000 {
@@ -261,13 +264,13 @@ func TestExpenseApproval(t *testing.T) {
 	t.Run("5_reject_needs_a_reason_and_is_never_counted", func(t *testing.T) {
 		p := newProject(t, orgA.ID)
 		e := expense(t, p, clerk.ID, 700)
-		if _, err := projectSvc.RejectExpense(ctx, p.ID, e.ID, orgA.ID, finance.ID, "   "); !errors.Is(err, service.ErrExpenseRejectReasonRequired) {
+		if _, err := projectSvc.RejectExpense(ctx, p.ID, e.ID, orgA.ID, admin.ID, "   "); !errors.Is(err, service.ErrExpenseRejectReasonRequired) {
 			t.Errorf("gerekçesiz ret: %v", err)
 		}
-		if _, err := projectSvc.RejectExpense(ctx, p.ID, e.ID, orgA.ID, finance.ID, strings.Repeat("ş", 501)); !errors.Is(err, service.ErrExpenseRejectReasonTooLong) {
+		if _, err := projectSvc.RejectExpense(ctx, p.ID, e.ID, orgA.ID, admin.ID, strings.Repeat("ş", 501)); !errors.Is(err, service.ErrExpenseRejectReasonTooLong) {
 			t.Errorf("uzun gerekçe: %v", err)
 		}
-		got, err := projectSvc.RejectExpense(ctx, p.ID, e.ID, orgA.ID, finance.ID, "Fatura eksik")
+		got, err := projectSvc.RejectExpense(ctx, p.ID, e.ID, orgA.ID, admin.ID, "Fatura eksik")
 		if err != nil {
 			t.Fatalf("reddedilemedi: %v", err)
 		}
@@ -281,7 +284,7 @@ func TestExpenseApproval(t *testing.T) {
 		if len(n) == 0 || n[0].Title != "Masraf reddedildi" || !strings.Contains(n[0].Body, "Fatura eksik") {
 			t.Errorf("giren kişiye gerekçeli ret bildirimi gitmeli: %+v", n)
 		}
-		if _, err := projectSvc.ApproveExpense(ctx, p.ID, e.ID, orgA.ID, finance.ID); !errors.Is(err, service.ErrExpenseNotPending) {
+		if _, err := projectSvc.ApproveExpense(ctx, p.ID, e.ID, orgA.ID, admin.ID); !errors.Is(err, service.ErrExpenseNotPending) {
 			t.Errorf("reddedilen masraf düzenlenmeden onaylanamamalı: %v", err)
 		}
 	})
@@ -289,7 +292,7 @@ func TestExpenseApproval(t *testing.T) {
 	t.Run("6_edit_sends_it_back_to_pending", func(t *testing.T) {
 		p := newProject(t, orgA.ID)
 		e := expense(t, p, clerk.ID, 1000)
-		if _, err := projectSvc.ApproveExpense(ctx, p.ID, e.ID, orgA.ID, finance.ID); err != nil {
+		if _, err := projectSvc.ApproveExpense(ctx, p.ID, e.ID, orgA.ID, admin.ID); err != nil {
 			t.Fatal(err)
 		}
 		before := len(notices(t, admin.ID, domain.NotificationExpensePendingApproval))
@@ -312,7 +315,7 @@ func TestExpenseApproval(t *testing.T) {
 
 		// Reddedilen masraf düzeltilince gerekçe temizlenir, yeniden onaya düşer.
 		r := expense(t, p, clerk.ID, 300)
-		if _, err := projectSvc.RejectExpense(ctx, p.ID, r.ID, orgA.ID, finance.ID, "Yanlış tutar"); err != nil {
+		if _, err := projectSvc.RejectExpense(ctx, p.ID, r.ID, orgA.ID, admin.ID, "Yanlış tutar"); err != nil {
 			t.Fatal(err)
 		}
 		edit.Amount = 250
@@ -320,7 +323,7 @@ func TestExpenseApproval(t *testing.T) {
 		if err != nil || got.ApprovalStatus != domain.ExpenseApprovalPending || got.DecisionNote != "" {
 			t.Errorf("reddedilen düzeltilince onaya dönmeli: %+v %v", got, err)
 		}
-		if _, err := projectSvc.ApproveExpense(ctx, p.ID, r.ID, orgA.ID, finance.ID); err != nil {
+		if _, err := projectSvc.ApproveExpense(ctx, p.ID, r.ID, orgA.ID, admin.ID); err != nil {
 			t.Errorf("düzeltilen masraf onaylanabilmeli: %v", err)
 		}
 		if total := totalExpenses(t, p); total != 250 {
@@ -332,7 +335,7 @@ func TestExpenseApproval(t *testing.T) {
 		p := newProject(t, orgA.ID)
 		pending := expense(t, p, clerk.ID, 10)
 		rejected := expense(t, p, clerk.ID, 20)
-		if _, err := projectSvc.RejectExpense(ctx, p.ID, rejected.ID, orgA.ID, finance.ID, "Mükerrer"); err != nil {
+		if _, err := projectSvc.RejectExpense(ctx, p.ID, rejected.ID, orgA.ID, admin.ID, "Mükerrer"); err != nil {
 			t.Fatal(err)
 		}
 		approved, err := createApprovedExpense(ctx, projectSvc, p.ID, orgA.ID, service.ExpenseInput{
@@ -349,7 +352,7 @@ func TestExpenseApproval(t *testing.T) {
 		if total := totalExpenses(t, p); total != 0 {
 			t.Errorf("iptal edilen onaylı masraf düşmeli: %v", total)
 		}
-		if _, err := projectSvc.ApproveExpense(ctx, p.ID, pending.ID, orgA.ID, finance.ID); !errors.Is(err, service.ErrAlreadyVoided) {
+		if _, err := projectSvc.ApproveExpense(ctx, p.ID, pending.ID, orgA.ID, admin.ID); !errors.Is(err, service.ErrAlreadyVoided) {
 			t.Errorf("iptal edilmiş masraf onaylanamamalı: %v", err)
 		}
 	})
@@ -360,10 +363,10 @@ func TestExpenseApproval(t *testing.T) {
 		if _, err := projectSvc.Update(ctx, p.ID, orgA.ID, service.UpdateProjectInput{Name: p.Name, Status: domain.ProjectStatusCancelled}); err != nil {
 			t.Fatalf("iptal edilemedi: %v", err)
 		}
-		if _, err := projectSvc.ApproveExpense(ctx, p.ID, e.ID, orgA.ID, finance.ID); !errors.Is(err, service.ErrProjectLocked) {
+		if _, err := projectSvc.ApproveExpense(ctx, p.ID, e.ID, orgA.ID, admin.ID); !errors.Is(err, service.ErrProjectLocked) {
 			t.Errorf("kapalı projede onay: %v", err)
 		}
-		if _, err := projectSvc.RejectExpense(ctx, p.ID, e.ID, orgA.ID, finance.ID, "x"); !errors.Is(err, service.ErrProjectLocked) {
+		if _, err := projectSvc.RejectExpense(ctx, p.ID, e.ID, orgA.ID, admin.ID, "x"); !errors.Is(err, service.ErrProjectLocked) {
 			t.Errorf("kapalı projede ret: %v", err)
 		}
 	})
@@ -372,13 +375,13 @@ func TestExpenseApproval(t *testing.T) {
 		p := newProject(t, orgA.ID)
 		other := newProject(t, orgA.ID)
 		e := expense(t, p, clerk.ID, 10)
-		if _, err := projectSvc.ApproveExpense(ctx, p.ID, e.ID, orgB.ID, finance.ID); !errors.Is(err, domain.ErrNotFound) {
+		if _, err := projectSvc.ApproveExpense(ctx, p.ID, e.ID, orgB.ID, admin.ID); !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("başka firma onaylayabildi: %v", err)
 		}
-		if _, err := projectSvc.ApproveExpense(ctx, other.ID, e.ID, orgA.ID, finance.ID); !errors.Is(err, service.ErrExpenseNotFound) {
+		if _, err := projectSvc.ApproveExpense(ctx, other.ID, e.ID, orgA.ID, admin.ID); !errors.Is(err, service.ErrExpenseNotFound) {
 			t.Errorf("başka projenin URL'siyle onaylanabildi: %v", err)
 		}
-		if _, err := projectSvc.RejectExpense(ctx, other.ID, e.ID, orgA.ID, finance.ID, "x"); !errors.Is(err, domain.ErrNotFound) {
+		if _, err := projectSvc.RejectExpense(ctx, other.ID, e.ID, orgA.ID, admin.ID, "x"); !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("başka projenin URL'siyle reddedilebildi: %v", err)
 		}
 	})
@@ -432,7 +435,7 @@ func TestExpenseApproval(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := projectSvc.RejectExpense(ctx, p.ID, rej.ID, orgA.ID, finance.ID, "Hayır"); err != nil {
+		if _, err := projectSvc.RejectExpense(ctx, p.ID, rej.ID, orgA.ID, admin.ID, "Hayır"); err != nil {
 			t.Fatal(err)
 		}
 

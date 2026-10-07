@@ -31,7 +31,7 @@ var (
 		"projects.subcontract_claims.manage", "projects.subcontract_claims.read",
 		"projects.subcontract_payments.manage", "projects.subcontract_payments.read",
 		"projects.subcontracts.approve", "projects.subcontracts.manage", "projects.subcontracts.read",
-		"projects.expenses.approve",
+		"projects.expenses.create",
 	}
 	permsProjectManager = []string{
 		"calculations.read", "customers.read", "notifications.read", "organization.cost_codes.read",
@@ -177,6 +177,8 @@ func TestDashboardAttentionLanesPerRole(t *testing.T) {
 			domain.AttnPriceSyncFailed:          domain.LaneWatching,
 		})},
 		{"finance", permsFinance, all(domain.LaneMine, map[string]string{
+			// Finans masraf girer ama onaylamaz (migration 0066).
+			domain.AttnExpenseApproval:           "",
 			domain.AttnChangeOrderAwaitingCust:   domain.LaneWatching,
 			domain.AttnOfferExpiredAwaiting:      "",
 			domain.AttnOfferAcceptedNotConverted: "",
