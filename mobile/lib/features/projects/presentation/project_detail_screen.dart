@@ -18,6 +18,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_status_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/access_notices.dart';
 import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_list_card.dart';
@@ -36,6 +37,7 @@ import '../budget/presentation/widgets/budget_ui.dart' show formatBudgetPercent;
 import '../contract_co/contract_co_sections.dart' show ContractCoSectionEntry, contractCoSections;
 import '../data/projects_providers.dart';
 import '../domain/project.dart';
+import '../domain/project_lock_text.dart';
 import '../finance_ledger/data/finance_ledger_providers.dart' show invalidateProjectLedger, kLedgerReadPermission;
 import '../finance_ledger/presentation/ledger_sections.dart';
 import '../finance_ledger/presentation/ledger_ui.dart' show isLedgerLocked;
@@ -186,7 +188,7 @@ final List<_SubViewDef> _operasyonViews = [
     label: 'Görevler',
     navWord: 'görevler',
     visible: (user) => _failOpen(user, 'projects.tasks.read'),
-    builder: (id, p) => _OperationsTab(projectId: id),
+    builder: (id, p) => _OperationsTab(projectId: id, locked: isProjectClosed(p.status)),
   ),
   for (final s in opsTeamSections)
     _SubViewDef(
@@ -209,7 +211,7 @@ final List<_SubViewDef> _dokumanlarViews = [
     label: 'Dosyalar',
     navWord: 'dosyalar, fotoğraflar',
     visible: (user) => _failOpen(user, 'projects.operations.read'),
-    builder: (id, p) => _FilesTab(projectId: id),
+    builder: (id, p) => _FilesTab(projectId: id, locked: isProjectClosed(p.status)),
   ),
   _SubViewDef(
     alt: 'notlar',
@@ -367,8 +369,12 @@ class _OverviewTab extends ConsumerWidget {
     // `projects.finance.read` yalnızca GÖRÜNTÜLEMEYİ (özet/liste) yetkilendirir,
     // ikisi backend'de AYRI iki izin kodu (bkz. router.go finans grubu).
     final canManageFinance = _failOpen(user, 'projects.finance.manage');
-    final canCreateTask = _failOpen(user, 'projects.tasks.create');
-    final canManageFiles = _failOpen(user, 'projects.operations.manage');
+    // Kapalı projede görev oluşturma ve yükleme reddedilir (backend
+    // requireOpenProject) -- hızlı işlem de gösterilmez; sekmeler nedenini
+    // söyler.
+    final closed = isProjectClosed(project.status);
+    final canCreateTask = _failOpen(user, 'projects.tasks.create') && !closed;
+    final canManageFiles = _failOpen(user, 'projects.operations.manage') && !closed;
     final canSeeCostControl = _failOpen(user, 'projects.cost_control.read');
 
     // Tamamlanmış/iptal edilmiş projede finans hareketi girilemez (backend
@@ -1053,8 +1059,11 @@ class _PurchaseOrdersList extends ConsumerWidget {
 /// /operations-summary`den gelir (Faz 7'den beri var olan, mobilde daha
 /// önce hiç tüketilmemiş bir uç).
 class _OperationsTab extends ConsumerStatefulWidget {
-  const _OperationsTab({required this.projectId});
+  const _OperationsTab({required this.projectId, required this.locked});
   final String projectId;
+
+  /// Proje tamamlandı/iptal: yeni görev yok (mevcutlar tamamlanabilir).
+  final bool locked;
 
   @override
   ConsumerState<_OperationsTab> createState() => _OperationsTabState();
@@ -1069,7 +1078,8 @@ class _OperationsTabState extends ConsumerState<_OperationsTab> {
     final tasksAsync = ref.watch(projectTasksProvider(widget.projectId));
     final summaryAsync = ref.watch(projectOperationsSummaryProvider(widget.projectId));
     final user = ref.watch(authControllerProvider).valueOrNull;
-    final canCreate = user == null || user.permissions.isEmpty || user.hasPermission('projects.tasks.create');
+    final canCreate =
+        (user == null || user.permissions.isEmpty || user.hasPermission('projects.tasks.create')) && !widget.locked;
 
     void refreshAll() {
       ref.invalidate(projectTasksProvider(widget.projectId));
@@ -1098,6 +1108,11 @@ class _OperationsTabState extends ConsumerState<_OperationsTab> {
                 ),
             ],
           ),
+          if (widget.locked) ...[
+            const SizedBox(height: AppSpacing.sm),
+            const ReadOnlyNotice(kProjectTasksLockedText),
+            const SizedBox(height: AppSpacing.sm),
+          ],
           const SizedBox(height: 4),
           Wrap(
             spacing: 8,
@@ -1220,8 +1235,12 @@ class _StatCell extends StatelessWidget {
 }
 
 class _FilesTab extends ConsumerStatefulWidget {
-  const _FilesTab({required this.projectId});
+  const _FilesTab({required this.projectId, required this.locked});
   final String projectId;
+
+  /// Proje tamamlandı/iptal: yükleme yok (backend reddeder); silme ve
+  /// görüntüleme sürer.
+  final bool locked;
 
   @override
   ConsumerState<_FilesTab> createState() => _FilesTabState();
@@ -1458,6 +1477,8 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
     final photosAsync = ref.watch(projectPhotosProvider(projectId));
     final filesAsync = ref.watch(projectFilesProvider(projectId));
     final canManage = _canManage;
+    // Kapalı projede yükleme reddedilir; silme backend'de serbest.
+    final canUpload = canManage && !widget.locked;
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -1469,8 +1490,12 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
         children: [
           if (_uploading) const LinearProgressIndicator(),
           if (_uploading) const SizedBox(height: AppSpacing.sm),
+          if (widget.locked) ...[
+            const ReadOnlyNotice(kProjectUploadsLockedText),
+            const SizedBox(height: AppSpacing.md),
+          ],
           const AppSectionHeader(title: 'Şantiye Fotoğrafları'),
-          if (canManage) ...[
+          if (canUpload) ...[
             const SizedBox(height: AppSpacing.sm),
             Row(
               children: [
@@ -1545,7 +1570,7 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
           const SizedBox(height: AppSpacing.xl),
           AppSectionHeader(
             title: 'Dosyalar',
-            trailing: canManage
+            trailing: canUpload
                 ? SecondaryButton(
                     icon: Icons.upload_file_outlined,
                     label: 'Dosya Seç',
@@ -1575,6 +1600,7 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
                             if (canManage)
                               IconButton(
                                 icon: const Icon(Icons.delete_outline, size: 20),
+                                tooltip: 'Dosyayı sil',
                                 onPressed: () => _deleteFile(f),
                               ),
                           ],
