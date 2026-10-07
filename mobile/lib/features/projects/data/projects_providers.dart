@@ -11,9 +11,97 @@ import 'projects_repository.dart';
 final projectsRepositoryProvider =
     Provider<ProjectsRepository>((ref) => ProjectsRepository(ref.watch(apiClientProvider)));
 
+/// Proje listesi süzgeci: durum (null = tümü) + arama metni. Arama
+/// SUNUCUDA yapılır (`GET /projects?q=` -- ad, proje no, müşteri adı):
+/// eskiden yalnızca ilk 50 proje çekilip onların içinde aranıyordu, 51.
+/// proje hiç bulunamıyordu.
+typedef ProjectsListQuery = ({String? status, String q});
+
+/// Sayfa sayfa büyüyen proje listesi. `total` backend'in toplamıdır; boş
+/// bir sayfa gelirse (liste bu arada kısaldı) `reachedEnd` ile durulur.
+class ProjectsPage {
+  const ProjectsPage({
+    required this.projects,
+    required this.total,
+    required this.page,
+    this.reachedEnd = false,
+    this.loadingMore = false,
+    this.loadMoreError,
+  });
+
+  final List<Project> projects;
+  final int total;
+  final int page;
+  final bool reachedEnd;
+  final bool loadingMore;
+  final Object? loadMoreError;
+
+  bool get hasMore => !reachedEnd && projects.length < total;
+
+  ProjectsPage copyWith({bool? loadingMore, Object? loadMoreError, bool clearError = false}) => ProjectsPage(
+        projects: projects,
+        total: total,
+        page: page,
+        reachedEnd: reachedEnd,
+        loadingMore: loadingMore ?? this.loadingMore,
+        loadMoreError: clearError ? null : (loadMoreError ?? this.loadMoreError),
+      );
+}
+
+class ProjectsListNotifier extends AutoDisposeFamilyAsyncNotifier<ProjectsPage, ProjectsListQuery> {
+  static const pageSize = 50;
+
+  // Yenileme (invalidate) build'i yeniden çalıştırır: o sırada uçan bir
+  // "daha fazla" isteği eski listeyi geri yazmasın diye nesil sayılır.
+  int _generation = 0;
+  bool _alive = true;
+
+  Future<({List<Project> projects, int total})> _fetch(int page) => ref
+      .read(projectsRepositoryProvider)
+      .list(status: arg.status, q: arg.q, page: page, limit: pageSize);
+
+  @override
+  Future<ProjectsPage> build(ProjectsListQuery arg) async {
+    _generation++;
+    _alive = true;
+    ref.onDispose(() => _alive = false);
+    ref.watch(projectsRepositoryProvider);
+    final first = await _fetch(1);
+    return ProjectsPage(projects: first.projects, total: first.total, page: 1, reachedEnd: first.projects.isEmpty);
+  }
+
+  /// [auto]: kaydırma dinleyicisinden gelen çağrı. Son istek hata verdiyse
+  /// otomatik çağrı YENİDEN DENEMEZ (çevrimdışıyken her kaydırma yeni istek
+  /// atmasın); yeniden deneme yalnızca "Tekrar Dene" ile.
+  Future<void> loadMore({bool auto = false}) async {
+    final current = state.valueOrNull;
+    if (current == null || current.loadingMore || !current.hasMore || state.isLoading) return;
+    if (auto && current.loadMoreError != null) return;
+    final generation = _generation;
+    bool stale() => !_alive || generation != _generation;
+    state = AsyncData(current.copyWith(loadingMore: true, clearError: true));
+    try {
+      final next = await _fetch(current.page + 1);
+      if (stale()) return;
+      // Sayfalar arasında liste değişirse (OFFSET kayması) aynı proje iki
+      // kez görünmesin.
+      final seen = {for (final p in current.projects) p.id};
+      state = AsyncData(ProjectsPage(
+        projects: [...current.projects, for (final p in next.projects) if (seen.add(p.id)) p],
+        total: next.total,
+        page: current.page + 1,
+        reachedEnd: next.projects.isEmpty,
+      ));
+    } catch (e) {
+      if (stale()) return;
+      state = AsyncData(current.copyWith(loadingMore: false, loadMoreError: e));
+    }
+  }
+}
+
 final projectsListProvider =
-    FutureProvider.autoDispose.family<({List<Project> projects, int total}), String?>(
-  (ref, status) => ref.watch(projectsRepositoryProvider).list(status: status),
+    AsyncNotifierProvider.autoDispose.family<ProjectsListNotifier, ProjectsPage, ProjectsListQuery>(
+  ProjectsListNotifier.new,
 );
 
 /// Görev/plan formunun "kime" seçicisi (ücretsiz personel listesi; proje

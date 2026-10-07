@@ -161,7 +161,7 @@ void main() {
       expect(adapter.requestQueries[activeCallIndex]['status'], 'active');
     });
 
-    testWidgets('arama proje adı/müşteri üzerinde istemci tarafında filtreler', (tester) async {
+    testWidgets('arama sunucuda yapılır (q, yazma durunca tek istek); 50 ile sınırlı değil', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
         '/auth/me': [(status: 200, body: _meJson())],
         '/projects': [
@@ -175,18 +175,60 @@ void main() {
               'total': 2,
             },
           ),
+          (
+            status: 200,
+            body: {
+              'projects': [_projectJson(id: 'p77', name: 'Sahil Sitesi 77. Proje', customerName: 'Deniz Yapı')],
+              'total': 1,
+            },
+          ),
+        ],
+      });
+      await _pump(tester, adapter, const ProjectsScreen());
+      expect(find.text('Merkez Ofis İnşaatı'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 's');
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.enterText(find.byType(TextField), 'sahil ');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+
+      final searches = [
+        for (var i = 0; i < adapter.calls.length; i++)
+          if (adapter.calls[i] == '/projects') adapter.requestQueries[i],
+      ];
+      expect(searches, hasLength(2), reason: 'her tuşta değil, yazma durunca');
+      expect(searches.first.containsKey('q'), isFalse);
+      expect(searches.last['q'], 'sahil');
+      expect(searches.last['page'], 1);
+      expect(find.text('Merkez Ofis İnşaatı'), findsNothing);
+      expect(find.text('Sahil Sitesi 77. Proje'), findsOneWidget);
+    });
+
+    testWidgets('50\'den fazla proje: "Daha fazla göster" sonraki sayfayı ekler', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson())],
+        '/projects': [
+          (status: 200, body: {'projects': [_projectJson(id: 'p1', name: 'Birinci Proje')], 'total': 2}),
+          (status: 200, body: {'projects': [_projectJson(id: 'p2', name: 'İkinci Proje')], 'total': 2}),
         ],
       });
       await _pump(tester, adapter, const ProjectsScreen());
 
-      expect(find.text('Merkez Ofis İnşaatı'), findsOneWidget);
-      expect(find.text('Sahil Villası'), findsOneWidget);
-
-      await tester.enterText(find.byType(TextField), 'sahil');
+      // Liste kısa olduğu için kaydırma dinleyicisi de sayfayı isteyebilir;
+      // otomatik ya da düğmeyle -- ikinci sayfa bir kez gelir.
+      final more = find.text('Daha fazla göster (1 / 2)');
+      if (more.evaluate().isNotEmpty) await tester.tap(more);
       await tester.pumpAndSettle();
 
-      expect(find.text('Merkez Ofis İnşaatı'), findsNothing);
-      expect(find.text('Sahil Villası'), findsOneWidget);
+      expect(find.text('Birinci Proje'), findsOneWidget);
+      expect(find.text('İkinci Proje'), findsOneWidget);
+      final pages = [
+        for (var i = 0; i < adapter.calls.length; i++)
+          if (adapter.calls[i] == '/projects') adapter.requestQueries[i]['page'],
+      ];
+      expect(pages, [1, 2]);
+      expect(find.textContaining('Daha fazla göster'), findsNothing);
     });
 
     testWidgets('proje kartına dokunmak /projeler/:id yoluna yönlendirir', (tester) async {
