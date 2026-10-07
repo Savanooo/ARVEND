@@ -21,6 +21,7 @@ import '../../../core/widgets/status_badge.dart';
 import '../data/offers_providers.dart';
 import '../domain/offer.dart';
 import '../history/offer_history_routes.dart' show OfferHistorySection, invalidateOfferHistory;
+import 'offer_pdf.dart';
 
 class OfferDetailScreen extends ConsumerStatefulWidget {
   const OfferDetailScreen({super.key, required this.offerId});
@@ -33,6 +34,7 @@ class OfferDetailScreen extends ConsumerStatefulWidget {
 class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
   bool _creatingLink = false;
   bool _sendingEmail = false;
+  bool _downloadingPdf = false;
 
   String get offerId => widget.offerId;
 
@@ -82,6 +84,28 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     );
     if (ok != true || !mounted) return;
     await _setStatus(status);
+  }
+
+  /// Teklifin PDF'ini indirir (`GET /offers/{id}/pdf`) ve cihazın PDF
+  /// görüntüleyicisiyle açar -- müşteriye elden/WhatsApp ile iletmek için.
+  Future<void> _downloadPdf(Offer offer) async {
+    if (_downloadingPdf) return;
+    setState(() => _downloadingPdf = true);
+    final opener = ref.read(offerPdfOpenerProvider);
+    try {
+      final bytes = await ref.read(offersRepositoryProvider).pdfBytes(offer.id);
+      final error = await opener(offer.pdfFilename, bytes);
+      if (error != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      }
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } on Exception catch (_) {
+      // Dosya yazılamadı / görüntüleyici eklentisi yok: çökme yok.
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF açılamadı.')));
+    } finally {
+      if (mounted) setState(() => _downloadingPdf = false);
+    }
   }
 
   Future<void> _reviseAndEdit() async {
@@ -246,6 +270,17 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     return AppPageScaffold(
       title: offerAsync.maybeWhen(data: (o) => Text(o.offerNo), orElse: () => const Text('Teklif')),
       actions: [
+        offerAsync.maybeWhen(
+          data: (o) => IconButton(
+            key: const ValueKey('offer-pdf-appbar'),
+            tooltip: 'PDF İndir',
+            icon: _downloadingPdf
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.picture_as_pdf_outlined),
+            onPressed: _downloadingPdf ? null : () => _downloadPdf(o),
+          ),
+          orElse: () => const SizedBox.shrink(),
+        ),
         offerAsync.maybeWhen(
           data: (o) => o.isEditable
               ? IconButton(
@@ -441,31 +476,36 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                   orElse: () => const SizedBox.shrink(),
                 ),
               ],
-              if (offer.canRevise || !offer.isPassive) ...[
-                const SizedBox(height: AppSpacing.md),
-                Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.sm,
-                  children: [
-                    if (offer.canRevise)
-                      SecondaryButton(icon: Icons.refresh, label: 'Revize Et ve Düzenle', onPressed: _reviseAndEdit),
-                    if (!offer.isPassive) ...[
-                      SecondaryButton(
-                        icon: Icons.ios_share_outlined,
-                        label: 'Paylaşım Linki',
-                        loading: _creatingLink,
-                        onPressed: _createShareLink,
-                      ),
-                      SecondaryButton(
-                        icon: Icons.mail_outline,
-                        label: 'E-posta Gönder',
-                        loading: _sendingEmail,
-                        onPressed: _sendEmail,
-                      ),
-                    ],
+              // PDF her teklifte (pasif dahil) indirilebilir -- yalnızca okuma ister.
+              const SizedBox(height: AppSpacing.md),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: [
+                  SecondaryButton(
+                    icon: Icons.picture_as_pdf_outlined,
+                    label: 'PDF İndir',
+                    loading: _downloadingPdf,
+                    onPressed: () => _downloadPdf(offer),
+                  ),
+                  if (offer.canRevise)
+                    SecondaryButton(icon: Icons.refresh, label: 'Revize Et ve Düzenle', onPressed: _reviseAndEdit),
+                  if (!offer.isPassive) ...[
+                    SecondaryButton(
+                      icon: Icons.ios_share_outlined,
+                      label: 'Paylaşım Linki',
+                      loading: _creatingLink,
+                      onPressed: _createShareLink,
+                    ),
+                    SecondaryButton(
+                      icon: Icons.mail_outline,
+                      label: 'E-posta Gönder',
+                      loading: _sendingEmail,
+                      onPressed: _sendEmail,
+                    ),
                   ],
-                ),
-              ],
+                ],
+              ),
             ],
           ),
         ),
