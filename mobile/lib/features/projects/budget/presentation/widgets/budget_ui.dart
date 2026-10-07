@@ -39,14 +39,27 @@ const kCostCodesForbiddenText =
     'Maliyet kodu listesini görme yetkin yok. Yöneticinden rolüne "Maliyet kodu kataloğunu görüntüleme" '
     'iznini eklemesini isteyebilirsin.';
 
+/// İzin adları Roller ekranındaki açıklamalarla aynı (migration 0062).
+const kBudgetManagePermissionLabel = 'Proje bütçesini oluşturma, baseline alma ve revizyon önerme';
+const kBudgetApprovePermissionLabel = 'Bütçe revizyonunu onaylama/reddetme';
+
 /// WBS ve bütçe yazmaları router.go'da `projects.budget.manage` ister.
 const kBudgetReadOnlyText =
     'Bütçeyi yalnızca görüntüleyebilirsin; kalem eklemek, baseline almak veya revizyon oluşturmak için rolünde '
-    '"Proje bütçesini oluşturma/onaylama/revize etme" izni olmalı.';
+    '"$kBudgetManagePermissionLabel" izni olmalı.';
+
+/// Revizyon önerebilen ama karar veremeyen kişiye (ör. Eski Sistem rolü):
+/// onay/red düğmelerinin neden olmadığı.
+const kBudgetApproveMissingText =
+    'Revizyon oluşturabilirsin; onaylamak veya reddetmek için rolünde "$kBudgetApprovePermissionLabel" '
+    'izni olmalı.';
+
+/// Kişinin kendi bekleyen revizyonu (Sahip değilse): dört göz ilkesi.
+const kBudgetOwnAdjustmentText = 'Bu revizyonu sen oluşturdun; başka bir yetkilinin onaylaması gerekir.';
 
 const kWbsReadOnlyText =
-    'WBS ağacını yalnızca görüntüleyebilirsin; düğüm eklemek veya düzenlemek için rolünde "Proje bütçesini '
-    'oluşturma/onaylama/revize etme" izni olmalı.';
+    'WBS ağacını yalnızca görüntüleyebilirsin; düğüm eklemek veya düzenlemek için rolünde '
+    '"$kBudgetManagePermissionLabel" izni olmalı.';
 
 const kCostControlReadOnlyText =
     'Maliyet kontrolünü yalnızca görüntüleyebilirsin; taahhüt veya tahmin girmek için rolünde "Maliyet '

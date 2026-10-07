@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/repository"
@@ -24,6 +25,13 @@ var (
 	// eşzamanlı çift onay/red burada engellenir (bkz. ApproveBudgetAdjustment/
 	// RejectBudgetAdjustment sorgu yorumu, RespondChangeOrder İLE AYNI ilke).
 	ErrAdjustmentNotPending = errors.New("yalnızca taslak durumundaki bir bütçe revizyonu onaylanabilir veya reddedilebilir")
+	// ErrOwnAdjustmentDecision: kişi KENDİ oluşturduğu revizyonu onaylamaya/
+	// reddetmeye çalıştı (ürün kararı 2026-10-07: dört göz ilkesi). Firmanın
+	// Sahibi muaftır -- tek onaylayıcısı olan küçük firmalar kilitlenmesin.
+	ErrOwnAdjustmentDecision = errors.New("kendi oluşturduğunuz bütçe revizyonunu onaylayamaz veya reddedemezsiniz; başka bir yetkilinin karar vermesi gerekir")
+	// ErrAdjustmentWouldGoNegative: azaltım onaylanırsa kalemin revize
+	// bütçesi sıfırın altına düşerdi.
+	ErrAdjustmentWouldGoNegative = errors.New("bu revizyon onaylanırsa kalemin revize bütçesi negatife düşer, onaylanamaz")
 )
 
 type BudgetAdjustmentInput struct {
@@ -89,6 +97,9 @@ func (s *ProjectService) CreateBudgetAdjustment(ctx context.Context, projectID, 
 	}
 	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventAdjustmentCreated, actorUUID(in.UserID),
 		map[string]any{"adjustment_id": row.ID.String(), "budget_line_id": in.BudgetLineID, "amount": in.Amount}); err != nil {
+		return nil, err
+	}
+	if err := notifyBudgetAdjustmentApprovers(ctx, txq, orgID, pid, row.ID, actorUUID(in.UserID)); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -161,6 +172,27 @@ func (s *ProjectService) decideBudgetAdjustment(ctx context.Context, projectID, 
 	if current.Status != domain.AdjustmentStatusDraft {
 		return nil, ErrAdjustmentNotPending
 	}
+	actor := actorUUID(userID)
+	if actor.Valid && current.CreatedBy == actor {
+		owner, err := isOrganizationOwner(ctx, txq, actor, orgID)
+		if err != nil {
+			return nil, err
+		}
+		if !owner {
+			return nil, ErrOwnAdjustmentDecision
+		}
+	}
+	if approve {
+		// Proje satırı requireOpenProject ile kilitli: aynı kaleme gelen iki
+		// azaltım onayı sırayla değerlendirilir, ikisi birden geçemez.
+		negative, err := txq.BudgetAdjustmentApprovalWouldGoNegative(ctx, sqlc.BudgetAdjustmentApprovalWouldGoNegativeParams{ID: aid, OrganizationID: orgID, ProjectID: pid})
+		if err != nil {
+			return nil, err
+		}
+		if negative {
+			return nil, ErrAdjustmentWouldGoNegative
+		}
+	}
 
 	var row sqlc.ProjectBudgetAdjustment
 	var eventType string
@@ -186,4 +218,42 @@ func (s *ProjectService) decideBudgetAdjustment(ctx context.Context, projectID, 
 	}
 	out := repository.ToDomainBudgetAdjustment(row)
 	return &out, nil
+}
+
+// notifyBudgetAdjustmentApprovers: yeni revizyon, projede onay verebilecek
+// herkese (projects.budget.approve + proje erişimi, satın alma talebi/ek iş
+// onayıyla AYNI alıcı kuralı: resolveProjectApprovers) "onay bekliyor"
+// bildirimi olarak düşer. Oluşturan hariç -- kendi revizyonuna karar
+// veremez (Sahip olsa bile ne yaptığını zaten biliyor).
+func notifyBudgetAdjustmentApprovers(ctx context.Context, txq *sqlc.Queries, orgID, pid, adjustmentID, actor pgtype.UUID) error {
+	approvers, err := resolveProjectApprovers(ctx, txq, orgID, pid, domain.PermProjectsBudgetApprove)
+	if err != nil {
+		return err
+	}
+	recipients := approvers[:0:0]
+	for _, uid := range approvers {
+		if actor.Valid && uid == actor {
+			continue
+		}
+		recipients = append(recipients, uid)
+	}
+	return createNotificationsForUsers(ctx, txq, recipients, CreateNotificationInput{
+		OrganizationID: orgID, Type: domain.NotificationBudgetAdjustmentSubmitted,
+		Title: "Onay bekleyen bütçe revizyonu", Body: truncateRunes(projectNameFor(ctx, txq, orgID, pid), 500),
+		EntityType: domain.NotificationEntityBudgetAdjustment, EntityID: adjustmentID, ProjectID: pid,
+		ActionTarget: "/projeler/" + pid.String() + "/maliyet/revizyonlar",
+	})
+}
+
+// isOrganizationOwner: kullanıcının firmadaki rolü Sahip mi. Rolü olmayan
+// (ya da bu firmada bulunmayan) kullanıcı Sahip sayılmaz.
+func isOrganizationOwner(ctx context.Context, q *sqlc.Queries, userID, orgID pgtype.UUID) (bool, error) {
+	role, err := q.GetUserRoleCode(ctx, sqlc.GetUserRoleCodeParams{ID: userID, OrganizationID: orgID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return role.Code == domain.OrgRoleOwner, nil
 }

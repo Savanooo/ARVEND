@@ -13,7 +13,7 @@ import (
 	"github.com/Savanooo/ARVEND/backend/internal/service"
 )
 
-// Varsayılan sistem rollerinin izin kümeleri (migration 0034-0044 seed'i;
+// Varsayılan sistem rollerinin izin kümeleri (migration 0034-0063 seed'i;
 // yerel dev DB'deki role_permissions ile aynı).
 var (
 	permsField = []string{
@@ -23,7 +23,7 @@ var (
 	permsFinance = []string{
 		"notifications.read", "offers.internal_pricing.manage", "offers.internal_pricing.read",
 		"organization.cost_codes.manage", "organization.cost_codes.read", "organization.suppliers.manage",
-		"organization.suppliers.read", "projects.budget.manage", "projects.budget.read",
+		"organization.suppliers.read", "projects.budget.approve", "projects.budget.manage", "projects.budget.read",
 		"projects.contracts.lifecycle", "projects.contracts.manage", "projects.contracts.read",
 		"projects.cost_control.manage", "projects.cost_control.read", "projects.finance.manage",
 		"projects.finance.read", "projects.procurement.approve", "projects.procurement.manage",
@@ -58,10 +58,11 @@ var (
 		domain.PermOrganizationUsersRead, domain.PermOrganizationUsersManage,
 		domain.PermOrganizationRolesRead, domain.PermOrganizationRolesManage,
 		domain.PermOrganizationSettingsRead, domain.PermOrganizationSettingsManage,
-		domain.PermProjectsBudgetRead, domain.PermProjectsBudgetManage,
+		domain.PermProjectsBudgetRead, domain.PermProjectsBudgetManage, domain.PermProjectsBudgetApprove,
 		domain.PermProjectsCostControlRead, domain.PermProjectsCostControlManage,
 		domain.PermOrganizationCostCodesRead, domain.PermOrganizationCostCodesManage,
 		domain.PermProjectsContractsRead, domain.PermProjectsContractsManage, domain.PermProjectsContractsLifecycle,
+		domain.PermProjectsChangeOrdersApprove,
 		domain.PermOrganizationSuppliersRead, domain.PermOrganizationSuppliersManage,
 		domain.PermProjectsProcurementRead, domain.PermProjectsProcurementManage, domain.PermProjectsProcurementApprove,
 		domain.PermProjectsSubcontractsRead, domain.PermProjectsSubcontractsManage, domain.PermProjectsSubcontractsApprove,

@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -28,6 +29,7 @@ var (
 	ErrChangeOrderWouldGoNegative  = errors.New("bu eksiltme onaylanırsa proje bedeli negatife düşer, onaylanamaz")
 	ErrInvalidChangeOrderRef       = errors.New("geçersiz ek iş referansı")
 	ErrNoChangeOrderItems          = errors.New("en az bir kalem girilmeli ve toplam sıfırdan büyük olmalıdır")
+	ErrInvalidChangeOrderDecision  = errors.New("geçersiz karar: 'approved' ya da 'rejected' olmalı")
 )
 
 type ChangeOrderItemInput struct {
@@ -286,6 +288,14 @@ func (s *ProjectService) GetChangeOrder(ctx context.Context, projectID, changeOr
 	co.Items = make([]domain.ChangeOrderItem, len(items))
 	for i, it := range items {
 		co.Items[i] = repository.ToDomainChangeOrderItem(it)
+	}
+	if row.DecisionRecordedBy.Valid {
+		// Aynı firmanın kullanıcısı değilse (olmamalı) ad boş kalır.
+		if u, err := s.q.GetUserByIDInOrg(ctx, sqlc.GetUserByIDInOrgParams{ID: row.DecisionRecordedBy, OrganizationID: orgID}); err == nil {
+			co.DecisionRecordedByName = u.FullName
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
 	}
 	if co.Status == domain.ChangeOrderSent {
 		if link, err := s.q.GetActiveChangeOrderShareLink(ctx, cid); err == nil {
@@ -825,10 +835,8 @@ func (s *ProjectService) GetChangeOrderByShareLinkToken(ctx context.Context, tok
 //     çözülür; 2) proje satırı KİLİT ALTINDA okunur (requireOpenProject
 //     ile AYNI sırada -- deadlock'a karşı tutarlı kilit sırası); 3) token
 //     kilit ALTINDA tekrar çözülür (personel bu arada linki iptal etmiş
-//     olabilir); 4) ek iş satırı KİLİT ALTINDA okunur ve durumu
-//     doğrulanır; 5) eksiltme onayıysa GÜNCEL toplamlar (aynı kilit
-//     altında, tamamen serileştirilmiş) okunup negatife düşüp
-//     düşmeyeceği kontrol edilir.
+//     olabilir); 4) karar applyChangeOrderDecision ile uygulanır (ek iş
+//     satırı kilidi, durum ve negatife-düşme kontrolü orada).
 func (s *ProjectService) RespondChangeOrderByShareLinkToken(ctx context.Context, token, decision, ip, userAgent string) (*domain.ChangeOrder, error) {
 	if decision != domain.ChangeOrderApproved && decision != domain.ChangeOrderRejected {
 		return nil, errors.New("geçersiz karar")
@@ -864,15 +872,98 @@ func (s *ProjectService) RespondChangeOrderByShareLinkToken(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	co, err := txq.GetChangeOrderForUpdate(ctx, sqlc.GetChangeOrderForUpdateParams{ID: link.ChangeOrderID, OrganizationID: link.OrganizationID, ProjectID: link.ProjectID})
+	row, err := applyChangeOrderDecision(ctx, txq, link.OrganizationID, link.ProjectID, link.ChangeOrderID, decision,
+		pgtype.UUID{}, "", map[string]any{"ip": truncateRunes(ip, 45), "user_agent": truncateRunes(userAgent, 500)})
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
 		return nil, err
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	out := repository.ToDomainChangeOrder(row)
+	return &out, nil
+}
+
+// maxChangeOrderDecisionNoteRunes: project_change_orders.decision_note
+// sütun sınırı (migration 0063).
+const maxChangeOrderDecisionNoteRunes = 500
+
+// RecordChangeOrderDecision, "Müşteri onayladı/reddetti olarak işaretle":
+// müşteri kararını telefonla/kâğıt üzerinde verdiğinde personel kaydeder
+// (ürün kararı 2026-10-07). Kural seti paylaşım linkiyle BİREBİR aynıdır
+// -- aynı applyChangeOrderDecision (yalnızca 'sent', eksiltme proje
+// bedelini negatife düşüremez, aynı olay tipi ve sözleşme bedeline aynı
+// etki). Fark yalnızca kaydı kimin yaptığı ve isteğe bağlı not.
+// projectID, URL'deki proje kimliğidir (bkz. loadChangeOrderRoute notu).
+func (s *ProjectService) RecordChangeOrderDecision(ctx context.Context, projectID, changeOrderID, organizationID, userID, decision, note string) (*domain.ChangeOrder, error) {
+	if decision != domain.ChangeOrderApproved && decision != domain.ChangeOrderRejected {
+		return nil, ErrInvalidChangeOrderDecision
+	}
+	note = strings.TrimSpace(note)
+	if utf8.RuneCountInString(note) > maxChangeOrderDecisionNoteRunes {
+		return nil, &fieldTooLongError{field: "Not", max: maxChangeOrderDecisionNoteRunes}
+	}
+	actor := actorUUID(userID)
+	if !actor.Valid {
+		return nil, domain.ErrPermissionDenied
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	cid, pid, orgID, err := s.loadChangeOrderRoute(ctx, txq, projectID, changeOrderID, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	// Linkteki müşteriden farklı olarak personele asıl sebep söylenir
+	// ("proje kapalı"), genel "yanıtlanamaz" değil.
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+		return nil, err
+	}
+	meta := map[string]any{"source": domain.ChangeOrderDecisionSourceStaff}
+	if note != "" {
+		meta["note"] = note
+	}
+	row, err := applyChangeOrderDecision(ctx, txq, orgID, pid, cid, decision, actor, note, meta)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	out := repository.ToDomainChangeOrder(row)
+	if u, err := s.q.GetUserByIDInOrg(ctx, sqlc.GetUserByIDInOrgParams{ID: actor, OrganizationID: orgID}); err == nil {
+		out.DecisionRecordedByName = u.FullName
+	}
+	return &out, nil
+}
+
+// applyChangeOrderDecision, bir ek işe müşteri kararını uygulayan TEK kod
+// yoludur -- paylaşım linki (müşterinin kendisi) ve personelin kaydı
+// (RecordChangeOrderDecision) ikisi de buradan geçer, kurallar iki yerde
+// yazılmaz. Çağıran proje satırını requireOpenProject ile KİLİTLEMİŞ
+// olmalıdır (tutarlı kilit sırası: proje -> ek iş). Ek iş satırı kilit
+// altında okunur, yalnızca 'sent' karara bağlanabilir; eksiltme onayı
+// proje bedelini negatife düşürüyorsa reddedilir. Sözleşme bedeline etki
+// ayrıca yazılmaz: güncel bedel her zaman onaylı ek işlerden hesaplanır
+// (migration 0027). decidedBy geçersizse karar müşterinin kendi linkinden
+// gelmiştir.
+func applyChangeOrderDecision(ctx context.Context, txq *sqlc.Queries, orgID, pid, cid pgtype.UUID, decision string,
+	decidedBy pgtype.UUID, note string, eventMeta map[string]any,
+) (sqlc.ProjectChangeOrder, error) {
+	co, err := txq.GetChangeOrderForUpdate(ctx, sqlc.GetChangeOrderForUpdateParams{ID: cid, OrganizationID: orgID, ProjectID: pid})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sqlc.ProjectChangeOrder{}, domain.ErrNotFound
+		}
+		return sqlc.ProjectChangeOrder{}, err
+	}
 	if co.Status != domain.ChangeOrderSent {
-		return nil, ErrChangeOrderNotRespondable
+		return sqlc.ProjectChangeOrder{}, ErrChangeOrderNotRespondable
 	}
 
 	if decision == domain.ChangeOrderApproved && co.ChangeType == domain.ChangeOrderDeduction {
@@ -883,32 +974,34 @@ func (s *ProjectService) RespondChangeOrderByShareLinkToken(ctx context.Context,
 		// denetim bulgusu).
 		negative, err := txq.ChangeOrderApprovalWouldGoNegative(ctx, sqlc.ChangeOrderApprovalWouldGoNegativeParams{ID: co.ID, OrganizationID: co.OrganizationID})
 		if err != nil {
-			return nil, err
+			return sqlc.ProjectChangeOrder{}, err
 		}
 		if negative {
-			return nil, ErrChangeOrderWouldGoNegative
+			return sqlc.ProjectChangeOrder{}, ErrChangeOrderWouldGoNegative
 		}
 	}
 
-	row, err := txq.RespondChangeOrder(ctx, sqlc.RespondChangeOrderParams{ID: co.ID, OrganizationID: co.OrganizationID, Status: decision})
+	row, err := txq.RespondChangeOrder(ctx, sqlc.RespondChangeOrderParams{
+		ID: co.ID, OrganizationID: co.OrganizationID, Status: decision,
+		DecisionRecordedBy: decidedBy, DecisionNote: note,
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrChangeOrderNotRespondable
+			return sqlc.ProjectChangeOrder{}, ErrChangeOrderNotRespondable
 		}
-		return nil, err
+		return sqlc.ProjectChangeOrder{}, err
 	}
 
 	eventType := domain.ProjectEventChangeOrderApproved
 	if decision == domain.ChangeOrderRejected {
 		eventType = domain.ProjectEventChangeOrderRejected
 	}
-	if err := logProjectEvent(ctx, txq, row.OrganizationID, row.ProjectID, eventType, pgtype.UUID{},
-		map[string]any{"change_order_id": row.ID.String(), "ip": truncateRunes(ip, 45), "user_agent": truncateRunes(userAgent, 500)}); err != nil {
-		return nil, err
+	meta := map[string]any{"change_order_id": row.ID.String()}
+	for k, v := range eventMeta {
+		meta[k] = v
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
+	if err := logProjectEvent(ctx, txq, row.OrganizationID, row.ProjectID, eventType, decidedBy, meta); err != nil {
+		return sqlc.ProjectChangeOrder{}, err
 	}
-	out := repository.ToDomainChangeOrder(row)
-	return &out, nil
+	return row, nil
 }

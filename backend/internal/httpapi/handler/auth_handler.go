@@ -73,6 +73,17 @@ type userResponse struct {
 	// gelir, normal listelerde zaten hiç görünmeyen kullanıcılar için
 	// anlamsızdır.
 	DeletedAt *string `json:"deleted_at,omitempty"`
+	// OrganizationStatus: firmanın yaşam döngüsü durumu (active/trial/...);
+	// Süper Admin'de boş. Trial* alanları YALNIZCA durum 'trial' ve bitiş
+	// tarihi kayıtlıyken dolu gelir (bkz. domain.Organization.Trial) -- süre
+	// dolsa da erişim kesilmez, istemci yalnızca Sahip/Yönetici'ye uyarı
+	// gösterir. TrialEndsOn ve TrialDaysLeft İstanbul takvim günüdür:
+	// istemci saat dilimi hesabı yapmaz.
+	OrganizationStatus string  `json:"organization_status,omitempty"`
+	TrialEndsAt        *string `json:"trial_ends_at,omitempty"`
+	TrialEndsOn        *string `json:"trial_ends_on,omitempty"`
+	TrialDaysLeft      *int    `json:"trial_days_left,omitempty"`
+	TrialExpired       *bool   `json:"trial_expired,omitempty"`
 }
 
 // toUserResponse, organizasyon (onboarding) bağlamı olmayan çağrı
@@ -111,6 +122,15 @@ func toSessionResponse(ctx context.Context, authzSvc *service.AuthorizationServi
 		resp.OrganizationName = session.Organization.Name
 		resp.OnboardingCompleted = session.Organization.OnboardingCompleted
 		resp.OnboardingStep = string(session.Organization.OnboardingStep)
+		resp.OrganizationStatus = string(session.Organization.Status)
+		if trial := session.Organization.Trial(time.Now(), service.IstanbulLocation()); trial != nil {
+			endsAt := trial.EndsAt.Format(rfc3339)
+			endsOn := trial.EndsOn.Format("2006-01-02")
+			days := trial.DaysLeft
+			resp.TrialEndsAt, resp.TrialEndsOn, resp.TrialDaysLeft = &endsAt, &endsOn, &days
+			expired := trial.Expired
+			resp.TrialExpired = &expired
+		}
 	}
 	// super_admin'in organization_id'si YOKTUR -- tenant izin sorgusuna
 	// hiç girmez, permissions/organization_role alanları BOŞ kalır (spec

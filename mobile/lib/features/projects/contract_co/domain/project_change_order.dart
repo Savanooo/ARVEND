@@ -6,7 +6,8 @@
 ///
 /// Durum makinesi (domain/project_change_order.go):
 ///
-///     draft -> sent -> {approved, rejected}   (karar MÜŞTERİNİN, paylaşım linkinden)
+///     draft -> sent -> {approved, rejected}   (karar MÜŞTERİNİN: paylaşım linkinden
+///                                              ya da telefon/yazılı yanıtı ekip kaydeder)
 ///     draft -> cancelled
 ///     sent  -> cancelled
 ///     sent, rejected -> superseded             (Revize Et: yeni taslak açılır)
@@ -44,6 +45,9 @@ class ProjectChangeOrder {
     this.activeShareToken,
     this.items = const [],
     this.profitability,
+    this.decisionRecordedBy,
+    this.decisionRecordedByName = '',
+    this.decisionNote = '',
   });
 
   static const typeAddition = 'addition';
@@ -97,6 +101,17 @@ class ProjectChangeOrder {
   /// bunu listedeki aynı kayıttan alır.
   final ChangeOrderProfitability? profitability;
 
+  /// Müşteri kararını ekip kaydettiyse (telefon/yazılı onay) kim; müşteri
+  /// kendi linkinden yanıt verdiyse null. Ne zaman: `respondedAt`.
+  final String? decisionRecordedBy;
+  final String decisionRecordedByName;
+
+  /// Kararla birlikte yazılan dahili not ("telefonla onay"). Müşteri
+  /// paylaşım sayfası bunu görmez.
+  final String decisionNote;
+
+  bool get decisionRecordedByStaff => decisionRecordedBy != null;
+
   factory ProjectChangeOrder.fromJson(Map<String, dynamic> json) => ProjectChangeOrder(
         id: json['id'] as String,
         projectId: json['project_id'] as String? ?? '',
@@ -129,6 +144,9 @@ class ProjectChangeOrder {
         profitability: json['profitability'] is Map<String, dynamic>
             ? ChangeOrderProfitability.fromJson(json['profitability'] as Map<String, dynamic>)
             : null,
+        decisionRecordedBy: _str(json['decision_recorded_by']),
+        decisionRecordedByName: json['decision_recorded_by_name'] as String? ?? '',
+        decisionNote: json['decision_note'] as String? ?? '',
       );
 
   /// Listeden gelen kârlılığı detaya ekler (detay ucu hesaplamaz).
@@ -161,6 +179,9 @@ class ProjectChangeOrder {
           activeShareToken: activeShareToken,
           items: items,
           profitability: value,
+          decisionRecordedBy: decisionRecordedBy,
+          decisionRecordedByName: decisionRecordedByName,
+          decisionNote: decisionNote,
         );
 
   bool get isAddition => changeType != typeDeduction;
@@ -181,6 +202,10 @@ class ProjectChangeOrder {
   /// Web yalnızca `sent` iken "Mail Gönder"/"Linki Kopyala" gösterir.
   bool get canEmail => status == statusSent;
   bool get hasShareLink => status == statusSent && (activeShareToken?.isNotEmpty ?? false);
+
+  /// Müşteri kararı (linkten ya da ekibin kaydıyla) yalnızca gönderilmiş
+  /// bir ek işe verilebilir -- backend applyChangeOrderDecision ile aynı.
+  bool get canRecordDecision => status == statusSent;
 
   static double _num(Object? v) => (v as num?)?.toDouble() ?? 0;
   static String? _str(Object? v) {
@@ -396,6 +421,8 @@ class ChangeOrderEvent {
     this.changeOrderIds = const {},
     this.recipient,
     this.newChangeOrderId,
+    this.source,
+    this.note,
   });
 
   final String id;
@@ -414,7 +441,15 @@ class ChangeOrderEvent {
   /// olarak oluşturuldu" diye okunur.
   final String? newChangeOrderId;
 
+  /// Onay/red olayında `staff` = müşteri kararını ekip kaydetti (metadata
+  /// `source`); müşterinin kendi linkinden gelen kararda null.
+  final String? source;
+
+  /// Ekibin kaydettiği karardaki not.
+  final String? note;
+
   static const prefix = 'change_order_';
+  static const sourceStaff = 'staff';
 
   factory ChangeOrderEvent.fromJson(Map<String, dynamic> json) {
     final meta = json['metadata'] is Map<String, dynamic> ? json['metadata'] as Map<String, dynamic> : const {};
@@ -424,6 +459,8 @@ class ChangeOrderEvent {
     };
     final recipient = meta['recipient'];
     final newId = meta['new_change_order_id'];
+    final source = meta['source'];
+    final note = meta['note'];
     return ChangeOrderEvent(
       id: json['id'] as String? ?? '',
       eventType: json['event_type'] as String? ?? '',
@@ -431,10 +468,13 @@ class ChangeOrderEvent {
       changeOrderIds: ids,
       recipient: recipient is String && recipient.isNotEmpty ? recipient : null,
       newChangeOrderId: newId is String && newId.isNotEmpty ? newId : null,
+      source: source is String && source.isNotEmpty ? source : null,
+      note: note is String && note.isNotEmpty ? note : null,
     );
   }
 
   bool get isView => eventType == 'change_order_viewed';
+  bool get isStaffDecision => source == sourceStaff;
 }
 
 /// Web `CHANGE_ORDER_TYPE_LABELS` ile aynı.

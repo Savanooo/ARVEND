@@ -93,8 +93,10 @@ var AttentionRules = map[string]AttentionRule{
 		Act:     []string{PermProjectsSubcontractPaymentsManage}, WhenCannotAct: LaneWatching},
 	AttnSubcontractCOApproval: {Module: DashSectionSubcontracts, Severity: SeverityAction,
 		Visible: []string{PermProjectsSubcontractsRead}, Act: []string{PermProjectsSubcontractsApprove}, WhenCannotAct: LaneWatching},
+	// Revizyon kararı projects.budget.approve ister (migration 0062);
+	// yalnızca öneren (manage) kişi için sıra onda değil, takipte.
 	AttnBudgetAdjustmentApproval: {Module: DashSectionCostControl, Severity: SeverityAction,
-		Visible: []string{PermProjectsBudgetRead}, Act: []string{PermProjectsBudgetManage}, WhenCannotAct: LaneWatching},
+		Visible: []string{PermProjectsBudgetRead}, Act: []string{PermProjectsBudgetApprove}, WhenCannotAct: LaneWatching},
 	AttnOverBudget: {Module: DashSectionCostControl, Severity: SeverityDanger,
 		Visible: []string{PermProjectsCostControlRead}, Act: []string{PermProjectsCostControlManage}, WhenCannotAct: LaneWatching},
 	AttnActiveWithoutBudget: {Module: DashSectionCostControl, Severity: SeverityAction,

@@ -259,12 +259,18 @@ type budgetAdjustmentResponse struct {
 	Status       string  `json:"status"`
 	ApprovedAt   *string `json:"approved_at,omitempty"`
 	CreatedAt    string  `json:"created_at"`
+	// CreatedBy: istemci onay/red düğmelerini kişinin KENDİ revizyonunda
+	// gizleyebilsin (sunucu zaten reddeder, bkz. ErrOwnAdjustmentDecision).
+	// ApprovedBy: kararı veren (onay ya da red).
+	CreatedBy  *string `json:"created_by"`
+	ApprovedBy *string `json:"approved_by"`
 }
 
 func toBudgetAdjustmentResponse(a domain.BudgetAdjustment) budgetAdjustmentResponse {
 	return budgetAdjustmentResponse{
 		ID: a.ID, BudgetLineID: a.BudgetLineID, Amount: a.Amount, Reason: a.Reason,
 		Status: a.Status, ApprovedAt: tsStrPtr(a.ApprovedAt), CreatedAt: a.CreatedAt.Format(rfc3339),
+		CreatedBy: a.CreatedBy, ApprovedBy: a.ApprovedBy,
 	}
 }
 

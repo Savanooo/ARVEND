@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -13,6 +14,7 @@ import '../../notifications/data/notifications_providers.dart';
 import '../data/dashboard_providers.dart';
 import '../domain/dashboard.dart';
 import '../domain/dashboard_registry.dart';
+import '../domain/trial_notice.dart';
 import 'widgets/activity_card.dart';
 import 'widgets/attention_card.dart';
 import 'widgets/cash_flow_card.dart';
@@ -27,6 +29,7 @@ import 'widgets/onboarding_card.dart';
 import 'widgets/quick_actions_row.dart';
 import 'widgets/shortcuts_grid.dart';
 import 'widgets/stale_banner.dart';
+import 'widgets/trial_banner.dart';
 
 /// Ana Sayfa -- tek uçtan (GET /dashboard, bkz. dashboard_providers.dart)
 /// beslenen "bölüm bölüm özet" (spec §6). Hangi kartın görüneceğine SUNUCU
@@ -37,8 +40,9 @@ import 'widgets/stale_banner.dart';
 /// eski veri" kararında, verinin CİHAZDA alındığı anla farkı olarak
 /// kullanılır (bkz. dashboardReceivedAt).
 ///
-/// Sıra: karşılama · Nabız (ya da kurulum rehberi) · Dikkat Gerektirenler ·
-/// Hızlı İşlemler · Nakit Akışı / Görevlerim · bantlar · Son Hareketler.
+/// Sıra: karşılama · (deneme süresi uyarısı) · Nabız (ya da kurulum rehberi) ·
+/// Dikkat Gerektirenler · Hızlı İşlemler · Nakit Akışı / Görevlerim ·
+/// bantlar · Son Hareketler.
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
@@ -105,6 +109,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         padding: EdgeInsets.symmetric(vertical: kScreenPadding.top),
         children: [
           _inset(DashboardHeader(user: user, data: null)),
+          _TrialNoticeSlot(user: user),
           const SizedBox(height: AppSpacing.xl),
           _inset(_DashboardUnavailable(onRetry: _refresh)),
           // Hızlı işlemler özetten bağımsızdır -- özet alınamasa da kalır.
@@ -249,6 +254,7 @@ class _DashboardContent extends ConsumerWidget {
                   const SizedBox(height: AppSpacing.md),
                   _inset(StaleBanner(generatedAt: data.generatedAt, onRetry: onRefresh)),
                 ],
+                _TrialNoticeSlot(user: user),
                 if (data.onboarding != null && hidden) ...[
                   const SizedBox(height: AppSpacing.md),
                   _inset(
@@ -264,6 +270,36 @@ class _DashboardContent extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Deneme süresi uyarısı (yalnızca Sahip/Yönetici, bkz. trialNoticeFor) --
+/// özetten bağımsızdır, kullanıcı bilgisinden gelir. "Kapat" o İstanbul
+/// günü için gizler; ertesi gün yeniden çıkar.
+class _TrialNoticeSlot extends ConsumerWidget {
+  const _TrialNoticeSlot({required this.user});
+
+  final User? user;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final u = user;
+    final notice = trialNoticeFor(u);
+    if (u == null || notice == null) return const SizedBox.shrink();
+    final key = trialNoticeDismissKey(u.organizationId ?? '', u.id);
+    final dismissed = ref.watch(trialNoticeDismissedProvider(key));
+    final today = istanbulDayKey(clock.now());
+    // Tercih okunmadan çizilmez: önce görünüp sonra kaybolmasın.
+    if (!dismissed.hasValue || dismissed.value == today) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.md),
+      child: _inset(
+        TrialBanner(
+          notice: notice,
+          onDismiss: () => ref.read(trialNoticeDismissedProvider(key).notifier).dismissOn(today),
+        ),
+      ),
     );
   }
 }

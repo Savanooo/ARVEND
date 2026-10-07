@@ -79,3 +79,45 @@ class OnboardingHiddenNotifier extends FamilyAsyncNotifier<bool, String> {
 final onboardingHiddenProvider = AsyncNotifierProvider.family<OnboardingHiddenNotifier, bool, String>(
   OnboardingHiddenNotifier.new,
 );
+
+/// Deneme süresi uyarısının "Kapat" tercihinin anahtarı -- kişiye ve firmaya
+/// özel; değer kapatıldığı İSTANBUL günü ("YYYY-MM-DD").
+String trialNoticeDismissKey(String organizationId, String userId) =>
+    'arvend.home.trial_notice.dismissed.$organizationId.$userId';
+
+/// İstanbul takvim günü ("YYYY-MM-DD") -- Türkiye sabit UTC+3. "Bugün
+/// kapatıldı" cihazın saat diliminden bağımsız olsun diye.
+String istanbulDayKey(DateTime now) {
+  final t = now.toUtc().add(const Duration(hours: 3));
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${t.year}-${two(t.month)}-${two(t.day)}';
+}
+
+/// Uyarının en son kapatıldığı gün (SharedPreferences); hiç kapatılmadıysa ya
+/// da okunamazsa null -- uyarı gösterilir. Kapatma yalnızca o gün için
+/// geçerlidir: ertesi gün uyarı yeniden çıkar (ürün kararı: günlük kapatma).
+class TrialNoticeDismissedNotifier extends FamilyAsyncNotifier<String?, String> {
+  @override
+  Future<String?> build(String key) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(key);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> dismissOn(String day) async {
+    state = AsyncData(day);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(arg, day);
+    } catch (_) {
+      // Kalıcı yazılamasa da bu oturumda gizli kalır.
+    }
+  }
+}
+
+final trialNoticeDismissedProvider = AsyncNotifierProvider.family<TrialNoticeDismissedNotifier, String?, String>(
+  TrialNoticeDismissedNotifier.new,
+);

@@ -22,7 +22,10 @@ import 'widgets/budget_ui.dart';
 /// kalem bazında revizyon TASLAĞI oluşturma ve taslakları Onayla/Reddet.
 /// Yalnızca ONAYLANAN revizyon revize bütçeyi etkiler. Karara bağlanmış bir
 /// revizyon tekrar onaylanamaz/reddedilemez (sunucu 409 -> liste tazelenir).
-/// Okuma `projects.budget.read`, yazma `projects.budget.manage`.
+/// Okuma `projects.budget.read`, oluşturma `projects.budget.manage`, karar
+/// `projects.budget.approve`. Kişinin kendi revizyonunda (Sahip değilse)
+/// düğmeler yerine neden gösterilir -- sunucu zaten 409 ile reddeder; diğer
+/// red sebepleri (ör. revize bütçe negatife düşer) sunucu mesajıyla.
 class BudgetAdjustmentsScreen extends ConsumerStatefulWidget {
   const BudgetAdjustmentsScreen({super.key, required this.projectId});
 
@@ -104,6 +107,12 @@ class _BudgetAdjustmentsScreenState extends ConsumerState<BudgetAdjustmentsScree
     final locked = project != null && isProjectLocked(project.status);
     final hasManage = user.can(kBudgetManagePermission);
     final canManage = hasManage && !locked;
+    final hasApprove = user.can(kBudgetApprovePermission);
+    final canApprove = hasApprove && !locked;
+    // Tek onaylayıcısı olan küçük firma kilitlenmesin: Sahip kendi
+    // revizyonuna da karar verebilir (backend ile aynı kural).
+    final isOwner = user?.organizationRoleCode == 'owner';
+    bool ownBlocked(BudgetAdjustment a) => !isOwner && a.isCreatedBy(user?.id);
     final budgetAsync = ref.watch(projectBudgetProvider(_pid));
     final linesAsync = ref.watch(budgetLinesProvider(_pid));
     final adjAsync = ref.watch(budgetAdjustmentsProvider(_pid));
@@ -132,8 +141,12 @@ class _BudgetAdjustmentsScreenState extends ConsumerState<BudgetAdjustmentsScree
           padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, AppSpacing.xxl),
           children: [
             if (locked) ...[const ReadOnlyNotice(kProjectLockedText), const SizedBox(height: AppSpacing.md)],
-            if (!locked && !hasManage) ...[
+            if (!locked && !hasManage && !hasApprove) ...[
               const ReadOnlyNotice(kBudgetReadOnlyText),
+              const SizedBox(height: AppSpacing.md),
+            ],
+            if (!locked && hasManage && !hasApprove && pending > 0) ...[
+              const ReadOnlyNotice(kBudgetApproveMissingText),
               const SizedBox(height: AppSpacing.md),
             ],
             BudgetInfoNote(
@@ -171,7 +184,8 @@ class _BudgetAdjustmentsScreenState extends ConsumerState<BudgetAdjustmentsScree
                   lineLabel: lineById[a.budgetLineId]?.description ?? '—',
                   costCodeLabel: lineById[a.budgetLineId]?.costCodeLabel,
                   currency: currency,
-                  canDecide: canManage && a.isPending,
+                  canDecide: canApprove && a.isPending && !ownBlocked(a),
+                  ownPending: canApprove && a.isPending && ownBlocked(a),
                   busy: _busyId == a.id,
                   disabled: _busyId != null,
                   onApprove: () => _decide(a, lineById[a.budgetLineId]?.description ?? '—', currency, approve: true),
@@ -194,6 +208,7 @@ class _AdjustmentCard extends StatelessWidget {
     required this.costCodeLabel,
     required this.currency,
     required this.canDecide,
+    this.ownPending = false,
     required this.busy,
     required this.disabled,
     required this.onApprove,
@@ -205,6 +220,9 @@ class _AdjustmentCard extends StatelessWidget {
   final String? costCodeLabel;
   final String currency;
   final bool canDecide;
+
+  /// Onay izni var ama revizyon kişinin kendisinin: düğme yerine neden.
+  final bool ownPending;
   final bool busy;
   final bool disabled;
   final VoidCallback onApprove;
@@ -265,6 +283,10 @@ class _AdjustmentCard extends StatelessWidget {
             ].join(' · '),
             style: AppTypography.helper,
           ),
+          if (ownPending) ...[
+            const SizedBox(height: AppSpacing.sm),
+            const ReadOnlyNotice(kBudgetOwnAdjustmentText),
+          ],
           if (canDecide) ...[
             const SizedBox(height: AppSpacing.md),
             Row(

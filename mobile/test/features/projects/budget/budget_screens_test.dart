@@ -4,10 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:arvend/core/errors/api_exception.dart';
 import 'package:arvend/features/auth/domain/user.dart';
 import 'package:arvend/features/projects/budget/budget_routes.dart';
+import 'package:arvend/features/projects/budget/domain/budget.dart';
 import 'package:arvend/features/projects/budget/presentation/widgets/budget_ui.dart';
 import 'package:arvend/features/projects/budget/presentation/widgets/cost_line_widgets.dart';
 import 'package:arvend/features/projects/domain/project.dart';
 
+import '../../suppliers/suppliers_test_support.dart' show buildUser;
 import 'budget_test_support.dart';
 
 /// Bütçe & Maliyet Kontrolü ekran davranışları: izin kapıları (router.go
@@ -535,6 +537,81 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('yalnızca taslak durumundaki bir bütçe revizyonu'), findsOneWidget);
       expect(repo.count('adjustments'), greaterThan(before));
+    });
+
+    // Ürün kararı 2026-10-07: karar projects.budget.approve ister; kişi kendi
+    // revizyonuna karar veremez (Sahip hariç).
+    List<BudgetAdjustment> ownedBy(String userId) => [
+      for (final a in kAdjustments)
+        BudgetAdjustment(
+          id: a.id,
+          budgetLineId: a.budgetLineId,
+          amount: a.amount,
+          reason: a.reason,
+          status: a.status,
+          createdAt: a.createdAt,
+          approvedAt: a.approvedAt,
+          createdBy: a.id == 'a4' ? userId : 'someone-else',
+        ),
+    ];
+
+    testWidgets('kendi revizyonunda onay/red yok, nedeni yazılı', (tester) async {
+      await pump(
+        tester,
+        user: budgetFinanceUser,
+        location: budgetAdjustmentsPath(kProjectId),
+        repo: FakeBudgetRepository(adjustments: ownedBy('finance')),
+      );
+      // a4 kendi, a2 başkasının: yalnızca a2'de düğme.
+      expect(find.text('Onayla'), findsOneWidget);
+      expect(find.text('Reddet'), findsOneWidget);
+      expect(find.text(kBudgetOwnAdjustmentText), findsOneWidget);
+    });
+
+    testWidgets('Sahip kendi revizyonuna da karar verebilir', (tester) async {
+      await pump(
+        tester,
+        user: budgetOwnerUser,
+        location: budgetAdjustmentsPath(kProjectId),
+        repo: FakeBudgetRepository(adjustments: ownedBy('owner')),
+      );
+      expect(find.text('Onayla'), findsNWidgets(2));
+      expect(find.text(kBudgetOwnAdjustmentText), findsNothing);
+    });
+
+    testWidgets('onay izni yoksa: oluşturabilir ama düğme yok, nedeni yazılı', (tester) async {
+      await pump(tester, user: budgetOnlyUser, location: budgetAdjustmentsPath(kProjectId));
+      expect(find.text('Revizyon Oluştur'), findsOneWidget);
+      expect(find.text('Onayla'), findsNothing);
+      expect(find.text('Reddet'), findsNothing);
+      expect(find.text(kBudgetApproveMissingText), findsOneWidget);
+      expect(find.text(kBudgetReadOnlyText), findsNothing);
+    });
+
+    testWidgets('yalnızca onay izni: karar verebilir, salt-okunur notu yok', (tester) async {
+      final approver = buildUser(
+        id: 'approver',
+        roleCode: 'custom',
+        permissions: {kBudgetReadPermission, kBudgetApprovePermission, 'projects.read'},
+      );
+      await pump(tester, user: approver, location: budgetAdjustmentsPath(kProjectId));
+      expect(find.text('Onayla'), findsNWidgets(2));
+      expect(find.text('Revizyon Oluştur'), findsNothing);
+      expect(find.text(kBudgetReadOnlyText), findsNothing);
+    });
+
+    testWidgets('sunucunun ret sebebi olduğu gibi gösterilir', (tester) async {
+      final repo = FakeBudgetRepository()
+        ..errors['approveAdjustment'] = conflict(
+          'bu revizyon onaylanırsa kalemin revize bütçesi negatife düşer, onaylanamaz',
+        );
+      await pump(tester, user: budgetOwnerUser, location: budgetAdjustmentsPath(kProjectId), repo: repo);
+      await tester.tap(find.text('Onayla').first);
+      await tester.pumpAndSettle();
+      await tester.tap(inDialog('Onayla'));
+      await tester.pumpAndSettle();
+      expect(find.text('bu revizyon onaylanırsa kalemin revize bütçesi negatife düşer, onaylanamaz'), findsOneWidget);
+      expect(find.text('Revizyon onaylandı.'), findsNothing);
     });
 
     testWidgets('taslak bütçede revizyon oluşturulamaz', (tester) async {

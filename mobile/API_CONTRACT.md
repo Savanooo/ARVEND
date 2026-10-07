@@ -79,7 +79,14 @@ legacy_user|<custom>`; empty for `super_admin`), `must_change_password`,
 permission-code array, empty for `super_admin` — UX-only, the real
 enforcement boundary is always server-side per request). Since 2026-09-27
 this is the EFFECTIVE set: role permissions minus per-person revokes plus
-per-person grants (owner is never restricted).
+per-person grants (owner is never restricted). Since 2026-10-07 also
+`organization_status` (`active|trial|suspended|cancelled`, empty for
+`super_admin`) and, ONLY for a trial firm with an end date, `trial_ends_at`
+(RFC3339), `trial_ends_on` (Istanbul calendar day `YYYY-MM-DD`),
+`trial_days_left` (Istanbul days; 0 on the last day, negative after) and
+`trial_expired` (bool). An expired trial is NOT blocked — the app shows a
+per-day dismissible Ana Sayfa banner to Sahip/Yönetici only
+(`features/dashboard/domain/trial_notice.dart`).
 
 ## Dashboard (Ana Sayfa) — added 2026-09-28
 - `GET /dashboard` (`requireAuth`+tenant+onboarded; NO single `perm()` —
@@ -166,7 +173,7 @@ to backend enforcement)
 - Mobile (since 1.4.0+5, Finans > "Finans" view, `lib/features/projects/finance_ledger/`): tapping an expense/collection opens its detail (links resolved to "EK-… · title", cost code, plan item) and "İptal Et" (`projects.finance.manage`, open project only, reason REQUIRED in the app — the web allows an empty one). Expense form offers Ek İş / Bütçe Kalemi / Maliyet Kodu pickers (each loaded only with its read permission: `projects.finance.read`, `projects.budget.read`, `organization.cost_codes.read`), collection form offers the open plan items. Both forms keep one `idempotency_key` per form instance and parse Turkish amounts ("64.000" = 64 000, "1.250,50"). Add/void hidden on completed/cancelled projects (backend 409).
 - Legacy subcontractors ("Taşeron Ödemeleri", `projects.finance.read/.manage`, same folder): `GET /subcontractors` → `{subcontractors}` (server computes `paid_amount`/`remaining_amount`), `GET /subcontractor-payments` → `{payments}`, `POST /subcontractors {name, company_name, work_description, contract_amount, currency}`, `POST /subcontractors/{subId}/payments {amount, currency, paid_date, description, idempotency_key}` (key per subcontractor + form). Payments count as realized cost — never also entered as expenses. Separate from the Sprint 5 subcontract CONTRACTS (`/subcontracts`, Operasyon > Taşeronlar).
 - Activity (`projects.read`, `lib/features/projects/activity/`, `/projeler/:id/aktivite`): `GET /projects/{id}/events` → `{events: [{id, event_type, user_id, metadata, created_at}]}` (created_at ASC; the app shows newest first, grouped by Istanbul day, Turkish labels from `core/utils/event_labels.dart`). The endpoint returns money fields (`amount`, `planned_amount`, `contract_amount`, `grand_total`) to every project reader; the app shows them ONLY with `projects.finance.read`.
-- `change-orders`: state machine `draft→sent→{approved(final),rejected}`, `sent|rejected→(revise)→superseded+new draft`, `draft|sent→(cancel)→cancelled`. **No staff approve/reject endpoint** — only via public link. **Cancel takes no reason body.**
+- `change-orders`: state machine `draft→sent→{approved(final),rejected}`, `sent|rejected→(revise)→superseded+new draft`, `draft|sent→(cancel)→cancelled`. The customer decides via the public link, or staff records a phone/paper decision (`record-decision`, below). **Cancel takes no reason body.**
 
 ### Procurement & Subcontracts sub-resources (all under `/projects/{id}/...`) — undocumented until 2026-09-22, verified against `lib/features/projects/data/projects_repository.dart`
 Cost-side sibling of Finance (Offers/change-orders are revenue). Every write
@@ -236,14 +243,16 @@ repository below.
 - `GET /projects/{id}/contract` (404 = no contract yet → "Sözleşme Oluştur" CTA, manage only), `POST /contract` (201; 409 = already exists → reload), `PUT /contract` (draft only: scope, payment/progress/advance terms, `effective_date`/`planned_completion_date`, cleared date sent as `null`), `PUT /contract/notes` (draft + active).
 - Lifecycle: `POST /contract/activate` (draft→active), `/cancel {reason}` (draft→cancelled, reason REQUIRED), `/complete` (active→completed), `/terminate {reason}` (active→terminated, reason REQUIRED). Project Manager role has manage but NOT lifecycle.
 
-**Project change orders** (NO own permission — `projects.finance.read/.manage`, same folder):
+**Project change orders** (`projects.finance.read/.manage`, plus `projects.change_orders.approve` for recording the customer's decision; same folder):
 - `GET /change-orders` → `{change_orders}` (includes internal profitability + active share link), `GET /change-orders/{coId}` (items; NO profitability — app merges it from the list row), `POST /change-orders` (201), `PUT /change-orders/{coId}` (draft only). Item: `{product_id?, description, quantity, unit, unit_price, estimated_unit_cost?}` — keep `product_id`/`estimated_unit_cost` on edit.
-- `POST .../{coId}/send` (draft→sent + share link `/ek-is/{token}`), `POST .../{coId}/send-email {to, subject, message}`, `POST .../{coId}/revise` (sent|rejected → new draft, old one superseded), `POST .../{coId}/cancel` (NO body — cancel takes no reason). Approve/reject only via the public link.
+- `POST .../{coId}/send` (draft→sent + share link `/ek-is/{token}`), `POST .../{coId}/send-email {to, subject, message}`, `POST .../{coId}/revise` (sent|rejected → new draft, old one superseded), `POST .../{coId}/cancel` (NO body — cancel takes no reason).
+- `POST .../{coId}/record-decision {decision: "approved"|"rejected", note}` (`projects.change_orders.approve`, default Owner/Admin; since 2026-10-07): "Müşteri onayladı/reddetti olarak işaretle" for a SENT change order. Same code path and rules as the public link (sent only → else 409; a deduction that would make the contract value negative → 409; same `change_order_approved|rejected` event, now with `user_id` and metadata `source: "staff"`, `note`). Change order responses carry `decision_recorded_by` (null = customer's own link), `decision_recorded_by_name`, `decision_note` (internal, never on the public page). The share link is not revoked; it just stops accepting answers.
 - There is NO change-order email-log list endpoint; the mail history is read from `GET /projects/{id}/events` rows `change_order_email_sent|failed` (payload carries the recipient).
 
 **Budget / cost control** (`lib/features/projects/budget/`):
 - `projects.budget.read`: `GET /wbs`, `GET /budget` (404 = no budget), `GET /budget/lines` (404 = no budget), `GET /budget/adjustments`.
-- `projects.budget.manage`: `POST /wbs`, `PUT/DELETE /wbs/{nodeId}` (DELETE = archive), `POST /budget`, `POST /budget/baseline`, `POST /budget/lines`, `PUT/DELETE /budget/lines/{lineId}` (draft budget), `POST /budget/adjustments` (non-zero, may be negative), `POST /budget/adjustments/{adjId}/approve|reject`.
+- `projects.budget.manage`: `POST /wbs`, `PUT/DELETE /wbs/{nodeId}` (DELETE = archive), `POST /budget`, `POST /budget/baseline`, `POST /budget/lines`, `PUT/DELETE /budget/lines/{lineId}` (draft budget), `POST /budget/adjustments` (non-zero, may be negative; notifies `projects.budget.approve` holders with project access, creator excluded).
+- `projects.budget.approve` (since 2026-10-07, default Owner/Admin/Finance): `POST /budget/adjustments/{adjId}/approve|reject`. 409 with a Turkish message when deciding your OWN adjustment (Owner exempt) or when approval would make the line's revised budget negative. Adjustment rows carry `created_by`/`approved_by`; the app hides approve/reject on the user's own adjustment unless Owner.
 - `projects.cost_control.read`: `GET /commitments`, `GET /forecasts`, `GET /cost-control`. `projects.cost_control.manage`: `POST /commitments` (manual, `idempotency_key`), `POST /commitments/{cId}/void {reason}` (app offers void ONLY for active manual commitments), `PUT /budget/lines/{lineId}/forecast`.
 - Pickers/breakdown: `GET /organization/cost-codes` (`organization.cost_codes.read`), `GET /projects/{id}/expenses` (`projects.finance.read`; the "Gerçekleşen" card is hidden without it).
 

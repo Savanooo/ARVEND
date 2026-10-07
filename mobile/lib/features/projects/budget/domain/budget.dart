@@ -18,12 +18,15 @@ export '../../domain/subcontract.dart' show OrgCostCode;
 /// İzin kodları -- backend router.go ile BİREBİR:
 /// - `budget.read`: GET wbs, budget, budget/lines, budget/adjustments
 /// - `budget.manage`: WBS ekle/düzenle/arşivle, bütçe oluştur/baseline,
-///   kalem ekle/düzenle/sil, revizyon oluştur/onayla/reddet
+///   kalem ekle/düzenle/sil, revizyon oluştur
+/// - `budget.approve`: revizyon onayla/reddet (migration 0062) -- kişi
+///   KENDİ revizyonuna karar veremez, firmanın Sahibi hariç (sunucu 409)
 /// - `cost_control.read`: GET commitments, forecasts, cost-control
 /// - `cost_control.manage`: manuel taahhüt oluştur/iptal, kalem tahmini (ETC)
 /// Hepsi proje-kapsamlıdır (projPerm: izin + proje üyeliği).
 const kBudgetReadPermission = 'projects.budget.read';
 const kBudgetManagePermission = 'projects.budget.manage';
+const kBudgetApprovePermission = 'projects.budget.approve';
 const kCostControlReadPermission = 'projects.cost_control.read';
 const kCostControlManagePermission = 'projects.cost_control.manage';
 
@@ -290,6 +293,8 @@ class BudgetAdjustment {
     required this.status,
     this.approvedAt,
     this.createdAt = '',
+    this.createdBy,
+    this.approvedBy,
   });
 
   final String id;
@@ -300,7 +305,16 @@ class BudgetAdjustment {
   final String? approvedAt;
   final String createdAt;
 
+  /// Revizyonu oluşturan kullanıcı -- kendi revizyonunda onay/red düğmeleri
+  /// gizlenir (Sahip hariç; sunucu da reddeder).
+  final String? createdBy;
+
+  /// Kararı (onay ya da red) veren kullanıcı.
+  final String? approvedBy;
+
   bool get isPending => status == 'draft';
+
+  bool isCreatedBy(String? userId) => userId != null && userId.isNotEmpty && createdBy == userId;
 
   factory BudgetAdjustment.fromJson(Map<String, dynamic> json) => BudgetAdjustment(
     id: json['id'] as String,
@@ -310,6 +324,8 @@ class BudgetAdjustment {
     status: json['status'] as String? ?? 'draft',
     approvedAt: json['approved_at'] as String?,
     createdAt: json['created_at'] as String? ?? '',
+    createdBy: json['created_by'] as String?,
+    approvedBy: json['approved_by'] as String?,
   );
 }
 

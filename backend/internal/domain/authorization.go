@@ -119,6 +119,11 @@ const (
 	PermProjectsCostControlManage   = "projects.cost_control.manage"
 	PermOrganizationCostCodesRead   = "organization.cost_codes.read"
 	PermOrganizationCostCodesManage = "organization.cost_codes.manage"
+	// Bütçe revizyonunu onaylama/reddetme (migration 0062) -- manage'den
+	// AYRI: revizyonu öneren kişi onu kendisi onaylamasın. Varsayılan
+	// Sahip/Yönetici/Finans; kendi revizyonuna karar vermeyi servis ayrıca
+	// engeller (Sahip hariç).
+	PermProjectsBudgetApprove = "projects.budget.approve"
 
 	// Sprint 3 -- Proje Sözleşmesi (Contract, gelir/revenue tarafı --
 	// Sprint 2'nin budget/cost_control'ünden [maliyet tarafı] AYRI).
@@ -130,6 +135,12 @@ const (
 	PermProjectsContractsRead      = "projects.contracts.read"
 	PermProjectsContractsManage    = "projects.contracts.manage"
 	PermProjectsContractsLifecycle = "projects.contracts.lifecycle"
+
+	// Ek işte müşteri kararını personelin kaydetmesi ("Müşteri onayladı/
+	// reddetti olarak işaretle", migration 0063). Ek iş yazmaları
+	// projects.finance.manage ister; bu izin ondan AYRI çünkü karar sözleşme
+	// bedelini doğrudan değiştirir. Varsayılan yalnızca Sahip/Yönetici.
+	PermProjectsChangeOrdersApprove = "projects.change_orders.approve"
 
 	// Sprint 4 -- Procurement Foundation (Suppliers, Purchase Request,
 	// RFQ, Supplier Quotations, Purchase Order). suppliers.* organizasyon-

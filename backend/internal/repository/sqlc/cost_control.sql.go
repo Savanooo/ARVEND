@@ -131,6 +131,37 @@ func (q *Queries) BaselineProjectBudget(ctx context.Context, arg BaselineProject
 	return i, err
 }
 
+const budgetAdjustmentApprovalWouldGoNegative = `-- name: BudgetAdjustmentApprovalWouldGoNegative :one
+SELECT (bl.original_amount
+        + COALESCE((SELECT sum(a.amount) FROM project_budget_adjustments a
+                    WHERE a.budget_line_id = bl.id AND a.organization_id = adj.organization_id
+                      AND a.status = 'approved'), 0)
+        + adj.amount) < 0 AS would_go_negative
+FROM project_budget_adjustments adj
+JOIN project_budget_lines bl ON bl.id = adj.budget_line_id AND bl.organization_id = adj.organization_id
+WHERE adj.id = $1 AND adj.organization_id = $2 AND adj.project_id = $3
+`
+
+type BudgetAdjustmentApprovalWouldGoNegativeParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+}
+
+// BudgetAdjustmentApprovalWouldGoNegative: bu revizyon onaylanırsa kalemin
+// revize bütçesi (original + onaylı revizyonlar, ListCostControlLines ile
+// AYNI formül) sıfırın altına düşer mi? Karşılaştırma tamamen numeric'te
+// (ChangeOrderApprovalWouldGoNegative ile aynı gerekçe: float64 gürültüsü
+// tam sıfıra inen bir azaltımı yanlışlıkla reddetmesin). Çağıran proje
+// satırını kilitlemiş olmalı -- aynı kaleme eşzamanlı iki azaltım onayı
+// böylece sıraya girer.
+func (q *Queries) BudgetAdjustmentApprovalWouldGoNegative(ctx context.Context, arg BudgetAdjustmentApprovalWouldGoNegativeParams) (bool, error) {
+	row := q.db.QueryRow(ctx, budgetAdjustmentApprovalWouldGoNegative, arg.ID, arg.OrganizationID, arg.ProjectID)
+	var would_go_negative bool
+	err := row.Scan(&would_go_negative)
+	return would_go_negative, err
+}
+
 const countActiveWBSChildren = `-- name: CountActiveWBSChildren :one
 SELECT count(*)::bigint FROM project_wbs_nodes
 WHERE parent_id = $1 AND organization_id = $2 AND project_id = $3 AND is_active = true

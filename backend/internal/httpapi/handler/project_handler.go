@@ -316,6 +316,11 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrBudgetBaselined),
 		errors.Is(err, service.ErrBudgetNotYetBaselined),
 		errors.Is(err, service.ErrAdjustmentNotPending),
+		// 403 değil 409: istemciler 403'ü sabit "yetkin yok" metnine
+		// çeviriyor; bu bir izin eksikliği değil, kayda bağlı bir kural ve
+		// mesajın kendisi ne yapılacağını söylüyor.
+		errors.Is(err, service.ErrOwnAdjustmentDecision),
+		errors.Is(err, service.ErrAdjustmentWouldGoNegative),
 		errors.Is(err, service.ErrDuplicateWBSCode),
 		errors.Is(err, service.ErrCommitmentNotActive),
 		errors.Is(err, service.ErrCommitmentNotManual):
@@ -437,6 +442,7 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrChangeOrderNotSendable),
 		errors.Is(err, service.ErrChangeOrderNotCancellable),
 		errors.Is(err, service.ErrChangeOrderNotRevisable),
+		errors.Is(err, service.ErrChangeOrderNotRespondable),
 		errors.Is(err, service.ErrChangeOrderWouldGoNegative),
 		errors.Is(err, service.ErrExpenseNotPending):
 		httpjson.Error(w, http.StatusConflict, err.Error())

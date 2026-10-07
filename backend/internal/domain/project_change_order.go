@@ -102,6 +102,18 @@ type ChangeOrder struct {
 	CancelledAt    *time.Time
 
 	SupersedesChangeOrderID *string
+
+	// DecisionRecordedBy: müşteri kararını personel kaydettiyse ("Müşteri
+	// onayladı/reddetti olarak işaretle", migration 0063) o kullanıcı;
+	// müşterinin kendi paylaşım linkinden gelen kararda nil. Ne zaman
+	// kaydedildiği RespondedAt'tir. DecisionRecordedByName yalnızca okuma
+	// yollarında (liste/detay) doldurulur -- kolon DEĞİLDİR.
+	DecisionRecordedBy     *string
+	DecisionRecordedByName string
+	// DecisionNote: personelin kararla birlikte yazdığı not ("telefonla
+	// onay"). Dahili bilgidir -- müşteri paylaşım sayfasına GİTMEZ.
+	DecisionNote string
+
 	// SupersededByChangeOrderID, JOIN ile doldurulur (bu satırı hangi
 	// yeni revizyonun geçersiz kıldığı) -- kolon DEĞİLDİR.
 	SupersededByChangeOrderID *string
@@ -144,6 +156,12 @@ func (c ChangeOrder) SignedEffect() float64 {
 func (c ChangeOrder) IsRevisable() bool {
 	return c.Status == ChangeOrderSent || c.Status == ChangeOrderRejected
 }
+
+// ChangeOrderDecisionSourceStaff, personelin kaydettiği müşteri kararının
+// project_events metadata'sındaki "source" değeridir -- zaman çizelgesi
+// "Müşteri onayladı" ile "Müşteri onayı ekip tarafından kaydedildi"yi
+// ayırt edebilsin. Müşterinin kendi linkinden gelen olayda alan yoktur.
+const ChangeOrderDecisionSourceStaff = "staff"
 
 // ChangeOrderShareLink, offer_share_links ile aynı tasarımdadır.
 type ChangeOrderShareLink struct {

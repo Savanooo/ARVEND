@@ -99,6 +99,14 @@ type changeOrderResponse struct {
 	ActiveShareToken        *string                           `json:"active_share_token,omitempty"`
 	Items                   []changeOrderItemResponse         `json:"items,omitempty"`
 	Profitability           *changeOrderProfitabilityResponse `json:"profitability,omitempty"`
+
+	// Müşteri kararını personel kaydettiyse (migration 0063) kim ve hangi
+	// notla; müşterinin kendi linkinden gelen kararda null/boş. Bu DTO
+	// yalnızca kimlik doğrulamalı uçlarındır -- public sayfa ayrı DTO
+	// kullanır, not oraya gitmez.
+	DecisionRecordedBy     *string `json:"decision_recorded_by"`
+	DecisionRecordedByName string  `json:"decision_recorded_by_name"`
+	DecisionNote           string  `json:"decision_note"`
 }
 
 func toChangeOrderResponse(co domain.ChangeOrder) changeOrderResponse {
@@ -112,6 +120,9 @@ func toChangeOrderResponse(co domain.ChangeOrder) changeOrderResponse {
 		RejectedAt: tsStrPtr(co.RejectedAt), CancelledAt: tsStrPtr(co.CancelledAt),
 		SupersedesChangeOrderID: co.SupersedesChangeOrderID,
 		ActiveShareToken:        co.ActiveShareToken,
+		DecisionRecordedBy:      co.DecisionRecordedBy,
+		DecisionRecordedByName:  co.DecisionRecordedByName,
+		DecisionNote:            co.DecisionNote,
 	}
 	if len(co.Items) > 0 {
 		resp.Items = make([]changeOrderItemResponse, len(co.Items))
@@ -229,6 +240,30 @@ func (h *ProjectHandler) CancelChangeOrder(w http.ResponseWriter, r *http.Reques
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
 	co, err := h.svc.CancelChangeOrder(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "changeOrderId"), orgID, userID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, toChangeOrderResponse(*co))
+}
+
+type recordChangeOrderDecisionRequest struct {
+	Decision string `json:"decision"` // "approved" | "rejected"
+	Note     string `json:"note"`
+}
+
+// RecordChangeOrderDecision: "Müşteri onayladı/reddetti olarak işaretle"
+// (projects.change_orders.approve). Kurallar paylaşım linkiyle aynıdır
+// (bkz. service.RecordChangeOrderDecision).
+func (h *ProjectHandler) RecordChangeOrderDecision(w http.ResponseWriter, r *http.Request) {
+	var req recordChangeOrderDecisionRequest
+	if err := httpjson.Decode(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	co, err := h.svc.RecordChangeOrderDecision(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "changeOrderId"), orgID, userID, req.Decision, req.Note)
 	if err != nil {
 		h.writeError(w, err)
 		return
