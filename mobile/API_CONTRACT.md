@@ -269,6 +269,7 @@ repository below.
 ## Customers (`requireAuth`, no admin gate)
 - `GET /customers?filter=aktif|pasif&q=` — `q` matches **name only** (not phone/email). No pagination.
 - `GET/POST/PUT/DELETE(soft)` — `customerResponse`: id,name,phone,email,address,tax_office,tax_number,notes,is_active. Phone/email always `""` not null — check non-empty for call/email actions.
+- Duplicate guard: `POST`/`PUT` answer **409** `{error, code:"duplicate_customer", field:"tax_number"|"phone", existing_customer:{id,name,is_active}}` when another customer has the same tax number or phone; resend with `allow_duplicate: true` to save anyway. Mobile's customer form shows a dialog (Mevcut müşteriyi aç / Yine de kaydet / Vazgeç). `ApiException` now carries `code` and the raw JSON `body` for such cases.
 
 ## Products (`requireAuth`; read = `products.read`, write = `products.manage`) — mobile since 1.3.0+4 (`lib/features/products/`)
 - `GET /products?page=&limit=&q=` → `{products, total}`. **limit max 200; above 200 silently falls back to 50.** Mobile pages 100 at a time.

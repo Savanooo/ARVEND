@@ -28,6 +28,7 @@ class CustomersRepository {
     String taxOffice = '',
     String taxNumber = '',
     String notes = '',
+    bool allowDuplicate = false,
   }) async {
     final json = await _client.post<Map<String, dynamic>>('/customers', data: {
       'name': name,
@@ -38,6 +39,8 @@ class CustomersRepository {
       'tax_number': taxNumber,
       'notes': notes,
       'is_active': true,
+      // 409 duplicate_customer uyarısından sonra "Yine de kaydet".
+      if (allowDuplicate) 'allow_duplicate': true,
     });
     return Customer.fromJson(json);
   }
@@ -57,6 +60,7 @@ class CustomersRepository {
     String taxNumber = '',
     String notes = '',
     required bool isActive,
+    bool allowDuplicate = false,
   }) async {
     final json = await _client.put<Map<String, dynamic>>('/customers/$id', data: {
       'name': name,
@@ -67,6 +71,7 @@ class CustomersRepository {
       'tax_number': taxNumber,
       'notes': notes,
       'is_active': isActive,
+      if (allowDuplicate) 'allow_duplicate': true,
     });
     return Customer.fromJson(json);
   }

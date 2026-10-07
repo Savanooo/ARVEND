@@ -1,3 +1,4 @@
+import '../../../core/errors/api_exception.dart';
 import '../../projects/domain/project.dart';
 
 /// backend `customerResponse` - phone/email HER ZAMAN present, null değil
@@ -36,6 +37,44 @@ class Customer {
         notes: json['notes'] as String? ?? '',
         isActive: json['is_active'] as bool? ?? true,
       );
+}
+
+/// 409 `duplicate_customer`: aynı vergi no ya da telefonla kayıtlı müşteri
+/// var. Backend çakışanı döner; kullanıcı onu açabilir ya da
+/// `allow_duplicate: true` ile yine de kaydedebilir (ör. aynı firmanın iki
+/// şubesi tek vergi numarasıyla).
+class DuplicateCustomer {
+  const DuplicateCustomer({
+    required this.id,
+    required this.name,
+    required this.isActive,
+    required this.field,
+    required this.message,
+  });
+
+  final String id;
+  final String name;
+  final bool isActive;
+
+  /// "tax_number" | "phone" -- hangi bilgi çakıştı.
+  final String field;
+
+  /// Sunucunun Türkçe açıklaması (çakışan müşterinin adıyla).
+  final String message;
+
+  /// Hata bir müşteri çakışması değilse null.
+  static DuplicateCustomer? fromError(Object error) {
+    if (error is! ApiException || error.statusCode != 409 || error.code != 'duplicate_customer') return null;
+    final existing = error.body?['existing_customer'];
+    if (existing is! Map || existing['id'] is! String) return null;
+    return DuplicateCustomer(
+      id: existing['id'] as String,
+      name: existing['name'] as String? ?? '',
+      isActive: existing['is_active'] as bool? ?? true,
+      field: error.body?['field'] as String? ?? '',
+      message: error.message,
+    );
+  }
 }
 
 /// Bir müşterinin projelerindeki, backend'in ZATEN hesapladığı
