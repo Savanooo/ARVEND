@@ -92,6 +92,11 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
   bool get _isEdit => widget.existing != null;
   bool get _lockNameUnit => widget.sourceLink == ProductSourceLink.linked;
 
+  /// Kaynağa bağlı ürünün fiyatını her tedarikçi güncellemesi (gece
+  /// senkronu dahil) kaynak fiyat + kâr oranından yeniden yazar -- elle
+  /// girilen fiyat uyarısız geri alınıyordu. Web formu da kilitli.
+  bool get _lockPrice => widget.sourceLink == ProductSourceLink.linked;
+
   @override
   void initState() {
     super.initState();
@@ -117,10 +122,10 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
     if (!_formKey.currentState!.validate()) return;
     final existing = widget.existing;
     final input = ProductInput(
-      // Kaynağa bağlı üründe ad/birim kilitlidir: mevcut değerler aynen gider.
+      // Kaynağa bağlı üründe ad/birim/fiyat kilitlidir: mevcut değerler aynen gider.
       name: _lockNameUnit ? existing!.name : _name.text.trim(),
       unit: _lockNameUnit ? existing!.unit : _unit.text.trim(),
-      unitPrice: parsePriceInput(_price.text).value!,
+      unitPrice: _lockPrice ? existing!.unitPrice : parsePriceInput(_price.text).value!,
       category: _category.text.trim(),
       description: _description.text.trim(),
     );
@@ -166,8 +171,9 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
               tone: NoticeTone.info,
               text:
                   'Bu ürün $src listesinden geliyor. Fiyatı ve kategorisi her $src güncellemesinde yeniden yazılır; '
-                  'burada yapılan fiyat ve kategori değişiklikleri bir sonraki güncellemede kaybolur. Satış fiyatını '
-                  'kalıcı değiştirmek için Fiyat Kaynakları ekranındaki kâr oranı ayarlarını kullan.',
+                  '${_lockPrice ? 'burada yapılan kategori değişiklikleri' : 'burada yapılan fiyat ve kategori değişiklikleri'} '
+                  'bir sonraki güncellemede kaybolur. Satış fiyatını kalıcı değiştirmek için Fiyat Kaynakları '
+                  'ekranındaki kâr oranı ayarlarını kullan.',
             ),
             const SizedBox(height: AppSpacing.lg),
           ],
@@ -204,11 +210,30 @@ class _ProductFormState extends ConsumerState<_ProductForm> {
                   style: AppTypography.helper,
                 ),
               TextFormField(
+                key: const ValueKey('product-price'),
                 controller: _price,
+                enabled: !_lockPrice,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(labelText: 'Birim Fiyat (TL) *', hintText: 'ör. 1250,50'),
-                validator: (v) => parsePriceInput(v ?? '').error,
+                validator: (v) => _lockPrice ? null : parsePriceInput(v ?? '').error,
               ),
+              if (_lockPrice) ...[
+                Text(
+                  'Birim fiyat $src listesindeki fiyata kâr oranı uygulanarak hesaplanır ve her $src güncellemesinde '
+                  '(gece otomatik güncellemesi dahil) yeniden yazılır; elle girilen fiyat korunmazdı. Fiyatı '
+                  'değiştirmek için $src kâr oranını (genel ya da kategori bazında) ayarla.',
+                  key: const ValueKey('product-price-locked-hint'),
+                  style: AppTypography.helper,
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.percent, size: 18),
+                    label: const Text('Kâr oranını ayarla'),
+                    onPressed: () => context.push(ProductsPaths.sources),
+                  ),
+                ),
+              ],
               TextFormField(
                 controller: _category,
                 inputFormatters: [LengthLimitingTextInputFormatter(ProductFieldLimits.category)],

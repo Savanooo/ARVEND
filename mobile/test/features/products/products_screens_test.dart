@@ -195,25 +195,41 @@ void main() {
       await _drainSnackBars(tester);
     });
 
-    testWidgets('kaynağa bağlı ürün: ad/birim kilitli, uyarılar, özgün ad gönderilir', (tester) async {
+    // Fiyat da kilitli: her senkron (gece dahil) kaynak fiyat + kâr
+    // oranından yeniden yazar, elle girilen fiyat uyarısız geri alınırdı.
+    testWidgets('kaynağa bağlı ürün: ad/birim/fiyat kilitli, uyarılar, özgün değerler gönderilir', (tester) async {
       final repo = await _pump(tester, ProductsPaths.edit('p1'));
       final name = tester.widget<TextFormField>(find.widgetWithText(TextFormField, 'Ürün Adı *'));
       expect(name.enabled, isFalse);
+      final price = tester.widget<TextFormField>(find.widgetWithText(TextFormField, 'Birim Fiyat (TL) *'));
+      expect(price.enabled, isFalse);
       expect(find.textContaining('Bu ürün Demir Profil listesinden geliyor'), findsOneWidget);
       expect(find.textContaining('Ad ve birim Demir Profil listesinden gelir'), findsOneWidget);
-      await tester.enterText(find.widgetWithText(TextFormField, 'Birim Fiyat (TL) *'), '120');
+      expect(find.byKey(const ValueKey('product-price-locked-hint')), findsOneWidget);
+      expect(find.textContaining('Demir Profil kâr oranını (genel ya da kategori bazında) ayarla'), findsOneWidget);
+      expect(find.text('Kâr oranını ayarla'), findsOneWidget);
+      await tester.enterText(find.widgetWithText(TextFormField, 'Kategori'), 'Profil');
+      await tester.ensureVisible(find.text('Kaydet'));
       await tester.tap(find.text('Kaydet'));
       await tester.pumpAndSettle();
       final call = repo.updated.single;
-      expect((call.id, call.input.name, call.input.unit, call.input.unitPrice), ('p1', 'Kutu Profil 40x40x2 mm', 'm', 120.0));
+      expect((call.id, call.input.name, call.input.unit, call.input.unitPrice, call.input.category),
+          ('p1', 'Kutu Profil 40x40x2 mm', 'm', 115.0, 'Profil'));
       await _drainSnackBars(tester);
     });
 
-    testWidgets('listede olmayan kaynak ürünü: ad/birim düzenlenebilir', (tester) async {
-      await _pump(tester, ProductsPaths.edit('p2'));
+    testWidgets('listede olmayan kaynak ürünü: ad/birim/fiyat düzenlenebilir', (tester) async {
+      final repo = await _pump(tester, ProductsPaths.edit('p2'));
       final name = tester.widget<TextFormField>(find.widgetWithText(TextFormField, 'Ürün Adı *'));
       expect(name.enabled, isTrue);
       expect(find.textContaining('Bu ürün son Ulaş listesinde yok'), findsOneWidget);
+      expect(find.byKey(const ValueKey('product-price-locked-hint')), findsNothing);
+      await tester.enterText(find.widgetWithText(TextFormField, 'Birim Fiyat (TL) *'), '600');
+      await tester.ensureVisible(find.text('Kaydet'));
+      await tester.tap(find.text('Kaydet'));
+      await tester.pumpAndSettle();
+      expect(repo.updated.single.input.unitPrice, 600);
+      await _drainSnackBars(tester);
     });
 
     testWidgets('salt-okunur: form yok, açıklama var', (tester) async {
