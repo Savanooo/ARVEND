@@ -295,9 +295,12 @@ func main() {
 				}
 				continue
 			}
+			// PreApproved: BYZ'de zaten harcanmış ve sayılmış masraf; ARVEND'in
+			// masraf onayı (migration 0060) geçmiş veriyi onay kuyruğuna atmasın.
 			if _, err := svc.CreateExpense(ctx, projectID, orgID, service.ExpenseInput{
 				Category: cat, Description: kalem, Amount: m.Tutar, Currency: currency,
 				ExpenseDate: date, Notes: strings.TrimSpace(m.Not), IdempotencyKey: key,
+				PreApproved: true,
 			}); err != nil {
 				log.Fatalf("%s masraf %q eklenemedi: %v (önceki satırlar yazıldı; tekrar çalıştırmak güvenli)", base, kalem, err)
 			}

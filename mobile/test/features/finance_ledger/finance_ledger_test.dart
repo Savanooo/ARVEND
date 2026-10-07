@@ -169,6 +169,146 @@ void main() {
     });
   });
 
+  group('Masraf onayı', () {
+    testWidgets('bekleyen/reddedilen rozetli, ret gerekçesi satırda; toplam yalnızca onaylıyı sayar, üstte not', (
+      tester,
+    ) async {
+      final client = await _client(FakeHttpClientAdapter(script: {}));
+      await _pump(
+        tester,
+        buildLedgerApp(user: ledgerOwner, client: client, expenses: approvalExpenses, home: _sections(cc.sampleProject())),
+      );
+
+      expect(find.text('Onay bekliyor'), findsOneWidget);
+      expect(find.text('Reddedildi'), findsOneWidget);
+      expect(find.text('Onaylandı'), findsNothing, reason: 'olağan (onaylı) satır rozetsiz');
+      expect(find.text('Red nedeni: Fatura eksik'), findsOneWidget);
+      expect(
+        find.text('1 masraf onay bekliyor (toplam 3.250,50 TL). Onaylanana kadar toplamlara ve kâra girmez.'),
+        findsOneWidget,
+      );
+      // Satır + geçerli toplam: bekleyen 3.250,50 ve reddedilen 18.000 sayılmaz.
+      expect(find.text('84.500,00 TL'), findsNWidgets(2));
+    });
+
+    testWidgets('onay izni olmayan (finance.manage) bekleyen masrafta Onayla/Reddet görmez', (tester) async {
+      final client = await _client(FakeHttpClientAdapter(script: {}));
+      await _pump(
+        tester,
+        buildLedgerApp(user: ledgerOwner, client: client, expenses: approvalExpenses, home: _sections(cc.sampleProject())),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('masraf-e3')));
+      await tester.pumpAndSettle();
+      expect(find.text('Onay bekliyor'), findsWidgets);
+      expect(find.widgetWithText(ElevatedButton, 'Onayla'), findsNothing);
+      expect(find.widgetWithText(OutlinedButton, 'Reddet'), findsNothing);
+      expect(find.widgetWithText(OutlinedButton, 'İptal Et'), findsOneWidget, reason: 'iptal her durumda');
+    });
+
+    testWidgets('onaylayıcı: Onayla onay penceresinden sonra POST .../approve', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/projects/p1/expenses/e3/approve': [(status: 200, body: null)],
+      });
+      final client = await _client(adapter);
+      await _pump(
+        tester,
+        buildLedgerApp(user: ledgerApprover, client: client, expenses: approvalExpenses, home: _sections(cc.sampleProject())),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('masraf-e3')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Onayla'));
+      await tester.pumpAndSettle();
+      expect(adapter.calls, isEmpty, reason: 'önce onay penceresi');
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Onayla')));
+      await tester.pumpAndSettle();
+
+      expect(adapter.calls, ['/projects/p1/expenses/e3/approve']);
+      expect(find.text('Masraf onaylandı.'), findsOneWidget);
+    });
+
+    testWidgets('onaylayıcı: Reddet gerekçe ister, POST .../reject {reason}', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/projects/p1/expenses/e3/reject': [(status: 200, body: null)],
+      });
+      final client = await _client(adapter);
+      await _pump(
+        tester,
+        buildLedgerApp(user: ledgerApprover, client: client, expenses: approvalExpenses, home: _sections(cc.sampleProject())),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('masraf-e3')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Reddet'));
+      await tester.pumpAndSettle();
+      final dialog = find.byType(AlertDialog);
+      final confirm = tester.widget<TextButton>(
+        find.descendant(of: dialog, matching: find.widgetWithText(TextButton, 'Reddet')),
+      );
+      expect(confirm.onPressed, isNull, reason: 'gerekçe girilmeden ret kapalı');
+      await tester.enterText(find.descendant(of: dialog, matching: find.byType(TextField)), 'Fiş yok');
+      await tester.pump();
+      await tester.tap(find.descendant(of: dialog, matching: find.text('Reddet')));
+      await tester.pumpAndSettle();
+
+      expect(adapter.calls, ['/projects/p1/expenses/e3/reject']);
+      expect(adapter.requestBodies.single, {'reason': 'Fiş yok'});
+      expect(find.text('Masraf reddedildi.'), findsOneWidget);
+    });
+
+    testWidgets('onaylayıcı: karar verilmiş masrafta düğme yok; reddedilende tarih + gerekçe', (tester) async {
+      final client = await _client(FakeHttpClientAdapter(script: {}));
+      await _pump(
+        tester,
+        buildLedgerApp(user: ledgerApprover, client: client, expenses: approvalExpenses, home: _sections(cc.sampleProject())),
+      );
+      await tester.tap(find.byKey(const ValueKey('masraf-e4')));
+      await tester.pumpAndSettle();
+      expect(find.text('Fatura eksik'), findsOneWidget);
+      expect(find.text('Reddedilme'), findsOneWidget);
+      expect(find.widgetWithText(ElevatedButton, 'Onayla'), findsNothing);
+      expect(find.widgetWithText(OutlinedButton, 'Reddet'), findsNothing);
+    });
+
+    testWidgets('onaylayıcı: kapalı projede Onayla/Reddet yok', (tester) async {
+      final client = await _client(FakeHttpClientAdapter(script: {}));
+      final locked = cc.sampleProject(status: 'completed');
+      await _pump(
+        tester,
+        buildLedgerApp(user: ledgerApprover, client: client, project: locked, expenses: approvalExpenses, home: _sections(locked)),
+      );
+      await tester.tap(find.byKey(const ValueKey('masraf-e3')));
+      await tester.pumpAndSettle();
+      expect(find.text('Ekip yemeği'), findsWidgets, reason: 'ayrıntı açıldı');
+      expect(find.widgetWithText(ElevatedButton, 'Onayla'), findsNothing);
+      expect(find.widgetWithText(OutlinedButton, 'Reddet'), findsNothing);
+    });
+
+    testWidgets('409 (başkası karar verdi): sunucu mesajı sayfada kalır', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/projects/p1/expenses/e3/approve': [
+          (status: 409, body: {'error': 'yalnızca onay bekleyen bir masraf onaylanabilir veya reddedilebilir'}),
+        ],
+      });
+      final client = await _client(adapter);
+      await _pump(
+        tester,
+        buildLedgerApp(user: ledgerApprover, client: client, expenses: approvalExpenses, home: _sections(cc.sampleProject())),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('masraf-e3')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Onayla'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Onayla')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('yalnızca onay bekleyen bir masraf onaylanabilir veya reddedilebilir'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('Taşeron Ödemeleri (legacy)', () {
     Widget tab(Project project) => Scaffold(body: SubcontractorPaymentsTab(projectId: project.id, project: project));
 

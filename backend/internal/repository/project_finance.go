@@ -108,10 +108,20 @@ func ToDomainExpense(e sqlc.ProjectExpense) domain.Expense {
 		Notes:          e.Notes,
 		VoidReason:     e.VoidReason,
 		CreatedAt:      e.CreatedAt.Time,
+		ApprovalStatus: e.ApprovalStatus,
+		DecisionNote:   e.DecisionNote,
 	}
 	if e.CreatedBy.Valid {
 		s := e.CreatedBy.String()
 		exp.CreatedBy = &s
+	}
+	if e.DecidedBy.Valid {
+		s := e.DecidedBy.String()
+		exp.DecidedBy = &s
+	}
+	if e.DecidedAt.Valid {
+		t := e.DecidedAt.Time
+		exp.DecidedAt = &t
 	}
 	if e.VoidedAt.Valid {
 		t := e.VoidedAt.Time

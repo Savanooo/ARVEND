@@ -838,7 +838,7 @@ actual_by_line AS (
         COALESCE(sum(e.amount), 0)::numeric(18,2) AS total
     FROM project_expenses e
     LEFT JOIN single_line_codes slc ON e.budget_line_id IS NULL AND slc.cost_code_id = e.cost_code_id
-    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL
+    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.approval_status = 'approved'
       AND COALESCE(e.budget_line_id, slc.budget_line_id) IS NOT NULL
     GROUP BY COALESCE(e.budget_line_id, slc.budget_line_id)
 ),
@@ -871,7 +871,7 @@ unbudgeted_committed AS (
 unbudgeted_actual AS (
     SELECT e.cost_code_id, COALESCE(sum(e.amount), 0)::numeric(18,2) AS total
     FROM project_expenses e
-    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.budget_line_id IS NULL AND e.cost_code_id IS NOT NULL
+    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.approval_status = 'approved' AND e.budget_line_id IS NULL AND e.cost_code_id IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM single_line_codes slc WHERE slc.cost_code_id = e.cost_code_id)
     GROUP BY e.cost_code_id
 ),
@@ -962,6 +962,8 @@ type GetProjectCostControlSummaryRow struct {
 // sessizce yanlış kalemde kalmaz -- hangi kaleme ait olduğu belirsiz
 // olduğundan "bütçe dışı" satırda görünür (kullanıcı kalemi seçmelidir).
 // ListCostControlLines ve GetProjectCostControlSummary'de BİREBİR AYNI.
+// Gerçekleşen (actual) yalnızca ONAYLI masraflardan (migration 0060): onay
+// bekleyen/reddedilen masraf EAC'yi ve bütçe aşımını şişirmez.
 func (q *Queries) GetProjectCostControlSummary(ctx context.Context, arg GetProjectCostControlSummaryParams) (GetProjectCostControlSummaryRow, error) {
 	row := q.db.QueryRow(ctx, getProjectCostControlSummary, arg.ID, arg.OrganizationID)
 	var i GetProjectCostControlSummaryRow
@@ -1347,7 +1349,7 @@ actual_by_line AS (
         COALESCE(sum(e.amount), 0)::numeric(18,2) AS total
     FROM project_expenses e
     LEFT JOIN single_line_codes slc ON e.budget_line_id IS NULL AND slc.cost_code_id = e.cost_code_id
-    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL
+    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.approval_status = 'approved'
       AND COALESCE(e.budget_line_id, slc.budget_line_id) IS NOT NULL
     GROUP BY COALESCE(e.budget_line_id, slc.budget_line_id)
 ),
@@ -1385,7 +1387,7 @@ unbudgeted_committed AS (
 unbudgeted_actual AS (
     SELECT e.cost_code_id, COALESCE(sum(e.amount), 0)::numeric(18,2) AS total
     FROM project_expenses e
-    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.budget_line_id IS NULL AND e.cost_code_id IS NOT NULL
+    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.approval_status = 'approved' AND e.budget_line_id IS NULL AND e.cost_code_id IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM single_line_codes slc WHERE slc.cost_code_id = e.cost_code_id)
     GROUP BY e.cost_code_id
 ),
@@ -1458,6 +1460,8 @@ type ListCostControlLinesRow struct {
 // sessizce yanlış kalemde kalmaz -- hangi kaleme ait olduğu belirsiz
 // olduğundan "bütçe dışı" satırda görünür (kullanıcı kalemi seçmelidir).
 // ListCostControlLines ve GetProjectCostControlSummary'de BİREBİR AYNI.
+// Gerçekleşen (actual) yalnızca ONAYLI masraflardan (migration 0060): onay
+// bekleyen/reddedilen masraf EAC'yi ve bütçe aşımını şişirmez.
 // Bütçe dışı (unbudgeted) satırlar: bir cost_code'a doğrudan (budget_line_id
 // OLMADAN) bağlanmış taahhüt/gider var ama bu cost code'un o projede bir
 // bütçe kalemi yok (ya da birden fazla var ve hangisine ait olduğu

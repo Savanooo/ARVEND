@@ -309,12 +309,14 @@ committed_by_line AS (
       AND COALESCE(c.budget_line_id, slc.budget_line_id) IS NOT NULL
     GROUP BY COALESCE(c.budget_line_id, slc.budget_line_id)
 ),
+-- Gerçekleşen (actual) yalnızca ONAYLI masraflardan (migration 0060): onay
+-- bekleyen/reddedilen masraf EAC'yi ve bütçe aşımını şişirmez.
 actual_by_line AS (
     SELECT COALESCE(e.budget_line_id, slc.budget_line_id) AS budget_line_id,
         COALESCE(sum(e.amount), 0)::numeric(18,2) AS total
     FROM project_expenses e
     LEFT JOIN single_line_codes slc ON e.budget_line_id IS NULL AND slc.cost_code_id = e.cost_code_id
-    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL
+    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.approval_status = 'approved'
       AND COALESCE(e.budget_line_id, slc.budget_line_id) IS NOT NULL
     GROUP BY COALESCE(e.budget_line_id, slc.budget_line_id)
 ),
@@ -352,7 +354,7 @@ unbudgeted_committed AS (
 unbudgeted_actual AS (
     SELECT e.cost_code_id, COALESCE(sum(e.amount), 0)::numeric(18,2) AS total
     FROM project_expenses e
-    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.budget_line_id IS NULL AND e.cost_code_id IS NOT NULL
+    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.approval_status = 'approved' AND e.budget_line_id IS NULL AND e.cost_code_id IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM single_line_codes slc WHERE slc.cost_code_id = e.cost_code_id)
     GROUP BY e.cost_code_id
 ),
@@ -440,12 +442,14 @@ committed_by_line AS (
       AND COALESCE(c.budget_line_id, slc.budget_line_id) IS NOT NULL
     GROUP BY COALESCE(c.budget_line_id, slc.budget_line_id)
 ),
+-- Gerçekleşen (actual) yalnızca ONAYLI masraflardan (migration 0060): onay
+-- bekleyen/reddedilen masraf EAC'yi ve bütçe aşımını şişirmez.
 actual_by_line AS (
     SELECT COALESCE(e.budget_line_id, slc.budget_line_id) AS budget_line_id,
         COALESCE(sum(e.amount), 0)::numeric(18,2) AS total
     FROM project_expenses e
     LEFT JOIN single_line_codes slc ON e.budget_line_id IS NULL AND slc.cost_code_id = e.cost_code_id
-    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL
+    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.approval_status = 'approved'
       AND COALESCE(e.budget_line_id, slc.budget_line_id) IS NOT NULL
     GROUP BY COALESCE(e.budget_line_id, slc.budget_line_id)
 ),
@@ -478,7 +482,7 @@ unbudgeted_committed AS (
 unbudgeted_actual AS (
     SELECT e.cost_code_id, COALESCE(sum(e.amount), 0)::numeric(18,2) AS total
     FROM project_expenses e
-    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.budget_line_id IS NULL AND e.cost_code_id IS NOT NULL
+    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.approval_status = 'approved' AND e.budget_line_id IS NULL AND e.cost_code_id IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM single_line_codes slc WHERE slc.cost_code_id = e.cost_code_id)
     GROUP BY e.cost_code_id
 ),

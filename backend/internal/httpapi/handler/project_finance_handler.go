@@ -281,6 +281,13 @@ type expenseResponse struct {
 	ChangeOrderID *string `json:"change_order_id,omitempty"`
 	CostCodeID    *string `json:"cost_code_id,omitempty"`
 	BudgetLineID  *string `json:"budget_line_id,omitempty"`
+	// Onay (migration 0060): pending | approved | rejected. Toplamlara
+	// yalnızca approved (ve iptal edilmemiş) masraf girer; decision_note
+	// ret gerekçesidir.
+	ApprovalStatus string  `json:"approval_status"`
+	DecidedBy      *string `json:"decided_by"`
+	DecidedAt      *string `json:"decided_at"`
+	DecisionNote   string  `json:"decision_note"`
 }
 
 func toExpenseResponse(e domain.Expense) expenseResponse {
@@ -290,6 +297,8 @@ func toExpenseResponse(e domain.Expense) expenseResponse {
 		SupplierName: e.SupplierName, InvoiceNo: e.InvoiceNo, Notes: e.Notes,
 		VoidedAt: tsStrPtr(e.VoidedAt), VoidReason: e.VoidReason, CreatedAt: e.CreatedAt.Format(rfc3339),
 		ChangeOrderID: e.ChangeOrderID, CostCodeID: e.CostCodeID, BudgetLineID: e.BudgetLineID,
+		ApprovalStatus: e.ApprovalStatus, DecidedBy: e.DecidedBy, DecidedAt: tsStrPtr(e.DecidedAt),
+		DecisionNote: e.DecisionNote,
 	}
 }
 
@@ -380,6 +389,37 @@ func (h *ProjectHandler) VoidExpense(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
 	e, err := h.svc.VoidExpense(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "expenseId"), orgID, userID, req.Reason)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, toExpenseResponse(*e))
+}
+
+// ApproveExpense: POST /projects/{id}/expenses/{expenseId}/approve
+// (projects.expenses.approve). Gövde yok.
+func (h *ProjectHandler) ApproveExpense(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	e, err := h.svc.ApproveExpense(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "expenseId"), orgID, userID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, toExpenseResponse(*e))
+}
+
+// RejectExpense: POST /projects/{id}/expenses/{expenseId}/reject {reason}
+// (projects.expenses.approve). Gerekçe zorunlu.
+func (h *ProjectHandler) RejectExpense(w http.ResponseWriter, r *http.Request) {
+	var req voidRequest
+	if err := httpjson.Decode(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	e, err := h.svc.RejectExpense(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "expenseId"), orgID, userID, req.Reason)
 	if err != nil {
 		h.writeError(w, err)
 		return

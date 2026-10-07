@@ -513,7 +513,7 @@ func TestCostControl(t *testing.T) {
 
 	t.Run("21_expense_with_budget_line_reflected_in_actual_cost", func(t *testing.T) {
 		p, line := setupBaselinedLine(t, orgA.ID, 100000, 700000)
-		if _, err := projectSvc.CreateExpense(ctx, p.ID, orgA.ID, service.ExpenseInput{
+		if _, err := createApprovedExpense(ctx, projectSvc, p.ID, orgA.ID, service.ExpenseInput{
 			Category: domain.ExpenseMaterial, Description: "Çimento", Amount: 300000, ExpenseDate: time.Now(), BudgetLineID: line.ID,
 		}); err != nil {
 			t.Fatalf("masraf oluşturulamadı: %v", err)
@@ -530,7 +530,7 @@ func TestCostControl(t *testing.T) {
 
 	t.Run("22_voided_expense_excluded_from_actual_cost", func(t *testing.T) {
 		p, line := setupBaselinedLine(t, orgA.ID, 100000, 700000)
-		exp, err := projectSvc.CreateExpense(ctx, p.ID, orgA.ID, service.ExpenseInput{
+		exp, err := createApprovedExpense(ctx, projectSvc, p.ID, orgA.ID, service.ExpenseInput{
 			Category: domain.ExpenseMaterial, Description: "İptal edilecek masraf", Amount: 150000, ExpenseDate: time.Now(), BudgetLineID: line.ID,
 		})
 		if err != nil {
@@ -565,7 +565,7 @@ func TestCostControl(t *testing.T) {
 
 	t.Run("24_default_etc_without_override_uses_remaining_budget", func(t *testing.T) {
 		p, line := setupBaselinedLine(t, orgA.ID, 100000, 700000)
-		if _, err := projectSvc.CreateExpense(ctx, p.ID, orgA.ID, service.ExpenseInput{
+		if _, err := createApprovedExpense(ctx, projectSvc, p.ID, orgA.ID, service.ExpenseInput{
 			Category: domain.ExpenseMaterial, Description: "Gerçekleşen", Amount: 200000, ExpenseDate: time.Now(), BudgetLineID: line.ID,
 		}); err != nil {
 			t.Fatalf("masraf oluşturulamadı: %v", err)
@@ -586,7 +586,7 @@ func TestCostControl(t *testing.T) {
 
 	t.Run("25_manual_etc_override_reflected", func(t *testing.T) {
 		p, line := setupBaselinedLine(t, orgA.ID, 100000, 700000)
-		if _, err := projectSvc.CreateExpense(ctx, p.ID, orgA.ID, service.ExpenseInput{
+		if _, err := createApprovedExpense(ctx, projectSvc, p.ID, orgA.ID, service.ExpenseInput{
 			Category: domain.ExpenseMaterial, Description: "Gerçekleşen", Amount: 200000, ExpenseDate: time.Now(), BudgetLineID: line.ID,
 		}); err != nil {
 			t.Fatalf("masraf oluşturulamadı: %v", err)
@@ -612,7 +612,7 @@ func TestCostControl(t *testing.T) {
 		cc := newCostCode(t, orgA.ID, "MLZ-UBG")
 		// Bu cost code'a bağlı HİÇBİR bütçe kalemi YOK -- doğrudan bir
 		// masraf ekleniyor (budget_line_id BOŞ, yalnızca cost_code_id).
-		if _, err := projectSvc.CreateExpense(ctx, p.ID, orgA.ID, service.ExpenseInput{
+		if _, err := createApprovedExpense(ctx, projectSvc, p.ID, orgA.ID, service.ExpenseInput{
 			Category: domain.ExpenseMaterial, Description: "Plansız harcama", Amount: 5000, ExpenseDate: time.Now(), CostCodeID: cc.ID,
 		}); err != nil {
 			t.Fatalf("masraf oluşturulamadı: %v", err)
@@ -670,7 +670,7 @@ func TestCostControl(t *testing.T) {
 		if _, err := projectSvc.ApproveBudgetAdjustment(ctx, p.ID, adj.ID, orgA.ID, ""); err != nil {
 			t.Fatalf("revizyon onaylanamadı: %v", err)
 		}
-		if _, err := projectSvc.CreateExpense(ctx, p.ID, orgA.ID, service.ExpenseInput{
+		if _, err := createApprovedExpense(ctx, projectSvc, p.ID, orgA.ID, service.ExpenseInput{
 			Category: domain.ExpenseMaterial, Description: "Gerçekleşen", Amount: 300000, ExpenseDate: time.Now(), BudgetLineID: line.ID,
 		}); err != nil {
 			t.Fatalf("masraf oluşturulamadı: %v", err)
@@ -764,7 +764,7 @@ func TestCostControl(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("taahhüt oluşturulamadı: %v", err)
 		}
-		if _, err := projectSvc.CreateExpense(ctx, p.ID, orgA.ID, service.ExpenseInput{
+		if _, err := createApprovedExpense(ctx, projectSvc, p.ID, orgA.ID, service.ExpenseInput{
 			Category: domain.ExpenseMaterial, Description: "Golden money gerçekleşen", Amount: 300000,
 			ExpenseDate: time.Now(), BudgetLineID: line.ID,
 		}); err != nil {
@@ -824,7 +824,7 @@ func TestCostControl(t *testing.T) {
 		if err != nil {
 			t.Fatalf("bütçe kalemi oluşturulamadı: %v", err)
 		}
-		if _, err := projectSvc.CreateExpense(ctx, p.ID, orgA.ID, service.ExpenseInput{
+		if _, err := createApprovedExpense(ctx, projectSvc, p.ID, orgA.ID, service.ExpenseInput{
 			Category: domain.ExpenseMaterial, Description: "Kodlu masraf", Amount: 30000, ExpenseDate: time.Now(), CostCodeID: cc.ID,
 		}); err != nil {
 			t.Fatalf("masraf oluşturulamadı: %v", err)

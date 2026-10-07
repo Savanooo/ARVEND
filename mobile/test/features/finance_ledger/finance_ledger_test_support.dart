@@ -37,6 +37,19 @@ final ledgerOwner = ledgerUser(
 /// Yalnızca finans görüntüleme: satırlar açılır, iptal/ekle yok.
 final ledgerViewer = ledgerUser('viewer', {'projects.read', 'projects.finance.read'});
 
+/// Onaylayıcı (Sahip/Yönetici/Finans varsayılanı): finans + masraf onayı.
+final ledgerApprover = ledgerUser(
+  'approver',
+  {
+    'projects.read',
+    'projects.finance.read',
+    'projects.finance.manage',
+    'organization.cost_codes.read',
+    'projects.expenses.approve',
+  },
+  role: UserRole.admin,
+);
+
 /// Proje Yöneticisi: finans izni YOK -- hiçbir tutar, hiçbir finans isteği.
 final ledgerPm = ledgerUser('project_manager', {'projects.read', 'projects.contracts.read', 'projects.tasks.read'});
 
@@ -67,6 +80,34 @@ final ledgerExpenses = [
     'voided_at': '2026-09-09T10:00:00Z',
     'void_reason': 'Mükerrer giriş',
     'created_at': '2026-09-08T09:00:00Z',
+  }),
+];
+
+/// Masraf onayı fikstürü: onaylı (e1), onay bekleyen (e3), reddedilen (e4).
+final approvalExpenses = [
+  ledgerExpenses.first,
+  Expense.fromJson({
+    'id': 'e3',
+    'category': 'food',
+    'description': 'Ekip yemeği',
+    'amount': 3250.5,
+    'currency': 'TRY',
+    'expense_date': '2026-09-20',
+    'supplier_name': 'Lokanta',
+    'approval_status': 'pending',
+    'created_at': '2026-09-20T12:00:00Z',
+  }),
+  Expense.fromJson({
+    'id': 'e4',
+    'category': 'equipment',
+    'description': 'Kırıcı kiralama',
+    'amount': 18000,
+    'currency': 'TRY',
+    'expense_date': '2026-09-18',
+    'approval_status': 'rejected',
+    'decided_at': '2026-09-19T08:30:00Z',
+    'decision_note': 'Fatura eksik',
+    'created_at': '2026-09-18T09:00:00Z',
   }),
 ];
 

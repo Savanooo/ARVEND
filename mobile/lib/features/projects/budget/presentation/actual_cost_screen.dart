@@ -58,9 +58,12 @@ class ActualCostScreen extends ConsumerWidget {
             ? const BudgetNoAccessView(message: kActualNoAccessText)
             : ErrorState(error: e, onRetry: refresh),
         data: (expenses) {
-          final live = expenses.where((e) => !e.isVoided).toList();
+          // Gerçekleşen yalnızca ONAYLI masraflardan (backend migration 0060);
+          // onay bekleyenler yalnızca not olarak sayılır.
+          final live = expenses.where((e) => e.countsAsActual).toList();
           final mapped = live.where((e) => e.costCodeId != null).toList();
           final unmapped = live.length - mapped.length;
+          final pending = expenses.where((e) => e.isPending).length;
           return RefreshIndicator(
             onRefresh: refresh,
             child: ListView(
@@ -72,11 +75,18 @@ class ActualCostScreen extends ConsumerWidget {
                   'gerçekleşen-maliyet kaydı değildir (tek gerçek kaynak, mükerrer kayıt yok).',
                 ),
                 const SizedBox(height: AppSpacing.lg),
+                if (pending > 0) ...[
+                  BudgetInfoNote(
+                    '$pending masraf onay bekliyor — onaylanınca gerçekleşen maliyete girer.',
+                    icon: Icons.hourglass_empty,
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
                 if (live.isEmpty)
                   const EmptyStateView(
                     message:
-                        'Henüz gider kaydı yok. Gerçekleşen maliyet, Finans > Masraflar bölümünde girilen '
-                        'kayıtlardan gelir.',
+                        'Henüz gider kaydı yok. Gerçekleşen maliyet, Finans > Masraflar bölümünde girilip '
+                        'onaylanan kayıtlardan gelir.',
                     icon: Icons.receipt_long_outlined,
                   )
                 else ...[

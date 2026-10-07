@@ -6,7 +6,9 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../../../core/widgets/app_buttons.dart';
 import '../../../../core/widgets/app_data_row.dart';
+import '../../../../core/widgets/status_badge.dart';
 import '../../../../core/widgets/unsaved_changes_scope.dart';
 import '../../contract_co/presentation/widgets/contract_co_ui.dart' show showReasonDialog;
 import '../../data/projects_providers.dart';
@@ -23,16 +25,33 @@ import '../domain/legacy_subcontractor.dart';
 /// kayıt SİLİNMEZ, üstü çizili kalır ve toplamlardan düşer. Gerekçe
 /// uygulamada zorunludur (satın alma/taahhüt iptalleriyle aynı desen).
 /// İptal edildiyse `true` döner.
+///
+/// Masraf onayı (backend migration 0060): "Durum" satırı onay durumunu,
+/// karar tarihini ve ret gerekçesini gösterir. [canDecide]
+/// (`projects.expenses.approve` + açık proje) ve masraf onay bekliyorsa
+/// "Onayla" / "Reddet" (gerekçe zorunlu) görünür.
 Future<bool?> showExpenseDetailSheet(
   BuildContext context, {
   required String projectId,
   required Expense expense,
   required String currency,
   required bool canVoid,
+  bool canDecide = false,
   String? changeOrderLabel,
   String? costCodeLabel,
 }) {
   final rows = <Widget>[
+    AppDataRow(
+      label: 'Durum',
+      trailing: StatusRegistry.build(expense.approvalStatus, StatusRegistry.expenseApproval),
+    ),
+    if (expense.decidedAt != null)
+      AppDataRow(
+        label: expense.isRejected ? 'Reddedilme' : 'Onaylanma',
+        value: Formatters.dateTime(expense.decidedAt),
+      ),
+    if (expense.isRejected && expense.decisionNote.isNotEmpty)
+      AppDataRow(label: 'Red nedeni', value: expense.decisionNote, multiline: true),
     AppDataRow(label: 'Tarih', value: Formatters.date(expense.expenseDate)),
     AppDataRow(label: 'Kategori', value: expenseCategories[expense.category] ?? expense.category),
     AppDataRow(label: 'Açıklama', value: expense.description.isEmpty ? '—' : expense.description, multiline: true),
@@ -58,6 +77,18 @@ Future<bool?> showExpenseDetailSheet(
       await container.read(projectsRepositoryProvider).voidExpense(projectId, expense.id, reason: reason);
       invalidateProjectLedger(container.invalidate, projectId);
     },
+    onApprove: canDecide && expense.isPending
+        ? (container) async {
+            await container.read(projectsRepositoryProvider).approveExpense(projectId, expense.id);
+            invalidateProjectLedger(container.invalidate, projectId);
+          }
+        : null,
+    onReject: canDecide && expense.isPending
+        ? (container, reason) async {
+            await container.read(projectsRepositoryProvider).rejectExpense(projectId, expense.id, reason: reason);
+            invalidateProjectLedger(container.invalidate, projectId);
+          }
+        : null,
   );
 }
 
@@ -148,6 +179,8 @@ Future<bool?> _showLedgerSheet(
   required String voidMessage,
   required String doneMessage,
   required Future<void> Function(ProviderContainer container, String reason) onVoid,
+  Future<void> Function(ProviderContainer container)? onApprove,
+  Future<void> Function(ProviderContainer container, String reason)? onReject,
 }) {
   return showAppSheet<bool>(
     context: context,
@@ -165,9 +198,13 @@ Future<bool?> _showLedgerSheet(
       voidMessage: voidMessage,
       doneMessage: doneMessage,
       onVoid: onVoid,
+      onApprove: onApprove,
+      onReject: onReject,
     ),
   );
 }
+
+enum _SheetAction { voiding, approving, rejecting }
 
 class _LedgerSheet extends ConsumerStatefulWidget {
   const _LedgerSheet({
@@ -182,6 +219,8 @@ class _LedgerSheet extends ConsumerStatefulWidget {
     required this.voidMessage,
     required this.doneMessage,
     required this.onVoid,
+    this.onApprove,
+    this.onReject,
   });
 
   final String projectId;
@@ -199,12 +238,18 @@ class _LedgerSheet extends ConsumerStatefulWidget {
   /// kapanırsa `WidgetRef` StateError atar ve tazeleme kaybolurdu.
   final Future<void> Function(ProviderContainer container, String reason) onVoid;
 
+  /// Masraf onayı: yalnızca onay bekleyen masrafta ve onaylayıcıya dolu.
+  final Future<void> Function(ProviderContainer container)? onApprove;
+  final Future<void> Function(ProviderContainer container, String reason)? onReject;
+
   @override
   ConsumerState<_LedgerSheet> createState() => _LedgerSheetState();
 }
 
 class _LedgerSheetState extends ConsumerState<_LedgerSheet> {
-  bool _busy = false;
+  // Süren işlem: yalnızca onun düğmesi döner, diğerleri kapalı kalır.
+  _SheetAction? _running;
+  bool get _busy => _running != null;
   String? _error;
 
   Future<void> _void() async {
@@ -216,20 +261,58 @@ class _LedgerSheetState extends ConsumerState<_LedgerSheet> {
       reasonLabel: 'İptal nedeni',
     );
     if (reason == null || !mounted) return;
+    await _run(_SheetAction.voiding, (container) => widget.onVoid(container, reason), widget.doneMessage);
+  }
+
+  Future<void> _approve() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Masrafı Onayla'),
+        content: const Text('Masraf onaylanır ve gerçekleşen maliyete, kâra girer.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
+          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Onayla')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _run(_SheetAction.approving, (container) => widget.onApprove!(container), 'Masraf onaylandı.');
+  }
+
+  Future<void> _reject() async {
+    final reason = await showReasonDialog(
+      context,
+      title: 'Masrafı Reddet',
+      message: 'Masraf reddedilir ve toplamlara girmez. Masrafı giren gerekçeyi görür; düzeltilirse yeniden onaya gelir.',
+      confirmLabel: 'Reddet',
+      reasonLabel: 'Red nedeni',
+    );
+    if (reason == null || !mounted) return;
+    await _run(_SheetAction.rejecting, (container) => widget.onReject!(container, reason), 'Masraf reddedildi.');
+  }
+
+  /// İptal/onay/ret ortak akışı: başarıda sayfa kapanır ve mesaj gösterilir;
+  /// hata sayfada kalır.
+  Future<void> _run(
+    _SheetAction kind,
+    Future<void> Function(ProviderContainer container) action,
+    String doneMessage,
+  ) async {
     setState(() {
-      _busy = true;
+      _running = kind;
       _error = null;
     });
     final container = ProviderScope.containerOf(context, listen: false);
     try {
-      await widget.onVoid(container, reason);
+      await action(container);
       if (!mounted) return;
       final messenger = ScaffoldMessenger.maybeOf(context);
       Navigator.of(context).pop(true);
-      messenger?.showSnackBar(SnackBar(content: Text(widget.doneMessage)));
+      messenger?.showSnackBar(SnackBar(content: Text(doneMessage)));
     } on ApiException catch (e) {
-      // 409 (proje bu arada kapandı / kayıt zaten iptal) ya da 403: sunucu
-      // mesajı gösterilir, listeler tazelenir.
+      // 409 (proje bu arada kapandı / kayıt zaten iptal / karar verilmiş) ya
+      // da 403: sunucu mesajı gösterilir, listeler tazelenir.
       if (e.kind == ApiErrorKind.conflict || e.kind == ApiErrorKind.notFound) {
         final projectId = widget.projectId;
         invalidateProjectLedger(container.invalidate, projectId);
@@ -241,7 +324,7 @@ class _LedgerSheetState extends ConsumerState<_LedgerSheet> {
       // Beklenmeyen hata (ör. ağ katmanı dışı): sayfada kalır, çökme yok.
       if (mounted) setState(() => _error = 'İşlem tamamlanamadı. Lütfen tekrar dene.');
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _running = null);
     }
   }
 
@@ -282,12 +365,36 @@ class _LedgerSheetState extends ConsumerState<_LedgerSheet> {
               const SizedBox(height: AppSpacing.md),
               ...widget.rows,
               if (_error != null) ...[const SizedBox(height: AppSpacing.md), Text(_error!, style: AppTypography.error)],
+              if (widget.onApprove != null && widget.onReject != null) ...[
+                const SizedBox(height: AppSpacing.lg),
+                Row(
+                  children: [
+                    Expanded(
+                      child: PrimaryButton(
+                        label: 'Onayla',
+                        icon: Icons.check_circle_outline,
+                        loading: _running == _SheetAction.approving,
+                        onPressed: _busy ? null : _approve,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: SecondaryButton(
+                        label: 'Reddet',
+                        icon: Icons.thumb_down_outlined,
+                        loading: _running == _SheetAction.rejecting,
+                        onPressed: _busy ? null : _reject,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               if (widget.canVoid) ...[
                 const SizedBox(height: AppSpacing.lg),
                 DestructiveActionButton(
                   label: 'İptal Et',
                   icon: Icons.block_outlined,
-                  loading: _busy,
+                  loading: _running == _SheetAction.voiding,
                   onPressed: _busy ? null : _void,
                 ),
               ],

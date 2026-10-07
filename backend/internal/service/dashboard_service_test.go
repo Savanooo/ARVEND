@@ -196,8 +196,15 @@ func TestDashboardFinanceSection(t *testing.T) {
 	           VALUES ($1, $2, 10000, 'TRY', $3::date, $4)`, org, pA.ID, ms, paidItem)
 
 	// Maliyet: masraf + eski taşeron ödemesi + Sprint 5 taşeron ödemesi.
-	e.exec(t, `INSERT INTO project_expenses (organization_id, project_id, category, description, amount, currency, expense_date)
-	           VALUES ($1, $2, 'material', 'Malzeme', 8000, 'TRY', $3::date)`, org, pA.ID, ms)
+	// Yalnızca ONAYLI masraf sayılır (migration 0060): bekleyen ve reddedilen
+	// masraflar hiçbir rakamı değiştirmemeli.
+	e.exec(t, `INSERT INTO project_expenses (organization_id, project_id, category, description, amount, currency, expense_date, approval_status)
+	           VALUES ($1, $2, 'material', 'Malzeme', 8000, 'TRY', $3::date, 'approved'),
+	                  ($1, $2, 'material', 'Onay bekleyen', 4000, 'TRY', $3::date, 'pending'),
+	                  ($1, $2, 'material', 'Reddedilen', 700, 'TRY', $3::date, 'rejected')`, org, pA.ID, ms)
+	// İptal edilmiş projede karar verilemez (finans kilidi): gündeme girmez.
+	e.exec(t, `INSERT INTO project_expenses (organization_id, project_id, category, description, amount, currency, expense_date, approval_status)
+	           VALUES ($1, $2, 'material', 'Kapalı projede bekleyen', 900, 'TRY', $3::date, 'pending')`, org, pC.ID, ms)
 	legacySub := e.scalar(t, `INSERT INTO project_subcontractors (organization_id, project_id, name, contract_amount, currency)
 	           VALUES ($1, $2, 'Eski Taşeron', 10000, 'TRY') RETURNING id::text`, org, pA.ID)
 	e.exec(t, `INSERT INTO project_subcontractor_payments (organization_id, project_id, subcontractor_id, amount, currency, paid_date)
@@ -288,6 +295,13 @@ func TestDashboardFinanceSection(t *testing.T) {
 	}
 	if g := findGroup(d, domain.AttnSalesInvoiceOverdue); g == nil || g.Count != 1 || g.Items[0].Label != "DASH-F1" {
 		t.Errorf("sales_invoice_overdue grubu: %+v", g)
+	}
+	// Onay bekleyen masraf (A'da 4.000) onaylayabilen Sahip'in sırasında;
+	// satır projenin Finans görünümünü açar.
+	if g := findGroup(d, domain.AttnExpenseApproval); g == nil || g.Count != 1 || g.Lane != domain.LaneMine ||
+		len(g.Items) != 1 || g.Items[0].Label != "Onay bekleyen" || g.Items[0].Ref.Kind != domain.RefKindProjectFinance ||
+		g.Items[0].Ref.ID != pA.ID || len(g.Amounts) != 1 || !approx(g.Amounts[0].Amount, 4000) {
+		t.Errorf("expense_approval grubu: %+v", g)
 	}
 	foundDue := false
 	for _, u := range d.Agenda.Upcoming {
@@ -713,8 +727,10 @@ func TestDashboardSubcontractCostContractSections(t *testing.T) {
 	                 RETURNING id::text`, p1.ID, org)
 	line := id(t, `INSERT INTO project_budget_lines (organization_id, project_id, budget_id, cost_code_id, original_amount)
 	               VALUES ($1, $2, $3, $4, 100) RETURNING id::text`, org, p1.ID, budget, cc)
-	e.exec(t, `INSERT INTO project_expenses (organization_id, project_id, category, description, amount, currency, expense_date, budget_line_id)
-	           VALUES ($1, $2, 'material', 'Beton', 150, 'TRY', CURRENT_DATE, $3)`, org, p1.ID, line)
+	// Onay bekleyen masraf aşımı büyütmemeli (yalnızca onaylı sayılır).
+	e.exec(t, `INSERT INTO project_expenses (organization_id, project_id, category, description, amount, currency, expense_date, budget_line_id, approval_status)
+	           VALUES ($1, $2, 'material', 'Beton', 150, 'TRY', CURRENT_DATE, $3, 'approved'),
+	                  ($1, $2, 'material', 'Onay bekleyen', 900, 'TRY', CURRENT_DATE, $3, 'pending')`, org, p1.ID, line)
 	var adjs []string
 	for i, daysAgo := range []int{12, 11, 10, 9} {
 		adjs = append(adjs, id(t, `INSERT INTO project_budget_adjustments (organization_id, project_id, budget_id, budget_line_id, amount, reason, status, created_at)

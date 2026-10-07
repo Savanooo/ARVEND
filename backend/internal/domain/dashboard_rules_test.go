@@ -135,8 +135,9 @@ func TestAttentionRulesAreWellFormed(t *testing.T) {
 		modules[k] = true
 	}
 	severities := map[string]bool{domain.SeverityDanger: true, domain.SeverityAction: true, domain.SeverityInfo: true}
-	if len(domain.AttentionRules) != 29 {
-		t.Errorf("AttentionRules %d kod içeriyor, spec §3.1 29 kod tanımlar", len(domain.AttentionRules))
+	// spec §3.1'in 29 kodu + masraf onayı (migration 0060).
+	if len(domain.AttentionRules) != 30 {
+		t.Errorf("AttentionRules %d kod içeriyor, beklenen 30", len(domain.AttentionRules))
 	}
 	for code, rule := range domain.AttentionRules {
 		if !modules[rule.Module] {

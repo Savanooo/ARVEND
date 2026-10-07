@@ -210,14 +210,14 @@ func TestProjectFinance(t *testing.T) {
 
 	t.Run("7_and_8_expense_total_and_void", func(t *testing.T) {
 		p := newProject(t, orgA.ID, 100000)
-		e1, err := projectSvc.CreateExpense(ctx, p.ID, orgA.ID, service.ExpenseInput{
+		e1, err := createApprovedExpense(ctx, projectSvc, p.ID, orgA.ID, service.ExpenseInput{
 			Category: domain.ExpenseMaterial, Description: "Çimento", Amount: 5000,
 			Currency: "TRY", ExpenseDate: today,
 		})
 		if err != nil {
 			t.Fatalf("masraf eklenemedi: %v", err)
 		}
-		if _, err := projectSvc.CreateExpense(ctx, p.ID, orgA.ID, service.ExpenseInput{
+		if _, err := createApprovedExpense(ctx, projectSvc, p.ID, orgA.ID, service.ExpenseInput{
 			Category: domain.ExpenseTransport, Description: "Nakliye", Amount: 1500,
 			Currency: "TRY", ExpenseDate: today,
 		}); err != nil {
@@ -923,9 +923,11 @@ func mustCollect(t *testing.T, svc *service.ProjectService, ctx context.Context,
 	}
 }
 
+// mustExpense, ONAYLANMIŞ bir masraf kurar -- toplamlara yalnızca onaylı
+// masraf girer (migration 0060).
 func mustExpense(t *testing.T, svc *service.ProjectService, ctx context.Context, projectID, orgID string, amount float64, date time.Time) {
 	t.Helper()
-	if _, err := svc.CreateExpense(ctx, projectID, orgID, service.ExpenseInput{
+	if _, err := createApprovedExpense(ctx, svc, projectID, orgID, service.ExpenseInput{
 		Category: domain.ExpenseMaterial, Description: "Test masrafı", Amount: amount,
 		Currency: "TRY", ExpenseDate: date,
 	}); err != nil {

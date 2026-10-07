@@ -80,6 +80,14 @@ abstract final class StatusRegistry {
     'superseded': ('Yenilendi', StatusTone.muted),
   };
 
+  /// Masraf onayı (backend migration 0060) -- onay bekleyen, gönderilip
+  /// karar beklenen talep gibi `info`.
+  static const expenseApproval = {
+    'pending': ('Onay bekliyor', StatusTone.info),
+    'approved': ('Onaylandı', StatusTone.success),
+    'rejected': ('Reddedildi', StatusTone.danger),
+  };
+
   static const purchaseRequest = {
     'draft': ('Taslak', StatusTone.muted),
     'submitted': ('Gönderildi', StatusTone.info),

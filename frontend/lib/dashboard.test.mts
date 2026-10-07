@@ -534,6 +534,7 @@ describe("Dikkat metinleri", () => {
     assert.equal(attentionTitle(empty.agenda.groups[0]), "Demir Profil fiyat kaynağı hiç senkronlanmadı");
     assert.equal(attentionTitle({ code: "team_task_overdue", count: 7, items: [] }), "Ekipte 7 görev gecikmiş");
     assert.equal(attentionTitle({ code: "yeni_kod", count: 2, items: [] }), "2 kayıt dikkat gerektiriyor");
+    assert.equal(attentionTitle({ code: "expense_approval", count: 3, items: [] }), "3 masraf onay bekliyor");
   });
 
   it("kayıt satırı: etiket + proje + gün ifadesi", () => {
@@ -549,6 +550,20 @@ describe("Dikkat metinleri", () => {
     assert.equal(attentionRecordLine(g("users_without_project").items[0], "users_without_project"), "Mehmet Kaya · Saha");
     const overBudget = finance.agenda.groups.find((x) => x.code === "over_budget")!;
     assert.match(attentionRecordLine(overBudget.items[0], "over_budget"), /%\d+(,\d)? aşım$/);
+  });
+
+  it("onay bekleyen masraf: satır bekleme süresini söyler, tek kayıt projenin Finans sekmesini açar", () => {
+    const P = "0b000000-0000-4000-8000-000000000001";
+    const base = owner.agenda.groups.find((x) => x.code === "purchase_request_approval")!.items[0];
+    const rec = {
+      ...base,
+      label: "Çimento",
+      project_name: "Kadıköy Konut Projesi",
+      days: 2,
+      ref: { kind: "project_finance", id: P, project_id: P, parent_id: null, action: "open" },
+    };
+    assert.equal(attentionRecordLine(rec, "expense_approval"), "Çimento · Kadıköy Konut Projesi · 2 gündür bekliyor");
+    assert.equal(attentionGroupHref({ count: 1, items: [rec], module: "finance" }), `/projeler/${P}?tab=finans`);
   });
 
   it("grup meta ve hedefi", () => {

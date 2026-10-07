@@ -304,8 +304,9 @@ const listProjects = `-- name: ListProjects :many
 SELECT p.id, p.organization_id, p.project_no, p.name, p.project_type, p.source_offer_id, p.source_revision_id, p.customer_id, p.customer_name, p.customer_phone, p.customer_email, p.customer_address, p.contract_amount, p.currency, p.status, p.start_date, p.end_date, p.description, p.internal_notes, p.created_by, p.created_at, p.updated_at, o.offer_no, r.revision_no,
     COALESCE((SELECT sum(c.amount) FROM project_collections c
               WHERE c.project_id = p.id AND c.voided_at IS NULL), 0)::numeric(18,2) AS collected_amount,
+    -- Yalnızca onaylı masraflar (migration 0060; GetProjectFinancialSummary ile aynı).
     COALESCE((SELECT sum(e.amount) FROM project_expenses e
-              WHERE e.project_id = p.id AND e.voided_at IS NULL), 0)::numeric(18,2) AS total_expenses,
+              WHERE e.project_id = p.id AND e.voided_at IS NULL AND e.approval_status = 'approved'), 0)::numeric(18,2) AS total_expenses,
     COALESCE((SELECT sum(sp.amount) FROM project_subcontractor_payments sp
               WHERE sp.project_id = p.id AND sp.voided_at IS NULL), 0)::numeric(18,2) AS subcontractor_paid,
     COALESCE((SELECT sum(GREATEST(s.contract_amount - COALESCE((

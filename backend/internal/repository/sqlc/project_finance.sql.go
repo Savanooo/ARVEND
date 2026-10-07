@@ -112,9 +112,9 @@ const createExpense = `-- name: CreateExpense :one
 INSERT INTO project_expenses (
     organization_id, project_id, category, description, amount, currency,
     expense_date, supplier_name, invoice_no, notes, idempotency_key, created_by, change_order_id,
-    cost_code_id, budget_line_id
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id
+    cost_code_id, budget_line_id, approval_status
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note
 `
 
 type CreateExpenseParams struct {
@@ -133,6 +133,7 @@ type CreateExpenseParams struct {
 	ChangeOrderID  pgtype.UUID    `json:"change_order_id"`
 	CostCodeID     pgtype.UUID    `json:"cost_code_id"`
 	BudgetLineID   pgtype.UUID    `json:"budget_line_id"`
+	ApprovalStatus string         `json:"approval_status"`
 }
 
 // ============ Masraflar ============
@@ -144,6 +145,9 @@ type CreateExpenseParams struct {
 // migration 0035) -- ikisi de NULL bırakılabilir (bkz. o migration'ın
 // geriye dönük uyumluluk notu); servis katmanı budget_line_id verilmişse
 // cost_code_id'yi o kalemden DOĞRULAR/TÜRETİR (bkz. ExpenseService notu).
+// approval_status (migration 0060): kim girerse girsin masraf 'pending'
+// başlar; tek istisna geçmiş veriyi aktaran araç (bkz.
+// ExpenseInput.PreApproved).
 func (q *Queries) CreateExpense(ctx context.Context, arg CreateExpenseParams) (ProjectExpense, error) {
 	row := q.db.QueryRow(ctx, createExpense,
 		arg.OrganizationID,
@@ -161,6 +165,7 @@ func (q *Queries) CreateExpense(ctx context.Context, arg CreateExpenseParams) (P
 		arg.ChangeOrderID,
 		arg.CostCodeID,
 		arg.BudgetLineID,
+		arg.ApprovalStatus,
 	)
 	var i ProjectExpense
 	err := row.Scan(
@@ -185,6 +190,10 @@ func (q *Queries) CreateExpense(ctx context.Context, arg CreateExpenseParams) (P
 		&i.ChangeOrderID,
 		&i.CostCodeID,
 		&i.BudgetLineID,
+		&i.ApprovalStatus,
+		&i.DecidedBy,
+		&i.DecidedAt,
+		&i.DecisionNote,
 	)
 	return i, err
 }
@@ -538,6 +547,67 @@ func (q *Queries) CreateSubcontractorPayment(ctx context.Context, arg CreateSubc
 	return i, err
 }
 
+const decideExpense = `-- name: DecideExpense :one
+UPDATE project_expenses
+SET approval_status = $1, decided_by = $2,
+    decided_at = now(), decision_note = $3
+WHERE id = $4 AND organization_id = $5 AND project_id = $6
+  AND voided_at IS NULL AND approval_status = 'pending'
+RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note
+`
+
+type DecideExpenseParams struct {
+	ApprovalStatus string      `json:"approval_status"`
+	DecidedBy      pgtype.UUID `json:"decided_by"`
+	DecisionNote   string      `json:"decision_note"`
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+}
+
+// Onay/ret: yalnızca iptal edilmemiş ve ONAY BEKLEYEN masraf -- eşzamanlı
+// iki karardan yalnızca biri satır döndürür (ApproveBudgetAdjustment ile
+// aynı ilke). Satır dönmezse servis nedenini GetExpense ile ayırır.
+func (q *Queries) DecideExpense(ctx context.Context, arg DecideExpenseParams) (ProjectExpense, error) {
+	row := q.db.QueryRow(ctx, decideExpense,
+		arg.ApprovalStatus,
+		arg.DecidedBy,
+		arg.DecisionNote,
+		arg.ID,
+		arg.OrganizationID,
+		arg.ProjectID,
+	)
+	var i ProjectExpense
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ProjectID,
+		&i.Category,
+		&i.Description,
+		&i.Amount,
+		&i.Currency,
+		&i.ExpenseDate,
+		&i.SupplierName,
+		&i.InvoiceNo,
+		&i.Notes,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.VoidedAt,
+		&i.VoidedBy,
+		&i.VoidReason,
+		&i.IdempotencyKey,
+		&i.ChangeOrderID,
+		&i.CostCodeID,
+		&i.BudgetLineID,
+		&i.ApprovalStatus,
+		&i.DecidedBy,
+		&i.DecidedAt,
+		&i.DecisionNote,
+	)
+	return i, err
+}
+
 const getActiveInvoiceCollection = `-- name: GetActiveInvoiceCollection :one
 SELECT id, organization_id, project_id, payment_plan_item_id, amount, currency, received_date, payment_method, description, reference_no, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason, invoice_id FROM project_collections
 WHERE invoice_id = $1 AND organization_id = $2 AND voided_at IS NULL
@@ -651,7 +721,7 @@ func (q *Queries) GetCollectionByIdempotencyKey(ctx context.Context, arg GetColl
 }
 
 const getExpense = `-- name: GetExpense :one
-SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id FROM project_expenses WHERE id = $1 AND organization_id = $2 AND project_id = $3
+SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note FROM project_expenses WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type GetExpenseParams struct {
@@ -687,12 +757,16 @@ func (q *Queries) GetExpense(ctx context.Context, arg GetExpenseParams) (Project
 		&i.ChangeOrderID,
 		&i.CostCodeID,
 		&i.BudgetLineID,
+		&i.ApprovalStatus,
+		&i.DecidedBy,
+		&i.DecidedAt,
+		&i.DecisionNote,
 	)
 	return i, err
 }
 
 const getExpenseByIdempotencyKey = `-- name: GetExpenseByIdempotencyKey :one
-SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id FROM project_expenses
+SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note FROM project_expenses
 WHERE project_id = $1 AND idempotency_key = $2
 `
 
@@ -726,6 +800,10 @@ func (q *Queries) GetExpenseByIdempotencyKey(ctx context.Context, arg GetExpense
 		&i.ChangeOrderID,
 		&i.CostCodeID,
 		&i.BudgetLineID,
+		&i.ApprovalStatus,
+		&i.DecidedBy,
+		&i.DecidedAt,
+		&i.DecisionNote,
 	)
 	return i, err
 }
@@ -844,8 +922,10 @@ planned AS (
     FROM project_payment_plan_items WHERE project_id = $1 AND status <> 'cancelled'
 ),
 expense_total AS (
+    -- Yalnızca ONAYLI masraflar (migration 0060): onay bekleyen/reddedilen
+    -- kayıt gerçekleşen maliyete ve kâra girmez.
     SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
-    FROM project_expenses WHERE project_id = $1 AND voided_at IS NULL
+    FROM project_expenses WHERE project_id = $1 AND voided_at IS NULL AND approval_status = 'approved'
 ),
 subpay AS (
     SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
@@ -1269,7 +1349,7 @@ func (q *Queries) ListCollections(ctx context.Context, arg ListCollectionsParams
 }
 
 const listExpenses = `-- name: ListExpenses :many
-SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id FROM project_expenses
+SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note FROM project_expenses
 WHERE project_id = $1 AND organization_id = $2
 ORDER BY expense_date DESC, created_at DESC
 `
@@ -1310,6 +1390,10 @@ func (q *Queries) ListExpenses(ctx context.Context, arg ListExpensesParams) ([]P
 			&i.ChangeOrderID,
 			&i.CostCodeID,
 			&i.BudgetLineID,
+			&i.ApprovalStatus,
+			&i.DecidedBy,
+			&i.DecidedAt,
+			&i.DecisionNote,
 		); err != nil {
 			return nil, err
 		}
@@ -1641,9 +1725,10 @@ func (q *Queries) LockSubcontractorForPayment(ctx context.Context, arg LockSubco
 const updateExpense = `-- name: UpdateExpense :one
 UPDATE project_expenses
 SET category = $3, description = $4, amount = $5, expense_date = $6,
-    supplier_name = $7, invoice_no = $8, notes = $9, cost_code_id = $11, budget_line_id = $12
+    supplier_name = $7, invoice_no = $8, notes = $9, cost_code_id = $11, budget_line_id = $12,
+    approval_status = 'pending', decided_by = NULL, decided_at = NULL, decision_note = ''
 WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL AND project_id = $10
-RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id
+RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note
 `
 
 type UpdateExpenseParams struct {
@@ -1663,6 +1748,9 @@ type UpdateExpenseParams struct {
 
 // project_id EKLENDİ (bkz. GetPaymentPlanItem notu). cost_code_id/
 // budget_line_id, Cost Control sprint'i (migration 0035) -- opsiyonel.
+// Düzenlenen masraf YENİDEN onay bekler (migration 0060): onaylanmış bir
+// tutar onaysız değiştirilip toplamlarda kalamaz. Önceki karar temizlenir
+// (izi project_events'te).
 func (q *Queries) UpdateExpense(ctx context.Context, arg UpdateExpenseParams) (ProjectExpense, error) {
 	row := q.db.QueryRow(ctx, updateExpense,
 		arg.ID,
@@ -1701,6 +1789,10 @@ func (q *Queries) UpdateExpense(ctx context.Context, arg UpdateExpenseParams) (P
 		&i.ChangeOrderID,
 		&i.CostCodeID,
 		&i.BudgetLineID,
+		&i.ApprovalStatus,
+		&i.DecidedBy,
+		&i.DecidedAt,
+		&i.DecisionNote,
 	)
 	return i, err
 }
@@ -1925,7 +2017,7 @@ const voidExpense = `-- name: VoidExpense :one
 UPDATE project_expenses
 SET voided_at = now(), voided_by = $3, void_reason = $4
 WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL AND project_id = $5
-RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id
+RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note
 `
 
 type VoidExpenseParams struct {
@@ -1968,6 +2060,10 @@ func (q *Queries) VoidExpense(ctx context.Context, arg VoidExpenseParams) (Proje
 		&i.ChangeOrderID,
 		&i.CostCodeID,
 		&i.BudgetLineID,
+		&i.ApprovalStatus,
+		&i.DecidedBy,
+		&i.DecidedAt,
+		&i.DecisionNote,
 	)
 	return i, err
 }

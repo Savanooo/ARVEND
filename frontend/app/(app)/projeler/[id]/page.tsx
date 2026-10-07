@@ -137,6 +137,7 @@ export default async function ProjeDetayPage({
   const canManageContract = hasPermission(perms, "projects.contracts.manage");
   const canContractLifecycle = hasPermission(perms, "projects.contracts.lifecycle");
   const canManageFinance = hasPermission(perms, "projects.finance.manage");
+  const canApproveExpenses = hasPermission(perms, "projects.expenses.approve");
   const canManageProcurement = hasPermission(perms, "projects.procurement.manage");
   const canApproveProcurement = hasPermission(perms, "projects.procurement.approve");
   // Operasyon düğmeleri izne göre: Saha'da tasks.create yok (Görev Ekle
@@ -518,6 +519,7 @@ export default async function ProjeDetayPage({
                   budgetLines={budgetLines?.budget_lines ?? []}
                   locked={locked}
                   canManage={canManageFinance}
+                  canApprove={canApproveExpenses}
                 />
 
                 <Section title="Fatura Bilgileri">

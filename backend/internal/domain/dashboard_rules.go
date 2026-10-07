@@ -38,6 +38,8 @@ const (
 	AttnPriceSyncFailed           = "price_sync_failed"
 	AttnPriceSyncNever            = "price_sync_never"
 	AttnUsersWithoutProject       = "users_without_project"
+	// Masraf onayı (migration 0060): yalnızca onaylayabilene gösterilir.
+	AttnExpenseApproval = "expense_approval"
 )
 
 // AttentionRule, bir dikkat kodunun sabit tanımıdır.
@@ -64,6 +66,10 @@ var AttentionRules = map[string]AttentionRule{
 		Visible: []string{PermProjectsFinanceRead}, Act: []string{PermProjectsFinanceManage}, WhenCannotAct: LaneWatching},
 	AttnSalesInvoiceOverdue: {Module: DashSectionFinance, Severity: SeverityDanger,
 		Visible: []string{PermProjectsFinanceRead}, Act: []string{PermProjectsFinanceManage}, WhenCannotAct: LaneWatching},
+	// Masrafı giren onu zaten listede "Onay bekliyor" görür; gündemde yalnızca
+	// karar verebilene çıkar (Takipte şeridi gürültü olurdu).
+	AttnExpenseApproval: {Module: DashSectionFinance, Severity: SeverityAction,
+		Visible: []string{PermProjectsFinanceRead}, Act: []string{PermProjectsExpensesApprove}, WhenCannotAct: ""},
 	AttnChangeOrderAwaitingCust: {Module: DashSectionChangeOrders, Severity: SeverityInfo,
 		Visible: []string{PermProjectsFinanceRead}, Act: nil, WhenCannotAct: LaneWatching},
 	AttnOfferExpiredAwaiting: {Module: DashSectionOffers, Severity: SeverityDanger,
@@ -142,6 +148,8 @@ var ActivityEventPermissions = map[string]string{
 	ProjectEventExpenseAdded:             PermProjectsFinanceRead,
 	ProjectEventExpenseUpdated:           PermProjectsFinanceRead,
 	ProjectEventExpenseVoided:            PermProjectsFinanceRead,
+	ProjectEventExpenseApproved:          PermProjectsFinanceRead,
+	ProjectEventExpenseRejected:          PermProjectsFinanceRead,
 	ProjectEventPaymentPlanCreated:       PermProjectsFinanceRead,
 	ProjectEventPaymentPlanUpdated:       PermProjectsFinanceRead,
 	ProjectEventPaymentPlanCancelled:     PermProjectsFinanceRead,

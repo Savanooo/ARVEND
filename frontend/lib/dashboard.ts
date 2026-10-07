@@ -1036,6 +1036,7 @@ export function attentionChip(groups: readonly Pick<AttentionGroup, "severity" |
 const ATTENTION_TITLES: Record<string, (n: string) => string> = {
   plan_item_overdue: (n) => `${n} ödeme planı kaleminin vadesi geçti`,
   sales_invoice_overdue: (n) => `${n} satış faturasının vadesi geçti`,
+  expense_approval: (n) => `${n} masraf onay bekliyor`,
   change_order_awaiting_customer: (n) => `${n} ek iş müşteri onayında`,
   offer_expired_awaiting: (n) => `${n} teklifin süresi doldu, müşteri yanıt vermedi`,
   offer_accepted_not_converted: (n) => `${n} kabul edilen teklif projeye dönüştürülmedi`,
@@ -1099,6 +1100,7 @@ const DAYS_PHRASE: Record<string, (d: number) => string> = {
   purchase_request_approval: waiting,
   progress_claim_certify: waiting,
   budget_adjustment_approval: waiting,
+  expense_approval: waiting,
   offer_expired_awaiting: (d) => `${formatCount(d)} gün önce doldu`,
   rfq_no_quote: passed,
   contract_past_completion: passed,

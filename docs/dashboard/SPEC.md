@@ -142,6 +142,7 @@ A code is produced only when **its module section is visible AND its own visible
 |---|---|---|---|---|---|---|---|
 | `plan_item_overdue` | finance | danger | projects.finance.read | projects.finance.manage | watching | "{n} ödeme planı kaleminin vadesi geçti" | payment_plan_item · "{item_name} · {project} · {days} gün gecikti" + remaining amount |
 | `sales_invoice_overdue` | finance | danger | projects.finance.read | projects.finance.manage | watching | "{n} satış faturasının vadesi geçti" | invoice · "{invoice_no} · {project} · {days} gün gecikti" |
+| `expense_approval` (2026-10, migration 0060) | finance | action | projects.finance.read | projects.expenses.approve | hide | "{n} masraf onay bekliyor" | project_finance · "{description} · {project} · {days} gündür bekliyor" + amount (open projects only) |
 | `change_order_awaiting_customer` | change_orders | info | projects.finance.read | – (the customer decides) | watching | "{n} ek iş müşteri onayında" | change_order · "{title} · {project} · {days} gündür bekliyor" |
 | `offer_expired_awaiting` | offers | danger | offers.read | offers.update | watching | "{n} teklifin süresi doldu, müşteri yanıt vermedi" | offer · "{offer_no} · {customer} · {days} gün önce doldu" |
 | `offer_accepted_not_converted` | offers | action | offers.read | projects.create | watching | "{n} kabul edilen teklif projeye dönüştürülmedi" | offer (action `convert` when can_act) · "{offer_no} · {customer}" |

@@ -38,6 +38,20 @@ var validExpenseCategories = map[string]bool{
 
 func ValidExpenseCategory(s string) bool { return validExpenseCategories[s] }
 
+// Masraf onay durumları (bkz. migration 0060). Her yeni/düzenlenen masraf
+// pending başlar; para toplamlarına YALNIZCA approved girer (iptal
+// edilmemişse). Listeler her durumu gösterir.
+const (
+	ExpenseApprovalPending  = "pending"
+	ExpenseApprovalApproved = "approved"
+	ExpenseApprovalRejected = "rejected"
+)
+
+// ExpenseDecisionNoteMaxLen, ret gerekçesinin kolon sınırıdır
+// (decision_note varchar(500)) -- aşan metin DB hatası yerine Türkçe bir
+// doğrulama hatasıyla döner.
+const ExpenseDecisionNoteMaxLen = 500
+
 const (
 	InvoiceTypeSales    = "sales"
 	InvoiceTypePurchase = "purchase"
@@ -89,6 +103,8 @@ const (
 	ProjectEventExpenseAdded             = "expense_added"
 	ProjectEventExpenseUpdated           = "expense_updated"
 	ProjectEventExpenseVoided            = "expense_voided"
+	ProjectEventExpenseApproved          = "expense_approved"
+	ProjectEventExpenseRejected          = "expense_rejected"
 	ProjectEventInvoiceCreated           = "invoice_created"
 	ProjectEventInvoiceStatusChanged     = "invoice_status_changed"
 	ProjectEventSubcontractorAdded       = "subcontractor_added"
@@ -205,6 +221,13 @@ type Expense struct {
 	// doluysa "bütçe dışı" (unbudgeted) olarak.
 	CostCodeID   *string
 	BudgetLineID *string
+	// ApprovalStatus: pending | approved | rejected (bkz. ExpenseApproval*).
+	// DecidedBy/DecidedAt/DecisionNote son kararın izidir; düzenleme onları
+	// temizler. Onay akışından önceki masraflarda (approved) boştur.
+	ApprovalStatus string
+	DecidedBy      *string
+	DecidedAt      *time.Time
+	DecisionNote   string
 }
 
 type ProjectInvoice struct {

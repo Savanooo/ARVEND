@@ -298,6 +298,13 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/change-orders/{changeOrderId}/revise", d.Projects.ReviseChangeOrder)
 				r.Post("/{id}/change-orders/{changeOrderId}/cancel", d.Projects.CancelChangeOrder)
 			})
+			// Masraf onayı (migration 0060): finance.manage'den AYRI izin --
+			// masrafı giren onu onaylayamasın. Kapalı proje kilidi serviste.
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsExpensesApprove))
+				r.Post("/{id}/expenses/{expenseId}/approve", d.Projects.ApproveExpense)
+				r.Post("/{id}/expenses/{expenseId}/reject", d.Projects.RejectExpense)
+			})
 
 			// --- Sprint 2: WBS + Proje Bütçesi (planlama katmanı) ---
 			// budget.read/manage, WBS+bütçe+kalem+revizyon YAPISINI kapsar;

@@ -363,6 +363,36 @@ func buildDashFinance(ctx context.Context, r *dashRun) (*sectionPayload, error) 
 		}
 		payload.groups = append(payload.groups, g)
 	}
+	// --- expense_approval (migration 0060): yalnızca onaylayabilen izleyicide ---
+	if r.wantsAttention(domain.AttnExpenseApproval) {
+		totals, err := r.q.DashboardPendingExpensesTotals(ctx, sqlc.DashboardPendingExpensesTotalsParams{
+			OrgID: r.orgID, RestrictToUserID: r.restrict,
+		})
+		if err != nil {
+			return nil, err
+		}
+		agg := dashTotals(totals, func(t sqlc.DashboardPendingExpensesTotalsRow) (string, int32, pgtype.Numeric, pgtype.Date) {
+			return t.Currency, t.Cnt, t.Amount, t.Oldest
+		})
+		if g, ok := r.aggGroup(domain.AttnExpenseApproval, agg); ok {
+			items, err := r.q.DashboardPendingExpensesTop(ctx, sqlc.DashboardPendingExpensesTopParams{
+				OrgID: r.orgID, RestrictToUserID: r.restrict,
+			})
+			if err != nil {
+				return nil, err
+			}
+			for _, it := range items {
+				// Masrafın kendi ekranı yok: satır projenin Finans görünümünü açar.
+				g.Items = append(g.Items, domain.AttentionRecord{
+					Ref:   dashProjectRef(domain.RefKindProjectFinance, it.ProjectID),
+					Label: it.Description, ProjectName: dashStr(it.ProjectName),
+					Amount: dashMoneyPtr(it.Currency, it.Amount),
+					Date:   dashDateStr(it.SinceDate), Days: r.daysSince(it.SinceDate),
+				})
+			}
+			payload.groups = append(payload.groups, g)
+		}
+	}
 	// --- yaklaşan ödeme planı kalemleri ---
 	upcoming, err := r.q.DashboardPlanItemsDue(ctx, sqlc.DashboardPlanItemsDueParams{
 		OrgID: r.orgID, RestrictToUserID: r.restrict,

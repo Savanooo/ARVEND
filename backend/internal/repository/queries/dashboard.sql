@@ -202,9 +202,11 @@ adj AS (
     GROUP BY a.project_id
 ),
 act AS (
+    -- Yalnızca onaylı masraflar (migration 0060; maliyet kontrolüyle aynı).
     SELECT e.project_id, sum(e.amount) AS total
     FROM project_expenses e
-    WHERE e.organization_id = @org_id::uuid AND e.voided_at IS NULL AND e.budget_line_id IS NOT NULL
+    WHERE e.organization_id = @org_id::uuid AND e.voided_at IS NULL AND e.approval_status = 'approved'
+      AND e.budget_line_id IS NOT NULL
       AND e.project_id IN (SELECT pb.project_id FROM pb)
     GROUP BY e.project_id
 ),
@@ -272,8 +274,9 @@ coll AS (
 cost AS (
     SELECT x.project_id, sum(x.amount) AS total
     FROM (
+        -- Yalnızca onaylı masraflar (migration 0060; finans özetiyle aynı).
         SELECT e.project_id, e.amount FROM project_expenses e
-        WHERE e.organization_id = @org_id::uuid AND e.voided_at IS NULL
+        WHERE e.organization_id = @org_id::uuid AND e.voided_at IS NULL AND e.approval_status = 'approved'
         UNION ALL
         SELECT sp.project_id, sp.amount FROM project_subcontractor_payments sp
         WHERE sp.organization_id = @org_id::uuid AND sp.voided_at IS NULL
@@ -355,9 +358,10 @@ flows AS (
     WHERE c.organization_id = @org_id::uuid AND c.voided_at IS NULL
       AND c.received_date >= @trend_start::date AND c.received_date < @next_month_start::date
     UNION ALL
+    -- Masraf akışı yalnızca onaylı masraflardan (migration 0060).
     SELECT ap.currency, date_trunc('month', e.expense_date)::date, 0::numeric, e.amount, 0::numeric
     FROM project_expenses e JOIN ap ON ap.id = e.project_id
-    WHERE e.organization_id = @org_id::uuid AND e.voided_at IS NULL
+    WHERE e.organization_id = @org_id::uuid AND e.voided_at IS NULL AND e.approval_status = 'approved'
       AND e.expense_date >= @trend_start::date AND e.expense_date < @next_month_start::date
     UNION ALL
     SELECT ap.currency, date_trunc('month', sp.paid_date)::date, 0::numeric, 0::numeric, sp.amount
@@ -377,6 +381,43 @@ SELECT flows.currency::text AS currency, flows.m::date AS month,
 FROM flows
 GROUP BY flows.currency, flows.m
 ORDER BY flows.currency, flows.m;
+
+-- name: DashboardPendingExpensesTotals :many
+-- Onay bekleyen masraflar (migration 0060), projenin para biriminde. Kapalı
+-- (tamamlanmış/iptal) projelerde karar verilemez (finans kilidi) -- gündeme
+-- girmez. idx_expenses_pending bu kümeyi tarar.
+WITH ap AS (
+    SELECT p.* FROM projects p
+    WHERE p.organization_id = @org_id::uuid
+      AND (sqlc.narg('restrict_to_user_id')::uuid IS NULL OR EXISTS (
+           SELECT 1 FROM project_users pu
+           WHERE pu.project_id = p.id AND pu.user_id = sqlc.narg('restrict_to_user_id')::uuid))
+)
+SELECT ap.currency::text AS currency, count(*)::int AS cnt,
+       COALESCE(sum(e.amount), 0)::numeric(18,2) AS amount,
+       min((e.created_at AT TIME ZONE 'Europe/Istanbul')::date)::date AS oldest
+FROM project_expenses e
+JOIN ap ON ap.id = e.project_id AND ap.status IN ('planned', 'active', 'paused')
+WHERE e.organization_id = @org_id::uuid AND e.approval_status = 'pending' AND e.voided_at IS NULL
+GROUP BY ap.currency
+ORDER BY ap.currency;
+
+-- name: DashboardPendingExpensesTop :many
+-- En eski 3 onay bekleyen masraf (DashboardPendingExpensesTotals ile aynı küme).
+WITH ap AS (
+    SELECT p.* FROM projects p
+    WHERE p.organization_id = @org_id::uuid
+      AND (sqlc.narg('restrict_to_user_id')::uuid IS NULL OR EXISTS (
+           SELECT 1 FROM project_users pu
+           WHERE pu.project_id = p.id AND pu.user_id = sqlc.narg('restrict_to_user_id')::uuid))
+)
+SELECT e.id, e.project_id, e.description, ap.name AS project_name, ap.currency::text AS currency, e.amount,
+       (e.created_at AT TIME ZONE 'Europe/Istanbul')::date AS since_date
+FROM project_expenses e
+JOIN ap ON ap.id = e.project_id AND ap.status IN ('planned', 'active', 'paused')
+WHERE e.organization_id = @org_id::uuid AND e.approval_status = 'pending' AND e.voided_at IS NULL
+ORDER BY e.created_at ASC, e.id
+LIMIT 3;
 
 -- name: DashboardPlanItemsDue :many
 -- Kalan tutarı olan (iptal dışı) ödeme planı kalemleri, vade aralığında,
@@ -1395,10 +1436,13 @@ WITH ap AS (
            SELECT 1 FROM project_users pu
            WHERE pu.project_id = p.id AND pu.user_id = sqlc.narg('restrict_to_user_id')::uuid))
 )
+-- Tutar değil kayıt sayısı: onay bekleyen masrafa da kod girilmeli, ama
+-- reddedilen masraf düzeltilecek bir kayıt değildir (migration 0060).
 SELECT count(*)::int AS expenses
 FROM project_expenses e
 JOIN ap ON ap.id = e.project_id
-WHERE e.organization_id = @org_id::uuid AND e.voided_at IS NULL AND e.cost_code_id IS NULL
+WHERE e.organization_id = @org_id::uuid AND e.voided_at IS NULL AND e.approval_status <> 'rejected'
+  AND e.cost_code_id IS NULL
   AND e.expense_date >= @month_start::date AND e.expense_date < @next_month_start::date;
 
 -- ============================================================ users
