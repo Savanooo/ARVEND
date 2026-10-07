@@ -51,6 +51,11 @@ function lacksProjectAccess(a: ProjectAssignee | undefined): boolean {
 
 const NO_ACCESS_SUFFIX = " (proje erişimi yok)";
 
+// Backend service.MaxUploadBytes ile aynı sınır: aşan dosya hiç
+// gönderilmeden reddedilir (25 MB'ı yükleyip sonra hata almak yerine).
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+const TOO_LARGE_MESSAGE = "Dosya 25 MB'tan büyük olamaz";
+
 function useAction(locked: boolean) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -71,7 +76,7 @@ function useAction(locked: boolean) {
       setBusy(false);
     }
   }
-  return { busy, error, run };
+  return { busy, error, run, setError };
 }
 
 function LockedNote() {
@@ -642,11 +647,55 @@ async function uploadMultipart(path: string, form: FormData) {
     body: form,
   });
   const text = await res.text();
-  const body = text ? JSON.parse(text) : null;
+  // Sınırı aşan gövdeyi önündeki ters vekil (proxy) JSON olmayan bir 413
+  // sayfasıyla da kesebilir -- o durumda da anlaşılır mesaj gösterilir.
+  let body: { error?: string } | null = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = null;
+  }
   if (!res.ok) {
-    throw new ApiError(res.status, body?.error ?? "Yükleme başarısız");
+    const fallback = res.status === 413 ? TOO_LARGE_MESSAGE : "Yükleme başarısız";
+    throw new ApiError(res.status, body?.error ?? fallback);
   }
   return body;
+}
+
+// downloadFile: düz <a href> oturum yenilemesini atlıyordu -- erişim
+// çerezi ~15 dk sonra dolunca tarayıcı sayfada ham
+// {"error":"oturum bulunamadı"} JSON'unu gösteriyordu. fetchWithSession
+// 401'de oturumu yeniler; içerik blob olarak alınıp sunucunun verdiği adla
+// kaydedilir.
+async function downloadFile(path: string, filename: string) {
+  const res = await fetchWithSession(path);
+  if (!res.ok) {
+    let message = "Dosya indirilemedi";
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body?.error) message = body.error;
+    } catch {
+      // JSON olmayan hata gövdesi -- genel mesaj kalır.
+    }
+    throw new ApiError(res.status, message);
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Tıklama indirmeyi başlattıktan sonra bırakılır.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// tooLarge: seçilen dosya sınırı aşıyorsa mesajı gösterip true döner --
+// 25 MB'ı yükledikten sonra reddedilmek yerine hiç gönderilmez.
+function tooLarge(file: File, setError: (m: string) => void): boolean {
+  if (file.size <= MAX_UPLOAD_BYTES) return false;
+  setError(TOO_LARGE_MESSAGE);
+  return true;
 }
 
 export function FilesSection({
@@ -658,16 +707,29 @@ export function FilesSection({
   files: ProjectFile[];
   locked: boolean;
 }) {
-  const { busy, error, run } = useAction(locked);
+  const { busy, error, run, setError } = useAction(locked);
   const [category, setCategory] = useState<FileCategory>("other");
   const [description, setDescription] = useState("");
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const { confirm, dialog } = useConfirmDialog();
+
+  async function download(f: ProjectFile) {
+    setDownloadingId(f.id);
+    setError(null);
+    try {
+      await downloadFile(`/api/v1/projects/${project.id}/files/${f.id}/download`, f.original_name);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
+    } finally {
+      setDownloadingId(null);
+    }
+  }
 
   function upload(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const input = e.currentTarget.elements.namedItem("file") as HTMLInputElement;
     const file = input.files?.[0];
-    if (!file) return;
+    if (!file || tooLarge(file, setError)) return;
     const fd = new FormData();
     fd.append("file", file);
     fd.append("category", category);
@@ -695,12 +757,15 @@ export function FilesSection({
           {files.map((f) => (
             <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
               <span>
-                <a
-                  href={`${API_BASE}/api/v1/projects/${project.id}/files/${f.id}/download`}
-                  className="font-medium hover:text-gold hover:underline"
+                <button
+                  type="button"
+                  disabled={downloadingId === f.id}
+                  onClick={() => download(f)}
+                  className="text-left font-medium hover:text-gold hover:underline disabled:opacity-60"
                 >
                   {f.original_name}
-                </a>
+                  {downloadingId === f.id && " …"}
+                </button>
                 <span className="ml-2 text-xs text-text-muted">
                   {FILE_CATEGORY_LABELS[f.category]} · {formatSize(f.size_bytes)}
                 </span>
@@ -740,6 +805,7 @@ export function FilesSection({
           </Select>
           <Input
             placeholder="Açıklama"
+            maxLength={500}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
@@ -765,15 +831,26 @@ export function PhotosSection({
   photos: ProjectPhoto[];
   locked: boolean;
 }) {
-  const { busy, error, run } = useAction(locked);
+  const { busy, error, run, setError } = useAction(locked);
   const [stage, setStage] = useState<PhotoStage>("progress");
   const [description, setDescription] = useState("");
+  const { confirm, dialog } = useConfirmDialog();
+
+  async function handleDelete(p: ProjectPhoto) {
+    const ok = await confirm({
+      title: "Fotoğrafı Sil",
+      message: `${p.description || p.original_name} silinsin mi?`,
+      danger: true,
+    });
+    if (!ok) return;
+    run(() => apiClient(`/api/v1/projects/${project.id}/photos/${p.id}`, { method: "DELETE" }));
+  }
 
   function upload(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const input = e.currentTarget.elements.namedItem("file") as HTMLInputElement;
     const file = input.files?.[0];
-    if (!file) return;
+    if (!file || tooLarge(file, setError)) return;
     const fd = new FormData();
     fd.append("file", file);
     fd.append("stage", stage);
@@ -822,13 +899,7 @@ export function PhotosSection({
                         <button
                           type="button"
                           disabled={busy}
-                          onClick={() =>
-                            run(() =>
-                              apiClient(`/api/v1/projects/${project.id}/photos/${p.id}`, {
-                                method: "DELETE",
-                              })
-                            )
-                          }
+                          onClick={() => handleDelete(p)}
                           className="shrink-0 text-danger hover:underline"
                         >
                           Sil
@@ -862,6 +933,7 @@ export function PhotosSection({
           </Select>
           <Input
             placeholder="Açıklama"
+            maxLength={500}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
@@ -871,6 +943,7 @@ export function PhotosSection({
         </form>
       )}
       {error && <p className="text-xs text-danger">{error}</p>}
+      {dialog}
     </div>
   );
 }
