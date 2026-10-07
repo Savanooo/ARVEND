@@ -646,17 +646,17 @@ export function ExpensesSection({
                   </Td>
                   <Td className="text-text-muted">{e.supplier_name || "—"}</Td>
                   <Td className="text-text-muted">{e.invoice_no || "—"}</Td>
-                  <Td>
+                  <Td className="whitespace-nowrap">
                     <span title={e.approval_status === "rejected" && e.decision_note ? `Red nedeni: ${e.decision_note}` : undefined}>
                       <StatusBadge status={e.approval_status} registry={EXPENSE_APPROVAL_STATUS} />
                     </span>
                   </Td>
                   <Td
-                    className={`text-right ${e.voided_at ? "line-through" : e.approval_status === "approved" ? "font-medium" : "text-text-muted"}`}
+                    className={`whitespace-nowrap text-right ${e.voided_at ? "line-through" : e.approval_status === "approved" ? "font-medium" : "text-text-muted"}`}
                   >
                     {formatMoney(e.amount, e.currency)}
                   </Td>
-                  <Td className="text-right">
+                  <Td className="whitespace-nowrap text-right">
                     {expenseIsPending(e) && deciding && (
                       <div className="flex justify-end gap-3 text-xs">
                         <button
