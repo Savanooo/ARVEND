@@ -92,15 +92,16 @@ class ProjectEditInput {
       };
 }
 
-/// Duruma göre formda sunulan seçenekler -- web `ProjectEditForm`
-/// `TRANSITIONS` tablosunun aynası (asıl kontrol backend'de; burası
-/// yalnızca imkânsız seçeneği göstermemek için). Web ile aynı şekilde
-/// tamamlanmış/iptal edilmiş proje bu ekrandan yeniden açılamaz.
+/// Duruma göre formda sunulan seçenekler -- backend
+/// `domain.projectTransitions`ın aynası (asıl kontrol backend'de; burası
+/// yalnızca imkânsız seçeneği göstermemek için). Tamamlanmış proje
+/// yalnızca "Aktif"e geri alınabilir (yeniden açma, onaylı -- kilitli
+/// finans hareketleri ve saha işleri yeniden açılır); iptal uç durumdur.
 const kProjectEditTransitions = <String, List<String>>{
   'planned': ['planned', 'active', 'paused', 'cancelled'],
   'active': ['active', 'paused', 'completed', 'cancelled'],
   'paused': ['paused', 'active', 'completed', 'cancelled'],
-  'completed': ['completed'],
+  'completed': ['completed', 'active'],
   'cancelled': ['cancelled'],
 };
 

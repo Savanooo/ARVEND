@@ -79,7 +79,7 @@ void main() {
       expect(projectStatusOptions('planned'), ['planned', 'active', 'paused', 'cancelled']);
       expect(projectStatusOptions('active'), ['active', 'paused', 'completed', 'cancelled']);
       expect(projectStatusOptions('paused'), ['paused', 'active', 'completed', 'cancelled']);
-      expect(projectStatusOptions('completed'), ['completed']);
+      expect(projectStatusOptions('completed'), ['completed', 'active']);
       expect(projectStatusOptions('cancelled'), ['cancelled']);
       expect(formatApiDate(DateTime(2026, 3, 7)), '2026-03-07');
     });
@@ -181,10 +181,36 @@ void main() {
       expect(repo.updates, isEmpty);
     });
 
-    testWidgets('completed project cannot be reopened from here (web parity)', (tester) async {
+    testWidgets('completed project can be reopened (to Aktif only) after confirmation', (tester) async {
       final repo = FakeProjectEditRepository(project: sampleEditable(status: 'completed'));
       await _pump(tester, projectEditApp(user: projectEditorNoFinance, repo: repo, offlineClient: offline));
-      expect(find.text('Tamamlandı durumundaki bir proje yeniden açılamaz.'), findsOneWidget);
+      expect(find.text('Yeniden açmak için “Aktif”i seçin.'), findsOneWidget);
+
+      await tester.tap(find.text('Tamamlandı'));
+      await tester.pumpAndSettle();
+      // Yalnızca Tamamlandı + Aktif (backend: completed -> active).
+      expect(find.text('Durduruldu'), findsNothing);
+      await tester.tap(find.text('Aktif').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Değişiklikleri Kaydet'));
+      await tester.pumpAndSettle();
+      expect(find.text('Projeyi Yeniden Aç'), findsOneWidget);
+      await tester.tap(find.text('Vazgeç'));
+      await tester.pumpAndSettle();
+      expect(repo.updates, isEmpty);
+
+      await tester.tap(find.text('Değişiklikleri Kaydet'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Yeniden Aç'));
+      await tester.pumpAndSettle();
+      expect(repo.updates.single.input.status, 'active');
+    });
+
+    testWidgets('cancelled project still cannot be reopened', (tester) async {
+      final repo = FakeProjectEditRepository(project: sampleEditable(status: 'cancelled'));
+      await _pump(tester, projectEditApp(user: projectEditorNoFinance, repo: repo, offlineClient: offline));
+      expect(find.text('İptal Edildi durumundaki bir proje yeniden açılamaz.'), findsOneWidget);
     });
 
     testWidgets('empty name is rejected client-side; backend errors are shown', (tester) async {
