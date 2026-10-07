@@ -96,7 +96,8 @@ double? previewMarkupUnitPrice(double cost, double markupPercent) {
 
 double _round2(double v) => (v * 100).roundToDouble() / 100.0;
 
-/// backend `offerResponse` — `currency` yok, her zaman TRY.
+/// backend `offerResponse`. `currency`: teklif oluşturulurken firma
+/// varsayılanından gelir (alanı göndermeyen eski sunucu -> TRY).
 class Offer {
   final String id;
   final String offerNo;
@@ -116,6 +117,7 @@ class Offer {
   final String status;
   final bool isPassive;
   final List<OfferItem> items;
+  final String currency;
 
   const Offer({
     required this.id,
@@ -136,6 +138,7 @@ class Offer {
     required this.status,
     required this.isPassive,
     required this.items,
+    this.currency = 'TRY',
   });
 
   static const statusTaslak = 'taslak';
@@ -187,8 +190,51 @@ class Offer {
             .cast<Map<String, dynamic>>()
             .map(OfferItem.fromJson)
             .toList(),
+        currency: json['currency'] as String? ?? 'TRY',
       );
 }
+
+/// GET /offers/defaults -- firmanın teklif varsayılanları (onboarding
+/// "Teklif" adımı). Yeni teklif formu KDV'yi bununla doldurur; formun
+/// göndermediği geçerlilik ve para birimini sunucu aynı ayardan tamamlar.
+/// [validityDays]/[validUntil] null = firma süre tanımlamamış (süresiz).
+class OfferDefaults {
+  const OfferDefaults({
+    required this.vatRate,
+    required this.currency,
+    this.validityDays,
+    this.validUntil,
+    this.paymentTerms = '',
+    this.deliveryTerms = '',
+    this.footer = '',
+  });
+
+  /// Sunucunun ayar yokken kullandığı değerler.
+  static const fallback = OfferDefaults(vatRate: 20, currency: 'TRY');
+
+  final double vatRate;
+  final String currency;
+  final int? validityDays;
+
+  /// Bugünden (İstanbul) hesaplanmış varsayılan bitiş, 'YYYY-MM-DD'.
+  final String? validUntil;
+  final String paymentTerms;
+  final String deliveryTerms;
+  final String footer;
+
+  factory OfferDefaults.fromJson(Map<String, dynamic> json) => OfferDefaults(
+        vatRate: (json['vat_rate'] as num?)?.toDouble() ?? fallback.vatRate,
+        currency: json['currency'] as String? ?? fallback.currency,
+        validityDays: (json['validity_days'] as num?)?.toInt(),
+        validUntil: json['valid_until'] as String?,
+        paymentTerms: json['payment_terms'] as String? ?? '',
+        deliveryTerms: json['delivery_terms'] as String? ?? '',
+        footer: json['footer'] as String? ?? '',
+      );
+}
+
+/// Tutar metinlerindeki para birimi etiketi: TRY -> "TL", diğerleri kodla.
+String currencyLabel(String currency) => (currency.isEmpty || currency == 'TRY') ? 'TL' : currency;
 
 class OfferRevision {
   final String id;
