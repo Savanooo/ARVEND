@@ -218,7 +218,13 @@ class _EmployeeHeader extends StatelessWidget {
                 runSpacing: AppSpacing.xs,
                 children: [
                   StatusRegistry.build(e.isActive ? 'aktif' : 'pasif', StatusRegistry.customer),
-                  if (e.hasLogin) const StatusBadge(label: 'Giriş hesabı var', tone: StatusTone.info),
+                  if (e.hasLogin)
+                    e.loginDisabled
+                        ? const StatusBadge(label: 'Giriş hesabı kapalı', tone: StatusTone.warning)
+                        : StatusBadge(
+                            label: e.userUsername == null ? 'Giriş hesabı var' : 'Hesap: ${e.userUsername}',
+                            tone: StatusTone.info,
+                          ),
                 ],
               ),
             ],

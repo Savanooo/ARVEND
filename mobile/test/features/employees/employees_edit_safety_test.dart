@@ -62,7 +62,9 @@ void main() {
       for (var i = 0; i < 5; i++) {
         await tester.pump(const Duration(milliseconds: 50));
       }
-      expect(employees.updated.single.input.userId, isNotNull);
+      // Bağ hesapla aynı istekte kuruldu (employee_id); ayrı PUT yok.
+      expect(employees.employees.firstWhere((e) => e.id == 'e2').userId, isNotNull);
+      expect(employees.updated, isEmpty);
       expect(find.text('Bu personelin zaten bir giriş hesabı var.'), findsNothing);
       expect(find.text('Giriş Bilgileri'), findsOneWidget);
 

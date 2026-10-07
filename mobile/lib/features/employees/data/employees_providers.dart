@@ -18,6 +18,11 @@ final employeeDetailProvider = FutureProvider.autoDispose.family<EmployeeRecord,
   (ref, id) => ref.watch(employeesRepositoryProvider).get(id),
 );
 
+/// Hesap <-> personel eşleşme önerileri (bkz. EmployeesRepository.linkSuggestions).
+final employeeLinkSuggestionsProvider = FutureProvider.autoDispose<List<EmployeeLinkSuggestion>>(
+  (ref) => ref.watch(employeesRepositoryProvider).linkSuggestions(),
+);
+
 /// Bir personel eklendi/değişti: listeler, detay ve mesai/görev
 /// ekranlarının personel seçicisi tazelensin.
 void invalidateEmployees(WidgetRef ref, {String? id}) => invalidateEmployeesWith(ref.invalidate, id: id);
@@ -27,6 +32,7 @@ void invalidateEmployees(WidgetRef ref, {String? id}) => invalidateEmployeesWith
 /// kapsayıcısını ilk await'ten ÖNCE alır ve `container.invalidate` verir.
 void invalidateEmployeesWith(void Function(ProviderOrFamily provider) invalidate, {String? id}) {
   invalidate(employeesListProvider);
+  invalidate(employeeLinkSuggestionsProvider);
   if (id != null) invalidate(employeeDetailProvider(id));
   invalidate(attendance.employeesProvider);
 }

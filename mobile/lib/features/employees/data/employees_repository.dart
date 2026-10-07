@@ -27,6 +27,16 @@ class EmployeesRepository {
   Future<EmployeeRecord> update(String id, EmployeeInput input) async =>
       EmployeeRecord.fromJson(await _client.put<Map<String, dynamic>>('/employees/$id', data: input.toJson()));
 
+  /// Hesap <-> personel eşleşme önerileri (employees.manage +
+  /// organization.users.read). Yalnızca öneri -- bağlamak [update] ile.
+  Future<List<EmployeeLinkSuggestion>> linkSuggestions() async {
+    final json = await _client.get<Map<String, dynamic>>('/employees/link-suggestions');
+    return (json['suggestions'] as List? ?? const [])
+        .cast<Map<String, dynamic>>()
+        .map(EmployeeLinkSuggestion.fromJson)
+        .toList();
+  }
+
   /// DELETE = pasifleştirme (hard delete YOK -- mesai/görev geçmişi
   /// personele bağlı kalır).
   Future<void> archive(String id) => _client.delete<dynamic>('/employees/$id');

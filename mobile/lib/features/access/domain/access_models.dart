@@ -18,6 +18,16 @@ class OrgUser {
   final String organizationRoleCode;
   final String organizationRoleName;
 
+  /// Hesabın bağlı olduğu personel kaydı ("kişi = tek kayıt"): null =
+  /// personel kaydı yok -- görev atanamaz, mesai/maaşta görünmez.
+  final String? employeeId;
+  final String employeeFullName;
+  final bool employeeIsActive;
+
+  /// YALNIZCA `POST /users` cevabında: hesap açılırken personel adımının
+  /// sonucu (yeni kayıt açıldı / mevcut kayda bağlandı / atlandı ...).
+  final EmployeeLink? employeeLink;
+
   const OrgUser({
     required this.id,
     required this.username,
@@ -27,18 +37,32 @@ class OrgUser {
     this.mustChangePassword = false,
     this.organizationRoleCode = '',
     this.organizationRoleName = '',
+    this.employeeId,
+    this.employeeFullName = '',
+    this.employeeIsActive = true,
+    this.employeeLink,
   });
 
-  factory OrgUser.fromJson(Map<String, dynamic> json) => OrgUser(
-    id: json['id'] as String,
-    username: json['username'] as String? ?? '',
-    fullName: json['full_name'] as String? ?? '',
-    role: UserRole.fromWire(json['role'] as String? ?? ''),
-    isActive: json['is_active'] as bool? ?? true,
-    mustChangePassword: json['must_change_password'] as bool? ?? false,
-    organizationRoleCode: json['organization_role_code'] as String? ?? '',
-    organizationRoleName: json['organization_role_name'] as String? ?? '',
-  );
+  factory OrgUser.fromJson(Map<String, dynamic> json) {
+    final employeeId = json['employee_id'] as String?;
+    final link = json['employee_link'];
+    return OrgUser(
+      id: json['id'] as String,
+      username: json['username'] as String? ?? '',
+      fullName: json['full_name'] as String? ?? '',
+      role: UserRole.fromWire(json['role'] as String? ?? ''),
+      isActive: json['is_active'] as bool? ?? true,
+      mustChangePassword: json['must_change_password'] as bool? ?? false,
+      organizationRoleCode: json['organization_role_code'] as String? ?? '',
+      organizationRoleName: json['organization_role_name'] as String? ?? '',
+      employeeId: (employeeId == null || employeeId.isEmpty) ? null : employeeId,
+      employeeFullName: json['employee_full_name'] as String? ?? '',
+      employeeIsActive: json['employee_is_active'] as bool? ?? true,
+      employeeLink: link is Map<String, dynamic> ? EmployeeLink.fromJson(link) : null,
+    );
+  }
+
+  bool get hasEmployee => employeeId != null;
 
   /// Web Kullanıcılar tablosuyla aynı: organizasyon rolünün adı, yoksa
   /// kaba rolün karşılığı.
@@ -49,6 +73,38 @@ class OrgUser {
 
   /// Sahip/Yönetici -- web'deki gold rozetin koşulu.
   bool get isOwnerOrAdmin => organizationRoleCode == 'owner' || organizationRoleCode == 'admin';
+}
+
+/// `POST /users` cevabındaki `employee_link`: hesap açılırken personel
+/// kaydına ne olduğu. [message] backend'in hazır Türkçe özetidir.
+class EmployeeLink {
+  const EmployeeLink({required this.status, this.employeeId, this.employeeFullName = '', this.message = ''});
+
+  /// created | linked | linked_same_name | skipped | ambiguous_name | no_permission
+  final String status;
+  final String? employeeId;
+  final String employeeFullName;
+  final String message;
+
+  static const created = 'created';
+  static const linked = 'linked';
+  static const linkedSameName = 'linked_same_name';
+  static const skipped = 'skipped';
+  static const ambiguousName = 'ambiguous_name';
+  static const noPermission = 'no_permission';
+
+  factory EmployeeLink.fromJson(Map<String, dynamic> json) {
+    final id = json['employee_id'] as String?;
+    return EmployeeLink(
+      status: json['status'] as String? ?? '',
+      employeeId: (id == null || id.isEmpty) ? null : id,
+      employeeFullName: json['employee_full_name'] as String? ?? '',
+      message: json['message'] as String? ?? '',
+    );
+  }
+
+  /// Hesap bir personel kaydına bağlandı mı (yeni ya da mevcut).
+  bool get isLinked => employeeId != null && (status == created || status == linked || status == linkedSameName);
 }
 
 /// GET /organization/roles satırı. Liste "Eski Sistem" (legacy_user)

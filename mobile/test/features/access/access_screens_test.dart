@@ -24,7 +24,8 @@ void main() {
 
   Finder field(String label) => find.widgetWithText(TextFormField, label);
   Finder textField(String label) => find.widgetWithText(TextField, label);
-  final roleDropdown = find.byType(DropdownButtonFormField<String>);
+  // Yeni kullanıcı formunda rolün altında "Personel kaydı" seçicisi de var.
+  final roleDropdown = find.byType(DropdownButtonFormField<String>).first;
 
   group('kullanıcı listesi', () {
     testWidgets('sahip: liste, arama, aktif/pasif filtresi ve yeni kullanıcı', (tester) async {

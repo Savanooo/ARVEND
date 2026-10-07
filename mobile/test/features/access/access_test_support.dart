@@ -169,6 +169,7 @@ List<OrgUser> sampleUsers() => const [
     organizationRoleCode: 'admin',
     organizationRoleName: 'Yönetici',
   ),
+  // Personel kaydına bağlı hesaplar (sampleEmployees e1/e5 ile aynı bağ).
   OrgUser(
     id: 'u-pm',
     username: 'mehmet.demir',
@@ -177,6 +178,8 @@ List<OrgUser> sampleUsers() => const [
     isActive: true,
     organizationRoleCode: 'project_manager',
     organizationRoleName: 'Proje Yöneticisi',
+    employeeId: 'e1',
+    employeeFullName: 'Mehmet Demir',
   ),
   OrgUser(
     id: 'u-fin',
@@ -186,6 +189,8 @@ List<OrgUser> sampleUsers() => const [
     isActive: true,
     organizationRoleCode: 'finance',
     organizationRoleName: 'Finans',
+    employeeId: 'e5',
+    employeeFullName: 'Ayşe Kaya',
   ),
   OrgUser(
     id: 'u-field',
@@ -463,6 +468,22 @@ class FakeAccessRepository implements AccessRepository {
   String? lastPassword;
   ({String username, String password, String fullName, String roleCode})? lastCreated;
 
+  /// Son `createUser`'ın personel alanları (null = gönderilmedi).
+  ({bool? createEmployee, String? employeeId, bool? linkSameName})? lastPersonnel;
+
+  /// `createUser` cevabına konacak personel sonucu (sunucunun employee_link'i).
+  /// Verilmezse: employeeId istendiyse "linked", aksi halde sonuç yok.
+  EmployeeLink? nextEmployeeLink;
+
+  /// false = employee_id'yi bilmeyen eski sunucu: bağ kurulmaz, cevapta
+  /// employee_link yok (istemci eski PUT /employees yoluna düşer).
+  bool serverLinksEmployee = true;
+
+  /// Sunucu tarafındaki bağı taklit etmek için personel sahtesi
+  /// ([buildAccessApp] ikisini birbirine bağlar): employee_id ile açılan
+  /// hesap o personele hesapla aynı işlemde bağlanır.
+  FakeEmployeesRepository? employeesRepo;
+
   void _maybeFail(String method) {
     final always = failAlways[method];
     if (always != null) throw always;
@@ -490,12 +511,20 @@ class FakeAccessRepository implements AccessRepository {
     required String password,
     required String fullName,
     required String organizationRoleCode,
+    bool? createEmployee,
+    String? employeeId,
+    bool? linkSameName,
   }) async {
     calls.add('createUser $username $organizationRoleCode');
     lastCreated = (username: username, password: password, fullName: fullName, roleCode: organizationRoleCode);
+    lastPersonnel = (createEmployee: createEmployee, employeeId: employeeId, linkSameName: linkSameName);
     await _wait('createUser');
     _maybeFail('createUser');
     final role = roleList.firstWhere((r) => r.code == organizationRoleCode);
+    final link = !serverLinksEmployee
+        ? null
+        : nextEmployeeLink ??
+              (employeeId != null ? EmployeeLink(status: EmployeeLink.linked, employeeId: employeeId) : null);
     final created = OrgUser(
       id: 'u-new-${users.length}',
       username: username,
@@ -504,8 +533,13 @@ class FakeAccessRepository implements AccessRepository {
       isActive: true,
       organizationRoleCode: role.code,
       organizationRoleName: role.name,
+      employeeId: link?.isLinked == true ? link!.employeeId : null,
+      employeeFullName: link?.employeeFullName ?? '',
+      employeeLink: link,
     );
     users = [...users, created];
+    final linkedEmployee = created.employeeId;
+    if (linkedEmployee != null) employeesRepo?.linkUser(linkedEmployee, created.id);
     details = {
       ...details,
       created.id: UserPermissionDetail(
@@ -533,6 +567,9 @@ class FakeAccessRepository implements AccessRepository {
       isActive: isActive,
       organizationRoleCode: old.organizationRoleCode,
       organizationRoleName: old.organizationRoleName,
+      employeeId: old.employeeId,
+      employeeFullName: old.employeeFullName,
+      employeeIsActive: old.employeeIsActive,
     );
     users = [for (final u in users) u.id == id ? next : u];
     return next;
@@ -725,6 +762,39 @@ class FakeEmployeesRepository implements EmployeesRepository {
     return record;
   }
 
+  /// Sunucunun `POST /users` (employee_id) ile kurduğu bağın karşılığı --
+  /// PUT değildir, [updated]'a girmez.
+  void linkUser(String employeeId, String userId) {
+    calls.add('linkUser $employeeId $userId');
+    employees = [
+      for (final e in employees)
+        e.id == employeeId
+            ? EmployeeRecord(
+                id: e.id,
+                fullName: e.fullName,
+                phone: e.phone,
+                position: e.position,
+                salary: e.salary,
+                dailyWage: e.dailyWage,
+                startDate: e.startDate,
+                description: e.description,
+                isActive: e.isActive,
+                userId: userId,
+              )
+            : e,
+    ];
+  }
+
+  /// `linkSuggestions` cevabı (varsayılan boş -- kart çizilmez).
+  List<EmployeeLinkSuggestion> suggestions = [];
+
+  @override
+  Future<List<EmployeeLinkSuggestion>> linkSuggestions() async {
+    calls.add('linkSuggestions');
+    _maybeFail('linkSuggestions');
+    return suggestions;
+  }
+
   @override
   Future<void> archive(String id) async {
     calls.add('archive $id');
@@ -798,6 +868,9 @@ Widget buildAccessApp({
   FakeEmployeesRepository? employees,
   FakeAuth? auth,
 }) {
+  final accessRepo = access ?? FakeAccessRepository();
+  final employeesRepo = employees ?? FakeEmployeesRepository();
+  accessRepo.employeesRepo ??= employeesRepo;
   final router = GoRouter(
     initialLocation: location,
     routes: [
@@ -816,8 +889,8 @@ Widget buildAccessApp({
     overrides: [
       apiClientProvider.overrideWithValue(client),
       authControllerProvider.overrideWith(() => auth ?? FakeAuth(user)),
-      accessRepositoryProvider.overrideWithValue(access ?? FakeAccessRepository()),
-      employeesRepositoryProvider.overrideWithValue(employees ?? FakeEmployeesRepository()),
+      accessRepositoryProvider.overrideWithValue(accessRepo),
+      employeesRepositoryProvider.overrideWithValue(employeesRepo),
     ],
     child: MaterialApp.router(
       debugShowCheckedModeBanner: false,

@@ -17,11 +17,13 @@ import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../../core/widgets/unsaved_changes_scope.dart';
+import '../../employees/data/employees_providers.dart';
 import '../data/access_providers.dart';
 import '../domain/access_models.dart';
 import 'users_screen.dart' show kUsersNoAccessText;
 import 'widgets/access_state_views.dart';
 import 'widgets/user_access_card.dart';
+import 'widgets/user_employee_card.dart';
 
 /// Kullanıcı detayı -- web `/admin/kullanicilar/[id]`: bilgiler (ad soyad +
 /// aktiflik), atandığı projeler, şifre sıfırlama (users.manage) ve rol +
@@ -70,6 +72,10 @@ class UserDetailScreen extends ConsumerWidget {
               // Kişiye bağlı anahtar: yenileme (ör. Rol ve Yetkiler kaydı
               // detayı tazeler) yazılmakta olan adı silmez -- didUpdateWidget.
               _UserInfoCard(key: ValueKey('bilgi-${u.id}'), user: u, canManage: canManage),
+              const SizedBox(height: AppSpacing.xl),
+              const AppSectionHeader(title: 'Personel Kaydı'),
+              const SizedBox(height: AppSpacing.sm),
+              UserEmployeeCard(user: u),
               const SizedBox(height: AppSpacing.xl),
               const AppSectionHeader(title: 'Atandığı Projeler'),
               const SizedBox(height: AppSpacing.sm),
@@ -194,6 +200,8 @@ class _UserInfoCardState extends ConsumerState<_UserInfoCard> {
       await container.read(accessRepositoryProvider).updateUser(userId, fullName: name, isActive: _isActive);
       container.invalidate(orgUsersProvider);
       container.invalidate(orgUserDetailProvider(userId));
+      // Ad değişince aynı adlı bağlı personelin adı da değişir (sunucu).
+      if (widget.user.employeeId != null) invalidateEmployeesWith(container.invalidate, id: widget.user.employeeId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kaydedildi.')));
     } on ApiException catch (e) {

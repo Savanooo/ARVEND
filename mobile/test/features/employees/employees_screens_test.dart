@@ -43,7 +43,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('İsmail Çelik'), findsOneWidget);
       expect(find.text('Mehmet Demir'), findsNothing);
-      expect(employees.calls, ['list', 'list pasif']);
+      // Eşleşme önerileri ekran açıkken bir kez okunur; filtre değişince
+      // yeniden istenmez.
+      expect(employees.calls, ['list', 'linkSuggestions', 'list pasif']);
 
       await tester.tap(find.text('Aktif').first);
       await tester.pumpAndSettle();
@@ -193,7 +195,7 @@ void main() {
     Future<void> fillAndSubmit(WidgetTester tester) async {
       await tester.enterText(field('Kullanıcı Adı *'), 'ahmet.yilmaz');
       await tester.enterText(field('Şifre *'), 'guclu-sifre-1');
-      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Saha').last);
       await tester.pumpAndSettle();
@@ -224,12 +226,14 @@ void main() {
       expect(access.lastCreated?.roleCode, 'field');
       final createdId = access.users.last.id;
 
-      final update = employees.updated.single;
-      expect(update.id, 'e2');
-      expect(update.input.userId, createdId);
-      expect(update.input.dailyWage, 2500);
-      expect(update.input.startDate, '2025-05-12');
-      expect(update.input.position, 'Kalıpçı Ustası');
+      // Bağ hesapla AYNI istekte kurulur (employee_id): sunucu kendi
+      // kuralıyla yeni personel açmaz; ayrı PUT /employees (ücretleri geri
+      // yazan tam-güncelleme) hiç atılmaz.
+      expect(access.lastPersonnel?.employeeId, 'e2');
+      expect(employees.updated, isEmpty);
+      final linked = employees.employees.firstWhere((e) => e.id == 'e2');
+      expect(linked.userId, createdId);
+      expect(linked.dailyWage, 2500);
 
       // Rol hesap açılırken verildi -> yalnızca kişiye özel izinler yazılır.
       expect(access.calls.where((c) => c.startsWith('setOrganizationRole')), isEmpty);
@@ -242,8 +246,9 @@ void main() {
       expect(find.text('Giriş Hesabı Aç'), findsNothing);
     });
 
-    testWidgets('bağlama başarısız olursa tekrar denemek hesabı yeniden açmaz', (tester) async {
-      final access = FakeAccessRepository();
+    testWidgets('eski sunucu: bağlama başarısız olursa tekrar denemek hesabı yeniden açmaz', (tester) async {
+      // employee_id'yi bilmeyen sunucu bağı onaylamaz -> eski yol (PUT).
+      final access = FakeAccessRepository()..serverLinksEmployee = false;
       final employees = FakeEmployeesRepository()..failNext['update'] = badRequest('personel güncellenemedi');
       await pumpAccessApp(
         tester,

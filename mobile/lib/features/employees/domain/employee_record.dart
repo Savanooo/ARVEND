@@ -25,6 +25,14 @@ class EmployeeRecord {
   /// Bağlı giriş hesabı (users.id) -- null = hesap yok.
   final String? userId;
 
+  /// Bağlı hesabın kullanıcı adı / aktifliği / silinmişliği. Backend
+  /// bunları YALNIZCA kullanıcı listesini görebilene (organization.users.
+  /// read) gönderir; diğerlerinde null -- o zaman yalnızca [hasLogin]
+  /// bilinir.
+  final String? userUsername;
+  final bool? userIsActive;
+  final bool userDeleted;
+
   const EmployeeRecord({
     required this.id,
     required this.fullName,
@@ -36,6 +44,9 @@ class EmployeeRecord {
     this.isActive = true,
     this.description = '',
     this.userId,
+    this.userUsername,
+    this.userIsActive,
+    this.userDeleted = false,
   });
 
   factory EmployeeRecord.fromJson(Map<String, dynamic> json) {
@@ -51,10 +62,17 @@ class EmployeeRecord {
       isActive: json['is_active'] as bool? ?? true,
       description: json['description'] as String? ?? '',
       userId: (userId == null || userId.isEmpty) ? null : userId,
+      userUsername: json['user_username'] as String?,
+      userIsActive: json['user_is_active'] as bool?,
+      userDeleted: json['user_deleted'] as bool? ?? false,
     );
   }
 
   bool get hasLogin => userId != null;
+
+  /// Bağlı hesap var ama giriş yapamıyor (pasif ya da silinmiş) -- yalnızca
+  /// hesap bilgisi geldiyse bilinir.
+  bool get loginDisabled => hasLogin && (userDeleted || userIsActive == false);
 
   /// Web Personel tablosuyla aynı: yevmiye varsa "… / gün", yoksa maaş
   /// "… / ay". Yalnızca `employees.manage` ile çağrılmalı.
@@ -85,6 +103,36 @@ final _wholeFormat = NumberFormat.decimalPattern('tr_TR')..maximumFractionDigits
 final _centsFormat = NumberFormat.decimalPattern('tr_TR')
   ..minimumFractionDigits = 2
   ..maximumFractionDigits = 2;
+
+/// `GET /employees/link-suggestions` satırı: personel kaydı olmayan bir
+/// giriş hesabı ile bağlantısız bir personelin BİREBİR aynı adı taşıdığı
+/// öneri. Sunucu hiçbir şeyi kendiliğinden bağlamaz; yönetici onaylar.
+class EmployeeLinkSuggestion {
+  const EmployeeLinkSuggestion({
+    required this.userId,
+    required this.username,
+    required this.userFullName,
+    required this.employeeId,
+    required this.employeeFullName,
+    this.employeePosition = '',
+  });
+
+  final String userId;
+  final String username;
+  final String userFullName;
+  final String employeeId;
+  final String employeeFullName;
+  final String employeePosition;
+
+  factory EmployeeLinkSuggestion.fromJson(Map<String, dynamic> json) => EmployeeLinkSuggestion(
+    userId: json['user_id'] as String,
+    username: json['username'] as String? ?? '',
+    userFullName: json['user_full_name'] as String? ?? '',
+    employeeId: json['employee_id'] as String,
+    employeeFullName: json['employee_full_name'] as String? ?? '',
+    employeePosition: json['employee_position'] as String? ?? '',
+  );
+}
 
 /// Ücret alanlarının üst sınırı -- sütun numeric(18,2); bu sınır gerçekçi
 /// bir üst değer ve sunucunun ham "numeric field overflow" hatasını önler.
