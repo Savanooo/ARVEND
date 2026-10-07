@@ -346,6 +346,18 @@ hesaplanır. **DB CHECK** (`cumulative_progress_amount <= scheduled_
 value`) %100 üstü aşımı hem Go hem DB seviyesinde engeller (test
 `20_cumulative_overrun_rejected`).
 
+**Onaylı değişiklikler ve sınırlar (2026-10).** Değişiklik emri kalemleri
+bir SOV kalemine değil (maliyet kodu, bütçe kalemi) grubuna bağlıdır; bu
+yüzden sınırlar o grup üzerinden uygulanır (`subcontract_claim_caps.go`):
+kalem kümülatifi ≤ kalem tutarı + grubun onaylı net eki (`scheduled_value`
+snapshot'ı budur); grubun kümülatif toplamı ≤ grubun SOV toplamı + grubun
+onaylı net değişikliği; tüm kalemlerin toplamı ≤ güncel sözleşme tutarı.
+Ek iş böylece hakedişe girilebilir, eksiltme sınırı düşürür. Sertifika
+anında sınırlar sözleşme satırı kilitliyken yeniden kontrol edilir. Bir
+eksiltme, sözleşmeyi (veya dokunduğu grubu) sertifikalı ya da ödenmiş
+tutarın altına indiriyorsa onaylanamaz. Aynı SOV kalemi bir hakedişte
+yalnızca bir kez yer alabilir.
+
 ### 7.3 Retention / Avans / Kesinti — Net Payable Formülü (spec §22)
 
 ```

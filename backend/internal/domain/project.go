@@ -90,8 +90,12 @@ type Project struct {
 	TotalExpenses          float64
 	SubcontractorPaid      float64
 	SubcontractorRemaining float64
-	InvoiceCount           int64
-	PaidInvoiceCount       int64
+	// NewSubcontractPaid, yeni modül (taşeron sözleşmesi) ödemeleridir --
+	// SubcontractorPaid yalnızca eski (legacy) taşeron kayıtlarını taşır;
+	// finans özetindeki new_subcontract_paid İLE AYNI.
+	NewSubcontractPaid float64
+	InvoiceCount       int64
+	PaidInvoiceCount   int64
 	// ChangeOrderNet, onaylı ek işler/eksiltmelerin işaretli net etkisidir
 	// (ek iş: +, eksiltme: -). "Güncel proje bedeli" = ContractAmount +
 	// ChangeOrderNet -- projects tablosunda TUTULMAZ (bkz. Faz 8, 0027
@@ -121,6 +125,8 @@ func (p Project) RemainingReceivable() float64 { return p.CurrentContractValue()
 // RealizedCost/RealizedGrossProfit, liste satırı için gerçekleşen
 // maliyet ve kârdır -- özet uçtaki (SQL'de hesaplanan) tanımla birebir
 // aynı formül.
-func (p Project) RealizedCost() float64 { return p.TotalExpenses + p.SubcontractorPaid }
+func (p Project) RealizedCost() float64 {
+	return p.TotalExpenses + p.SubcontractorPaid + p.NewSubcontractPaid
+}
 
 func (p Project) RealizedGrossProfit() float64 { return p.CurrentContractValue() - p.RealizedCost() }

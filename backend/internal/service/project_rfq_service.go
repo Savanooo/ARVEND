@@ -62,7 +62,7 @@ type RFQInput struct {
 }
 
 func (s *ProjectService) generateRFQNo(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID) (string, error) {
-	year := time.Now().Year()
+	year := IstanbulToday().Year()
 	seq, err := q.NextRfqSeq(ctx, sqlc.NextRfqSeqParams{OrganizationID: orgID, Year: int32(year)})
 	if err != nil {
 		return "", err
@@ -127,8 +127,11 @@ func (s *ProjectService) insertRFQItems(
 			return err
 		}
 		desc := strings.TrimSpace(it.Description)
-		if desc == "" || it.Quantity <= 0 {
-			return ErrInvalidAmount
+		if desc == "" {
+			return ErrItemDescriptionRequired
+		}
+		if it.Quantity <= 0 {
+			return ErrInvalidQuantity
 		}
 		if _, err := txq.CreateRFQItem(ctx, sqlc.CreateRFQItemParams{
 			OrganizationID: orgID, ProjectID: pid, RfqID: rfqID,
@@ -148,7 +151,7 @@ func (s *ProjectService) CreateRFQ(ctx context.Context, projectID, organizationI
 	}
 	in.Title = strings.TrimSpace(in.Title)
 	if in.Title == "" {
-		return nil, ErrInvalidAmount
+		return nil, ErrTitleRequired
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -167,11 +170,14 @@ func (s *ProjectService) CreateRFQ(ctx context.Context, projectID, organizationI
 	if pridStr := strings.TrimSpace(in.PurchaseRequestID); pridStr != "" {
 		parsed, err := repository.StringToUUID(pridStr)
 		if err != nil {
-			return nil, domain.ErrNotFound
+			return nil, ErrPurchaseRequestRefNotFound
 		}
 		pr, err := txq.GetPurchaseRequest(ctx, sqlc.GetPurchaseRequestParams{ID: parsed, OrganizationID: orgID, ProjectID: pid})
 		if err != nil {
-			return nil, domain.ErrNotFound
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ErrPurchaseRequestRefNotFound
+			}
+			return nil, err
 		}
 		if pr.Status != domain.PurchaseRequestStatusApproved {
 			return nil, ErrPurchaseRequestNotApprovedForRFQ
@@ -288,7 +294,7 @@ func (s *ProjectService) UpdateRFQDraft(ctx context.Context, projectID, rfqID, o
 	}
 	in.Title = strings.TrimSpace(in.Title)
 	if in.Title == "" {
-		return nil, ErrInvalidAmount
+		return nil, ErrTitleRequired
 	}
 
 	tx, err := s.pool.Begin(ctx)

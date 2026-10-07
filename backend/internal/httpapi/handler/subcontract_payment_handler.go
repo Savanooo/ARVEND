@@ -73,11 +73,15 @@ func (h *ProjectHandler) CreateSubcontractPayment(w http.ResponseWriter, r *http
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
+	paidDate, ok := requestDate(w, req.PaidDate)
+	if !ok {
+		return
+	}
 	p, err := h.svc.CreateSubcontractPayment(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "subcontractId"), orgID, service.SubcontractPaymentInput{
 		ProgressClaimID: req.ProgressClaimID,
 		Amount:          req.Amount,
 		Currency:        req.Currency,
-		PaidDate:        parseDateOrToday(req.PaidDate),
+		PaidDate:        paidDate,
 		PaymentMethod:   req.PaymentMethod,
 		ReferenceNo:     req.ReferenceNo,
 		Description:     req.Description,

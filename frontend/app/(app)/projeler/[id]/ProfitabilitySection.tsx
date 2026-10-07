@@ -1,6 +1,15 @@
 import { PROJECT_EVENT_LABELS } from "@/lib/events";
-import { formatMoney } from "@/lib/format";
-import type { FinancialSummary, ProjectEvent } from "@/lib/types";
+import { formatDateTR, formatHm, formatMoney, istanbulDate } from "@/lib/format";
+import {
+  INVOICE_STATUS_LABELS,
+  PROJECT_STATUS_LABELS,
+  SCHEDULE_STATUS_LABELS,
+  TASK_STATUS_LABELS,
+  type FinancialSummary,
+  type ProjectEvent,
+} from "@/lib/types";
+
+import { subcontractTotals } from "./FinanceSummary";
 
 function Line({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
@@ -18,6 +27,7 @@ function Line({ label, value, strong }: { label: string; value: string; strong?:
 // devam eder -- aynı satırı iki sütunda tekrar etmez.
 export function ProfitabilitySection({ summary }: { summary: FinancialSummary }) {
   const c = summary.currency;
+  const sub = subcontractTotals(summary);
   return (
     <div className="flex flex-col gap-6 md:flex-row">
       <div className="flex flex-1 flex-col gap-1.5">
@@ -26,7 +36,7 @@ export function ProfitabilitySection({ summary }: { summary: FinancialSummary })
         </div>
         <Line label="Güncel proje bedeli" value={formatMoney(summary.current_contract_value, c)} />
         <Line label="Masraflar" value={`- ${formatMoney(summary.total_expenses, c)}`} />
-        <Line label="Taşerona ödenen" value={`- ${formatMoney(summary.subcontractor_paid, c)}`} />
+        <Line label="Taşerona ödenen" value={`- ${formatMoney(sub.paid, c)}`} />
         <div className="my-1 border-t border-border" />
         <Line label="Gerçekleşen maliyet" value={formatMoney(summary.realized_cost, c)} />
         <Line
@@ -42,7 +52,7 @@ export function ProfitabilitySection({ summary }: { summary: FinancialSummary })
         </div>
         <Line
           label="Gerçekleşen maliyetin üzerine taşeron kalan taahhüdü"
-          value={`+ ${formatMoney(summary.subcontractor_remaining, c)}`}
+          value={`+ ${formatMoney(sub.remaining, c)}`}
         />
         <div className="my-1 border-t border-border" />
         <Line label="Tahmini maliyet" value={formatMoney(summary.committed_cost, c)} />
@@ -59,6 +69,23 @@ export function ProfitabilitySection({ summary }: { summary: FinancialSummary })
 // Olay etiketleri lib/events.ts'e taşındı (ana sayfa "Son Hareketler" de
 // aynı haritayı kullanır).
 
+// Olay metadata'sındaki durum kodları (planned, in_progress, paid...) ham
+// gösterilmez: olay tipine göre ilgili etiket sözlüğünden Türkçesi alınır.
+const STATUS_LABELS_BY_EVENT: Record<string, Record<string, string>> = {
+  project_status_changed: PROJECT_STATUS_LABELS,
+  invoice_status_changed: INVOICE_STATUS_LABELS,
+  schedule_created: SCHEDULE_STATUS_LABELS,
+  schedule_updated: SCHEDULE_STATUS_LABELS,
+  schedule_completed: SCHEDULE_STATUS_LABELS,
+  task_created: TASK_STATUS_LABELS,
+  task_updated: TASK_STATUS_LABELS,
+  task_completed: TASK_STATUS_LABELS,
+};
+
+function statusLabel(eventType: string, code: string): string {
+  return STATUS_LABELS_BY_EVENT[eventType]?.[code] ?? code;
+}
+
 function detail(e: ProjectEvent, currency: string): string {
   const m = e.metadata ?? {};
   const parts: string[] = [];
@@ -70,8 +97,9 @@ function detail(e: ProjectEvent, currency: string): string {
   if (typeof m.planned_amount === "number") parts.push(formatMoney(m.planned_amount, currency));
   if (typeof m.contract_amount === "number") parts.push(formatMoney(m.contract_amount, currency));
   if (typeof m.grand_total === "number") parts.push(formatMoney(m.grand_total, currency));
-  if (typeof m.from === "string" && typeof m.to === "string") parts.push(`${m.from} → ${m.to}`);
-  if (typeof m.status === "string") parts.push(String(m.status));
+  if (typeof m.from === "string" && typeof m.to === "string")
+    parts.push(`${statusLabel(e.event_type, m.from)} → ${statusLabel(e.event_type, m.to)}`);
+  if (typeof m.status === "string") parts.push(statusLabel(e.event_type, m.status));
   if (typeof m.reason === "string" && m.reason) parts.push(String(m.reason));
   return parts.join(" · ");
 }
@@ -89,12 +117,16 @@ export function ProjectActivitySection({
   return (
     <ol className="flex flex-col gap-1.5 text-sm">
       {events.map((e) => {
+        // Yıl dahil, İstanbul saatiyle (geçen yılın olayları bu yılınkiyle
+        // karışmasın; sunucu/tarayıcı saat dilimine bağlı olmasın).
         const d = new Date(e.created_at);
-        const stamp = `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+        const stamp = Number.isNaN(d.getTime())
+          ? ""
+          : `${formatDateTR(istanbulDate(d))} ${formatHm(e.created_at)}`;
         const extra = detail(e, currency);
         return (
           <li key={e.id} className="flex gap-3">
-            <span className="w-24 shrink-0 tabular-nums text-text-muted">{stamp}</span>
+            <span className="w-32 shrink-0 tabular-nums text-text-muted">{stamp}</span>
             <span className="text-text-muted">—</span>
             <span>
               {PROJECT_EVENT_LABELS[e.event_type] ?? e.event_type}

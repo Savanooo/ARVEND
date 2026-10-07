@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -12,15 +14,31 @@ import (
 	"github.com/Savanooo/ARVEND/backend/internal/service"
 )
 
-func parseDateOrToday(raw string) time.Time {
+// parseDateOrToday, zorunlu bir tarih alanını çözer: boşsa İSTANBUL'a göre
+// bugün (sunucu UTC'dedir; time.Now() gece 00:00-03:00 arası dünü
+// verirdi), çözülemiyorsa hata. Önceden çözülemeyen tarih ("06.10.2026")
+// sessizce bugüne çevriliyor, ödeme/masraf yanlış güne kaydediliyordu.
+func parseDateOrToday(raw string) (time.Time, error) {
+	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return time.Now()
+		return service.IstanbulToday(), nil
 	}
 	t, err := time.Parse(dateLayout, raw)
 	if err != nil {
-		return time.Now()
+		return time.Time{}, fmt.Errorf("geçersiz tarih %q: tarih YYYY-AA-GG biçiminde olmalıdır (ör. 2026-10-06)", raw)
 	}
-	return t
+	return t, nil
+}
+
+// requestDate, parseDateOrToday'i çağırır; hata varsa 400 yazar ve false
+// döner.
+func requestDate(w http.ResponseWriter, raw string) (time.Time, bool) {
+	t, err := parseDateOrToday(raw)
+	if err != nil {
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return time.Time{}, false
+	}
+	return t, true
 }
 
 func dateStrPtr(t *time.Time) *string {
@@ -206,11 +224,15 @@ func (h *ProjectHandler) CreateCollection(w http.ResponseWriter, r *http.Request
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
+	receivedDate, ok := requestDate(w, req.ReceivedDate)
+	if !ok {
+		return
+	}
 	c, err := h.svc.CreateCollection(r.Context(), chi.URLParam(r, "id"), orgID, service.CollectionInput{
 		PaymentPlanItemID: req.PaymentPlanItemID,
 		Amount:            req.Amount,
 		Currency:          req.Currency,
-		ReceivedDate:      parseDateOrToday(req.ReceivedDate),
+		ReceivedDate:      receivedDate,
 		PaymentMethod:     req.PaymentMethod,
 		Description:       req.Description,
 		ReferenceNo:       req.ReferenceNo,
@@ -288,10 +310,10 @@ type expenseRequest struct {
 	BudgetLineID string `json:"budget_line_id"`
 }
 
-func (r expenseRequest) toInput(userID string) service.ExpenseInput {
+func (r expenseRequest) toInput(userID string, expenseDate time.Time) service.ExpenseInput {
 	return service.ExpenseInput{
 		Category: r.Category, Description: r.Description, Amount: r.Amount, Currency: r.Currency,
-		ExpenseDate: parseDateOrToday(r.ExpenseDate), SupplierName: r.SupplierName,
+		ExpenseDate: expenseDate, SupplierName: r.SupplierName,
 		InvoiceNo: r.InvoiceNo, Notes: r.Notes, IdempotencyKey: r.IdempotencyKey,
 		ChangeOrderID: r.ChangeOrderID, UserID: userID,
 		CostCodeID: r.CostCodeID, BudgetLineID: r.BudgetLineID,
@@ -320,7 +342,11 @@ func (h *ProjectHandler) CreateExpense(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	e, err := h.svc.CreateExpense(r.Context(), chi.URLParam(r, "id"), orgID, req.toInput(userID))
+	expenseDate, ok := requestDate(w, req.ExpenseDate)
+	if !ok {
+		return
+	}
+	e, err := h.svc.CreateExpense(r.Context(), chi.URLParam(r, "id"), orgID, req.toInput(userID, expenseDate))
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -336,7 +362,11 @@ func (h *ProjectHandler) UpdateExpense(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	e, err := h.svc.UpdateExpense(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "expenseId"), orgID, req.toInput(userID))
+	expenseDate, ok := requestDate(w, req.ExpenseDate)
+	if !ok {
+		return
+	}
+	e, err := h.svc.UpdateExpense(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "expenseId"), orgID, req.toInput(userID, expenseDate))
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -416,9 +446,13 @@ func (h *ProjectHandler) CreateInvoice(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
+	invoiceDate, ok := requestDate(w, req.InvoiceDate)
+	if !ok {
+		return
+	}
 	inv, err := h.svc.CreateInvoice(r.Context(), chi.URLParam(r, "id"), orgID, service.InvoiceInput{
 		InvoiceNo: req.InvoiceNo, InvoiceType: req.InvoiceType,
-		InvoiceDate: parseDateOrToday(req.InvoiceDate), DueDate: parseDateParam(req.DueDate),
+		InvoiceDate: invoiceDate, DueDate: parseDateParam(req.DueDate),
 		Amount: req.Amount, Currency: req.Currency, Status: req.Status,
 		CustomerName: req.CustomerName, Notes: req.Notes, UserID: userID,
 	})
@@ -614,8 +648,12 @@ func (h *ProjectHandler) CreateSubcontractorPayment(w http.ResponseWriter, r *ht
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
+	paidDate, ok := requestDate(w, req.PaidDate)
+	if !ok {
+		return
+	}
 	p, err := h.svc.CreateSubcontractorPayment(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "subcontractorId"), orgID, service.SubcontractorPaymentInput{
-		Amount: req.Amount, Currency: req.Currency, PaidDate: parseDateOrToday(req.PaidDate),
+		Amount: req.Amount, Currency: req.Currency, PaidDate: paidDate,
 		Description: req.Description, IdempotencyKey: req.IdempotencyKey, UserID: userID,
 	})
 	if err != nil {

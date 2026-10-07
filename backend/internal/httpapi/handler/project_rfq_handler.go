@@ -104,15 +104,20 @@ func (req rfqRequest) toInput(userID string) service.RFQInput {
 			Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
 		}
 	}
-	issueDate := parseDateParam(&req.IssueDate)
 	in := service.RFQInput{
 		Title: req.Title, PurchaseRequestID: req.PurchaseRequestID, DueDate: parseDateParam(req.DueDate),
 		Notes: req.Notes, SupplierIDs: req.SupplierIDs, Items: items, UserID: userID,
 	}
-	if issueDate != nil {
-		in.IssueDate = *issueDate
-	}
 	return in
+}
+
+// toInputWithDates, toInput'a zorunlu RFQ tarihini ekler; tarih
+// çözülemezse 400 yazar ve false döner.
+func (req rfqRequest) toInputWithDates(w http.ResponseWriter, userID string) (service.RFQInput, bool) {
+	in := req.toInput(userID)
+	issueDate, ok := requestDate(w, req.IssueDate)
+	in.IssueDate = issueDate
+	return in, ok
 }
 
 func (h *ProjectHandler) ListRFQs(w http.ResponseWriter, r *http.Request) {
@@ -137,7 +142,11 @@ func (h *ProjectHandler) CreateRFQ(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	rfq, err := h.svc.CreateRFQ(r.Context(), chi.URLParam(r, "id"), orgID, req.toInput(userID))
+	in, ok := req.toInputWithDates(w, userID)
+	if !ok {
+		return
+	}
+	rfq, err := h.svc.CreateRFQ(r.Context(), chi.URLParam(r, "id"), orgID, in)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -181,7 +190,11 @@ func (h *ProjectHandler) UpdateRFQ(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	rfq, err := h.svc.UpdateRFQDraft(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "rfqId"), orgID, req.toInput(userID))
+	in, ok := req.toInputWithDates(w, userID)
+	if !ok {
+		return
+	}
+	rfq, err := h.svc.UpdateRFQDraft(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "rfqId"), orgID, in)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -322,16 +335,21 @@ func (req quotationRequest) toInput(userID string) service.QuotationInput {
 	for i, it := range req.Items {
 		items[i] = service.QuotationItemInput{RFQItemID: it.RFQItemID, Quantity: it.Quantity, UnitPrice: it.UnitPrice, Notes: it.Notes}
 	}
-	quotationDate := parseDateParam(&req.QuotationDate)
 	in := service.QuotationInput{
 		SupplierID: req.SupplierID, QuotationNumber: req.QuotationNumber, ValidUntil: parseDateParam(req.ValidUntil),
 		Discount: req.Discount, TaxRate: req.TaxRate, DeliveryDays: req.DeliveryDays, PaymentTerms: req.PaymentTerms,
 		Notes: req.Notes, Items: items, UserID: userID,
 	}
-	if quotationDate != nil {
-		in.QuotationDate = *quotationDate
-	}
 	return in
+}
+
+// toInputWithDates, toInput'a zorunlu teklif tarihini ekler; tarih
+// çözülemezse 400 yazar ve false döner.
+func (req quotationRequest) toInputWithDates(w http.ResponseWriter, userID string) (service.QuotationInput, bool) {
+	in := req.toInput(userID)
+	quotationDate, ok := requestDate(w, req.QuotationDate)
+	in.QuotationDate = quotationDate
+	return in, ok
 }
 
 func (h *ProjectHandler) ListQuotations(w http.ResponseWriter, r *http.Request) {
@@ -356,7 +374,11 @@ func (h *ProjectHandler) CreateQuotation(w http.ResponseWriter, r *http.Request)
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	q, err := h.svc.CreateQuotation(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "rfqId"), orgID, req.toInput(userID))
+	in, ok := req.toInputWithDates(w, userID)
+	if !ok {
+		return
+	}
+	q, err := h.svc.CreateQuotation(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "rfqId"), orgID, in)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -391,7 +413,11 @@ func (h *ProjectHandler) UpdateQuotation(w http.ResponseWriter, r *http.Request)
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	q, err := h.svc.UpdateQuotation(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "quotationId"), orgID, req.toInput(userID))
+	in, ok := req.toInputWithDates(w, userID)
+	if !ok {
+		return
+	}
+	q, err := h.svc.UpdateQuotation(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "quotationId"), orgID, in)
 	if err != nil {
 		h.writeError(w, err)
 		return

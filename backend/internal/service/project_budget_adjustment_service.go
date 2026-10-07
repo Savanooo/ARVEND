@@ -57,6 +57,12 @@ func (s *ProjectService) CreateBudgetAdjustment(ctx context.Context, projectID, 
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	// Tamamlanmış/iptal edilmiş projenin rakamları değişmez (bkz.
+	// requireOpenProject; tamamlanan proje yeniden aktife alınarak açılır).
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+		return nil, err
+	}
+
 	budget, err := txq.GetProjectBudget(ctx, sqlc.GetProjectBudgetParams{ProjectID: pid, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -68,7 +74,7 @@ func (s *ProjectService) CreateBudgetAdjustment(ctx context.Context, projectID, 
 		return nil, ErrBudgetNotYetBaselined
 	}
 	if strings.TrimSpace(in.BudgetLineID) == "" {
-		return nil, domain.ErrNotFound
+		return nil, ErrBudgetLineRefNotFound
 	}
 	lineID, err := resolveBudgetLineRef(ctx, txq, in.BudgetLineID, pid, orgID)
 	if err != nil {
@@ -135,6 +141,15 @@ func (s *ProjectService) decideBudgetAdjustment(ctx context.Context, projectID, 
 	}
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
+
+	// Onay revize bütçeyi değiştirir: kapalı projede yapılamaz. Red hiçbir
+	// rakamı değiştirmez, iptal edilmiş (son durum) projede bekleyen
+	// revizyonlar temizlenebilsin diye serbest.
+	if approve {
+		if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+			return nil, err
+		}
+	}
 
 	current, err := txq.GetBudgetAdjustmentForUpdate(ctx, sqlc.GetBudgetAdjustmentForUpdateParams{ID: aid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {

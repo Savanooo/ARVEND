@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -50,7 +49,7 @@ type SubcontractChangeOrderInput struct {
 }
 
 func (s *ProjectService) generateSubcontractChangeOrderNo(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID) (string, error) {
-	year := time.Now().Year()
+	year := IstanbulToday().Year()
 	seq, err := q.NextSubcontractChangeOrderSeq(ctx, sqlc.NextSubcontractChangeOrderSeqParams{OrganizationID: orgID, Year: int32(year)})
 	if err != nil {
 		return "", err
@@ -79,7 +78,10 @@ func insertSubcontractChangeOrderItems(ctx context.Context, txq *sqlc.Queries, o
 			return err
 		}
 		desc := strings.TrimSpace(it.Description)
-		if desc == "" || it.Amount <= 0 {
+		if desc == "" {
+			return ErrItemDescriptionRequired
+		}
+		if it.Amount <= 0 {
 			return ErrInvalidAmount
 		}
 		if _, err := txq.CreateSubcontractChangeOrderItem(ctx, sqlc.CreateSubcontractChangeOrderItemParams{
@@ -106,11 +108,11 @@ func (s *ProjectService) CreateSubcontractChangeOrder(ctx context.Context, proje
 		return nil, ErrSubcontractChangeOrderItemsRequired
 	}
 	if in.ChangeType != domain.SubcontractChangeTypeAddition && in.ChangeType != domain.SubcontractChangeTypeDeduction {
-		return nil, ErrInvalidAmount
+		return nil, ErrInvalidChangeType
 	}
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
-		return nil, ErrInvalidAmount
+		return nil, ErrTitleRequired
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -226,11 +228,11 @@ func (s *ProjectService) UpdateSubcontractChangeOrderDraft(ctx context.Context, 
 		return nil, ErrSubcontractChangeOrderItemsRequired
 	}
 	if in.ChangeType != domain.SubcontractChangeTypeAddition && in.ChangeType != domain.SubcontractChangeTypeDeduction {
-		return nil, ErrInvalidAmount
+		return nil, ErrInvalidChangeType
 	}
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
-		return nil, ErrInvalidAmount
+		return nil, ErrTitleRequired
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -286,6 +288,14 @@ func (s *ProjectService) SubmitSubcontractChangeOrder(ctx context.Context, proje
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	// Değişiklik önce URL'deki projeye göre doğrulanır (kalemleri yalnızca
+	// change_order_id ile okunur).
+	if _, err := txq.GetSubcontractChangeOrderForUpdate(ctx, sqlc.GetSubcontractChangeOrderForUpdateParams{ID: id, OrganizationID: orgID, ProjectID: pid}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
 	items, err := txq.ListSubcontractChangeOrderItems(ctx, id)
 	if err != nil {
 		return nil, err
@@ -367,6 +377,10 @@ func (s *ProjectService) ApproveSubcontractChangeOrder(ctx context.Context, proj
 	if sc.Status != domain.SubcontractStatusActive {
 		return nil, ErrSubcontractNotActiveForChange
 	}
+	// Sıra: değişiklik -> sözleşme -> proje (ödeme de sözleşme -> proje).
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+		return nil, err
+	}
 
 	row, err := txq.ApproveSubcontractChangeOrder(ctx, sqlc.ApproveSubcontractChangeOrderParams{ID: id, OrganizationID: orgID, ProjectID: pid, ApprovedBy: actorUUID(userID)})
 	if err != nil {
@@ -374,6 +388,34 @@ func (s *ProjectService) ApproveSubcontractChangeOrder(ctx context.Context, proj
 			return nil, ErrSubcontractChangeOrderNotApprovable
 		}
 		return nil, err
+	}
+
+	// Eksiltme, sözleşmeyi (ve dokunduğu maliyet kodu grubunu) şimdiye
+	// kadar sertifikalanmış ya da ödenmiş tutarın altına indiremez -- aksi
+	// halde güncel bedel yapılmış/ödenmiş işin altında kalıyor, taahhüt
+	// senkronu negatif grubu sessizce düşürüyordu. Kontrol, bu onay
+	// UYGULANMIŞ haliyle (aynı transaction'da, sözleşme satırı kilitliyken)
+	// yapılır; ihlalde transaction geri alınır.
+	if row.ChangeType == domain.SubcontractChangeTypeDeduction {
+		caps, err := loadSubcontractClaimCaps(ctx, txq, orgID, pid, sc)
+		if err != nil {
+			return nil, err
+		}
+		paid, err := txq.GetSubcontractPaidToDate(ctx, sqlc.GetSubcontractPaidToDateParams{SubcontractID: sc.ID, OrganizationID: orgID, ProjectID: pid})
+		if err != nil {
+			return nil, err
+		}
+		coItems, err := txq.ListSubcontractChangeOrderItems(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		touched := make(map[string]bool, len(coItems))
+		for _, it := range coItems {
+			touched[capGroupKey(it.CostCodeID, it.BudgetLineID)] = true
+		}
+		if err := caps.checkDeductionApproval(repository.NumericToDecimal(paid), touched); err != nil {
+			return nil, err
+		}
 	}
 
 	targets, err := s.currentSubcontractTargets(ctx, txq, orgID, pid, sc.ID)

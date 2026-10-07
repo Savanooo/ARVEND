@@ -90,12 +90,13 @@ func (s *ProjectService) CreateSubcontractPayment(ctx context.Context, projectID
 	}
 
 	var claimID pgtype.UUID
+	var claim sqlc.SubcontractProgressClaim
 	if strings.TrimSpace(in.ProgressClaimID) != "" {
 		cid, err := repository.StringToUUID(in.ProgressClaimID)
 		if err != nil {
 			return nil, ErrSubcontractPaymentClaimInvalid
 		}
-		claim, err := txq.GetSubcontractProgressClaim(ctx, sqlc.GetSubcontractProgressClaimParams{ID: cid, OrganizationID: orgID, ProjectID: pid})
+		claim, err = txq.GetSubcontractProgressClaim(ctx, sqlc.GetSubcontractProgressClaimParams{ID: cid, OrganizationID: orgID, ProjectID: pid})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil, ErrSubcontractPaymentClaimInvalid
@@ -133,6 +134,24 @@ func (s *ProjectService) CreateSubcontractPayment(ctx context.Context, projectID
 	if err := checkWithinContract(repository.NumericToDecimal(capRow.CurrentValue), repository.NumericToDecimal(capRow.PaidAmount),
 		in.Amount, project.Currency, "önce bir taşeron değişikliği (ek iş) girip onaylayın"); err != nil {
 		return nil, err
+	}
+	// Hakedişe BAĞLI ödeme ayrıca o hakedişin net ödenecek tutarıyla
+	// sınırlıdır (yalnızca sözleşme toplamı kontrol edildiğinde 10.000 TL
+	// net hakedişe 50.000 TL bağlanabiliyordu). Sertifikalı hakediş
+	// değişmez (net_payable sabittir) ve sözleşme satırı yukarıda
+	// kilitlidir -- aynı hakedişe eşzamanlı iki ödeme sınırı birlikte
+	// delemez.
+	if claimID.Valid {
+		paidForClaim, err := txq.GetSubcontractPaidForProgressClaim(ctx, sqlc.GetSubcontractPaidForProgressClaimParams{
+			ProgressClaimID: claimID, OrganizationID: orgID, ProjectID: pid,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if err := checkWithinClaim(claim.ClaimNumber, repository.NumericToDecimal(claim.NetPayable),
+			repository.NumericToDecimal(paidForClaim), in.Amount, project.Currency); err != nil {
+			return nil, err
+		}
 	}
 
 	var keyPtr *string
@@ -207,6 +226,12 @@ func (s *ProjectService) VoidSubcontractPayment(ctx context.Context, projectID, 
 	}
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
+
+	// Tamamlanmış/iptal edilmiş projenin rakamları değişmez (bkz.
+	// requireOpenProject; tamamlanan proje yeniden aktife alınarak açılır).
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+		return nil, err
+	}
 
 	row, err := txq.VoidSubcontractPayment(ctx, sqlc.VoidSubcontractPaymentParams{
 		ID: payID, OrganizationID: orgID, ProjectID: pid, VoidedBy: actorUUID(userID), VoidReason: strings.TrimSpace(reason),

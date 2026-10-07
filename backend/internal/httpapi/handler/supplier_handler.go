@@ -174,7 +174,8 @@ func (h *SupplierHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrSupplierLegalNameRequired):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	case isInternalError(err):
-		// Ham veritabanı metni (kolon/kısıt adları) istemciye sızmasın.
+		// Veritabanı/bağlantı hatası: ham metni (tablo/kısıt adları)
+		// istemciye 400 olarak sızdırmak yerine loglanır, 500 döner.
 		writeInternalError(w, err)
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())

@@ -74,11 +74,11 @@ func resolveBudgetLineRef(ctx context.Context, q *sqlc.Queries, budgetLineID str
 	}
 	blid, err := repository.StringToUUID(budgetLineID)
 	if err != nil {
-		return pgtype.UUID{}, domain.ErrNotFound
+		return pgtype.UUID{}, ErrBudgetLineRefNotFound
 	}
 	if _, err := q.GetBudgetLine(ctx, sqlc.GetBudgetLineParams{ID: blid, OrganizationID: orgID, ProjectID: pid}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return pgtype.UUID{}, domain.ErrNotFound
+			return pgtype.UUID{}, ErrBudgetLineRefNotFound
 		}
 		return pgtype.UUID{}, err
 	}
@@ -97,12 +97,12 @@ func resolveCostAllocation(ctx context.Context, q *sqlc.Queries, costCodeID, bud
 	if budgetLineID != "" {
 		blid, err := repository.StringToUUID(budgetLineID)
 		if err != nil {
-			return pgtype.UUID{}, pgtype.UUID{}, domain.ErrNotFound
+			return pgtype.UUID{}, pgtype.UUID{}, ErrBudgetLineRefNotFound
 		}
 		line, err := q.GetBudgetLine(ctx, sqlc.GetBudgetLineParams{ID: blid, OrganizationID: orgID, ProjectID: pid})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return pgtype.UUID{}, pgtype.UUID{}, domain.ErrNotFound
+				return pgtype.UUID{}, pgtype.UUID{}, ErrBudgetLineRefNotFound
 			}
 			return pgtype.UUID{}, pgtype.UUID{}, err
 		}

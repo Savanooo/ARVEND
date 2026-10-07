@@ -9,6 +9,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -957,6 +958,216 @@ func TestProcurement(t *testing.T) {
 		proj, err := projectSvc.Get(ctx, p.ID, orgA.ID)
 		if err != nil || proj.ContractAmount != 200000 {
 			t.Errorf("projects.contract_amount PO onayından ETKİLENMEMELİ: %v, err=%v", proj.ContractAmount, err)
+		}
+	})
+
+	// ---------- 40+: 2026-10 denetim düzeltmeleri ----------
+
+	t.Run("40_po_from_quotation_requires_awarded_matching_supplier_single_po", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 100000)
+		cc := newCostCode(t, orgA.ID, "PQA-CC")
+		pr := newApprovedPR(t, orgA.ID, p.ID, cc.ID)
+		sA := newSupplier(t, orgA.ID, "PQA-SA")
+		sB := newSupplier(t, orgA.ID, "PQA-SB")
+		rfq := newIssuedRFQ(t, orgA.ID, p.ID, pr, []string{sA.ID, sB.ID})
+		items, _ := projectSvc.ListRFQItems(ctx, p.ID, rfq.ID, orgA.ID)
+		qA, err := projectSvc.CreateQuotation(ctx, p.ID, rfq.ID, orgA.ID, service.QuotationInput{
+			SupplierID: sA.ID, QuotationDate: time.Now(),
+			Items: []service.QuotationItemInput{{RFQItemID: items[0].ID, Quantity: 100, UnitPrice: 130}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		qB, err := projectSvc.CreateQuotation(ctx, p.ID, rfq.ID, orgA.ID, service.QuotationInput{
+			SupplierID: sB.ID, QuotationDate: time.Now(),
+			Items: []service.QuotationItemInput{{RFQItemID: items[0].ID, Quantity: 100, UnitPrice: 120}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		poInput := func(supplierID, quotationID string) service.PurchaseOrderInput {
+			return service.PurchaseOrderInput{
+				SupplierID: supplierID, SourceQuotationID: quotationID, IssueDate: time.Now(),
+				Items: []service.PurchaseOrderItemInput{{CostCodeID: cc.ID, Description: "Çimento", Quantity: 100, UnitPrice: 120}},
+			}
+		}
+		// Henüz ödül yok.
+		if _, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, poInput(sB.ID, qB.ID)); !errors.Is(err, service.ErrPurchaseOrderQuotationNotAwarded) {
+			t.Fatalf("ödül verilmemiş tekliften sipariş REDDEDİLMELİ, geldi: %v", err)
+		}
+		if _, err := projectSvc.AwardRFQ(ctx, p.ID, rfq.ID, orgA.ID, "", qB.ID, "en düşük"); err != nil {
+			t.Fatal(err)
+		}
+		// Kaybeden tekliften.
+		if _, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, poInput(sA.ID, qA.ID)); !errors.Is(err, service.ErrPurchaseOrderQuotationNotAwarded) {
+			t.Fatalf("kaybeden tekliften sipariş REDDEDİLMELİ, geldi: %v", err)
+		}
+		// Kazanan teklif ama başka tedarikçiye.
+		if _, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, poInput(sA.ID, qB.ID)); !errors.Is(err, service.ErrPurchaseOrderSupplierMismatch) {
+			t.Fatalf("teklifi vermeyen tedarikçiye sipariş REDDEDİLMELİ, geldi: %v", err)
+		}
+		po, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, poInput(sB.ID, qB.ID))
+		if err != nil {
+			t.Fatalf("kazanan tekliften sipariş açılabilmeli: %v", err)
+		}
+		if po.SourceRFQID == nil || *po.SourceRFQID != rfq.ID {
+			t.Errorf("kaynak RFQ tekliften doldurulmalı, geldi: %v", po.SourceRFQID)
+		}
+		if _, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, poInput(sB.ID, qB.ID)); !errors.Is(err, service.ErrPurchaseOrderQuotationAlreadyOrdered) {
+			t.Fatalf("aynı tekliften ikinci sipariş REDDEDİLMELİ, geldi: %v", err)
+		}
+		// İptal edilen siparişin yerine yenisi açılabilir.
+		if _, err := projectSvc.CancelPurchaseOrder(ctx, p.ID, po.ID, orgA.ID, "", "yanlış adres"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, poInput(sB.ID, qB.ID)); err != nil {
+			t.Fatalf("iptal edilen siparişin yerine yenisi açılabilmeli: %v", err)
+		}
+
+		// Eşzamanlı iki istekten yalnızca biri sipariş açar.
+		pr2 := newApprovedPR(t, orgA.ID, p.ID, cc.ID)
+		rfq2 := newIssuedRFQ(t, orgA.ID, p.ID, pr2, []string{sB.ID})
+		items2, _ := projectSvc.ListRFQItems(ctx, p.ID, rfq2.ID, orgA.ID)
+		q2, err := projectSvc.CreateQuotation(ctx, p.ID, rfq2.ID, orgA.ID, service.QuotationInput{
+			SupplierID: sB.ID, QuotationDate: time.Now(),
+			Items: []service.QuotationItemInput{{RFQItemID: items2[0].ID, Quantity: 100, UnitPrice: 120}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.AwardRFQ(ctx, p.ID, rfq2.ID, orgA.ID, "", q2.ID, ""); err != nil {
+			t.Fatal(err)
+		}
+		const attempts = 5
+		results := make(chan error, attempts)
+		for i := 0; i < attempts; i++ {
+			go func() {
+				_, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, poInput(sB.ID, q2.ID))
+				results <- err
+			}()
+		}
+		ok := 0
+		for i := 0; i < attempts; i++ {
+			if err := <-results; err == nil {
+				ok++
+			} else if !errors.Is(err, service.ErrPurchaseOrderQuotationAlreadyOrdered) {
+				t.Errorf("beklenmeyen hata: %v", err)
+			}
+		}
+		if ok != 1 {
+			t.Errorf("eşzamanlı isteklerden TAM OLARAK biri sipariş açmalı, geldi %d", ok)
+		}
+	})
+
+	t.Run("41_po_generated_commitment_cannot_be_voided_by_hand", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 100000)
+		cc := newCostCode(t, orgA.ID, "VOID-CC")
+		s := newSupplier(t, orgA.ID, "VOID-S")
+		po, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, service.PurchaseOrderInput{
+			SupplierID: s.ID, IssueDate: time.Now(),
+			Items: []service.PurchaseOrderItemInput{{CostCodeID: cc.ID, Description: "K", Quantity: 1, UnitPrice: 5000}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.ApprovePurchaseOrder(ctx, p.ID, po.ID, orgA.ID, ""); err != nil {
+			t.Fatal(err)
+		}
+		commitments, err := projectSvc.ListCommitmentsForPurchaseOrder(ctx, p.ID, po.ID, orgA.ID)
+		if err != nil || len(commitments) != 1 {
+			t.Fatalf("PO taahhüdü bulunamadı: %v", err)
+		}
+		if _, err := projectSvc.VoidCommitment(ctx, p.ID, commitments[0].ID, orgA.ID, "", "elle"); !errors.Is(err, service.ErrCommitmentNotManual) {
+			t.Fatalf("PO'dan doğan taahhüt elle iptal EDİLEMEMELİ, geldi: %v", err)
+		}
+		again, _ := projectSvc.ListCommitmentsForPurchaseOrder(ctx, p.ID, po.ID, orgA.ID)
+		if again[0].Status != domain.CommitmentStatusActive {
+			t.Fatalf("taahhüt aktif kalmalı, geldi %s", again[0].Status)
+		}
+		manual, err := projectSvc.CreateCommitment(ctx, p.ID, orgA.ID, service.CommitmentInput{
+			CostCodeID: cc.ID, Description: "Manuel", CommittedAmount: 100, CommittedAt: time.Now(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.VoidCommitment(ctx, p.ID, manual.ID, orgA.ID, "", "elle"); err != nil {
+			t.Fatalf("manuel taahhüt elle iptal edilebilmeli: %v", err)
+		}
+	})
+
+	t.Run("42_quotations_not_readable_through_another_project", func(t *testing.T) {
+		pA := newProject(t, orgA.ID, 100000)
+		pB := newProject(t, orgA.ID, 100000)
+		cc := newCostCode(t, orgA.ID, "XPQ-CC")
+		pr := newApprovedPR(t, orgA.ID, pB.ID, cc.ID)
+		s := newSupplier(t, orgA.ID, "XPQ-S")
+		rfq := newIssuedRFQ(t, orgA.ID, pB.ID, pr, []string{s.ID})
+		items, _ := projectSvc.ListRFQItems(ctx, pB.ID, rfq.ID, orgA.ID)
+		if _, err := projectSvc.CreateQuotation(ctx, pB.ID, rfq.ID, orgA.ID, service.QuotationInput{
+			SupplierID: s.ID, QuotationDate: time.Now(),
+			Items: []service.QuotationItemInput{{RFQItemID: items[0].ID, Quantity: 10, UnitPrice: 99}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if list, err := projectSvc.ListQuotations(ctx, pB.ID, rfq.ID, orgA.ID); err != nil || len(list) != 1 {
+			t.Fatalf("kendi projesinden teklif okunabilmeli: %v / %d", err, len(list))
+		}
+		if list, err := projectSvc.ListQuotations(ctx, pA.ID, rfq.ID, orgA.ID); !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("Proje A URL'sinden B'nin teklifleri okunamamalı (ErrNotFound), geldi: %v / %d kayıt", err, len(list))
+		}
+		if _, err := projectSvc.GetBidComparison(ctx, pA.ID, rfq.ID, orgA.ID); !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("Proje A URL'sinden B'nin karşılaştırması okunamamalı, geldi: %v", err)
+		}
+	})
+
+	t.Run("43_specific_validation_errors", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 100000)
+		cc := newCostCode(t, orgA.ID, "VAL-CC")
+		if _, err := projectSvc.CreatePurchaseRequest(ctx, p.ID, orgA.ID, service.PurchaseRequestInput{Title: "  "}); !errors.Is(err, service.ErrTitleRequired) {
+			t.Errorf("boş PR başlığı ErrTitleRequired dönmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateRFQ(ctx, p.ID, orgA.ID, service.RFQInput{Title: "", IssueDate: time.Now()}); !errors.Is(err, service.ErrTitleRequired) {
+			t.Errorf("boş RFQ başlığı ErrTitleRequired dönmeli, geldi: %v", err)
+		}
+		s := newSupplier(t, orgA.ID, "VAL-S")
+		poItems := func(qty, price float64, desc string) []service.PurchaseOrderItemInput {
+			return []service.PurchaseOrderItemInput{{CostCodeID: cc.ID, Description: desc, Quantity: qty, UnitPrice: price}}
+		}
+		if _, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, service.PurchaseOrderInput{SupplierID: s.ID, IssueDate: time.Now(), Items: poItems(0, 10, "K")}); !errors.Is(err, service.ErrInvalidQuantity) {
+			t.Errorf("sıfır miktar ErrInvalidQuantity dönmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, service.PurchaseOrderInput{SupplierID: s.ID, IssueDate: time.Now(), Items: poItems(1, 10, "")}); !errors.Is(err, service.ErrItemDescriptionRequired) {
+			t.Errorf("boş açıklama ErrItemDescriptionRequired dönmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, service.PurchaseOrderInput{SupplierID: s.ID, IssueDate: time.Now(), TaxRate: -1, Items: poItems(1, 10, "K")}); !errors.Is(err, service.ErrInvalidTaxRate) {
+			t.Errorf("negatif KDV 500 yerine ErrInvalidTaxRate dönmeli, geldi: %v", err)
+		}
+		pr := newApprovedPR(t, orgA.ID, p.ID, cc.ID)
+		rfq := newIssuedRFQ(t, orgA.ID, p.ID, pr, []string{s.ID})
+		items, _ := projectSvc.ListRFQItems(ctx, p.ID, rfq.ID, orgA.ID)
+		qItems := []service.QuotationItemInput{{RFQItemID: items[0].ID, Quantity: 1, UnitPrice: 10}}
+		if _, err := projectSvc.CreateQuotation(ctx, p.ID, rfq.ID, orgA.ID, service.QuotationInput{SupplierID: s.ID, QuotationDate: time.Now(), Discount: -5, Items: qItems}); !errors.Is(err, service.ErrNegativeDiscount) {
+			t.Errorf("negatif indirim 500 yerine ErrNegativeDiscount dönmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateQuotation(ctx, p.ID, rfq.ID, orgA.ID, service.QuotationInput{SupplierID: s.ID, QuotationDate: time.Now(), TaxRate: -20, Items: qItems}); !errors.Is(err, service.ErrInvalidTaxRate) {
+			t.Errorf("negatif KDV 500 yerine ErrInvalidTaxRate dönmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateQuotation(ctx, p.ID, rfq.ID, orgA.ID, service.QuotationInput{SupplierID: s.ID, QuotationDate: time.Now(), Items: append(qItems, qItems[0])}); !errors.Is(err, service.ErrQuotationDuplicateItem) {
+			t.Errorf("aynı RFQ kalemi iki kez 500 yerine ErrQuotationDuplicateItem dönmeli, geldi: %v", err)
+		}
+		// Başka bir RFQ'nun kalemi.
+		pr2 := newApprovedPR(t, orgA.ID, p.ID, cc.ID)
+		rfq2 := newIssuedRFQ(t, orgA.ID, p.ID, pr2, []string{s.ID})
+		items2, _ := projectSvc.ListRFQItems(ctx, p.ID, rfq2.ID, orgA.ID)
+		if _, err := projectSvc.CreateQuotation(ctx, p.ID, rfq.ID, orgA.ID, service.QuotationInput{
+			SupplierID: s.ID, QuotationDate: time.Now(), Items: []service.QuotationItemInput{{RFQItemID: items2[0].ID, Quantity: 1, UnitPrice: 10}},
+		}); !errors.Is(err, domain.ErrNotFound) || !strings.Contains(err.Error(), "RFQ kalemi") {
+			t.Errorf("başka RFQ'nun kalemi 500 yerine 404 'RFQ kalemi' dönmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateCommitment(ctx, p.ID, orgA.ID, service.CommitmentInput{
+			CostCodeID: cc.ID, BudgetLineID: "00000000-0000-0000-0000-000000000000", CommittedAmount: 1, CommittedAt: time.Now(),
+		}); !errors.Is(err, domain.ErrNotFound) || !strings.Contains(err.Error(), "bütçe kalemi") {
+			t.Errorf("geçersiz bütçe kalemi 404 + 'bütçe kalemi' demeli, geldi: %v", err)
 		}
 	})
 }

@@ -496,6 +496,12 @@ func (s *ProjectService) VoidCollection(ctx context.Context, projectID, collecti
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	// Tamamlanmış/iptal edilmiş projenin rakamları değişmez (bkz.
+	// requireOpenProject; tamamlanan proje yeniden aktife alınarak açılır).
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+		return nil, err
+	}
+
 	row, err := txq.VoidCollection(ctx, sqlc.VoidCollectionParams{
 		ID: cid, OrganizationID: orgID, VoidedBy: actorUUID(userID), VoidReason: strings.TrimSpace(reason), ProjectID: pid,
 	})
@@ -692,6 +698,12 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	// Tamamlanmış/iptal edilmiş projenin rakamları değişmez (bkz.
+	// requireOpenProject; tamamlanan proje yeniden aktife alınarak açılır).
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+		return nil, err
+	}
+
 	costCodeID, budgetLineID, err := resolveCostAllocation(ctx, txq, in.CostCodeID, in.BudgetLineID, pid, orgID)
 	if err != nil {
 		return nil, err
@@ -746,6 +758,12 @@ func (s *ProjectService) VoidExpense(ctx context.Context, projectID, expenseID, 
 	}
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
+
+	// Tamamlanmış/iptal edilmiş projenin rakamları değişmez (bkz.
+	// requireOpenProject; tamamlanan proje yeniden aktife alınarak açılır).
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+		return nil, err
+	}
 
 	row, err := txq.VoidExpense(ctx, sqlc.VoidExpenseParams{
 		ID: eid, OrganizationID: orgID, VoidedBy: actorUUID(userID), VoidReason: strings.TrimSpace(reason), ProjectID: pid,
@@ -1155,6 +1173,12 @@ func (s *ProjectService) UpdateSubcontractor(ctx context.Context, projectID, sub
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	// Tamamlanmış/iptal edilmiş projenin rakamları değişmez (bkz.
+	// requireOpenProject; tamamlanan proje yeniden aktife alınarak açılır).
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+		return nil, err
+	}
+
 	costCodeID, err := resolveCostCodeRef(ctx, txq, in.CostCodeID, orgID)
 	if err != nil {
 		return nil, err
@@ -1347,6 +1371,12 @@ func (s *ProjectService) VoidSubcontractorPayment(ctx context.Context, projectID
 	}
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
+
+	// Tamamlanmış/iptal edilmiş projenin rakamları değişmez (bkz.
+	// requireOpenProject; tamamlanan proje yeniden aktife alınarak açılır).
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+		return nil, err
+	}
 
 	row, err := txq.VoidSubcontractorPayment(ctx, sqlc.VoidSubcontractorPaymentParams{
 		ID: payID, OrganizationID: orgID, VoidedBy: actorUUID(userID), VoidReason: strings.TrimSpace(reason), ProjectID: pid,

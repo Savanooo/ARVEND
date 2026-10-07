@@ -872,28 +872,6 @@ func (q *Queries) DeleteSubcontractProgressClaimItems(ctx context.Context, arg D
 	return err
 }
 
-const getLatestCertifiedCumulativeForSubcontractItem = `-- name: GetLatestCertifiedCumulativeForSubcontractItem :one
-SELECT COALESCE(
-    (SELECT pci.cumulative_progress_amount
-     FROM subcontract_progress_claim_items pci
-     JOIN subcontract_progress_claims pc ON pc.id = pci.progress_claim_id
-     WHERE pci.subcontract_item_id = $1 AND pc.status = 'certified'
-     ORDER BY pc.certified_at DESC LIMIT 1),
-    0
-)::numeric(18,2) AS cumulative
-`
-
-// Yeni bir hakediş kalemi oluşturulurken previous_progress_amount'ı
-// OTOMATİK doldurmak için -- yalnızca SERTİFİKALI hakedişler sayılır
-// (draft/submitted/rejected/cancelled bir hakedişin rakamları "önceki"
-// zincire ASLA sızmaz).
-func (q *Queries) GetLatestCertifiedCumulativeForSubcontractItem(ctx context.Context, subcontractItemID pgtype.UUID) (pgtype.Numeric, error) {
-	row := q.db.QueryRow(ctx, getLatestCertifiedCumulativeForSubcontractItem, subcontractItemID)
-	var cumulative pgtype.Numeric
-	err := row.Scan(&cumulative)
-	return cumulative, err
-}
-
 const getSubcontract = `-- name: GetSubcontract :one
 SELECT id, organization_id, project_id, subcontract_no, supplier_id, title, scope_summary, original_amount, currency, status, effective_date, start_date, planned_completion_date, retention_percent, advance_amount, payment_terms, notes, created_by, created_at, updated_at, activated_at, activated_by, completed_at, completed_by, cancelled_at, cancelled_by, cancel_reason, terminated_at, terminated_by, termination_reason FROM project_subcontracts WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
@@ -943,14 +921,20 @@ func (q *Queries) GetSubcontract(ctx context.Context, arg GetSubcontractParams) 
 }
 
 const getSubcontractCertifiedToDate = `-- name: GetSubcontractCertifiedToDate :one
-WITH latest_certified AS (
-    SELECT DISTINCT ON (pci.subcontract_item_id) pci.subcontract_item_id, pci.cumulative_progress_amount
+WITH certified_lines AS (
+    SELECT pci.subcontract_item_id, pc.id AS claim_id, pc.certified_at,
+        (max(pci.previous_progress_amount) + sum(pci.current_progress_amount))::numeric(18,2) AS cumulative
     FROM subcontract_progress_claim_items pci
     JOIN subcontract_progress_claims pc ON pc.id = pci.progress_claim_id
     WHERE pc.subcontract_id = $1 AND pc.organization_id = $2 AND pc.project_id = $3 AND pc.status = 'certified'
-    ORDER BY pci.subcontract_item_id, pc.certified_at DESC
+    GROUP BY pci.subcontract_item_id, pc.id, pc.certified_at
+),
+latest_certified AS (
+    SELECT DISTINCT ON (subcontract_item_id) subcontract_item_id, cumulative
+    FROM certified_lines
+    ORDER BY subcontract_item_id, certified_at DESC, claim_id DESC
 )
-SELECT COALESCE(sum(cumulative_progress_amount), 0)::numeric(18,2) AS total FROM latest_certified
+SELECT COALESCE(sum(cumulative), 0)::numeric(18,2) AS total FROM latest_certified
 `
 
 type GetSubcontractCertifiedToDateParams struct {
@@ -966,6 +950,18 @@ type GetSubcontractCertifiedToDateParams struct {
 // project_id, subcontract_progress_claims üzerinden DOĞRUDAN filtrelenir
 // (savunma derinliği -- çağıran zaten subcontract_id'yi doğrulamış olsa
 // bile, bkz. VoidCommitmentsBySourcePOItems İLE AYNI ilke).
+//
+// "En son sertifikalı kümülatif" tanımı bu dosyadaki ÜÇ sorguda (bu,
+// GetSubcontractTerminationTargets, ListLatestCertifiedCumulativeBy-
+// SubcontractItem -- hakediş kalemlerinin "previous"ı da buradan dolar) ve
+// project_finance.sql'deki certified_by_sc CTE'sinde BİREBİR AYNIDIR:
+//   - kalem, hakediş başına previous + Σ current olarak toplanır -- düzeltme
+//     ÖNCESİ bir hakedişte aynı SOV kalemi iki satırda yer almışsa (artık
+//     reddediliyor) iki satır da sertifikalıdır, tek satırı seçmek
+//     sertifikalı işi eksik gösterir ve sonraki hakedişin aynı tutarı
+//     yeniden sertifikalamasına izin verirdi;
+//   - "en son" = certified_at DESC, eşitlikte hakediş id DESC --
+//     DISTINCT ON/LIMIT 1'in eşitlikte rastgele satır seçmesi engellenir.
 func (q *Queries) GetSubcontractCertifiedToDate(ctx context.Context, arg GetSubcontractCertifiedToDateParams) (pgtype.Numeric, error) {
 	row := q.db.QueryRow(ctx, getSubcontractCertifiedToDate, arg.SubcontractID, arg.OrganizationID, arg.ProjectID)
 	var total pgtype.Numeric
@@ -1234,6 +1230,29 @@ func (q *Queries) GetSubcontractForUpdate(ctx context.Context, arg GetSubcontrac
 	return i, err
 }
 
+const getSubcontractPaidForProgressClaim = `-- name: GetSubcontractPaidForProgressClaim :one
+SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
+FROM subcontract_payments
+WHERE progress_claim_id = $1 AND organization_id = $2 AND project_id = $3 AND voided_at IS NULL
+`
+
+type GetSubcontractPaidForProgressClaimParams struct {
+	ProgressClaimID pgtype.UUID `json:"progress_claim_id"`
+	OrganizationID  pgtype.UUID `json:"organization_id"`
+	ProjectID       pgtype.UUID `json:"project_id"`
+}
+
+// Bir hakedişe BAĞLI, iptal edilmemiş ödemelerin toplamı -- hakedişe bağlı
+// yeni bir ödeme hakedişin net ödenecek tutarını aşamaz (bkz.
+// CreateSubcontractPayment; çağıran sözleşme satırını kilitli tutar, aynı
+// sözleşmeye eşzamanlı iki ödeme bu toplamı birlikte delemez).
+func (q *Queries) GetSubcontractPaidForProgressClaim(ctx context.Context, arg GetSubcontractPaidForProgressClaimParams) (pgtype.Numeric, error) {
+	row := q.db.QueryRow(ctx, getSubcontractPaidForProgressClaim, arg.ProgressClaimID, arg.OrganizationID, arg.ProjectID)
+	var total pgtype.Numeric
+	err := row.Scan(&total)
+	return total, err
+}
+
 const getSubcontractPaidToDate = `-- name: GetSubcontractPaidToDate :one
 SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
 FROM subcontract_payments
@@ -1440,20 +1459,26 @@ func (q *Queries) GetSubcontractProgressClaimForUpdate(ctx context.Context, arg 
 }
 
 const getSubcontractTerminationTargets = `-- name: GetSubcontractTerminationTargets :many
-WITH latest_certified AS (
-    SELECT DISTINCT ON (pci.subcontract_item_id) pci.subcontract_item_id, pci.cumulative_progress_amount
+WITH certified_lines AS (
+    SELECT pci.subcontract_item_id, pc.id AS claim_id, pc.certified_at,
+        (max(pci.previous_progress_amount) + sum(pci.current_progress_amount))::numeric(18,2) AS cumulative
     FROM subcontract_progress_claim_items pci
     JOIN subcontract_progress_claims pc ON pc.id = pci.progress_claim_id
     WHERE pc.subcontract_id = $1 AND pc.organization_id = $2 AND pc.project_id = $3 AND pc.status = 'certified'
-    ORDER BY pci.subcontract_item_id, pc.certified_at DESC
+    GROUP BY pci.subcontract_item_id, pc.id, pc.certified_at
+),
+latest_certified AS (
+    SELECT DISTINCT ON (subcontract_item_id) subcontract_item_id, cumulative
+    FROM certified_lines
+    ORDER BY subcontract_item_id, certified_at DESC, claim_id DESC
 )
 SELECT si.cost_code_id, si.budget_line_id,
-    COALESCE(sum(lc.cumulative_progress_amount), 0)::numeric(18,2) AS net_amount
+    COALESCE(sum(lc.cumulative), 0)::numeric(18,2) AS net_amount
 FROM subcontract_items si
 LEFT JOIN latest_certified lc ON lc.subcontract_item_id = si.id
 WHERE si.subcontract_id = $1 AND si.organization_id = $2 AND si.project_id = $3
 GROUP BY si.cost_code_id, si.budget_line_id
-HAVING COALESCE(sum(lc.cumulative_progress_amount), 0) > 0
+HAVING COALESCE(sum(lc.cumulative), 0) > 0
 `
 
 type GetSubcontractTerminationTargetsParams struct {
@@ -1472,6 +1497,7 @@ type GetSubcontractTerminationTargetsRow struct {
 // SERTİFİKALI hakediş kümülatif tutarı, maliyet kodu/bütçe kalemi başına
 // NETLENMİŞ -- "earned/certified amount korunur, remaining unperformed
 // commitment release edilir" (spec §15) kuralının doğrudan uygulanışı.
+// "En son sertifikalı kümülatif" tanımı: bkz. GetSubcontractCertifiedToDate.
 func (q *Queries) GetSubcontractTerminationTargets(ctx context.Context, arg GetSubcontractTerminationTargetsParams) ([]GetSubcontractTerminationTargetsRow, error) {
 	rows, err := q.db.Query(ctx, getSubcontractTerminationTargets, arg.SubcontractID, arg.OrganizationID, arg.ProjectID)
 	if err != nil {
@@ -1523,6 +1549,54 @@ func (q *Queries) ListApprovedSubcontractChangeItemTotalsByCostCode(ctx context.
 	for rows.Next() {
 		var i ListApprovedSubcontractChangeItemTotalsByCostCodeRow
 		if err := rows.Scan(&i.CostCodeID, &i.BudgetLineID, &i.Total); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLatestCertifiedCumulativeBySubcontractItem = `-- name: ListLatestCertifiedCumulativeBySubcontractItem :many
+WITH certified_lines AS (
+    SELECT pci.subcontract_item_id, pc.id AS claim_id, pc.certified_at,
+        (max(pci.previous_progress_amount) + sum(pci.current_progress_amount))::numeric(18,2) AS cumulative
+    FROM subcontract_progress_claim_items pci
+    JOIN subcontract_progress_claims pc ON pc.id = pci.progress_claim_id
+    WHERE pc.subcontract_id = $1 AND pc.organization_id = $2 AND pc.project_id = $3 AND pc.status = 'certified'
+    GROUP BY pci.subcontract_item_id, pc.id, pc.certified_at
+)
+SELECT DISTINCT ON (subcontract_item_id) subcontract_item_id, cumulative
+FROM certified_lines
+ORDER BY subcontract_item_id, certified_at DESC, claim_id DESC
+`
+
+type ListLatestCertifiedCumulativeBySubcontractItemParams struct {
+	SubcontractID  pgtype.UUID `json:"subcontract_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+}
+
+type ListLatestCertifiedCumulativeBySubcontractItemRow struct {
+	SubcontractItemID pgtype.UUID    `json:"subcontract_item_id"`
+	Cumulative        pgtype.Numeric `json:"cumulative"`
+}
+
+// SOV kalemi başına en son sertifikalı kümülatif tutar (tanım için bkz.
+// GetSubcontractCertifiedToDate) -- hakediş/değişiklik sınırlarının
+// (checkClaimCaps) kalem ve grup bazlı kontrolü için.
+func (q *Queries) ListLatestCertifiedCumulativeBySubcontractItem(ctx context.Context, arg ListLatestCertifiedCumulativeBySubcontractItemParams) ([]ListLatestCertifiedCumulativeBySubcontractItemRow, error) {
+	rows, err := q.db.Query(ctx, listLatestCertifiedCumulativeBySubcontractItem, arg.SubcontractID, arg.OrganizationID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLatestCertifiedCumulativeBySubcontractItemRow
+	for rows.Next() {
+		var i ListLatestCertifiedCumulativeBySubcontractItemRow
+		if err := rows.Scan(&i.SubcontractItemID, &i.Cumulative); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -2157,7 +2231,7 @@ FROM (SELECT COALESCE(sum(current_progress_amount), 0)::numeric(18,2) AS gross
           SELECT current_certified_amount FROM subcontract_progress_claims
           WHERE subcontract_id = (SELECT subcontract_id FROM subcontract_progress_claims WHERE id = $1)
             AND status = 'certified' AND id <> $1
-          ORDER BY certified_at DESC LIMIT 1
+          ORDER BY certified_at DESC, id DESC LIMIT 1
       ) AS amount) prev
 WHERE pc.id = $1 AND pc.organization_id = $2 AND pc.project_id = $3
 RETURNING pc.id, pc.organization_id, pc.project_id, pc.subcontract_id, pc.claim_number, pc.period_start, pc.period_end, pc.status, pc.gross_work_amount, pc.retention_percent_snapshot, pc.retention_amount, pc.advance_recovery_amount, pc.other_deductions, pc.previous_certified_amount, pc.current_certified_amount, pc.net_payable, pc.submitted_at, pc.certified_at, pc.certified_by, pc.rejected_at, pc.rejected_by, pc.rejection_reason, pc.cancelled_at, pc.cancelled_by, pc.notes, pc.created_by, pc.created_at, pc.updated_at

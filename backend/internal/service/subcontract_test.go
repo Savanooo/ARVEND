@@ -9,6 +9,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -105,6 +106,19 @@ func TestSubcontracts(t *testing.T) {
 			t.Fatalf("taşeron sözleşmesi aktifleştirilemedi: %v", err)
 		}
 		return active
+	}
+
+	// submitAndCertify, bir hakedişi gönderip sertifikalar.
+	submitAndCertify := func(t *testing.T, projectID, claimID, orgID string) *domain.SubcontractProgressClaim {
+		t.Helper()
+		if _, err := projectSvc.SubmitProgressClaim(ctx, projectID, claimID, orgID, ""); err != nil {
+			t.Fatalf("hakediş gönderilemedi: %v", err)
+		}
+		c, err := projectSvc.CertifyProgressClaim(ctx, projectID, claimID, orgID, "")
+		if err != nil {
+			t.Fatalf("hakediş sertifika edilemedi: %v", err)
+		}
+		return c
 	}
 
 	// ---------- VENDOR ----------
@@ -1068,13 +1082,648 @@ func TestSubcontracts(t *testing.T) {
 			t.Fatalf("taahhütler alınamadı: %v", err)
 		}
 		active := 0
+		committed := 0.0
 		for _, c := range commitments {
 			if c.Status == domain.CommitmentStatusActive {
 				active++
+				committed += c.CommittedAmount
 			}
 		}
 		if active > 1 {
 			t.Errorf("yarış SONRASI birden fazla aktif commitment satırı OLMAMALI (senkronizasyon her zaman void+create yapar), geldi: %d", active)
+		}
+		// Fesih sonrası değişmez: taahhüt == sertifikalı tutar. Sertifika
+		// fesihten SONRA geçebilseydi sertifikalı iş taahhüdü aşardı.
+		if reloadedSC.Status == domain.SubcontractStatusTerminated {
+			val, err := projectSvc.GetSubcontractValue(ctx, p.ID, sc.ID, orgA.ID)
+			if err != nil {
+				t.Fatalf("değer alınamadı: %v", err)
+			}
+			if committed != val.CertifiedToDate {
+				t.Errorf("fesih sonrası taahhüt (%v) sertifikalı tutara (%v) eşit olmalı", committed, val.CertifiedToDate)
+			}
+		}
+	})
+
+	// approveSubcontractChange, tek kalemli bir değişikliği oluşturup gönderir
+	// ve onaylamayı dener (onay hatasını döner).
+	approveSubcontractChange := func(t *testing.T, projectID, scID, orgID, costCodeID, changeType string, amount float64) (*domain.SubcontractChangeOrder, error) {
+		t.Helper()
+		co, err := projectSvc.CreateSubcontractChangeOrder(ctx, projectID, scID, orgID, service.SubcontractChangeOrderInput{
+			Title: "Değişiklik", ChangeType: changeType,
+			Items: []service.SubcontractChangeOrderItemInput{{CostCodeID: costCodeID, Description: "K", Amount: amount}},
+		})
+		if err != nil {
+			t.Fatalf("değişiklik oluşturulamadı: %v", err)
+		}
+		if _, err := projectSvc.SubmitSubcontractChangeOrder(ctx, projectID, co.ID, orgID, ""); err != nil {
+			t.Fatalf("değişiklik gönderilemedi: %v", err)
+		}
+		_, err = projectSvc.ApproveSubcontractChangeOrder(ctx, projectID, co.ID, orgID, "")
+		return co, err
+	}
+
+	t.Run("38_approved_addition_can_be_claimed", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 300000)
+		cc := newCostCode(t, orgA.ID, "S38-CC")
+		s := newSupplier(t, orgA.ID, "S38-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 100000)
+		if _, err := approveSubcontractChange(t, p.ID, sc.ID, orgA.ID, cc.ID, domain.SubcontractChangeTypeAddition, 20000); err != nil {
+			t.Fatalf("ek iş onaylanamadı: %v", err)
+		}
+		items, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc.ID, orgA.ID)
+		if _, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 120000.01}},
+		}); !errors.Is(err, service.ErrProgressClaimOverrun) {
+			t.Fatalf("güncel tutarın (120000) bir kuruş üstü REDDEDİLMELİ, geldi: %v", err)
+		}
+		claim, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 120000}},
+		})
+		if err != nil {
+			t.Fatalf("onaylı ek iş hakedişe girilebilmeli (100000+20000), geldi: %v", err)
+		}
+		ci, _ := projectSvc.ListProgressClaimItems(ctx, p.ID, claim.ID, orgA.ID)
+		if ci[0].ScheduledValue != 120000 {
+			t.Fatalf("kalemin sözleşme tutarı (snapshot) eki içermeli: 120000, geldi %v", ci[0].ScheduledValue)
+		}
+		submitAndCertify(t, p.ID, claim.ID, orgA.ID)
+	})
+
+	t.Run("39_approved_deduction_lowers_claim_cap", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 300000)
+		cc := newCostCode(t, orgA.ID, "S39-CC")
+		s := newSupplier(t, orgA.ID, "S39-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 100000)
+		if _, err := approveSubcontractChange(t, p.ID, sc.ID, orgA.ID, cc.ID, domain.SubcontractChangeTypeDeduction, 15000); err != nil {
+			t.Fatalf("eksiltme onaylanamadı: %v", err)
+		}
+		items, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc.ID, orgA.ID)
+		if _, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 90000}},
+		}); !errors.Is(err, service.ErrProgressClaimExceedsContract) {
+			t.Fatalf("eksiltme sonrası güncel tutarın (85000) üstü REDDEDİLMELİ, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 85000}},
+		}); err != nil {
+			t.Fatalf("güncel tutara kadar hakediş girilebilmeli: %v", err)
+		}
+	})
+
+	t.Run("40_deduction_below_certified_or_paid_rejected_on_approval", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 300000)
+		cc := newCostCode(t, orgA.ID, "S40-CC")
+		s := newSupplier(t, orgA.ID, "S40-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 100000)
+		items, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc.ID, orgA.ID)
+		claim, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 90000}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		submitAndCertify(t, p.ID, claim.ID, orgA.ID)
+
+		co, err := approveSubcontractChange(t, p.ID, sc.ID, orgA.ID, cc.ID, domain.SubcontractChangeTypeDeduction, 15000)
+		if !errors.Is(err, service.ErrSubcontractChangeBelowCertified) {
+			t.Fatalf("sertifikalı (90000) tutarın altına inen eksiltme REDDEDİLMELİ, geldi: %v", err)
+		}
+		reloaded, _ := projectSvc.GetSubcontractChangeOrder(ctx, p.ID, co.ID, orgA.ID)
+		if reloaded.Status != domain.SubcontractChangeOrderStatusSubmitted {
+			t.Fatalf("reddedilen onay geri alınmalı (submitted kalmalı), geldi %s", reloaded.Status)
+		}
+		val, _ := projectSvc.GetSubcontractValue(ctx, p.ID, sc.ID, orgA.ID)
+		if val.CurrentValue != 100000 {
+			t.Fatalf("güncel tutar değişmemeli, geldi %v", val.CurrentValue)
+		}
+		if _, err := approveSubcontractChange(t, p.ID, sc.ID, orgA.ID, cc.ID, domain.SubcontractChangeTypeDeduction, 10000); err != nil {
+			t.Fatalf("sertifikalı tutara kadar eksiltme onaylanabilmeli: %v", err)
+		}
+
+		// Ödenen tutarın altına da inilemez (hakediş olmasa bile).
+		sc2 := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 50000)
+		if _, err := projectSvc.CreateSubcontractPayment(ctx, p.ID, sc2.ID, orgA.ID, service.SubcontractPaymentInput{
+			Amount: 45000, Currency: "TRY", PaidDate: time.Now(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := approveSubcontractChange(t, p.ID, sc2.ID, orgA.ID, cc.ID, domain.SubcontractChangeTypeDeduction, 10000); !errors.Is(err, service.ErrSubcontractChangeBelowCertified) {
+			t.Fatalf("ödenen (45000) tutarın altına inen eksiltme REDDEDİLMELİ, geldi: %v", err)
+		}
+		// Sözleşmeyi sıfırın altına indiren eksiltme de.
+		sc3 := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 5000)
+		if _, err := approveSubcontractChange(t, p.ID, sc3.ID, orgA.ID, cc.ID, domain.SubcontractChangeTypeDeduction, 6000); !errors.Is(err, service.ErrSubcontractChangeBelowCertified) {
+			t.Fatalf("sözleşmeyi negatife indiren eksiltme REDDEDİLMELİ, geldi: %v", err)
+		}
+	})
+
+	t.Run("41_deduction_after_claim_submission_blocks_certification", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 300000)
+		cc := newCostCode(t, orgA.ID, "S41-CC")
+		s := newSupplier(t, orgA.ID, "S41-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 100000)
+		items, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc.ID, orgA.ID)
+		claim, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 95000}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.SubmitProgressClaim(ctx, p.ID, claim.ID, orgA.ID, ""); err != nil {
+			t.Fatal(err)
+		}
+		// Henüz sertifikalı bir şey yok: eksiltme onaylanabilir...
+		if _, err := approveSubcontractChange(t, p.ID, sc.ID, orgA.ID, cc.ID, domain.SubcontractChangeTypeDeduction, 10000); err != nil {
+			t.Fatalf("eksiltme onaylanamadı: %v", err)
+		}
+		// ...ama bekleyen 95000'lik hakediş artık güncel tutarı (90000) aşar.
+		if _, err := projectSvc.CertifyProgressClaim(ctx, p.ID, claim.ID, orgA.ID, ""); !errors.Is(err, service.ErrProgressClaimExceedsContract) {
+			t.Fatalf("eksiltme sonrası sınırı aşan bekleyen hakediş sertifika EDİLEMEMELİ, geldi: %v", err)
+		}
+	})
+
+	t.Run("42_change_caps_shared_across_items_in_same_cost_code", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 300000)
+		cc := newCostCode(t, orgA.ID, "S42-CC")
+		s := newSupplier(t, orgA.ID, "S42-S")
+		draft, err := projectSvc.CreateSubcontract(ctx, p.ID, orgA.ID, service.SubcontractInput{
+			SupplierID: s.ID, Title: "İki kalemli",
+			Items: []service.SubcontractItemInput{
+				{CostCodeID: cc.ID, Description: "A", OriginalAmount: 100},
+				{CostCodeID: cc.ID, Description: "B", OriginalAmount: 100},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.ActivateSubcontract(ctx, p.ID, draft.ID, orgA.ID, ""); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := approveSubcontractChange(t, p.ID, draft.ID, orgA.ID, cc.ID, domain.SubcontractChangeTypeAddition, 50); err != nil {
+			t.Fatal(err)
+		}
+		items, _ := projectSvc.ListSubcontractItems(ctx, p.ID, draft.ID, orgA.ID)
+		// Ek, gruptaki herhangi bir kaleme yazılabilir ama grup toplamı 250'yi aşamaz.
+		if _, err := projectSvc.CreateProgressClaim(ctx, p.ID, draft.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{
+				{SubcontractItemID: items[0].ID, CurrentProgressAmount: 150},
+				{SubcontractItemID: items[1].ID, CurrentProgressAmount: 101},
+			},
+		}); !errors.Is(err, service.ErrProgressClaimExceedsContract) {
+			t.Fatalf("grup toplamı (251 > 250) REDDEDİLMELİ, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateProgressClaim(ctx, p.ID, draft.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{
+				{SubcontractItemID: items[0].ID, CurrentProgressAmount: 150},
+				{SubcontractItemID: items[1].ID, CurrentProgressAmount: 100},
+			},
+		}); err != nil {
+			t.Fatalf("grup toplamı tam 250 kabul edilmeli: %v", err)
+		}
+	})
+
+	t.Run("43_specific_validation_errors", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 300000)
+		cc := newCostCode(t, orgA.ID, "S43-CC")
+		s := newSupplier(t, orgA.ID, "S43-S")
+		items := []service.SubcontractItemInput{{CostCodeID: cc.ID, Description: "İmalat", OriginalAmount: 1000}}
+		if _, err := projectSvc.CreateSubcontract(ctx, p.ID, orgA.ID, service.SubcontractInput{SupplierID: s.ID, Title: " ", Items: items}); !errors.Is(err, service.ErrTitleRequired) {
+			t.Errorf("boş başlık ErrTitleRequired dönmeli, geldi: %v", err)
+		}
+		bad := 150.0
+		if _, err := projectSvc.CreateSubcontract(ctx, p.ID, orgA.ID, service.SubcontractInput{SupplierID: s.ID, Title: "T", RetentionPercent: &bad, Items: items}); !errors.Is(err, service.ErrInvalidRetentionPercent) {
+			t.Errorf("%%150 teminat reddedilmeli, geldi: %v", err)
+		}
+		neg := -1.0
+		if _, err := projectSvc.CreateSubcontract(ctx, p.ID, orgA.ID, service.SubcontractInput{SupplierID: s.ID, Title: "T", AdvanceAmount: &neg, Items: items}); !errors.Is(err, service.ErrNegativeAdvance) {
+			t.Errorf("negatif avans reddedilmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateSubcontract(ctx, p.ID, orgA.ID, service.SubcontractInput{
+			SupplierID: s.ID, Title: "T",
+			Items: []service.SubcontractItemInput{{CostCodeID: cc.ID, BudgetLineID: "00000000-0000-0000-0000-000000000000", Description: "x", OriginalAmount: 1}},
+		}); !errors.Is(err, domain.ErrNotFound) || !strings.Contains(err.Error(), "bütçe kalemi") {
+			t.Errorf("geçersiz bütçe kalemi 404 + 'bütçe kalemi' demeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateSubcontract(ctx, p.ID, orgA.ID, service.SubcontractInput{
+			SupplierID: "00000000-0000-0000-0000-000000000000", Title: "T", Items: items,
+		}); !errors.Is(err, domain.ErrNotFound) || !strings.Contains(err.Error(), "tedarikçi") {
+			t.Errorf("geçersiz tedarikçi 404 + 'tedarikçi' demeli, geldi: %v", err)
+		}
+
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 10000)
+		if _, err := projectSvc.CreateSubcontractChangeOrder(ctx, p.ID, sc.ID, orgA.ID, service.SubcontractChangeOrderInput{
+			Title: "X", ChangeType: "increase",
+			Items: []service.SubcontractChangeOrderItemInput{{CostCodeID: cc.ID, Description: "K", Amount: 1}},
+		}); !errors.Is(err, service.ErrInvalidChangeType) {
+			t.Errorf("geçersiz değişiklik tipi ErrInvalidChangeType dönmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateSubcontractChangeOrder(ctx, p.ID, sc.ID, orgA.ID, service.SubcontractChangeOrderInput{
+			Title: "X", ChangeType: domain.SubcontractChangeTypeAddition,
+			Items: []service.SubcontractChangeOrderItemInput{{CostCodeID: cc.ID, Description: "", Amount: 1}},
+		}); !errors.Is(err, service.ErrItemDescriptionRequired) {
+			t.Errorf("boş kalem açıklaması ErrItemDescriptionRequired dönmeli, geldi: %v", err)
+		}
+
+		sovItems, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc.ID, orgA.ID)
+		claimItems := []service.ProgressClaimItemInput{{SubcontractItemID: sovItems[0].ID, CurrentProgressAmount: 1000}}
+		r := 500.0
+		if _, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), RetentionPercent: &r, Items: claimItems,
+		}); !errors.Is(err, service.ErrInvalidRetentionPercent) {
+			t.Errorf("%%500 teminat (net negatif) reddedilmeli, geldi: %v", err)
+		}
+		r = 1500
+		if _, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), RetentionPercent: &r, Items: claimItems,
+		}); !errors.Is(err, service.ErrInvalidRetentionPercent) {
+			t.Errorf("%%1500 teminat 500 yerine doğrulama hatası dönmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), AdvanceRecoveryAmount: -5, Items: claimItems,
+		}); !errors.Is(err, service.ErrNegativeDeduction) {
+			t.Errorf("negatif avans mahsubu reddedilmeli, geldi: %v", err)
+		}
+		if _, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: "00000000-0000-0000-0000-000000000000", CurrentProgressAmount: 1}},
+		}); !errors.Is(err, domain.ErrNotFound) || !strings.Contains(err.Error(), "SOV kalemi") {
+			t.Errorf("geçersiz SOV kalemi 404 + 'SOV kalemi' demeli, geldi: %v", err)
+		}
+	})
+
+	t.Run("44_project_list_realized_cost_includes_subcontract_payments", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 300000)
+		cc := newCostCode(t, orgA.ID, "S44-CC")
+		s := newSupplier(t, orgA.ID, "S44-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 100000)
+		if _, err := projectSvc.CreateSubcontractPayment(ctx, p.ID, sc.ID, orgA.ID, service.SubcontractPaymentInput{
+			Amount: 25000, Currency: "TRY", PaidDate: time.Now(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		summary, err := projectSvc.FinancialSummary(ctx, p.ID, orgA.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		list, err := projectSvc.List(ctx, orgA.ID, service.ProjectListFilter{Limit: 200})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var row *domain.Project
+		for i := range list.Projects {
+			if list.Projects[i].ID == p.ID {
+				row = &list.Projects[i]
+			}
+		}
+		if row == nil {
+			t.Fatalf("proje listede yok")
+		}
+		if row.NewSubcontractPaid != 25000 || row.RealizedCost() != summary.RealizedCost || row.RealizedGrossProfit() != summary.RealizedGrossProfit {
+			t.Fatalf("liste (ödenen %v, maliyet %v) detayla (maliyet %v) aynı olmalı", row.NewSubcontractPaid, row.RealizedCost(), summary.RealizedCost)
+		}
+	})
+
+	t.Run("45_closed_project_figures_locked", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 500000)
+		cc := newCostCode(t, orgA.ID, "S45-CC")
+		s := newSupplier(t, orgA.ID, "S45-S")
+		today := time.Now()
+
+		// Kapanıştan ÖNCE hazırlanan kayıtlar.
+		activeSC := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 100000)
+		draftSC := newDraftSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 50000)
+		pay, err := projectSvc.CreateSubcontractPayment(ctx, p.ID, activeSC.ID, orgA.ID, service.SubcontractPaymentInput{Amount: 1000, Currency: "TRY", PaidDate: today})
+		if err != nil {
+			t.Fatal(err)
+		}
+		exp, err := projectSvc.CreateExpense(ctx, p.ID, orgA.ID, service.ExpenseInput{Category: domain.ExpenseMaterial, Description: "M", Amount: 500, ExpenseDate: today})
+		if err != nil {
+			t.Fatal(err)
+		}
+		coll, err := projectSvc.CreateCollection(ctx, p.ID, orgA.ID, service.CollectionInput{Amount: 700, Currency: "TRY", ReceivedDate: today})
+		if err != nil {
+			t.Fatal(err)
+		}
+		legacy, err := projectSvc.CreateSubcontractor(ctx, p.ID, orgA.ID, service.SubcontractorInput{Name: "Eski", ContractAmount: 5000, Currency: "TRY"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		legacyPay, err := projectSvc.CreateSubcontractorPayment(ctx, p.ID, legacy.ID, orgA.ID, service.SubcontractorPaymentInput{Amount: 100, Currency: "TRY", PaidDate: today})
+		if err != nil {
+			t.Fatal(err)
+		}
+		manual, err := projectSvc.CreateCommitment(ctx, p.ID, orgA.ID, service.CommitmentInput{CostCodeID: cc.ID, Description: "Manuel", CommittedAmount: 300, CommittedAt: today})
+		if err != nil {
+			t.Fatal(err)
+		}
+		po, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, service.PurchaseOrderInput{
+			SupplierID: s.ID, IssueDate: today,
+			Items: []service.PurchaseOrderItemInput{{CostCodeID: cc.ID, Description: "K", Quantity: 1, UnitPrice: 100}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		co, err := projectSvc.CreateSubcontractChangeOrder(ctx, p.ID, activeSC.ID, orgA.ID, service.SubcontractChangeOrderInput{
+			Title: "Ek", ChangeType: domain.SubcontractChangeTypeAddition,
+			Items: []service.SubcontractChangeOrderItemInput{{CostCodeID: cc.ID, Description: "K", Amount: 10}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.SubmitSubcontractChangeOrder(ctx, p.ID, co.ID, orgA.ID, ""); err != nil {
+			t.Fatal(err)
+		}
+		items, _ := projectSvc.ListSubcontractItems(ctx, p.ID, activeSC.ID, orgA.ID)
+
+		for _, st := range []string{domain.ProjectStatusActive, domain.ProjectStatusCompleted} {
+			if _, err := projectSvc.Update(ctx, p.ID, orgA.ID, service.UpdateProjectInput{Name: p.Name, Status: st}); err != nil {
+				t.Fatalf("proje durumu %s yapılamadı: %v", st, err)
+			}
+		}
+
+		checks := []struct {
+			name string
+			call func() error
+		}{
+			{"UpdateExpense", func() error {
+				_, err := projectSvc.UpdateExpense(ctx, p.ID, exp.ID, orgA.ID, service.ExpenseInput{Category: domain.ExpenseMaterial, Description: "M", Amount: 900, ExpenseDate: today})
+				return err
+			}},
+			{"VoidExpense", func() error { _, err := projectSvc.VoidExpense(ctx, p.ID, exp.ID, orgA.ID, "", "x"); return err }},
+			{"VoidCollection", func() error { _, err := projectSvc.VoidCollection(ctx, p.ID, coll.ID, orgA.ID, "", "x"); return err }},
+			{"UpdateSubcontractor", func() error {
+				_, err := projectSvc.UpdateSubcontractor(ctx, p.ID, legacy.ID, orgA.ID, service.SubcontractorInput{Name: "Eski", ContractAmount: 9000, Status: domain.SubcontractorPlanned})
+				return err
+			}},
+			{"VoidSubcontractorPayment", func() error {
+				_, err := projectSvc.VoidSubcontractorPayment(ctx, p.ID, legacyPay.ID, orgA.ID, "", "x")
+				return err
+			}},
+			{"VoidSubcontractPayment", func() error {
+				_, err := projectSvc.VoidSubcontractPayment(ctx, p.ID, pay.ID, orgA.ID, "", "x")
+				return err
+			}},
+			{"VoidCommitment", func() error { _, err := projectSvc.VoidCommitment(ctx, p.ID, manual.ID, orgA.ID, "", "x"); return err }},
+			{"ApprovePurchaseOrder", func() error { _, err := projectSvc.ApprovePurchaseOrder(ctx, p.ID, po.ID, orgA.ID, ""); return err }},
+			{"ActivateSubcontract", func() error { _, err := projectSvc.ActivateSubcontract(ctx, p.ID, draftSC.ID, orgA.ID, ""); return err }},
+			{"ApproveSubcontractChangeOrder", func() error {
+				_, err := projectSvc.ApproveSubcontractChangeOrder(ctx, p.ID, co.ID, orgA.ID, "")
+				return err
+			}},
+			{"CreateProgressClaim", func() error {
+				_, err := projectSvc.CreateProgressClaim(ctx, p.ID, activeSC.ID, orgA.ID, service.ProgressClaimInput{
+					PeriodEnd: today, Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 10}},
+				})
+				return err
+			}},
+		}
+		for _, c := range checks {
+			if err := c.call(); !errors.Is(err, service.ErrProjectLocked) {
+				t.Errorf("%s tamamlanmış projede ErrProjectLocked dönmeli, geldi: %v", c.name, err)
+			}
+		}
+
+		// Yeniden aktife alınan projede aynı işlemler serbest.
+		if _, err := projectSvc.Update(ctx, p.ID, orgA.ID, service.UpdateProjectInput{Name: p.Name, Status: domain.ProjectStatusActive}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.VoidSubcontractPayment(ctx, p.ID, pay.ID, orgA.ID, "", "x"); err != nil {
+			t.Errorf("açık projede iptal serbest olmalı: %v", err)
+		}
+		if _, err := projectSvc.ApprovePurchaseOrder(ctx, p.ID, po.ID, orgA.ID, ""); err != nil {
+			t.Errorf("açık projede PO onayı serbest olmalı: %v", err)
+		}
+	})
+
+	t.Run("46_po_draft_supplier_change_applied_or_rejected", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 100000)
+		cc := newCostCode(t, orgA.ID, "S46-CC")
+		s1 := newSupplier(t, orgA.ID, "S46-S1")
+		s2 := newSupplier(t, orgA.ID, "S46-S2")
+		in := service.PurchaseOrderInput{
+			SupplierID: s1.ID, IssueDate: time.Now(),
+			Items: []service.PurchaseOrderItemInput{{CostCodeID: cc.ID, Description: "K", Quantity: 1, UnitPrice: 100}},
+		}
+		po, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.SupplierID = s2.ID
+		updated, err := projectSvc.UpdatePurchaseOrderDraft(ctx, p.ID, po.ID, orgA.ID, in)
+		if err != nil {
+			t.Fatalf("taslak tedarikçisi değiştirilebilmeli: %v", err)
+		}
+		if updated.SupplierID != s2.ID {
+			t.Fatalf("yeni tedarikçi uygulanmalı (sessizce düşürülmemeli), geldi %s", updated.SupplierID)
+		}
+		in.SupplierID = "00000000-0000-0000-0000-000000000000"
+		if _, err := projectSvc.UpdatePurchaseOrderDraft(ctx, p.ID, po.ID, orgA.ID, in); !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("olmayan tedarikçi reddedilmeli, geldi: %v", err)
+		}
+	})
+
+	t.Run("37_finance_summary_terminated_remaining_is_certified_minus_paid", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 900000)
+		cc := newCostCode(t, orgA.ID, "S37-CC")
+		s := newSupplier(t, orgA.ID, "S37-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 500000)
+		items, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc.ID, orgA.ID)
+		claim, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 200000}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		submitAndCertify(t, p.ID, claim.ID, orgA.ID)
+		if _, err := projectSvc.CreateSubcontractPayment(ctx, p.ID, sc.ID, orgA.ID, service.SubcontractPaymentInput{
+			Amount: 50000, Currency: "TRY", PaidDate: time.Now(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		before, err := projectSvc.FinancialSummary(ctx, p.ID, orgA.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if before.NewSubcontractRemaining != 450000 {
+			t.Fatalf("fesih ÖNCESİ kalan taahhüt 500000-50000=450000 olmalı, geldi %v", before.NewSubcontractRemaining)
+		}
+		if _, err := projectSvc.TerminateSubcontract(ctx, p.ID, sc.ID, orgA.ID, "", "fesih"); err != nil {
+			t.Fatal(err)
+		}
+		after, err := projectSvc.FinancialSummary(ctx, p.ID, orgA.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after.NewSubcontractRemaining != 150000 {
+			t.Fatalf("fesih SONRASI kalan taahhüt sertifikalı-ödenen = 150000 olmalı, geldi %v", after.NewSubcontractRemaining)
+		}
+		if after.CommittedCost != 200000 {
+			t.Fatalf("fesih SONRASI tahmini maliyet ödenen+kalan = 200000 olmalı, geldi %v", after.CommittedCost)
+		}
+		cost, err := projectSvc.CostControlSummary(ctx, p.ID, orgA.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cost.CommittedCost != after.NewSubcontractPaid+after.NewSubcontractRemaining {
+			t.Fatalf("Finans (%v) ile Maliyet Kontrolü (%v) fesih taahhüdünde ayrışmamalı",
+				after.NewSubcontractPaid+after.NewSubcontractRemaining, cost.CommittedCost)
+		}
+	})
+
+	t.Run("36_claim_cannot_be_certified_after_termination", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 100000)
+		cc := newCostCode(t, orgA.ID, "S36-CC")
+		s := newSupplier(t, orgA.ID, "S36-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 50000)
+		items, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc.ID, orgA.ID)
+		claim, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 20000}},
+		})
+		if err != nil {
+			t.Fatalf("oluşturulamadı: %v", err)
+		}
+		if _, err := projectSvc.SubmitProgressClaim(ctx, p.ID, claim.ID, orgA.ID, ""); err != nil {
+			t.Fatalf("gönderilemedi: %v", err)
+		}
+		if _, err := projectSvc.TerminateSubcontract(ctx, p.ID, sc.ID, orgA.ID, "", "fesih"); err != nil {
+			t.Fatalf("feshedilemedi: %v", err)
+		}
+		if _, err := projectSvc.CertifyProgressClaim(ctx, p.ID, claim.ID, orgA.ID, ""); !errors.Is(err, service.ErrSubcontractNotCertifiable) {
+			t.Fatalf("feshedilmiş sözleşmenin hakedişi sertifika edilememeli, geldi: %v", err)
+		}
+		reloaded, _ := projectSvc.GetProgressClaim(ctx, p.ID, claim.ID, orgA.ID)
+		if reloaded.Status != domain.ProgressClaimStatusSubmitted {
+			t.Fatalf("hakediş gönderilmiş durumda kalmalı, geldi %s", reloaded.Status)
+		}
+		// Bekleyen hakediş hâlâ reddedilebilir (temizlik).
+		if _, err := projectSvc.RejectProgressClaim(ctx, p.ID, claim.ID, orgA.ID, "", "sözleşme feshedildi"); err != nil {
+			t.Fatalf("feshedilmiş sözleşmenin bekleyen hakedişi reddedilebilmeli: %v", err)
+		}
+
+		// Tamamlanmış sözleşmenin bekleyen (kesin) hakedişi ise
+		// sertifikalanabilir.
+		sc2 := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 30000)
+		items2, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc2.ID, orgA.ID)
+		final, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc2.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items2[0].ID, CurrentProgressAmount: 30000}},
+		})
+		if err != nil {
+			t.Fatalf("oluşturulamadı: %v", err)
+		}
+		if _, err := projectSvc.SubmitProgressClaim(ctx, p.ID, final.ID, orgA.ID, ""); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.CompleteSubcontract(ctx, p.ID, sc2.ID, orgA.ID, ""); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.CertifyProgressClaim(ctx, p.ID, final.ID, orgA.ID, ""); err != nil {
+			t.Fatalf("tamamlanmış sözleşmenin kesin hakedişi sertifikalanabilmeli: %v", err)
+		}
+	})
+
+	t.Run("33_duplicate_sov_item_in_one_claim_rejected", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 200000)
+		cc := newCostCode(t, orgA.ID, "S33-CC")
+		s := newSupplier(t, orgA.ID, "S33-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 60000)
+		items, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc.ID, orgA.ID)
+		twice := []service.ProgressClaimItemInput{
+			{SubcontractItemID: items[0].ID, CurrentProgressAmount: 40000},
+			{SubcontractItemID: items[0].ID, CurrentProgressAmount: 40000},
+		}
+		if _, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: twice,
+		}); !errors.Is(err, service.ErrProgressClaimDuplicateItem) {
+			t.Fatalf("aynı SOV kalemi iki kez (2 x 40.000 > 60.000) REDDEDİLMELİ, geldi: %v", err)
+		}
+		claim, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: twice[:1],
+		})
+		if err != nil {
+			t.Fatalf("tek satırlı hakediş oluşturulamadı: %v", err)
+		}
+		if _, err := projectSvc.UpdateProgressClaimDraft(ctx, p.ID, claim.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: twice,
+		}); !errors.Is(err, service.ErrProgressClaimDuplicateItem) {
+			t.Fatalf("taslak güncellemede de aynı kalem iki kez REDDEDİLMELİ, geldi: %v", err)
+		}
+	})
+
+	t.Run("34_final_claim_to_exactly_100_percent_accepted_decimal", func(t *testing.T) {
+		// float64'te 50,10 + 50,20 = 100,30000000000001 > 100,30 -- eski
+		// karşılaştırma tam %100'e çıkan son hakedişi reddediyordu.
+		p := newProject(t, orgA.ID, 200000)
+		cc := newCostCode(t, orgA.ID, "S34-CC")
+		s := newSupplier(t, orgA.ID, "S34-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 100.30)
+		items, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc.ID, orgA.ID)
+		c1, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 50.10}},
+		})
+		if err != nil {
+			t.Fatalf("1. hakediş oluşturulamadı: %v", err)
+		}
+		submitAndCertify(t, p.ID, c1.ID, orgA.ID)
+		c2, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 50.20}},
+		})
+		if err != nil {
+			t.Fatalf("tam %%100'e çıkan son hakediş KABUL EDİLMELİ, geldi: %v", err)
+		}
+		ci, _ := projectSvc.ListProgressClaimItems(ctx, p.ID, c2.ID, orgA.ID)
+		if ci[0].CumulativeProgressAmount != 100.30 {
+			t.Fatalf("kümülatif 100.30 olmalı, geldi %v", ci[0].CumulativeProgressAmount)
+		}
+		submitAndCertify(t, p.ID, c2.ID, orgA.ID)
+		// Bir kuruş fazlası hâlâ reddedilir.
+		if _, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 0.01}},
+		}); !errors.Is(err, service.ErrProgressClaimOverrun) {
+			t.Fatalf("%%100 sonrası bir kuruş REDDEDİLMELİ, geldi: %v", err)
+		}
+	})
+
+	t.Run("35_legacy_duplicate_rows_count_fully_in_previous", func(t *testing.T) {
+		// Düzeltme ÖNCESİ oluşmuş, aynı SOV kalemini iki satırda taşıyan
+		// sertifikalı bir hakediş: sonraki hakedişin "previous"ı iki
+		// satırın TOPLAMINI görmeli (tek satırı seçip aynı işi yeniden
+		// sertifikalatmamalı) ve sonuç her çağrıda aynı olmalı.
+		p := newProject(t, orgA.ID, 200000)
+		cc := newCostCode(t, orgA.ID, "S35-CC")
+		s := newSupplier(t, orgA.ID, "S35-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 100000)
+		items, _ := projectSvc.ListSubcontractItems(ctx, p.ID, sc.ID, orgA.ID)
+		c1, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+			PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 30000}},
+		})
+		if err != nil {
+			t.Fatalf("hakediş oluşturulamadı: %v", err)
+		}
+		submitAndCertify(t, p.ID, c1.ID, orgA.ID)
+		if _, err := pool.Exec(ctx, `INSERT INTO subcontract_progress_claim_items
+			(organization_id, project_id, progress_claim_id, subcontract_item_id, scheduled_value,
+			 previous_progress_amount, current_progress_amount, cumulative_progress_amount, sort_order)
+			VALUES ($1, $2, $3, $4, 100000, 0, 20000, 20000, 1)`, orgA.ID, p.ID, c1.ID, items[0].ID); err != nil {
+			t.Fatalf("eski veri simülasyonu eklenemedi: %v", err)
+		}
+		for i := 0; i < 3; i++ {
+			c2, err := projectSvc.CreateProgressClaim(ctx, p.ID, sc.ID, orgA.ID, service.ProgressClaimInput{
+				PeriodEnd: time.Now(), Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 1000}},
+			})
+			if err != nil {
+				t.Fatalf("2. hakediş oluşturulamadı: %v", err)
+			}
+			ci, _ := projectSvc.ListProgressClaimItems(ctx, p.ID, c2.ID, orgA.ID)
+			if ci[0].PreviousProgressAmount != 50000 {
+				t.Fatalf("previous iki eski satırın toplamı (50000) olmalı, geldi %v", ci[0].PreviousProgressAmount)
+			}
+			if _, err := projectSvc.CancelProgressClaim(ctx, p.ID, c2.ID, orgA.ID, ""); err != nil {
+				t.Fatal(err)
+			}
+		}
+		val, err := projectSvc.GetSubcontractValue(ctx, p.ID, sc.ID, orgA.ID)
+		if err != nil || val.CertifiedToDate != 50000 {
+			t.Fatalf("sertifikalı toplam 50000 olmalı, geldi %v err=%v", val.CertifiedToDate, err)
 		}
 	})
 }

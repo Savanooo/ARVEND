@@ -1,6 +1,25 @@
 import { formatMoney, formatSignedMoney } from "@/lib/format";
 import type { FinancialSummary } from "@/lib/types";
 
+// Taşeron tutarları İKİ kaynaktan gelir: eski taşeron kayıtları
+// (subcontractor_*) ve taşeron sözleşmeleri modülü (new_subcontract_*).
+// Backend realized_cost/committed_cost'a ikisini de katıyor; ipuçları
+// yalnızca eskisini gösterdiği için toplamla tutmuyordu. Yeni alanlar
+// lib/types.ts'teki FinancialSummary'de henüz tanımlı olmadığından burada
+// isteğe bağlı olarak okunur.
+type SubcontractSummaryFields = {
+  new_subcontract_paid?: number;
+  new_subcontract_remaining?: number;
+};
+
+export function subcontractTotals(summary: FinancialSummary): { paid: number; remaining: number } {
+  const s = summary as FinancialSummary & SubcontractSummaryFields;
+  return {
+    paid: summary.subcontractor_paid + (s.new_subcontract_paid ?? 0),
+    remaining: summary.subcontractor_remaining + (s.new_subcontract_remaining ?? 0),
+  };
+}
+
 function Card({
   label,
   value,
@@ -32,6 +51,7 @@ function Card({
 export function FinanceSummary({ summary }: { summary: FinancialSummary }) {
   const c = summary.currency;
   const over = summary.over_collected > 0;
+  const sub = subcontractTotals(summary);
   const hasPending = summary.pending_additions > 0 || summary.pending_deductions > 0;
 
   return (
@@ -54,12 +74,12 @@ export function FinanceSummary({ summary }: { summary: FinancialSummary }) {
         <Card
           label="Gerçekleşen Maliyet"
           value={formatMoney(summary.realized_cost, c)}
-          hint={`Masraf ${formatMoney(summary.total_expenses, c)} + taşeron ${formatMoney(summary.subcontractor_paid, c)}`}
+          hint={`Masraf ${formatMoney(summary.total_expenses, c)} + taşeron ${formatMoney(sub.paid, c)}`}
         />
         <Card
           label="Tahmini Maliyet"
           value={formatMoney(summary.committed_cost, c)}
-          hint={`Taşeron kalan taahhüt: ${formatMoney(summary.subcontractor_remaining, c)}`}
+          hint={`Taşeron kalan taahhüt: ${formatMoney(sub.remaining, c)}`}
         />
         <Card
           label="Tahmini Kâr"

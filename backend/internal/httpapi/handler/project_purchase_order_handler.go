@@ -117,16 +117,21 @@ func (req purchaseOrderRequest) toInput(userID string) service.PurchaseOrderInpu
 			Description: it.Description, Quantity: it.Quantity, Unit: it.Unit, UnitPrice: it.UnitPrice,
 		}
 	}
-	issueDate := parseDateParam(&req.IssueDate)
 	in := service.PurchaseOrderInput{
 		SupplierID: req.SupplierID, SourceRFQID: req.SourceRFQID, SourceQuotationID: req.SourceQuotationID,
 		ExpectedDeliveryDate: parseDateParam(req.ExpectedDeliveryDate), PaymentTerms: req.PaymentTerms,
 		DeliveryAddress: req.DeliveryAddress, Notes: req.Notes, TaxRate: req.TaxRate, Items: items, UserID: userID,
 	}
-	if issueDate != nil {
-		in.IssueDate = *issueDate
-	}
 	return in
+}
+
+// toInputWithDates, toInput'a zorunlu sipariş tarihini ekler; tarih
+// çözülemezse 400 yazar ve false döner.
+func (req purchaseOrderRequest) toInputWithDates(w http.ResponseWriter, userID string) (service.PurchaseOrderInput, bool) {
+	in := req.toInput(userID)
+	issueDate, ok := requestDate(w, req.IssueDate)
+	in.IssueDate = issueDate
+	return in, ok
 }
 
 func (h *ProjectHandler) ListPurchaseOrders(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +156,11 @@ func (h *ProjectHandler) CreatePurchaseOrder(w http.ResponseWriter, r *http.Requ
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	p, err := h.svc.CreatePurchaseOrder(r.Context(), chi.URLParam(r, "id"), orgID, req.toInput(userID))
+	in, ok := req.toInputWithDates(w, userID)
+	if !ok {
+		return
+	}
+	p, err := h.svc.CreatePurchaseOrder(r.Context(), chi.URLParam(r, "id"), orgID, in)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -197,7 +206,11 @@ func (h *ProjectHandler) UpdatePurchaseOrder(w http.ResponseWriter, r *http.Requ
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	p, err := h.svc.UpdatePurchaseOrderDraft(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "poId"), orgID, req.toInput(userID))
+	in, ok := req.toInputWithDates(w, userID)
+	if !ok {
+		return
+	}
+	p, err := h.svc.UpdatePurchaseOrderDraft(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "poId"), orgID, in)
 	if err != nil {
 		h.writeError(w, err)
 		return

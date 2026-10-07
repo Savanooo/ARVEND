@@ -190,8 +190,12 @@ ORDER BY c.committed_at DESC, c.created_at DESC;
 SELECT * FROM project_commitments WHERE id = $1 AND organization_id = $2 AND project_id = $3;
 
 -- name: VoidCommitment :one
+-- Elle iptal YALNIZCA manuel taahhütler içindir: satın alma siparişinden/
+-- taşeron sözleşmesinden doğan taahhüt kaynağının yaşam döngüsüyle
+-- (sipariş iptali, değişiklik onayı, fesih) senkron tutulur; elle
+-- voidlenirse kaynak hâlâ geçerliyken Cost Control'den sessizce düşerdi.
 UPDATE project_commitments SET status = 'voided', voided_at = now(), voided_by = $4, void_reason = $5
-WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'active'
+WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'active' AND source_type = 'manual'
 RETURNING *;
 
 -- Sprint 4 -- Procurement entegrasyonu. CreateCommitment (yukarı,
@@ -279,17 +283,40 @@ adjustments AS (
     WHERE project_id = $1 AND organization_id = $2 AND status = 'approved'
     GROUP BY budget_line_id
 ),
+-- Yalnızca maliyet koduyla (bütçe kalemi SEÇİLMEDEN) girilmiş gider/
+-- taahhüt, o maliyet kodunun bu projede TEK bir bütçe kalemi varsa O
+-- KALEME sayılır. Önceden böyle bir kayıt, kodun bütçe kalemi olsa bile
+-- ayrı bir "bütçe dışı" satıra düşüyordu: bütçe kaleminin ETC'si (revize -
+-- kendi gideri) hiç azalmadığı için aynı harcama hem o satırın ETC'sinde
+-- hem bütçe dışı satırın EAC'sinde sayılıyor, EAC şişiyordu. Eşleme
+-- OKUMA anında yapılır (kayıtlar yeniden yazılmaz): mevcut veriye de
+-- migration'sız uygulanır ve kodun ikinci bir bütçe kalemi açılırsa kayıt
+-- sessizce yanlış kalemde kalmaz -- hangi kaleme ait olduğu belirsiz
+-- olduğundan "bütçe dışı" satırda görünür (kullanıcı kalemi seçmelidir).
+-- ListCostControlLines ve GetProjectCostControlSummary'de BİREBİR AYNI.
+single_line_codes AS (
+    SELECT bl.cost_code_id, (array_agg(bl.id))[1] AS budget_line_id
+    FROM project_budget_lines bl WHERE bl.project_id = $1 AND bl.organization_id = $2
+    GROUP BY bl.cost_code_id
+    HAVING count(*) = 1
+),
 committed_by_line AS (
-    SELECT budget_line_id, COALESCE(sum(committed_amount), 0)::numeric(18,2) AS total
-    FROM project_commitments
-    WHERE project_id = $1 AND organization_id = $2 AND status = 'active' AND budget_line_id IS NOT NULL
-    GROUP BY budget_line_id
+    SELECT COALESCE(c.budget_line_id, slc.budget_line_id) AS budget_line_id,
+        COALESCE(sum(c.committed_amount), 0)::numeric(18,2) AS total
+    FROM project_commitments c
+    LEFT JOIN single_line_codes slc ON c.budget_line_id IS NULL AND slc.cost_code_id = c.cost_code_id
+    WHERE c.project_id = $1 AND c.organization_id = $2 AND c.status = 'active'
+      AND COALESCE(c.budget_line_id, slc.budget_line_id) IS NOT NULL
+    GROUP BY COALESCE(c.budget_line_id, slc.budget_line_id)
 ),
 actual_by_line AS (
-    SELECT budget_line_id, COALESCE(sum(amount), 0)::numeric(18,2) AS total
-    FROM project_expenses
-    WHERE project_id = $1 AND organization_id = $2 AND voided_at IS NULL AND budget_line_id IS NOT NULL
-    GROUP BY budget_line_id
+    SELECT COALESCE(e.budget_line_id, slc.budget_line_id) AS budget_line_id,
+        COALESCE(sum(e.amount), 0)::numeric(18,2) AS total
+    FROM project_expenses e
+    LEFT JOIN single_line_codes slc ON e.budget_line_id IS NULL AND slc.cost_code_id = e.cost_code_id
+    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL
+      AND COALESCE(e.budget_line_id, slc.budget_line_id) IS NOT NULL
+    GROUP BY COALESCE(e.budget_line_id, slc.budget_line_id)
 ),
 forecast_by_line AS (
     SELECT budget_line_id, etc_amount FROM project_cost_forecasts WHERE project_id = $1 AND organization_id = $2
@@ -316,16 +343,18 @@ budgeted AS (
     LEFT JOIN forecast_by_line fc ON fc.budget_line_id = l.budget_line_id
 ),
 unbudgeted_committed AS (
-    SELECT cost_code_id, COALESCE(sum(committed_amount), 0)::numeric(18,2) AS total
-    FROM project_commitments
-    WHERE project_id = $1 AND organization_id = $2 AND status = 'active' AND budget_line_id IS NULL
-    GROUP BY cost_code_id
+    SELECT c.cost_code_id, COALESCE(sum(c.committed_amount), 0)::numeric(18,2) AS total
+    FROM project_commitments c
+    WHERE c.project_id = $1 AND c.organization_id = $2 AND c.status = 'active' AND c.budget_line_id IS NULL
+      AND NOT EXISTS (SELECT 1 FROM single_line_codes slc WHERE slc.cost_code_id = c.cost_code_id)
+    GROUP BY c.cost_code_id
 ),
 unbudgeted_actual AS (
-    SELECT cost_code_id, COALESCE(sum(amount), 0)::numeric(18,2) AS total
-    FROM project_expenses
-    WHERE project_id = $1 AND organization_id = $2 AND voided_at IS NULL AND budget_line_id IS NULL AND cost_code_id IS NOT NULL
-    GROUP BY cost_code_id
+    SELECT e.cost_code_id, COALESCE(sum(e.amount), 0)::numeric(18,2) AS total
+    FROM project_expenses e
+    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.budget_line_id IS NULL AND e.cost_code_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM single_line_codes slc WHERE slc.cost_code_id = e.cost_code_id)
+    GROUP BY e.cost_code_id
 ),
 unbudgeted_codes AS (
     SELECT cost_code_id FROM unbudgeted_committed
@@ -334,8 +363,9 @@ unbudgeted_codes AS (
 ),
 -- Bütçe dışı (unbudgeted) satırlar: bir cost_code'a doğrudan (budget_line_id
 -- OLMADAN) bağlanmış taahhüt/gider var ama bu cost code'un o projede bir
--- bütçe kalemi yok -- "kategorisiz/plansız harcama" olarak AÇIKÇA
--- gösterilir (original_budget=0, variance HER ZAMAN negatif).
+-- bütçe kalemi yok (ya da birden fazla var ve hangisine ait olduğu
+-- belirsiz, bkz. single_line_codes) -- "kategorisiz/plansız harcama"
+-- olarak AÇIKÇA gösterilir (original_budget=0, variance HER ZAMAN negatif).
 unbudgeted AS (
     SELECT
         NULL::uuid AS budget_line_id, NULL::uuid AS wbs_node_id, NULL::varchar AS wbs_code, NULL::varchar AS wbs_name,
@@ -384,17 +414,40 @@ adjustments AS (
     WHERE project_id = $1 AND organization_id = $2 AND status = 'approved'
     GROUP BY budget_line_id
 ),
+-- Yalnızca maliyet koduyla (bütçe kalemi SEÇİLMEDEN) girilmiş gider/
+-- taahhüt, o maliyet kodunun bu projede TEK bir bütçe kalemi varsa O
+-- KALEME sayılır. Önceden böyle bir kayıt, kodun bütçe kalemi olsa bile
+-- ayrı bir "bütçe dışı" satıra düşüyordu: bütçe kaleminin ETC'si (revize -
+-- kendi gideri) hiç azalmadığı için aynı harcama hem o satırın ETC'sinde
+-- hem bütçe dışı satırın EAC'sinde sayılıyor, EAC şişiyordu. Eşleme
+-- OKUMA anında yapılır (kayıtlar yeniden yazılmaz): mevcut veriye de
+-- migration'sız uygulanır ve kodun ikinci bir bütçe kalemi açılırsa kayıt
+-- sessizce yanlış kalemde kalmaz -- hangi kaleme ait olduğu belirsiz
+-- olduğundan "bütçe dışı" satırda görünür (kullanıcı kalemi seçmelidir).
+-- ListCostControlLines ve GetProjectCostControlSummary'de BİREBİR AYNI.
+single_line_codes AS (
+    SELECT bl.cost_code_id, (array_agg(bl.id))[1] AS budget_line_id
+    FROM project_budget_lines bl WHERE bl.project_id = $1 AND bl.organization_id = $2
+    GROUP BY bl.cost_code_id
+    HAVING count(*) = 1
+),
 committed_by_line AS (
-    SELECT budget_line_id, COALESCE(sum(committed_amount), 0)::numeric(18,2) AS total
-    FROM project_commitments
-    WHERE project_id = $1 AND organization_id = $2 AND status = 'active' AND budget_line_id IS NOT NULL
-    GROUP BY budget_line_id
+    SELECT COALESCE(c.budget_line_id, slc.budget_line_id) AS budget_line_id,
+        COALESCE(sum(c.committed_amount), 0)::numeric(18,2) AS total
+    FROM project_commitments c
+    LEFT JOIN single_line_codes slc ON c.budget_line_id IS NULL AND slc.cost_code_id = c.cost_code_id
+    WHERE c.project_id = $1 AND c.organization_id = $2 AND c.status = 'active'
+      AND COALESCE(c.budget_line_id, slc.budget_line_id) IS NOT NULL
+    GROUP BY COALESCE(c.budget_line_id, slc.budget_line_id)
 ),
 actual_by_line AS (
-    SELECT budget_line_id, COALESCE(sum(amount), 0)::numeric(18,2) AS total
-    FROM project_expenses
-    WHERE project_id = $1 AND organization_id = $2 AND voided_at IS NULL AND budget_line_id IS NOT NULL
-    GROUP BY budget_line_id
+    SELECT COALESCE(e.budget_line_id, slc.budget_line_id) AS budget_line_id,
+        COALESCE(sum(e.amount), 0)::numeric(18,2) AS total
+    FROM project_expenses e
+    LEFT JOIN single_line_codes slc ON e.budget_line_id IS NULL AND slc.cost_code_id = e.cost_code_id
+    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL
+      AND COALESCE(e.budget_line_id, slc.budget_line_id) IS NOT NULL
+    GROUP BY COALESCE(e.budget_line_id, slc.budget_line_id)
 ),
 forecast_by_line AS (
     SELECT budget_line_id, etc_amount FROM project_cost_forecasts WHERE project_id = $1 AND organization_id = $2
@@ -416,16 +469,18 @@ budgeted AS (
     LEFT JOIN forecast_by_line fc ON fc.budget_line_id = l.budget_line_id
 ),
 unbudgeted_committed AS (
-    SELECT cost_code_id, COALESCE(sum(committed_amount), 0)::numeric(18,2) AS total
-    FROM project_commitments
-    WHERE project_id = $1 AND organization_id = $2 AND status = 'active' AND budget_line_id IS NULL
-    GROUP BY cost_code_id
+    SELECT c.cost_code_id, COALESCE(sum(c.committed_amount), 0)::numeric(18,2) AS total
+    FROM project_commitments c
+    WHERE c.project_id = $1 AND c.organization_id = $2 AND c.status = 'active' AND c.budget_line_id IS NULL
+      AND NOT EXISTS (SELECT 1 FROM single_line_codes slc WHERE slc.cost_code_id = c.cost_code_id)
+    GROUP BY c.cost_code_id
 ),
 unbudgeted_actual AS (
-    SELECT cost_code_id, COALESCE(sum(amount), 0)::numeric(18,2) AS total
-    FROM project_expenses
-    WHERE project_id = $1 AND organization_id = $2 AND voided_at IS NULL AND budget_line_id IS NULL AND cost_code_id IS NOT NULL
-    GROUP BY cost_code_id
+    SELECT e.cost_code_id, COALESCE(sum(e.amount), 0)::numeric(18,2) AS total
+    FROM project_expenses e
+    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.budget_line_id IS NULL AND e.cost_code_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM single_line_codes slc WHERE slc.cost_code_id = e.cost_code_id)
+    GROUP BY e.cost_code_id
 ),
 unbudgeted_codes AS (
     SELECT cost_code_id FROM unbudgeted_committed

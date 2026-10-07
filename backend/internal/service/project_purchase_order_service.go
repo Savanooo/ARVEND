@@ -46,6 +46,10 @@ var (
 	ErrPurchaseOrderItemsRequired    = errors.New("sipariş en az bir kalem içermelidir")
 	ErrPurchaseOrderSupplierInactive = errors.New("arşivlenmiş bir tedarikçiye yeni sipariş açılamaz")
 	ErrPurchaseOrderReasonRequired   = errors.New("gerekçe zorunludur")
+
+	ErrPurchaseOrderQuotationNotAwarded     = errors.New("sipariş yalnızca RFQ'nun kazanan (ödül verilmiş) teklifinden oluşturulabilir")
+	ErrPurchaseOrderSupplierMismatch        = errors.New("siparişin tedarikçisi, kaynak teklifi veren tedarikçiyle aynı olmalı")
+	ErrPurchaseOrderQuotationAlreadyOrdered = errors.New("bu teklif için zaten bir sipariş var; yeni sipariş açmadan önce mevcut siparişi iptal edin")
 )
 
 type PurchaseOrderItemInput struct {
@@ -73,7 +77,7 @@ type PurchaseOrderInput struct {
 }
 
 func (s *ProjectService) generatePONo(ctx context.Context, q *sqlc.Queries, orgID pgtype.UUID) (string, error) {
-	year := time.Now().Year()
+	year := IstanbulToday().Year()
 	seq, err := q.NextPurchaseOrderSeq(ctx, sqlc.NextPurchaseOrderSeqParams{OrganizationID: orgID, Year: int32(year)})
 	if err != nil {
 		return "", err
@@ -102,8 +106,14 @@ func insertPurchaseOrderItems(ctx context.Context, txq *sqlc.Queries, orgID, pid
 			return err
 		}
 		desc := strings.TrimSpace(it.Description)
-		if desc == "" || it.Quantity <= 0 || it.UnitPrice <= 0 {
-			return ErrInvalidAmount
+		if desc == "" {
+			return ErrItemDescriptionRequired
+		}
+		if it.Quantity <= 0 {
+			return ErrInvalidQuantity
+		}
+		if it.UnitPrice <= 0 {
+			return ErrInvalidUnitPrice
 		}
 		if _, err := txq.CreatePurchaseOrderItem(ctx, sqlc.CreatePurchaseOrderItemParams{
 			OrganizationID: orgID, ProjectID: pid, PurchaseOrderID: poID,
@@ -124,10 +134,13 @@ func (s *ProjectService) CreatePurchaseOrder(ctx context.Context, projectID, org
 	}
 	supplierID, err := repository.StringToUUID(strings.TrimSpace(in.SupplierID))
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, ErrSupplierRefNotFound
 	}
 	if len(in.Items) == 0 {
 		return nil, ErrPurchaseOrderItemsRequired
+	}
+	if err := validatePercent(in.TaxRate, ErrInvalidTaxRate); err != nil {
+		return nil, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -143,7 +156,10 @@ func (s *ProjectService) CreatePurchaseOrder(ctx context.Context, projectID, org
 	}
 	supplier, err := txq.GetSupplier(ctx, sqlc.GetSupplierParams{ID: supplierID, OrganizationID: orgID})
 	if err != nil {
-		return nil, domain.ErrNotFound
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrSupplierRefNotFound
+		}
+		return nil, err
 	}
 	if !supplier.IsActive {
 		return nil, ErrPurchaseOrderSupplierInactive
@@ -153,20 +169,29 @@ func (s *ProjectService) CreatePurchaseOrder(ctx context.Context, projectID, org
 	if v := strings.TrimSpace(in.SourceRFQID); v != "" {
 		rfqID, err = repository.StringToUUID(v)
 		if err != nil {
-			return nil, domain.ErrNotFound
+			return nil, ErrSourceRFQRefNotFound
 		}
 		if _, err := txq.GetRFQ(ctx, sqlc.GetRFQParams{ID: rfqID, OrganizationID: orgID, ProjectID: pid}); err != nil {
-			return nil, domain.ErrNotFound
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ErrSourceRFQRefNotFound
+			}
+			return nil, err
 		}
 	}
 	if v := strings.TrimSpace(in.SourceQuotationID); v != "" {
 		quotationID, err = repository.StringToUUID(v)
 		if err != nil {
-			return nil, domain.ErrNotFound
+			return nil, ErrSourceQuotationNotFound
 		}
-		quotation, err := txq.GetSupplierQuotation(ctx, sqlc.GetSupplierQuotationParams{ID: quotationID, OrganizationID: orgID, ProjectID: pid})
+		// Teklif satırı KİLİTLENİR: aynı teklifle eşzamanlı iki sipariş
+		// açma isteği serileşir, ikincisi aşağıdaki "zaten siparişe
+		// dönüşmüş" kontrolünü görür.
+		quotation, err := txq.GetSupplierQuotationForUpdate(ctx, sqlc.GetSupplierQuotationForUpdateParams{ID: quotationID, OrganizationID: orgID, ProjectID: pid})
 		if err != nil {
-			return nil, domain.ErrNotFound
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ErrSourceQuotationNotFound
+			}
+			return nil, err
 		}
 		// Kaynak RFQ VERİLMİŞSE, teklif GERÇEKTEN o RFQ'ya ait olmalı
 		// (çapraz-RFQ referans İMKANSIZ olmalı -- AwardRFQ'daki AYNI
@@ -174,6 +199,35 @@ func (s *ProjectService) CreatePurchaseOrder(ctx context.Context, projectID, org
 		if rfqID.Valid && quotation.RfqID != rfqID {
 			return nil, ErrAwardQuotationMismatch
 		}
+		// Teklif, RFQ'nun KAZANAN teklifi olmalı, sipariş o teklifi veren
+		// tedarikçiye açılmalı ve teklif başına yalnızca bir (iptal
+		// edilmemiş) sipariş olabilir. Önceden yalnızca RFQ eşleşmesi
+		// kontrol ediliyordu: kaybeden bir tekliften, başka bir tedarikçiye
+		// ya da aynı tekliften birden fazla sipariş (çift taahhüt)
+		// açılabiliyordu.
+		rfq, err := txq.GetRFQ(ctx, sqlc.GetRFQParams{ID: quotation.RfqID, OrganizationID: orgID, ProjectID: pid})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, domain.ErrNotFound
+			}
+			return nil, err
+		}
+		if !rfq.AwardedQuotationID.Valid || rfq.AwardedQuotationID != quotationID {
+			return nil, ErrPurchaseOrderQuotationNotAwarded
+		}
+		if quotation.SupplierID != supplierID {
+			return nil, ErrPurchaseOrderSupplierMismatch
+		}
+		existing, err := txq.CountOpenPurchaseOrdersForQuotation(ctx, sqlc.CountOpenPurchaseOrdersForQuotationParams{
+			SourceQuotationID: quotationID, OrganizationID: orgID, ProjectID: pid,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if existing > 0 {
+			return nil, ErrPurchaseOrderQuotationAlreadyOrdered
+		}
+		rfqID = quotation.RfqID
 	}
 
 	poNo, err := s.generatePONo(ctx, txq, orgID)
@@ -269,6 +323,9 @@ func (s *ProjectService) UpdatePurchaseOrderDraft(ctx context.Context, projectID
 	if len(in.Items) == 0 {
 		return nil, ErrPurchaseOrderItemsRequired
 	}
+	if err := validatePercent(in.TaxRate, ErrInvalidTaxRate); err != nil {
+		return nil, err
+	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -277,10 +334,47 @@ func (s *ProjectService) UpdatePurchaseOrderDraft(ctx context.Context, projectID
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	current, err := txq.GetPurchaseOrderForUpdate(ctx, sqlc.GetPurchaseOrderForUpdateParams{ID: id, OrganizationID: orgID, ProjectID: pid})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	// Tedarikçi değişikliği önceden SESSİZCE düşürülüyordu (istek 200
+	// dönüyor, sipariş eski tedarikçide kalıyordu). Artık uygulanır:
+	// CreatePurchaseOrder İLE AYNI kontroller; kazanan tekliften açılmış
+	// siparişin tedarikçisi o teklifin tedarikçisi olmak zorunda olduğundan
+	// değiştirilemez. Boş supplier_id = mevcut tedarikçi korunur.
+	supplierID := current.SupplierID
+	if v := strings.TrimSpace(in.SupplierID); v != "" {
+		requested, err := repository.StringToUUID(v)
+		if err != nil {
+			return nil, ErrSupplierRefNotFound
+		}
+		if requested != current.SupplierID {
+			if current.SourceQuotationID.Valid {
+				return nil, ErrPurchaseOrderSupplierMismatch
+			}
+			supplier, err := txq.GetSupplier(ctx, sqlc.GetSupplierParams{ID: requested, OrganizationID: orgID})
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return nil, ErrSupplierRefNotFound
+				}
+				return nil, err
+			}
+			if !supplier.IsActive {
+				return nil, ErrPurchaseOrderSupplierInactive
+			}
+			supplierID = requested
+		}
+	}
+
 	row, err := txq.UpdatePurchaseOrderFields(ctx, sqlc.UpdatePurchaseOrderFieldsParams{
 		ID: id, OrganizationID: orgID, ProjectID: pid,
 		IssueDate: repository.TimeToDate(in.IssueDate), ExpectedDeliveryDate: repository.TimePtrToDate(in.ExpectedDeliveryDate),
 		PaymentTerms: in.PaymentTerms, DeliveryAddress: in.DeliveryAddress, Notes: in.Notes, TaxRate: repository.Float64ToNumeric(in.TaxRate),
+		SupplierID: supplierID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -334,6 +428,12 @@ func (s *ProjectService) ApprovePurchaseOrder(ctx context.Context, projectID, po
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	// Tamamlanmış/iptal edilmiş projenin rakamları değişmez (bkz.
+	// requireOpenProject; tamamlanan proje yeniden aktife alınarak açılır).
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+		return nil, err
+	}
+
 	current, err := txq.GetPurchaseOrderForUpdate(ctx, sqlc.GetPurchaseOrderForUpdateParams{ID: id, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		return nil, domain.ErrNotFound
@@ -357,7 +457,7 @@ func (s *ProjectService) ApprovePurchaseOrder(ctx context.Context, projectID, po
 		return nil, err
 	}
 
-	now := repository.TimeToDate(time.Now())
+	now := repository.TimeToDate(IstanbulToday())
 	for _, it := range items {
 		desc := fmt.Sprintf("PO %s — %s", row.PoNo, it.Description)
 		if _, err := txq.CreateCommitmentFromSource(ctx, sqlc.CreateCommitmentFromSourceParams{

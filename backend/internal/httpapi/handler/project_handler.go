@@ -61,6 +61,7 @@ type projectResponse struct {
 	TotalExpenses          *float64 `json:"total_expenses,omitempty"`
 	SubcontractorPaid      *float64 `json:"subcontractor_paid,omitempty"`
 	SubcontractorRemaining *float64 `json:"subcontractor_remaining,omitempty"`
+	NewSubcontractPaid     *float64 `json:"new_subcontract_paid,omitempty"`
 	RemainingReceivable    *float64 `json:"remaining_receivable,omitempty"`
 	RealizedCost           *float64 `json:"realized_cost,omitempty"`
 	RealizedGrossProfit    *float64 `json:"realized_gross_profit,omitempty"`
@@ -102,6 +103,7 @@ func toProjectResponse(p domain.Project) projectResponse {
 		resp.TotalExpenses = &p.TotalExpenses
 		resp.SubcontractorPaid = &p.SubcontractorPaid
 		resp.SubcontractorRemaining = &p.SubcontractorRemaining
+		resp.NewSubcontractPaid = &p.NewSubcontractPaid
 		remaining := p.RemainingReceivable()
 		resp.RemainingReceivable = &remaining
 		realizedCost := p.RealizedCost()
@@ -295,10 +297,16 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
+	var notFound *service.NotFoundError
 	switch {
+	case errors.As(err, &notFound):
+		// İstekte gönderilen bir referans (bütçe kalemi, tedarikçi, SOV
+		// kalemi...) bulunamadı -- "proje bulunamadı" yanıltıcı olurdu.
+		httpjson.Error(w, http.StatusNotFound, notFound.Error())
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "proje bulunamadı")
-	case errors.Is(err, service.ErrPaymentExceedsContract):
+	case errors.Is(err, service.ErrPaymentExceedsContract),
+		errors.Is(err, service.ErrPaymentExceedsClaim):
 		// Metin rakamları ve ne yapılacağını içerir (bkz. PaymentExceedsContractError).
 		httpjson.Error(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, service.ErrBudgetNotFound):
@@ -309,7 +317,8 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrBudgetNotYetBaselined),
 		errors.Is(err, service.ErrAdjustmentNotPending),
 		errors.Is(err, service.ErrDuplicateWBSCode),
-		errors.Is(err, service.ErrCommitmentNotActive):
+		errors.Is(err, service.ErrCommitmentNotActive),
+		errors.Is(err, service.ErrCommitmentNotManual):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrInvalidWBSParent),
 		errors.Is(err, service.ErrArchivedWBSParent),
@@ -363,7 +372,10 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrPurchaseOrderNotCancellable),
 		errors.Is(err, service.ErrPurchaseOrderNotCloseable),
 		errors.Is(err, service.ErrPurchaseOrderItemsRequired),
-		errors.Is(err, service.ErrPurchaseOrderSupplierInactive):
+		errors.Is(err, service.ErrPurchaseOrderSupplierInactive),
+		errors.Is(err, service.ErrPurchaseOrderQuotationNotAwarded),
+		errors.Is(err, service.ErrPurchaseOrderSupplierMismatch),
+		errors.Is(err, service.ErrPurchaseOrderQuotationAlreadyOrdered):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrPurchaseOrderReasonRequired):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
@@ -388,12 +400,30 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrProgressClaimNotCancellable),
 		errors.Is(err, service.ErrProgressClaimItemsRequired),
 		errors.Is(err, service.ErrProgressClaimOverrun),
+		errors.Is(err, service.ErrProgressClaimDuplicateItem),
+		errors.Is(err, service.ErrProgressClaimExceedsContract),
+		errors.Is(err, service.ErrSubcontractChangeBelowCertified),
 		errors.Is(err, service.ErrProgressClaimStale),
-		errors.Is(err, service.ErrSubcontractNotActiveForClaim):
+		errors.Is(err, service.ErrSubcontractNotActiveForClaim),
+		errors.Is(err, service.ErrSubcontractNotCertifiable):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrSubcontractReasonRequired),
 		errors.Is(err, service.ErrSubcontractChangeOrderReasonRequired),
 		errors.Is(err, service.ErrProgressClaimReasonRequired):
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, service.ErrTitleRequired),
+		errors.Is(err, service.ErrItemDescriptionRequired),
+		errors.Is(err, service.ErrInvalidQuantity),
+		errors.Is(err, service.ErrInvalidUnitPrice),
+		errors.Is(err, service.ErrInvalidChangeType),
+		errors.Is(err, service.ErrInvalidRetentionPercent),
+		errors.Is(err, service.ErrInvalidTaxRate),
+		errors.Is(err, service.ErrNegativeDeduction),
+		errors.Is(err, service.ErrNegativeDiscount),
+		errors.Is(err, service.ErrNegativeAdvance),
+		errors.Is(err, service.ErrNegativeProgress),
+		errors.Is(err, service.ErrQuotationDuplicateItem),
+		errors.Is(err, service.ErrInvalidAmount):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, service.ErrOfferNotAccepted),
 		errors.Is(err, service.ErrInvalidProjectState),

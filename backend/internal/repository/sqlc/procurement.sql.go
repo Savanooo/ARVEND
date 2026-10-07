@@ -440,6 +440,29 @@ func (q *Queries) CloseRFQ(ctx context.Context, arg CloseRFQParams) (Rfq, error)
 	return i, err
 }
 
+const countOpenPurchaseOrdersForQuotation = `-- name: CountOpenPurchaseOrdersForQuotation :one
+SELECT count(*)::int AS open_count FROM purchase_orders
+WHERE source_quotation_id = $1 AND organization_id = $2 AND project_id = $3 AND status <> 'cancelled'
+`
+
+type CountOpenPurchaseOrdersForQuotationParams struct {
+	SourceQuotationID pgtype.UUID `json:"source_quotation_id"`
+	OrganizationID    pgtype.UUID `json:"organization_id"`
+	ProjectID         pgtype.UUID `json:"project_id"`
+}
+
+// Bir tekliften açılmış, iptal edilmemiş sipariş sayısı -- teklif başına
+// tek sipariş (bkz. CreatePurchaseOrder; çağıran teklif satırını kilitli
+// tutar). Bunu bir UNIQUE index ile değil kodla sağlıyoruz: mevcut veride
+// aynı tekliften açılmış birden fazla sipariş olabilir ve index migration'ı
+// düşürürdü.
+func (q *Queries) CountOpenPurchaseOrdersForQuotation(ctx context.Context, arg CountOpenPurchaseOrdersForQuotationParams) (int32, error) {
+	row := q.db.QueryRow(ctx, countOpenPurchaseOrdersForQuotation, arg.SourceQuotationID, arg.OrganizationID, arg.ProjectID)
+	var open_count int32
+	err := row.Scan(&open_count)
+	return open_count, err
+}
+
 const createPurchaseOrder = `-- name: CreatePurchaseOrder :one
 
 INSERT INTO purchase_orders (
@@ -1775,12 +1798,13 @@ SELECT qi.id, qi.organization_id, qi.project_id, qi.quotation_id, qi.rfq_item_id
 FROM quotation_items qi
 JOIN supplier_quotations sq ON sq.id = qi.quotation_id
 JOIN suppliers s ON s.id = sq.supplier_id
-WHERE sq.rfq_id = $1 AND sq.organization_id = $2
+WHERE sq.rfq_id = $1 AND sq.organization_id = $2 AND sq.project_id = $3
 `
 
 type ListQuotationItemsForRFQParams struct {
 	RfqID          pgtype.UUID `json:"rfq_id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
 type ListQuotationItemsForRFQRow struct {
@@ -1803,7 +1827,7 @@ type ListQuotationItemsForRFQRow struct {
 // sorguda getirir (N+1 yok) -- satır=rfq_item, sütun=tedarikçi eşlemesi
 // Go tarafında gruplanır.
 func (q *Queries) ListQuotationItemsForRFQ(ctx context.Context, arg ListQuotationItemsForRFQParams) ([]ListQuotationItemsForRFQRow, error) {
-	rows, err := q.db.Query(ctx, listQuotationItemsForRFQ, arg.RfqID, arg.OrganizationID)
+	rows, err := q.db.Query(ctx, listQuotationItemsForRFQ, arg.RfqID, arg.OrganizationID, arg.ProjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -1971,13 +1995,14 @@ const listSupplierQuotations = `-- name: ListSupplierQuotations :many
 SELECT sq.id, sq.organization_id, sq.project_id, sq.rfq_id, sq.supplier_id, sq.quotation_number, sq.quotation_date, sq.valid_until, sq.currency, sq.subtotal, sq.discount, sq.tax_rate, sq.tax, sq.total, sq.delivery_days, sq.payment_terms, sq.notes, sq.created_by, sq.created_at, sq.updated_at, s.code AS supplier_code, s.legal_name AS supplier_legal_name
 FROM supplier_quotations sq
 JOIN suppliers s ON s.id = sq.supplier_id
-WHERE sq.rfq_id = $1 AND sq.organization_id = $2
+WHERE sq.rfq_id = $1 AND sq.organization_id = $2 AND sq.project_id = $3
 ORDER BY sq.total ASC
 `
 
 type ListSupplierQuotationsParams struct {
 	RfqID          pgtype.UUID `json:"rfq_id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
 type ListSupplierQuotationsRow struct {
@@ -2007,8 +2032,11 @@ type ListSupplierQuotationsRow struct {
 
 // Teklif Karşılaştırma ekranının kaynağı -- tedarikçi kimliğini de
 // (N+1'siz) getirir.
+// project_id ZORUNLU: yalnızca org+rfq ile filtrelemek, Proje A'nın
+// URL'sinden Proje B'nin RFQ kimliğiyle B'nin tedarikçi fiyatlarını
+// okutuyordu (çağıran ayrıca RFQ'yu projeye göre doğrular).
 func (q *Queries) ListSupplierQuotations(ctx context.Context, arg ListSupplierQuotationsParams) ([]ListSupplierQuotationsRow, error) {
-	rows, err := q.db.Query(ctx, listSupplierQuotations, arg.RfqID, arg.OrganizationID)
+	rows, err := q.db.Query(ctx, listSupplierQuotations, arg.RfqID, arg.OrganizationID, arg.ProjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -2425,7 +2453,7 @@ func (q *Queries) SubmitPurchaseRequest(ctx context.Context, arg SubmitPurchaseR
 const updatePurchaseOrderFields = `-- name: UpdatePurchaseOrderFields :one
 UPDATE purchase_orders SET
     issue_date = $4, expected_delivery_date = $5, payment_terms = $6, delivery_address = $7,
-    notes = $8, tax_rate = $9
+    notes = $8, tax_rate = $9, supplier_id = $10
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'draft'
 RETURNING id, organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency, status, issue_date, expected_delivery_date, payment_terms, delivery_address, notes, subtotal, tax_rate, tax, total, created_by, approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason, closed_by, closed_at, created_at, updated_at
 `
@@ -2440,8 +2468,11 @@ type UpdatePurchaseOrderFieldsParams struct {
 	DeliveryAddress      string         `json:"delivery_address"`
 	Notes                string         `json:"notes"`
 	TaxRate              pgtype.Numeric `json:"tax_rate"`
+	SupplierID           pgtype.UUID    `json:"supplier_id"`
 }
 
+// supplier_id dahil: önceden taslak güncellemesinde gönderilen yeni
+// tedarikçi sessizce düşürülüyordu (çağıran tedarikçiyi doğrular).
 func (q *Queries) UpdatePurchaseOrderFields(ctx context.Context, arg UpdatePurchaseOrderFieldsParams) (PurchaseOrder, error) {
 	row := q.db.QueryRow(ctx, updatePurchaseOrderFields,
 		arg.ID,
@@ -2453,6 +2484,7 @@ func (q *Queries) UpdatePurchaseOrderFields(ctx context.Context, arg UpdatePurch
 		arg.DeliveryAddress,
 		arg.Notes,
 		arg.TaxRate,
+		arg.SupplierID,
 	)
 	var i PurchaseOrder
 	err := row.Scan(

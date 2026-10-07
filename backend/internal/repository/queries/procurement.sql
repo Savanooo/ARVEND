@@ -221,10 +221,13 @@ RETURNING *;
 -- name: ListSupplierQuotations :many
 -- Teklif Karşılaştırma ekranının kaynağı -- tedarikçi kimliğini de
 -- (N+1'siz) getirir.
+-- project_id ZORUNLU: yalnızca org+rfq ile filtrelemek, Proje A'nın
+-- URL'sinden Proje B'nin RFQ kimliğiyle B'nin tedarikçi fiyatlarını
+-- okutuyordu (çağıran ayrıca RFQ'yu projeye göre doğrular).
 SELECT sq.*, s.code AS supplier_code, s.legal_name AS supplier_legal_name
 FROM supplier_quotations sq
 JOIN suppliers s ON s.id = sq.supplier_id
-WHERE sq.rfq_id = $1 AND sq.organization_id = $2
+WHERE sq.rfq_id = $1 AND sq.organization_id = $2 AND sq.project_id = $3
 ORDER BY sq.total ASC;
 
 -- name: GetSupplierQuotation :one
@@ -278,7 +281,7 @@ SELECT qi.*, sq.supplier_id, s.code AS supplier_code, s.legal_name AS supplier_l
 FROM quotation_items qi
 JOIN supplier_quotations sq ON sq.id = qi.quotation_id
 JOIN suppliers s ON s.id = sq.supplier_id
-WHERE sq.rfq_id = $1 AND sq.organization_id = $2;
+WHERE sq.rfq_id = $1 AND sq.organization_id = $2 AND sq.project_id = $3;
 
 -- ============ Purchase Order ============
 
@@ -302,10 +305,21 @@ SELECT * FROM purchase_orders WHERE id = $1 AND organization_id = $2 AND project
 -- name: GetPurchaseOrderForUpdate :one
 SELECT * FROM purchase_orders WHERE id = $1 AND organization_id = $2 AND project_id = $3 FOR UPDATE;
 
+-- name: CountOpenPurchaseOrdersForQuotation :one
+-- Bir tekliften açılmış, iptal edilmemiş sipariş sayısı -- teklif başına
+-- tek sipariş (bkz. CreatePurchaseOrder; çağıran teklif satırını kilitli
+-- tutar). Bunu bir UNIQUE index ile değil kodla sağlıyoruz: mevcut veride
+-- aynı tekliften açılmış birden fazla sipariş olabilir ve index migration'ı
+-- düşürürdü.
+SELECT count(*)::int AS open_count FROM purchase_orders
+WHERE source_quotation_id = $1 AND organization_id = $2 AND project_id = $3 AND status <> 'cancelled';
+
 -- name: UpdatePurchaseOrderFields :one
+-- supplier_id dahil: önceden taslak güncellemesinde gönderilen yeni
+-- tedarikçi sessizce düşürülüyordu (çağıran tedarikçiyi doğrular).
 UPDATE purchase_orders SET
     issue_date = $4, expected_delivery_date = $5, payment_terms = $6, delivery_address = $7,
-    notes = $8, tax_rate = $9
+    notes = $8, tax_rate = $9, supplier_id = $10
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'draft'
 RETURNING *;
 
