@@ -121,7 +121,7 @@ class _ProductsBodyState extends ConsumerState<_ProductsBody> {
               controller: _searchController,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                hintText: 'Ürün adında ara…',
+                hintText: 'Ürün, kategori, tedarikçi ara…',
                 prefixIcon: const Icon(Icons.search),
                 isDense: true,
                 suffixIcon: value.text.isEmpty

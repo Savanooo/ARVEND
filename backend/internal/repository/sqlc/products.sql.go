@@ -14,16 +14,10 @@ import (
 const countProducts = `-- name: CountProducts :one
 SELECT count(*) FROM products
 WHERE organization_id = $1
-  AND ($2::text = '' OR normalized_name ILIKE '%' || $2::text || '%')
 `
 
-type CountProductsParams struct {
-	OrganizationID pgtype.UUID `json:"organization_id"`
-	Column2        string      `json:"column_2"`
-}
-
-func (q *Queries) CountProducts(ctx context.Context, arg CountProductsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countProducts, arg.OrganizationID, arg.Column2)
+func (q *Queries) CountProducts(ctx context.Context, organizationID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countProducts, organizationID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -165,7 +159,6 @@ func (q *Queries) ListPriceHistory(ctx context.Context, productID pgtype.UUID) (
 const listProducts = `-- name: ListProducts :many
 SELECT id, name, normalized_name, unit, unit_price, description, category, source, source_price, created_at, updated_at, organization_id, source_synced_at FROM products
 WHERE organization_id = $1
-  AND ($4::text = '' OR normalized_name ILIKE '%' || $4::text || '%')
 ORDER BY name ASC, id ASC
 LIMIT $2 OFFSET $3
 `
@@ -174,16 +167,11 @@ type ListProductsParams struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
 	Limit          int32       `json:"limit"`
 	Offset         int32       `json:"offset"`
-	Column4        string      `json:"column_4"`
 }
 
+// Aramasız katalog listesi (ad sırasıyla). Arama SearchProducts'tadır.
 func (q *Queries) ListProducts(ctx context.Context, arg ListProductsParams) ([]Product, error) {
-	rows, err := q.db.Query(ctx, listProducts,
-		arg.OrganizationID,
-		arg.Limit,
-		arg.Offset,
-		arg.Column4,
-	)
+	rows, err := q.db.Query(ctx, listProducts, arg.OrganizationID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -205,6 +193,154 @@ func (q *Queries) ListProducts(ctx context.Context, arg ListProductsParams) ([]P
 			&i.UpdatedAt,
 			&i.OrganizationID,
 			&i.SourceSyncedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchProducts = `-- name: SearchProducts :many
+WITH category_folds AS MATERIALIZED (
+    SELECT d.category,
+           replace(replace(replace(
+               CASE WHEN d.lowered ~ '[x×*] | [x×*]'
+                    THEN regexp_replace(d.lowered, '(\d) *[x×*] *(?=\d)', '\1x', 'g') ELSE d.lowered END,
+           '×', 'x'), '*', 'x'), ',', '.') AS category_f
+    FROM (
+        SELECT DISTINCT p.category, lower(translate(p.category, 'İIıŞşĞğÜüÖöÇç', 'iiissgguuoocc')) AS lowered
+        FROM products AS p
+        WHERE p.organization_id = $7
+    ) AS d
+), candidates AS MATERIALIZED (
+    SELECT p.id, p.name, p.normalized_name, p.unit, p.unit_price, p.description, p.category, p.source, p.source_price, p.created_at, p.updated_at, p.organization_id, p.source_synced_at, n.name_f,
+           n.name_f || ' ' || cf.category_f || ' ' ||
+           coalesce(($8::text[])[array_position($9::text[], p.source::text)],
+                    lower(p.source), '') AS haystack
+    FROM products AS p
+    JOIN category_folds AS cf ON cf.category = p.category
+    CROSS JOIN LATERAL (
+        SELECT replace(replace(replace(
+                   CASE WHEN p.normalized_name ~ '[x×*] | [x×*]'
+                        THEN regexp_replace(p.normalized_name, '(\d) *[x×*] *(?=\d)', '\1x', 'g') ELSE p.normalized_name END,
+               '×', 'x'), '*', 'x'), ',', '.') AS name_f
+    ) AS n
+    WHERE p.organization_id = $7
+)
+SELECT c.id, c.name, c.normalized_name, c.unit, c.unit_price, c.description, c.category, c.source,
+       c.source_price, c.created_at, c.updated_at, c.organization_id, c.source_synced_at,
+       count(*) OVER () AS total
+FROM candidates AS c
+WHERE c.haystack LIKE ALL ($1::text[])
+ORDER BY (c.name_f LIKE ALL ($1::text[])) DESC,
+         (c.name_f LIKE ANY ($1::text[])) DESC,
+         (' ' || c.name_f || ' ' || translate(c.name_f, 'ø(/-x', '     ')) LIKE ALL ($2::text[]) DESC,
+         (strpos(c.name_f, $3::text) > 0) DESC,
+         starts_with(c.name_f, $4::text) DESC,
+         length(c.name) ASC,
+         c.name ASC, c.id ASC
+LIMIT $6 OFFSET $5
+`
+
+type SearchProductsParams struct {
+	Patterns          []string    `json:"patterns"`
+	WordStartPatterns []string    `json:"word_start_patterns"`
+	Phrase            string      `json:"phrase"`
+	FirstTerm         string      `json:"first_term"`
+	RowOffset         int32       `json:"row_offset"`
+	RowLimit          int32       `json:"row_limit"`
+	OrganizationID    pgtype.UUID `json:"organization_id"`
+	SourceLabels      []string    `json:"source_labels"`
+	SourceCodes       []string    `json:"source_codes"`
+}
+
+type SearchProductsRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	Name           string             `json:"name"`
+	NormalizedName string             `json:"normalized_name"`
+	Unit           string             `json:"unit"`
+	UnitPrice      pgtype.Numeric     `json:"unit_price"`
+	Description    string             `json:"description"`
+	Category       string             `json:"category"`
+	Source         *string            `json:"source"`
+	SourcePrice    pgtype.Numeric     `json:"source_price"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	SourceSyncedAt pgtype.Timestamptz `json:"source_synced_at"`
+	Total          int64              `json:"total"`
+}
+
+// Kelime bazlı katalog araması (bkz. domain/product_search.go). Ürün, HER
+// kelime adında YA DA kategorisinde YA DA tedarikçisinde geçiyorsa eşleşir:
+// üç alan (kelimeler boşluk içermediği için hiçbir kelime iki alana taşamaz)
+// boşlukla birleştirilip "LIKE ALL" ile aranır. Desenler Go'da kaçışlanır
+// (ProductSearchPatterns): "_" ve "%" joker değildir.
+//
+// Katlama Go'daki ProductSearchFold ile BİREBİR aynı olmalı:
+//
+//	ad       normalized_name (Go NormalizeName ile yazılmış) + "40 x 40" ->
+//	         "40x40" (regexp yalnızca x'in yanında boşluk varken çalışır) +
+//	         × * , -> x x .
+//	kategori Türkçe harf katlaması + lower (translate lower'dan ÖNCE:
+//	         lower('İ') yerel ayara göre 'i̇' olur) + aynı ölçü katlaması.
+//	         translate pahalıdır (çok baytlı küme): firmanın her FARKLI
+//	         kategorisi için bir kez hesaplanır, satır başına değil.
+//	tedarikçi kayıt defterinden gelen etiket (ProductSearchSources); defterde
+//	         olmayan bir kaynak kodu kendi adıyla aranır.
+//
+// candidates MATERIALIZED: Postgres aksi hâlde ad katlamasını her
+// kullanıldığı yere (filtre + beş sıralama anahtarı) kopyalayıp satır
+// başına defalarca hesaplıyordu.
+//
+// Sıra:
+//  1. tüm kelimeler adda; 2. en az bir kelime adda -- ad eşleşmesi
+//     kategori/tedarikçi eşleşmesinden önce ("profil": Kutu Profil'ler,
+//     Demir Profil'in borularından önce);
+//  3. tüm kelimeler bir kelimenin BAŞINDA -- "kutu 40": 40×40 ve 30×40,
+//     140×140'tan önce (ölçü ayracı x, Ø, parantez, /, - kelime başı sayılır);
+//  4. sorgu adda yan yana geçiyor ("kutu profil"); 5. ad ilk kelimeyle başlıyor;
+//  6. kısa ad önce (yazılana daha yakın), sonra ad, id.
+//
+// total: sayfalamadan önceki eşleşme sayısı (her satırda aynı).
+func (q *Queries) SearchProducts(ctx context.Context, arg SearchProductsParams) ([]SearchProductsRow, error) {
+	rows, err := q.db.Query(ctx, searchProducts,
+		arg.Patterns,
+		arg.WordStartPatterns,
+		arg.Phrase,
+		arg.FirstTerm,
+		arg.RowOffset,
+		arg.RowLimit,
+		arg.OrganizationID,
+		arg.SourceLabels,
+		arg.SourceCodes,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchProductsRow
+	for rows.Next() {
+		var i SearchProductsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.NormalizedName,
+			&i.Unit,
+			&i.UnitPrice,
+			&i.Description,
+			&i.Category,
+			&i.Source,
+			&i.SourcePrice,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.OrganizationID,
+			&i.SourceSyncedAt,
+			&i.Total,
 		); err != nil {
 			return nil, err
 		}

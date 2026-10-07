@@ -97,7 +97,30 @@ mobil hazır; web şu an çalışmaya devam ediyor ama aşağıdakiler eksik.
   eşlenmeli; şu an `null` döner, bildirim web'de tıklanmaz.
 - `lib/types.ts` Expense: `project_id`, `created_by`, `voided_by`.
 
+## 9. Teklif kaleminde katalogdan ürün seçme (mobil 1.5.11)
+Backend `GET /products?q=` artık kelime bazlı (bkz. `mobile/API_CONTRACT.md`
+"Products"): her kelime adda, kategoride ya da tedarikçide geçmeli; "demir"
+Demir Profil ürünlerini, "kutu 40" 40'lı kutu profilleri, "40x40" "40×40"ı
+bulur; ad eşleşmesi önce sıralanır. Ürünler sayfasındaki arama da bu
+kuralla çalışır (web değişmeden faydalanır).
+- `OfferForm.tsx`: ürün adı `<datalist>`ten seçiliyor ve tüm katalog
+  (~4000 ürün, 40 sayfa) form açılırken çekiliyor. Tarayıcının datalist
+  süzmesi tek alt dize ve yalnızca adda: "demir" ya da "kutu 40" yine bir
+  şey bulmuyor — şikâyetin web tarafı bu. Mobildeki gibi: 2+ karakterde,
+  300 ms beklemeli `GET /products?q=…&limit=6` önerileri (ad, kategori ·
+  tedarikçi, fiyat / birim); tüm kataloğu çekme kalkar.
+- Seçim yalnızca `product_id` ve `unit_price` dolduruyor; formda birim alanı
+  yok, kalem birimsiz kaydediliyor (metraj satırları hariç). Mobil seçimde
+  birimi de dolduruyor.
+- Eşleşme tam adla (`p.name === name`): aynı adlı iki üründen hep ilki
+  bağlanıyor. Öneri kimlikle (id) seçilmeli; ad sonra değiştirilirse
+  `product_id` düşmeli (mobil böyle).
+
 ## Bilinen tutarsızlıklar (web + backend)
+- Katalog fiyatı TL; teklifin para birimi TL değilse (firma varsayılanı
+  USD/EUR) katalogdan seçilen fiyat çevrilmeden yazılıyor — web ve mobil
+  aynı. Mobil önerilerin üstünde uyarıyor ("Katalog fiyatları TL; bu teklif
+  USD…"); web hiç uyarmıyor. Kalıcı çözüm kur çevrimi.
 - Maliyet kontrol gerçekleşenleri, proje listesi kârı, ek iş kârlılığı ve ana
   sayfa hâlâ masrafları KDV DAHİL topluyor; yalnızca finans özeti KDV'yi
   çıkarıyor.

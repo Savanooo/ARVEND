@@ -118,8 +118,11 @@ class ApiClient {
   @visibleForTesting
   factory ApiClient.test(Dio dio) => ApiClient._(dio, CookieJar());
 
-  Future<T> get<T>(String path, {Map<String, dynamic>? query}) =>
-      _send<T>(() => _dio.get(path, queryParameters: query));
+  /// [cancelToken]: yazarken arama gibi, yenisi gelince eskisinin boşuna
+  /// sürmemesi gereken istekler için. İptal edilen istek de `ApiException`
+  /// olarak döner; iptali token'ın sahibi (`isCancelled`) ayırt eder.
+  Future<T> get<T>(String path, {Map<String, dynamic>? query, CancelToken? cancelToken}) =>
+      _send<T>(() => _dio.get(path, queryParameters: query, cancelToken: cancelToken));
 
   Future<T> post<T>(String path, {Object? data}) =>
       _send<T>(() => _dio.post(path, data: data));
