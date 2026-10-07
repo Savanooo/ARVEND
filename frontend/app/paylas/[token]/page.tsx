@@ -1,3 +1,5 @@
+import { headers } from "next/headers";
+
 import { Badge } from "@/components/ui/Badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
@@ -29,9 +31,27 @@ type PublicOffer = Offer & { can_respond: boolean; validity_expired: boolean; or
 
 type FetchResult = { offer: PublicOffer; error: null } | { offer: null; error: ApiError };
 
+// Sayfa sunucuda render edilir; API'yi çağıran tarayıcı değil bu sunucudur.
+// Açanın User-Agent'ı ve IP zinciri iletilir ki backend WhatsApp/iMessage
+// gibi bağlantı önizlemelerini "müşteri teklifi açtı" saymasın (linki
+// gönderen personelin telefonu önizlemeyi hemen çeker) ve görüntülenme
+// kaydı gerçek ziyaretçiyi göstersin.
+async function viewerHeaders(): Promise<Record<string, string>> {
+  const h = await headers();
+  const out: Record<string, string> = {};
+  const ua = h.get("user-agent");
+  if (ua) out["X-Viewer-User-Agent"] = ua;
+  const forwardedFor = h.get("x-forwarded-for");
+  if (forwardedFor) out["X-Forwarded-For"] = forwardedFor;
+  return out;
+}
+
 async function fetchOffer(token: string): Promise<FetchResult> {
   try {
-    return { offer: await apiServer<PublicOffer>(`/api/v1/public/offers/${token}/`, ""), error: null };
+    const offer = await apiServer<PublicOffer>(`/api/v1/public/offers/${token}/`, "", {
+      headers: await viewerHeaders(),
+    });
+    return { offer, error: null };
   } catch (err) {
     if (err instanceof ApiError) return { offer: null, error: err };
     throw err;

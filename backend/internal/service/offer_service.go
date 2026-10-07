@@ -1620,30 +1620,35 @@ func (s *OfferService) GetPublicView(ctx context.Context, token, ip, userAgent s
 // açılışta olay first_open ile işaretlenir ve teklifi hazırlayana "Müşteri
 // teklifi açtı" bildirimi gider (notifyOfferFirstOpen). Gürültüyü düşük
 // tutan kural:
+//
 //   - Revizyon başına BİR kez. Sayfa yenileme, linki tekrar açma, aynı
 //     revizyonun ikinci bir linki bildirim üretmez; yeni bir revizyon
 //     gönderilince onun ilk açılışı yeniden bildirilir (müşterinin revize
 //     teklife baktığı da haberdir).
+//
 //   - Yalnızca karar beklenirken. Taslak revizyonun linkini personelin
 //     önizlemesi ya da karar verilmiş/eskimiş bir revizyonun açılması
 //     bildirim değildir ve "ilk açılış" hakkını da tüketmez.
+//
 //   - "İlk" bilgisi offer_events'in kendisinden okunur (first_open işaretli
 //     bir görüntülenme var mı) -- ayrı kolon/migration yok. Eşzamanlı iki
 //     açılış revizyon anahtarlı advisory lock ile sıraya girer; yalnızca
 //     biri "ilk" sayılır.
 //
-// Bot/önizleme ayıklanmaz, ayıklanamaz: müşteri sayfası (/paylas) Next.js
-// sunucusunda render edilir ve bu ucu kendisi çağırır; tarayıcının
-// User-Agent'ı ve IP'si buraya ulaşmaz (gelen her istek Next sunucusunun
-// kendisidir). Linki WhatsApp'a yapıştırınca gönderenin telefonunun
-// yaptığı önizleme ya da e-posta güvenlik tarayıcısının tıklaması da bu
-// yüzden "açılış" görünür (Ana Sayfa'daki görüntülenme sayıları da aynı
-// durumda, bkz. DashboardOfferLatestViews).
+//   - Bağlantı önizlemesi açılış değildir (IsLinkPreviewAgent): linki
+//     WhatsApp'a yapıştıran PERSONELİN telefonu sayfayı hemen önizleme
+//     için çeker -- "müşteri açtı" bildirimi müşteri daha mesajı görmeden
+//     giderdi ve gerçek açılış sessiz kalırdı. Önizleme yine kaydedilir
+//     (görüntülenme), yalnızca ilk açılış hakkını tüketmez. Müşteri sayfası
+//     Next.js sunucusunda render edildiği için tarayıcının User-Agent'ını
+//     sayfa X-Viewer-User-Agent başlığıyla iletir (bkz. public offer
+//     handler). Tarayıcı gibi davranan e-posta güvenlik tarayıcıları
+//     ayıklanamaz.
 //
 // En iyi çaba: hata müşterinin teklifi görmesini engellemez (çağıran
 // yalnızca loglar).
 func (s *OfferService) recordCustomerView(ctx context.Context, offerRow sqlc.Offer, revRow sqlc.OfferRevision, awaitingDecision bool, ip, userAgent string) error {
-	if !awaitingDecision {
+	if !awaitingDecision || IsLinkPreviewAgent(userAgent) {
 		return logOfferEvent(ctx, s.q, offerRow.OrganizationID, offerRow.ID, revRow.ID, domain.EventCustomerViewed,
 			pgtype.UUID{}, nil, ip, userAgent)
 	}

@@ -44,6 +44,19 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
+// viewerUserAgent, sayfayı açan TARAYICININ User-Agent'ı. Müşteri sayfası
+// Next.js sunucusunda render edilir ve bu ucu kendisi çağırır; tarayıcının
+// başlığını X-Viewer-User-Agent ile iletir (yoksa -- eski web sürümü ya da
+// doğrudan çağrı -- isteğin kendi User-Agent'ı). Yalnızca kayıt ve
+// önizleme ayıklama içindir (service.IsLinkPreviewAgent); yetki kararına
+// girmez.
+func viewerUserAgent(r *http.Request) string {
+	if ua := strings.TrimSpace(r.Header.Get("X-Viewer-User-Agent")); ua != "" {
+		return ua
+	}
+	return r.UserAgent()
+}
+
 // publicOfferResponse, teklifin genel görünümüne "bu bağlantı üzerinden
 // şu an karar verilebilir mi?" bilgisini ekler -- müşteriye asla başarılı
 // olamayacak bir Kabul Et/Reddet butonu gösterilmemesi için.
@@ -76,7 +89,7 @@ func toPublicOfferResponse(o domain.Offer) offerResponse {
 }
 
 func (h *PublicOfferHandler) Get(w http.ResponseWriter, r *http.Request) {
-	v, err := h.svc.GetPublicView(r.Context(), chi.URLParam(r, "token"), clientIP(r), r.UserAgent())
+	v, err := h.svc.GetPublicView(r.Context(), chi.URLParam(r, "token"), clientIP(r), viewerUserAgent(r))
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -99,7 +112,7 @@ func (h *PublicOfferHandler) Respond(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
-	o, err := h.svc.RespondByShareLinkToken(r.Context(), chi.URLParam(r, "token"), req.Decision, clientIP(r), r.UserAgent())
+	o, err := h.svc.RespondByShareLinkToken(r.Context(), chi.URLParam(r, "token"), req.Decision, clientIP(r), viewerUserAgent(r))
 	if err != nil {
 		h.writeError(w, err)
 		return

@@ -328,6 +328,21 @@ func TestCustomerLinkNotifications(t *testing.T) {
 		expectCount(t, domain.NotificationOfferViewed, o.ID, map[*domain.User]int{sales: 1})
 	})
 
+	t.Run("whatsapp_preview_does_not_use_up_the_first_open", func(t *testing.T) {
+		o := newOffer(t, sales.ID)
+		token := send(t, o, sales.ID)
+		// Linki WhatsApp'a yapıştıran personelin telefonu önizleme çeker.
+		if _, err := offerSvc.GetPublicView(ctx, token, "", "WhatsApp/2.24.20.89 A"); err != nil {
+			t.Fatalf("önizleme açılamadı: %v", err)
+		}
+		expectCount(t, domain.NotificationOfferViewed, o.ID, map[*domain.User]int{sales: 0})
+		// Müşterinin gerçek açılışı bildirilir.
+		if _, err := offerSvc.GetPublicView(ctx, token, "", "Mozilla/5.0 (Linux; Android 14) Mobile Safari/537.36"); err != nil {
+			t.Fatalf("link açılamadı: %v", err)
+		}
+		expectCount(t, domain.NotificationOfferViewed, o.ID, map[*domain.User]int{sales: 1})
+	})
+
 	t.Run("first_open_without_a_reachable_creator_goes_to_managers", func(t *testing.T) {
 		o := newOffer(t, "")
 		view(t, send(t, o, ""))
