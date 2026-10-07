@@ -13,9 +13,11 @@ import { Select } from "@/components/ui/Select";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { Textarea } from "@/components/ui/Textarea";
+import { useToast } from "@/components/ui/Toast";
 import { apiClient, ApiError } from "@/lib/api";
+import { expenseIsPending, summarizeExpenses } from "@/lib/expenses";
 import { formatMoney, istanbulDate } from "@/lib/format";
-import { INVOICE_STATUS, PLAN_ITEM_STATUS, SUBCONTRACTOR_STATUS } from "@/lib/status";
+import { EXPENSE_APPROVAL_STATUS, INVOICE_STATUS, PLAN_ITEM_STATUS, SUBCONTRACTOR_STATUS } from "@/lib/status";
 import {
   EXPENSE_CATEGORY_LABELS,
   INVOICE_STATUS_LABELS,
@@ -470,6 +472,10 @@ const emptyExpenseForm = () => ({
 // ettiği alanların tamamıdır (bkz. handler/project_finance_handler.go) --
 // yeni bir backend yeteneği eklenmedi. Para birimi kullanıcıya sorulmaz,
 // projeninkinden gelir.
+//
+// Masraf onayı (backend migration 0060): her masraf "Onay bekliyor" başlar
+// ve yalnızca onaylanınca toplamlara girer. Onayla/Reddet yalnızca
+// projects.expenses.approve sahibine (canApprove) ve açık projede görünür.
 export function ExpensesSection({
   project,
   expenses,
@@ -478,6 +484,7 @@ export function ExpensesSection({
   budgetLines = [],
   locked,
   canManage,
+  canApprove,
 }: {
   project: Project;
   expenses: Expense[];
@@ -491,11 +498,17 @@ export function ExpensesSection({
   locked: boolean;
   // projects.finance.manage yoksa (salt okuma) yazma kontrolleri gizlenir.
   canManage: boolean;
+  // projects.expenses.approve: Onayla/Reddet.
+  canApprove: boolean;
 }) {
   const { busy, error, run } = useFinanceAction(locked);
+  const toast = useToast();
   const editable = !locked && canManage;
+  const deciding = !locked && canApprove;
   const { askReason, dialog } = useReasonDialog();
-  const [sectionOpen, setSectionOpen] = useState(false);
+  const summary = summarizeExpenses(expenses);
+  // Onaylayıcı bildirimden (Finans sekmesi) geldiğinde bekleyenler açık dursun.
+  const [sectionOpen, setSectionOpen] = useState(() => canApprove && summary.pendingCount > 0);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(emptyExpenseForm);
   // Tahsilat/taşeron ödemesiyle SİMETRİK: anahtar form örneği başına
@@ -535,10 +548,35 @@ export function ExpensesSection({
       setIdempotencyKey(newIdempotencyKey());
       setForm(emptyExpenseForm());
       setFormOpen(false);
+      toast.success("Masraf kaydedildi, onay bekliyor. Onaylanınca toplamlara girer.");
     }
   }
 
-  const validTotal = expenses.filter((e) => !e.voided_at).reduce((sum, e) => sum + e.amount, 0);
+  async function approve(e: Expense) {
+    const ok = await run(() =>
+      apiClient(`/api/v1/projects/${project.id}/expenses/${e.id}/approve`, { method: "POST" })
+    );
+    if (ok) toast.success("Masraf onaylandı.");
+  }
+
+  async function reject(e: Expense) {
+    const reason = await askReason({
+      title: "Masrafı Reddet",
+      message: `${formatMoney(e.amount, e.currency)} tutarındaki masraf reddedilecek; toplamlara girmez, masrafı giren gerekçeyi görür.`,
+      label: "Red nedeni",
+      confirmLabel: "Reddet",
+      danger: true,
+      required: true,
+    });
+    if (reason === null) return;
+    const ok = await run(() =>
+      apiClient(`/api/v1/projects/${project.id}/expenses/${e.id}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      })
+    );
+    if (ok) toast.success("Masraf reddedildi.");
+  }
 
   return (
     <Section
@@ -555,6 +593,12 @@ export function ExpensesSection({
     >
       <div className="flex flex-col gap-3">
         {dialog}
+        {summary.pendingCount > 0 && (
+          <p className="rounded-md border border-info/30 bg-info-soft px-3 py-2 text-xs text-info">
+            {summary.pendingCount} masraf onay bekliyor (toplam {formatMoney(summary.pendingTotal, project.currency)}).
+            Onaylanana kadar toplamlara ve kâra girmez.
+          </p>
+        )}
         {expenses.length === 0 ? (
           <p className="text-text-muted">Henüz masraf kaydı yok.</p>
         ) : (
@@ -566,8 +610,9 @@ export function ExpensesSection({
                 <Th>Açıklama</Th>
                 <Th>Tedarikçi</Th>
                 <Th>Fatura No</Th>
+                <Th>Durum</Th>
                 <Th className="text-right">Tutar</Th>
-                <Th className="w-16" />
+                <Th className={deciding ? "w-36" : "w-16"} />
               </tr>
             </thead>
             <tbody>
@@ -595,13 +640,43 @@ export function ExpensesSection({
                       </span>
                     )}
                     {e.notes && <div className="text-xs text-text-muted">{e.notes}</div>}
+                    {e.approval_status === "rejected" && e.decision_note && (
+                      <div className="text-xs text-danger">Red nedeni: {e.decision_note}</div>
+                    )}
                   </Td>
                   <Td className="text-text-muted">{e.supplier_name || "—"}</Td>
                   <Td className="text-text-muted">{e.invoice_no || "—"}</Td>
-                  <Td className={`text-right ${e.voided_at ? "line-through" : "font-medium"}`}>
+                  <Td>
+                    <span title={e.approval_status === "rejected" && e.decision_note ? `Red nedeni: ${e.decision_note}` : undefined}>
+                      <StatusBadge status={e.approval_status} registry={EXPENSE_APPROVAL_STATUS} />
+                    </span>
+                  </Td>
+                  <Td
+                    className={`text-right ${e.voided_at ? "line-through" : e.approval_status === "approved" ? "font-medium" : "text-text-muted"}`}
+                  >
                     {formatMoney(e.amount, e.currency)}
                   </Td>
                   <Td className="text-right">
+                    {expenseIsPending(e) && deciding && (
+                      <div className="flex justify-end gap-3 text-xs">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => approve(e)}
+                          className="text-success hover:underline"
+                        >
+                          Onayla
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => reject(e)}
+                          className="text-danger hover:underline"
+                        >
+                          Reddet
+                        </button>
+                      </div>
+                    )}
                     {!e.voided_at && editable && (
                       <button
                         type="button"
@@ -637,7 +712,7 @@ export function ExpensesSection({
 
         <div className="flex items-center justify-between border-t border-border pt-2 text-sm">
           <span className="text-text-muted">Geçerli masraf toplamı</span>
-          <span className="font-medium">{formatMoney(validTotal, project.currency)}</span>
+          <span className="font-medium">{formatMoney(summary.approvedTotal, project.currency)}</span>
         </div>
         <p className="text-xs text-text-muted">
           Taşeron ödemeleri buraya girilmez — çift sayımı önlemek için yalnızca Taşeronlar

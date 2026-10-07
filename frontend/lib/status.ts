@@ -5,6 +5,7 @@ import {
   CHANGE_ORDER_STATUS_LABELS,
   COMMITMENT_STATUS_LABELS,
   CONTRACT_STATUS_LABELS,
+  EXPENSE_APPROVAL_STATUS_LABELS,
   INVOICE_STATUS_LABELS,
   ORG_STATUS_LABELS,
   PLAN_ITEM_STATUS_LABELS,
@@ -21,6 +22,7 @@ import {
   type ChangeOrderStatus,
   type CommitmentStatus,
   type ContractStatus,
+  type ExpenseApprovalStatus,
   type InvoiceStatus,
   type OfferStatus,
   type OrgStatus,
@@ -135,6 +137,14 @@ export const ADJUSTMENT_STATUS: Record<AdjustmentStatus, StatusMeta> = {
   draft: { label: ADJUSTMENT_STATUS_LABELS.draft, tone: "muted" },
   approved: { label: ADJUSTMENT_STATUS_LABELS.approved, tone: "success" },
   rejected: { label: ADJUSTMENT_STATUS_LABELS.rejected, tone: "danger" },
+};
+
+// Onay bekleyen masraf, gönderilip karar beklenen talep gibi "info" --
+// satın alma talebinin "submitted" tonuyla aynı.
+export const EXPENSE_APPROVAL_STATUS: Record<ExpenseApprovalStatus, StatusMeta> = {
+  pending: { label: EXPENSE_APPROVAL_STATUS_LABELS.pending, tone: "info" },
+  approved: { label: EXPENSE_APPROVAL_STATUS_LABELS.approved, tone: "success" },
+  rejected: { label: EXPENSE_APPROVAL_STATUS_LABELS.rejected, tone: "danger" },
 };
 
 export const COMMITMENT_STATUS: Record<CommitmentStatus, StatusMeta> = {

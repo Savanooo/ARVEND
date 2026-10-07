@@ -682,7 +682,22 @@ export interface Expense {
   // masraflarda boştur (bkz. docs/cost-control.md).
   cost_code_id?: string | null;
   budget_line_id?: string | null;
+  // Masraf onayı (backend migration 0060): her masraf onay bekleyerek
+  // başlar; toplamlara yalnızca "approved" (ve iptal edilmemiş) girer.
+  // decision_note ret gerekçesidir.
+  approval_status: ExpenseApprovalStatus;
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string;
 }
+
+export type ExpenseApprovalStatus = "pending" | "approved" | "rejected";
+
+export const EXPENSE_APPROVAL_STATUS_LABELS: Record<ExpenseApprovalStatus, string> = {
+  pending: "Onay bekliyor",
+  approved: "Onaylandı",
+  rejected: "Reddedildi",
+};
 
 export type InvoiceStatus = "draft" | "issued" | "sent" | "paid" | "cancelled";
 

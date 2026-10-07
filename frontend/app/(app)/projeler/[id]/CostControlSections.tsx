@@ -16,6 +16,7 @@ import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { ControlledTabPanel, ControlledTabs } from "@/components/ui/Tabs";
 import { Textarea } from "@/components/ui/Textarea";
 import { apiClient, ApiError } from "@/lib/api";
+import { expenseCounts, summarizeExpenses } from "@/lib/expenses";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
 import { ADJUSTMENT_STATUS, BUDGET_STATUS, COMMITMENT_STATUS } from "@/lib/status";
 import type {
@@ -1016,19 +1017,34 @@ function CommitmentsTab({
 
 function ActualCostTab({ expenses, costCodes }: { expenses: Expense[]; costCodes: OrganizationCostCode[] }) {
   const codeById = new Map(costCodes.map((c) => [c.id, c]));
-  const mapped = expenses.filter((e) => e.cost_code_id && !e.voided_at);
-  const unmapped = expenses.filter((e) => !e.cost_code_id && !e.voided_at);
+  // Gerçekleşen yalnızca ONAYLI masraflardan (backend migration 0060, EAC
+  // ile aynı kural); onay bekleyenler yalnızca not olarak sayılır.
+  const counted = expenses.filter(expenseCounts);
+  const mapped = counted.filter((e) => e.cost_code_id);
+  const unmapped = counted.filter((e) => !e.cost_code_id);
+  const { pendingCount } = summarizeExpenses(expenses);
+  const pendingNote = pendingCount > 0 && (
+    <p className="text-xs text-text-muted">
+      {pendingCount} masraf onay bekliyor — onaylanınca gerçekleşen maliyete girer.
+    </p>
+  );
 
-  if (expenses.filter((e) => !e.voided_at).length === 0) {
-    return <EmptyState title="Henüz gider kaydı yok" description="Gerçekleşen maliyet, Finans > Masraflar bölümünde girilen kayıtlardan gelir." />;
+  if (counted.length === 0) {
+    return (
+      <div className="flex flex-col gap-3">
+        <EmptyState title="Henüz gider kaydı yok" description="Gerçekleşen maliyet, Finans > Masraflar bölümünde girilip onaylanan kayıtlardan gelir." />
+        {pendingNote}
+      </div>
+    );
   }
 
   return (
     <div className="flex flex-col gap-4">
       <p className="text-xs text-text-muted">
-        Bu tablo, Finans &gt; Masraflar bölümünde girilen kayıtların maliyet koduna göre kırılımıdır — AYRI bir
-        gerçekleşen-maliyet kaydı DEĞİLDİR (spec: tek gerçek kaynak, mükerrer kayıt yok).
+        Bu tablo, Finans &gt; Masraflar bölümünde girilen ve onaylanan kayıtların maliyet koduna göre kırılımıdır —
+        AYRI bir gerçekleşen-maliyet kaydı DEĞİLDİR (spec: tek gerçek kaynak, mükerrer kayıt yok).
       </p>
+      {pendingNote}
       {mapped.length > 0 && (
         <Table>
           <thead>
