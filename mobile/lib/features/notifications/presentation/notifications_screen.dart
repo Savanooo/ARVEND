@@ -185,6 +185,7 @@ class _NotificationTile extends StatelessWidget {
     'purchase_request' => Icons.shopping_cart_outlined,
     'rfq' => Icons.request_quote_outlined,
     'purchase_order' => Icons.local_shipping_outlined,
+    'budget_adjustment' => Icons.account_balance_wallet_outlined,
     'announcement' => Icons.campaign_outlined,
     'schedule_item' => Icons.event_note_outlined,
     'project_photo' => Icons.photo_camera_outlined,
