@@ -18,7 +18,9 @@ import '../domain/team_member.dart';
 ///   personel aktifken 409)
 /// - DELETE /projects/{id}/members/{memberId}  -> ekipten çıkar (kayıt
 ///   silinmez, bitiş tarihi bugün yazılır)
-/// - GET    /employees?filter=aktif            -> seçici (`employees.read`)
+/// - GET    /projects/{id}/assignees           -> seçici (ücretsiz personel
+///   listesi + proje erişimi; `projects.read` yeter -- `employees.read`
+///   istemez)
 ///
 /// Erişim (`projects.access.read` / `.manage`):
 /// - GET    /projects/{id}/access              -> `{users: [...]}`
@@ -76,8 +78,8 @@ class OpsTeamRepository {
     return ProjectTeamMember.fromJson(json);
   }
 
-  Future<List<EmployeeOption>> activeEmployees() async {
-    final json = await _client.get<Map<String, dynamic>>('/employees', query: {'filter': 'aktif'});
+  Future<List<EmployeeOption>> activeEmployees(String projectId) async {
+    final json = await _client.get<Map<String, dynamic>>('${_project(projectId)}/assignees');
     return (json['employees'] as List? ?? const [])
         .cast<Map<String, dynamic>>()
         .map(EmployeeOption.fromJson)

@@ -25,10 +25,9 @@ const kScheduleNoAccessText = 'Planlamayı görüntüleme yetkin yok. Yöneticin
 const kTeamReadOnlyText = 'Proje ekibini yalnızca görüntüleyebilirsin; ekibe personel eklemek veya çıkarmak için '
     'rolünde "Planlama/dosya/fotoğraf/not/ekip yönetme" izni olmalı.';
 
-/// operations.manage var ama personel listesi (employees.read) yok: ekipten
-/// çıkarabilir, yeni personel ekleyemez.
-const kTeamNoEmployeesReadText = 'Ekipten çıkarabilirsin; ekibe personel eklemek için rolünde ayrıca "Personeli '
-    'görüntüleme" izni olmalı.';
+/// Seçicilerde hesabı olup projeyi göremeyen kişinin adına eklenen not
+/// (ekip "Ekibe Ekle" ve görev/plan "kime" alanı aynı metni kullanır).
+const kNoProjectAccessSuffix = ' (proje erişimi yok)';
 
 /// projects.access.manage var ama kullanıcı listesi (yalnızca Sahip/Yönetici)
 /// yok: mevcut erişimleri düzenleyebilir, yeni kullanıcı ekleyemez.

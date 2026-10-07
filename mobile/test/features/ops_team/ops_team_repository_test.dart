@@ -95,10 +95,16 @@ void main() {
         '/projects/p1/members/m1': [
           (status: 200, body: {...member, 'end_date': '2026-09-29', 'is_active': false}),
         ],
-        '/employees': [
+        '/projects/p1/assignees': [
           (status: 200, body: {
             'employees': [
-              {'id': 'e1', 'full_name': 'Ahmet Yılmaz', 'position': 'Mühendis', 'daily_wage': 1500},
+              {
+                'id': 'e1',
+                'full_name': 'Ahmet Yılmaz',
+                'position': 'Mühendis',
+                'has_account': true,
+                'has_project_access': false,
+              },
             ],
           }),
         ],
@@ -119,9 +125,9 @@ void main() {
       expect(ended.isActive, isFalse);
       expect(ended.endDate, '2026-09-29');
 
-      final employees = await repo.activeEmployees();
-      expect(adapter.requestQueries.last, {'filter': 'aktif'});
+      final employees = await repo.activeEmployees('p1');
       expect(employees.single.label, 'Ahmet Yılmaz — Mühendis');
+      expect(employees.single.lacksProjectAccess, isTrue);
     });
 
     test('erişim: liste, ver, rol değiştir, kaldır, kullanıcı seçicisi (limit=200)', () async {

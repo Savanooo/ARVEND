@@ -17,9 +17,6 @@ const kProjectOpsManagePermission = 'projects.operations.manage';
 const kProjectAccessReadPermission = 'projects.access.read';
 const kProjectAccessManagePermission = 'projects.access.manage';
 
-/// "Ekibe Ekle" seçicisi `GET /employees?filter=aktif` -- `employees.read`.
-const kEmployeesReadPermission = 'employees.read';
-
 /// "Erişim Ver" seçicisi `GET /users` -- `requireAdmin` + bu izin
 /// (`UserAccess.canAccess` ikisini birlikte denetler).
 const kOrgUsersReadPermission = 'organization.users.read';

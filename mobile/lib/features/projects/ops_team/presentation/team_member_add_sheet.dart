@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/app_buttons.dart';
@@ -63,7 +64,7 @@ class _TeamMemberAddSheetState extends ConsumerState<TeamMemberAddSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final employeesAsync = ref.watch(opsEmployeeOptionsProvider);
+    final employeesAsync = ref.watch(opsEmployeeOptionsProvider(widget.projectId));
     return UnsavedChangesScope(
       busy: _submitting,
       dirty: _dirty && !_submitting,
@@ -101,16 +102,35 @@ class _TeamMemberAddSheetState extends ConsumerState<TeamMemberAddSheet> {
                         if (available.isEmpty) {
                           return const Text('Ekibe eklenebilecek aktif personel yok.', style: AppTypography.metadata);
                         }
+                        EmployeeOption? chosen;
+                        for (final e in available) {
+                          if (e.id == _employeeId) chosen = e;
+                        }
                         return DropdownButtonFormField<String>(
                           key: const ValueKey('team-employee'),
                           initialValue: _employeeId,
                           isExpanded: true,
-                          decoration: const InputDecoration(labelText: 'Personel *', hintText: 'Personel seç'),
+                          decoration: InputDecoration(
+                            labelText: 'Personel *',
+                            hintText: 'Personel seç',
+                            // Ekip (İK roster'ı) proje erişimi VERMEZ: hesabı
+                            // olup projeyi göremeyen kişiye görev atanamaz.
+                            helperText: chosen != null && chosen.lacksProjectAccess
+                                ? '${chosen.fullName} bu projeyi uygulamada göremez; ekibe eklemek erişim vermez. '
+                                    'Görev atanabilmesi için Proje Erişimi\'nden eklenmeli.'
+                                : null,
+                            helperMaxLines: 3,
+                            helperStyle: AppTypography.helper.copyWith(color: AppColors.warning),
+                          ),
                           items: [
                             for (final e in available)
                               DropdownMenuItem(
                                 value: e.id,
-                                child: Text(e.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                child: Text(
+                                  e.label + (e.lacksProjectAccess ? kNoProjectAccessSuffix : ''),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                           ],
                           onChanged: _submitting ? null : (v) => setState(() => _employeeId = v),

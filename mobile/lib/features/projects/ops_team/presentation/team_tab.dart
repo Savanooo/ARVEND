@@ -110,12 +110,10 @@ class _ProjectTeamTabState extends ConsumerState<ProjectTeamTab> {
     }
     final canManage = user.can(kProjectOpsManagePermission);
     final canWrite = canManage && widget.locked == false;
-    // "Ekibe Ekle"nin personel seçicisi `GET /employees` ister (router.go:
-    // employees.read). Proje Yöneticisi / Saha rollerinde operations.manage
-    // var ama employees.read yok -- düğme hiç tamamlanamayan bir forma
-    // açılmasın. Ekipten çıkarma yalnızca operations.manage ister.
-    final canPickEmployees = user.can(kEmployeesReadPermission);
-    final canAdd = canWrite && canPickEmployees;
+    // "Ekibe Ekle"nin seçicisi projenin `assignees` ucundan gelir (ücretsiz,
+    // projects.read yeter) -- eskiden `GET /employees` (employees.read)
+    // istendiği için Proje Yöneticisi/Saha ekibe hiç ekleyemiyordu.
+    final canAdd = canWrite;
     final membersAsync = ref.watch(opsTeamMembersProvider(_projectId));
 
     if (membersAsync.hasError && isOpsForbidden(membersAsync.error)) {
@@ -147,9 +145,6 @@ class _ProjectTeamTabState extends ConsumerState<ProjectTeamTab> {
           ] else if (!canManage) ...[
             const SizedBox(height: AppSpacing.sm),
             const ReadOnlyNotice(kTeamReadOnlyText),
-          ] else if (!canPickEmployees) ...[
-            const SizedBox(height: AppSpacing.sm),
-            const ReadOnlyNotice(kTeamNoEmployeesReadText),
           ],
           const SizedBox(height: AppSpacing.md),
           AsyncStateView<List<ProjectTeamMember>>(
