@@ -93,16 +93,38 @@ func notifyProjectManagersOfUpload(ctx context.Context, txq *sqlc.Queries, orgID
 			uploader = u.FullName
 		}
 	}
-	body := truncateRunes(joinNonEmpty(" · ", project.Name, uploader), 500)
-	target := "/projeler/" + project.ID.String() + "?grup=dokumanlar&alt=dosyalar"
+	return notifyUsersGrouped(ctx, txq, orgID, project.ID, managers, actor, groupedNotice{
+		Type: n.Type, EntityType: n.EntityType, EntityID: n.EntityID, Title: n.Title,
+		Body:   joinNonEmpty(" · ", project.Name, uploader),
+		Target: "/projeler/" + project.ID.String() + "?grup=dokumanlar&alt=dosyalar",
+	})
+}
+
+// groupedNotice: notifyUsersGrouped'un yazdığı bildirim. Title gruptaki
+// toplam sayıyla metni üretir.
+type groupedNotice struct {
+	Type       string
+	EntityType string
+	EntityID   pgtype.UUID
+	Title      func(n int) string
+	Body       string
+	Target     string
+}
+
+// notifyUsersGrouped: alıcılara -- eylemi yapan hariç -- gruplu bildirim.
+// Aynı kişiye son notificationGroupWindow içinde aynı projede okunmamış aynı
+// tür bildirim varsa yenisi açılmaz, o güncellenir (sayaç +1, en üste
+// çıkar); art arda 10 kayıt telefona 10 ayrı bildirim düşürmesin.
+func notifyUsersGrouped(ctx context.Context, txq *sqlc.Queries, orgID, projectID pgtype.UUID, recipients []pgtype.UUID, actor pgtype.UUID, n groupedNotice) error {
+	body := truncateRunes(n.Body, 500)
 	since := pgtype.Timestamptz{Time: time.Now().Add(-notificationGroupWindow), Valid: true}
 
-	for _, uid := range managers {
+	for _, uid := range recipients {
 		if actor.Valid && uid == actor {
 			continue
 		}
 		existing, err := txq.FindGroupableNotification(ctx, sqlc.FindGroupableNotificationParams{
-			UserID: uid, OrganizationID: orgID, Type: n.Type, ProjectID: project.ID, Since: since,
+			UserID: uid, OrganizationID: orgID, Type: n.Type, ProjectID: projectID, Since: since,
 		})
 		switch {
 		case err == nil:
@@ -115,8 +137,8 @@ func notifyProjectManagersOfUpload(ctx context.Context, txq *sqlc.Queries, orgID
 			if err := createNotification(ctx, txq, CreateNotificationInput{
 				OrganizationID: orgID, UserID: uid, Type: n.Type,
 				Title: truncateRunes(n.Title(1), 200), Body: body,
-				EntityType: n.EntityType, EntityID: n.EntityID, ProjectID: project.ID,
-				ActionTarget: target,
+				EntityType: n.EntityType, EntityID: n.EntityID, ProjectID: projectID,
+				ActionTarget: n.Target,
 			}); err != nil {
 				return err
 			}
