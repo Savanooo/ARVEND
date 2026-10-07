@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +11,7 @@ import 'package:arvend/core/auth/auth_controller.dart';
 import 'package:arvend/core/widgets/quick_action_button.dart';
 import 'package:arvend/features/auth/domain/user.dart';
 import 'package:arvend/features/projects/data/projects_providers.dart';
+import 'package:arvend/features/projects/data/projects_repository.dart';
 import 'package:arvend/features/projects/domain/project_lock_text.dart';
 import 'package:arvend/features/projects/presentation/project_detail_screen.dart';
 
@@ -105,6 +109,9 @@ Future<FakeHttpClientAdapter> pumpProject(
         apiClientProvider.overrideWithValue(client),
         authControllerProvider.overrideWith(() => cc.FakeAuth(_fieldManager)),
         projectDetailProvider.overrideWith((ref, id) async => cc.sampleProject(status: status)),
+        // Widget testinin sahte zamanında gerçek dosya G/Ç'si tamamlanmaz;
+        // cihaz önbelleği ayrı bir testte (gerçek zamanda) doğrulanır.
+        projectPhotoCacheProvider.overrideWithValue(ProjectPhotoCache(directory: () async => null)),
       ],
       child: MaterialApp(home: ProjectDetailScreen(projectId: 'p1', initialGroup: group, initialView: view)),
     ),
@@ -150,5 +157,85 @@ void main() {
       expect(find.text('Fotoğraf Çek'), findsOneWidget);
       expect(find.text('Dosya Seç'), findsOneWidget);
     });
+  });
+
+  group('Dosyalar: fotoğraf ızgarası ve dosyalar', () {
+    final many = [for (var i = 0; i < 60; i++) photoJson('ph$i')];
+    Map<String, List<ScriptedResponse>> contents(List<Map<String, dynamic>> photos) => {
+          for (final p in photos)
+            '/projects/p1/photos/${p['id']}/content': [
+              for (var i = 0; i < 2; i++) (status: 200, body: <int>[0xFF, 0xD8, 0xFF, 0xE0]),
+            ],
+        };
+
+    testWidgets('60 fotoğrafta yalnızca ekrandakiler indirilir; küçük boyutta çözülür', (tester) async {
+      final adapter = await pumpProject(
+        tester,
+        group: 'dokumanlar',
+        photos: many,
+        extra: contents(many),
+        size: const Size(400, 800),
+      );
+
+      final fetched = adapter.calls.where((c) => c.endsWith('/content')).length;
+      expect(fetched, greaterThan(0));
+      expect(fetched, lessThan(30), reason: 'tembel ızgara: ekran dışındaki kutucuklar kurulmaz');
+
+      final image = tester.widget<Image>(find.byType(Image).first);
+      expect(image.image, isA<ResizeImage>());
+      expect((image.image as ResizeImage).width, lessThanOrEqualTo(400));
+    });
+
+    testWidgets('dosya listesi ve yükleme düğmeleri fotoğraflardan önce, kaydırmadan görünür', (tester) async {
+      await pumpProject(
+        tester,
+        group: 'dokumanlar',
+        photos: many,
+        files: [fileJson('f1', name: 'kesif-raporu.pdf')],
+        extra: contents(many),
+        size: const Size(400, 800),
+      );
+
+      expect(find.text('kesif-raporu.pdf').hitTestable(), findsOneWidget);
+      expect(find.text('Dosya Seç').hitTestable(), findsOneWidget);
+      expect(find.text('Fotoğraf Çek').hitTestable(), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('Dosyalar').last).dy,
+        lessThan(tester.getTopLeft(find.textContaining('Şantiye Fotoğrafları')).dy),
+      );
+    });
+  });
+
+  test('fotoğraf baytları cihaz önbelleğinden okunur: tekrar ziyarette yeniden indirilmez', () async {
+    final dir = await Directory.systemTemp.createTemp('arvend_photo_cache');
+    addTearDown(() => dir.delete(recursive: true));
+    final adapter = FakeHttpClientAdapter(script: {
+      '/projects/p1/photos/0b1c2d3e-0000-4000-8000-000000000001/content': [
+        (status: 200, body: <int>[1, 2, 3, 4]),
+      ],
+    });
+    final client = await buildFakeApiClient(adapter);
+    ProviderContainer container() {
+      final c = ProviderContainer(overrides: [
+        apiClientProvider.overrideWithValue(client),
+        projectsRepositoryProvider.overrideWithValue(ProjectsRepository(client)),
+        projectPhotoCacheProvider.overrideWithValue(ProjectPhotoCache(directory: () async => dir)),
+      ]);
+      addTearDown(c.dispose);
+      return c;
+    }
+
+    const key = (projectId: 'p1', photoId: '0b1c2d3e-0000-4000-8000-000000000001');
+    final first = await container().read(projectPhotoBytesProvider(key).future);
+    // Önbelleğe yazma arka planda; bitmesini bekle.
+    for (var i = 0; i < 50 && !File('${dir.path}/${key.photoId}').existsSync(); i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    // Yeni bir ziyaret (ayrı kap = bellek önbelleği yok).
+    final second = await container().read(projectPhotoBytesProvider(key).future);
+
+    expect(first, Uint8List.fromList([1, 2, 3, 4]));
+    expect(second, first);
+    expect(adapter.calls, hasLength(1));
   });
 }

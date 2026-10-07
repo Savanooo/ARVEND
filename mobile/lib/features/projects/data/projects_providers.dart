@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,7 +7,10 @@ import '../../../core/api/api_providers.dart';
 import '../domain/procurement.dart';
 import '../domain/project.dart';
 import '../domain/subcontract.dart';
+import 'project_photo_cache.dart';
 import 'projects_repository.dart';
+
+export 'project_photo_cache.dart' show projectPhotoCacheProvider, ProjectPhotoCache;
 
 final projectsRepositoryProvider =
     Provider<ProjectsRepository>((ref) => ProjectsRepository(ref.watch(apiClientProvider)));
@@ -156,10 +160,17 @@ typedef ProjectPhotoKey = ({String projectId, String photoId});
 
 /// Kimlik doğrulamalı bayt önbelleği -- Riverpod'un family önbelleği
 /// aynı (projectId, photoId) için thumbnail'i ve tam-ekran görüntüleyiciyi
-/// İKİNCİ bir ağ isteği ATMADAN paylaşır.
-final projectPhotoBytesProvider = FutureProvider.autoDispose.family<Uint8List, ProjectPhotoKey>(
-  (ref, key) => ref.watch(projectsRepositoryProvider).photoBytes(key.projectId, key.photoId),
-);
+/// İKİNCİ bir ağ isteği ATMADAN paylaşır. Ekrandan çıkınca bellekten
+/// atılır; tekrar açılışta cihaz önbelleğinden okunur (bkz.
+/// ProjectPhotoCache), ağa yalnızca ilk kez gidilir.
+final projectPhotoBytesProvider = FutureProvider.autoDispose.family<Uint8List, ProjectPhotoKey>((ref, key) async {
+  final cache = ref.watch(projectPhotoCacheProvider);
+  final cached = await cache.read(key.photoId);
+  if (cached != null) return cached;
+  final bytes = await ref.watch(projectsRepositoryProvider).photoBytes(key.projectId, key.photoId);
+  unawaited(cache.write(key.photoId, bytes));
+  return bytes;
+});
 
 final projectCostControlProvider = FutureProvider.autoDispose
     .family<({CostControlSummary summary, List<CostControlLine> lines}), String>(

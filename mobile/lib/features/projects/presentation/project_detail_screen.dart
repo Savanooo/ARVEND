@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -1415,6 +1416,7 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
     if (!await _confirm('Fotoğrafı Sil', 'Bu fotoğraf silinsin mi?')) return;
     try {
       await ref.read(projectsRepositoryProvider).deletePhoto(projectId, photo.id);
+      unawaited(ref.read(projectPhotoCacheProvider).remove(photo.id));
       ref.invalidate(projectPhotosProvider(projectId));
     } on ApiException catch (e) {
       _showError(e.message);
@@ -1480,136 +1482,209 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
     // Kapalı projede yükleme reddedilir; silme backend'de serbest.
     final canUpload = canManage && !widget.locked;
 
+    // Fotoğraf ızgarası TEMBEL (SliverGrid): yalnızca ekrandaki kutucuklar
+    // kurulur, bayt ister ve küçük boyutta çözülür. Eskiden shrinkWrap bir
+    // GridView'du -- Dökümanlar her açıldığında 60 fotoğrafın HEPSİ tam
+    // boyutta indirilip çözülüyordu (takılma, bellek taşması riski). Yükleme
+    // düğmeleri ve dosya listesi fotoğraflardan ÖNCE: onlara ulaşmak için
+    // bütün fotoğrafların üzerinden kaydırmak gerekmez.
     return RefreshIndicator(
       onRefresh: () async {
         ref.invalidate(projectPhotosProvider(projectId));
         ref.invalidate(projectFilesProvider(projectId));
       },
-      child: ListView(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        children: [
-          if (_uploading) const LinearProgressIndicator(),
-          if (_uploading) const SizedBox(height: AppSpacing.sm),
-          if (widget.locked) ...[
-            const ReadOnlyNotice(kProjectUploadsLockedText),
-            const SizedBox(height: AppSpacing.md),
-          ],
-          const AppSectionHeader(title: 'Şantiye Fotoğrafları'),
-          if (canUpload) ...[
-            const SizedBox(height: AppSpacing.sm),
-            Row(
-              children: [
-                Expanded(
-                  child: SecondaryButton(
-                    icon: Icons.photo_camera_outlined,
-                    label: 'Fotoğraf Çek',
-                    onPressed: _uploading ? null : () => _pickAndUploadPhoto(ImageSource.camera),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: SecondaryButton(
-                    icon: Icons.photo_library_outlined,
-                    label: 'Galeriden Seç',
-                    onPressed: _uploading ? null : () => _pickAndUploadPhoto(ImageSource.gallery),
-                  ),
-                ),
-              ],
-            ),
-          ],
-          const SizedBox(height: AppSpacing.sm),
-          AsyncStateView(
-            value: photosAsync,
-            isEmpty: (l) => l.isEmpty,
-            emptyBuilder: (_) => const EmptyStateView(message: 'Fotoğraf yok.', icon: Icons.photo_camera_outlined),
-            data: (context, photos) => GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: photos.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                mainAxisSpacing: AppSpacing.sm,
-                crossAxisSpacing: AppSpacing.sm,
-              ),
-              itemBuilder: (context, i) {
-                final photo = photos[i];
-                final bytesAsync = ref.watch(projectPhotoBytesProvider((projectId: projectId, photoId: photo.id)));
-                return GestureDetector(
-                  onTap: () => _openPhotoViewer(photo),
-                  onLongPress: canManage ? () => _deletePhoto(photo) : null,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(AppRadius.control),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        bytesAsync.when(
-                          data: (bytes) => Image.memory(bytes, fit: BoxFit.cover),
-                          loading: () => const ColoredBox(
-                            color: AppColors.background,
-                            child: Center(
-                              child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                            ),
-                          ),
-                          error: (e, st) => const ColoredBox(
-                            color: AppColors.background,
-                            child: Icon(Icons.broken_image_outlined, color: AppColors.textMuted),
-                          ),
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, 0),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                if (_uploading) ...[
+                  const LinearProgressIndicator(),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
+                if (widget.locked) ...[
+                  const ReadOnlyNotice(kProjectUploadsLockedText),
+                  const SizedBox(height: AppSpacing.md),
+                ],
+                if (canUpload) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SecondaryButton(
+                          icon: Icons.photo_camera_outlined,
+                          label: 'Fotoğraf Çek',
+                          onPressed: _uploading ? null : () => _pickAndUploadPhoto(ImageSource.camera),
                         ),
-                        Positioned(
-                          left: 4,
-                          bottom: 4,
-                          child: StatusRegistry.build(photo.stage, StatusRegistry.photoStage),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: SecondaryButton(
+                          icon: Icons.photo_library_outlined,
+                          label: 'Galeriden Seç',
+                          onPressed: _uploading ? null : () => _pickAndUploadPhoto(ImageSource.gallery),
                         ),
-                      ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  SizedBox(
+                    width: double.infinity,
+                    child: SecondaryButton(
+                      icon: Icons.upload_file_outlined,
+                      label: 'Dosya Seç',
+                      onPressed: _uploading ? null : _pickAndUploadFile,
                     ),
                   ),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          AppSectionHeader(
-            title: 'Dosyalar',
-            trailing: canUpload
-                ? SecondaryButton(
-                    icon: Icons.upload_file_outlined,
-                    label: 'Dosya Seç',
-                    onPressed: _uploading ? null : _pickAndUploadFile,
-                  )
-                : null,
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          AsyncStateView(
-            value: filesAsync,
-            isEmpty: (l) => l.isEmpty,
-            emptyBuilder: (_) => const EmptyStateView(message: 'Dosya yok.', icon: Icons.insert_drive_file_outlined),
-            data: (context, files) => Column(
-              children: files
-                  .map((f) => AppListCard(
-                        onTap: _openingFileId != null ? null : () => _openFile(f),
-                        leading: _openingFileId == f.id
-                            ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5))
-                            : const Icon(Icons.insert_drive_file_outlined, color: AppColors.textMuted),
-                        title: f.originalName,
-                        subtitle:
-                            '${_fileType(f.originalName)} · ${Formatters.date(f.createdAt)} · ${(f.sizeBytes / 1024).toStringAsFixed(0)} KB',
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            StatusRegistry.build(f.category, StatusRegistry.fileCategory),
-                            if (canManage)
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline, size: 20),
-                                tooltip: 'Dosyayı sil',
-                                onPressed: () => _deleteFile(f),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
+                const AppSectionHeader(title: 'Dosyalar'),
+                const SizedBox(height: AppSpacing.sm),
+                AsyncStateView(
+                  value: filesAsync,
+                  onRetry: () async => ref.invalidate(projectFilesProvider(projectId)),
+                  isEmpty: (l) => l.isEmpty,
+                  emptyBuilder: (_) => const EmptyStateView(message: 'Dosya yok.', icon: Icons.insert_drive_file_outlined),
+                  data: (context, files) => Column(
+                    children: files
+                        .map((f) => AppListCard(
+                              onTap: _openingFileId != null ? null : () => _openFile(f),
+                              leading: _openingFileId == f.id
+                                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5))
+                                  : const Icon(Icons.insert_drive_file_outlined, color: AppColors.textMuted),
+                              title: f.originalName,
+                              subtitle:
+                                  '${_fileType(f.originalName)} · ${Formatters.date(f.createdAt)} · ${(f.sizeBytes / 1024).toStringAsFixed(0)} KB',
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  StatusRegistry.build(f.category, StatusRegistry.fileCategory),
+                                  if (canManage)
+                                    IconButton(
+                                      icon: const Icon(Icons.delete_outline, size: 20),
+                                      tooltip: 'Dosyayı sil',
+                                      onPressed: () => _deleteFile(f),
+                                    ),
+                                ],
                               ),
-                          ],
-                        ),
-                      ))
-                  .toList(),
+                            ))
+                        .toList(),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xl),
+                AppSectionHeader(
+                  title: [
+                    'Şantiye Fotoğrafları',
+                    if (photosAsync.valueOrNull?.isNotEmpty ?? false) '(${photosAsync.valueOrNull!.length})',
+                  ].join(' '),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+              ]),
             ),
+          ),
+          ...photosAsync.when(
+            data: (photos) => [
+              if (photos.isEmpty)
+                const SliverToBoxAdapter(
+                  child: EmptyStateView(message: 'Fotoğraf yok.', icon: Icons.photo_camera_outlined),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.lg),
+                  sliver: SliverGrid.builder(
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      mainAxisSpacing: AppSpacing.sm,
+                      crossAxisSpacing: AppSpacing.sm,
+                    ),
+                    itemCount: photos.length,
+                    itemBuilder: (context, i) {
+                      final photo = photos[i];
+                      return _PhotoTile(
+                        key: ValueKey('proje-foto-${photo.id}'),
+                        projectId: projectId,
+                        photo: photo,
+                        onTap: () => _openPhotoViewer(photo),
+                        onLongPress: canManage ? () => _deletePhoto(photo) : null,
+                      );
+                    },
+                  ),
+                ),
+            ],
+            loading: () => const [SliverToBoxAdapter(child: LoadingState())],
+            error: (e, _) => [
+              SliverToBoxAdapter(
+                child: ErrorState(error: e, onRetry: () async => ref.invalidate(projectPhotosProvider(projectId))),
+              ),
+            ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Izgaradaki tek fotoğraf: bayt yalnızca kutucuk kurulunca (ekrandayken)
+/// istenir ve kutucuk boyutunda çözülür (`cacheWidth`) -- 12 MP'lik bir
+/// fotoğraf ~100 dp'lik kutucuk için tam çözünürlükte belleğe açılmaz.
+class _PhotoTile extends ConsumerWidget {
+  const _PhotoTile({
+    super.key,
+    required this.projectId,
+    required this.photo,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  final String projectId;
+  final ProjectPhoto photo;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final bytesAsync = ref.watch(projectPhotoBytesProvider((projectId: projectId, photoId: photo.id)));
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    return GestureDetector(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.control),
+        child: LayoutBuilder(
+          builder: (context, constraints) => Stack(
+            fit: StackFit.expand,
+            children: [
+              bytesAsync.when(
+                data: (bytes) => Image.memory(
+                  bytes,
+                  fit: BoxFit.cover,
+                  cacheWidth: (constraints.maxWidth * dpr).ceil(),
+                  gaplessPlayback: true,
+                  errorBuilder: (_, _, _) => const ColoredBox(
+                    color: AppColors.background,
+                    child: Icon(Icons.broken_image_outlined, color: AppColors.textMuted),
+                  ),
+                ),
+                loading: () => const ColoredBox(
+                  color: AppColors.background,
+                  child: Center(
+                    child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                  ),
+                ),
+                error: (e, st) => const ColoredBox(
+                  color: AppColors.background,
+                  child: Icon(Icons.broken_image_outlined, color: AppColors.textMuted),
+                ),
+              ),
+              Positioned(
+                left: 4,
+                bottom: 4,
+                child: StatusRegistry.build(photo.stage, StatusRegistry.photoStage),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1652,6 +1727,7 @@ class _PhotoViewerScreen extends ConsumerWidget {
                 if (ok != true) return;
                 try {
                   await ref.read(projectsRepositoryProvider).deletePhoto(projectId, photo.id);
+                  unawaited(ref.read(projectPhotoCacheProvider).remove(photo.id));
                   ref.invalidate(projectPhotosProvider(projectId));
                   if (context.mounted) Navigator.of(context).pop();
                 } on ApiException catch (e) {
@@ -1665,7 +1741,14 @@ class _PhotoViewerScreen extends ConsumerWidget {
       ),
       body: Center(
         child: bytesAsync.when(
-          data: (bytes) => InteractiveViewer(child: Image.memory(bytes)),
+          // Tam ekran: ekranın ~2 katı genişlikte çözülür (yakınlaştırmaya
+          // yeter; 12 MP'yi tam açıp yüzlerce MB harcamaz).
+          data: (bytes) => InteractiveViewer(
+            child: Image.memory(
+              bytes,
+              cacheWidth: (MediaQuery.sizeOf(context).width * MediaQuery.devicePixelRatioOf(context) * 2).ceil(),
+            ),
+          ),
           loading: () => const CircularProgressIndicator(color: Colors.white),
           error: (e, st) => const Icon(Icons.broken_image_outlined, color: Colors.white, size: 48),
         ),
