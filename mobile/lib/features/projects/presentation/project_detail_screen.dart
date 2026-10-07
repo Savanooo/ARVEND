@@ -755,6 +755,13 @@ class _FinancialSummaryCard extends StatelessWidget {
             const Text('Gerçekleşen', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppColors.textMuted)),
             const SizedBox(height: 4),
             _InfoRow(label: 'Gerçekleşen Maliyet', value: Formatters.money(s.realizedCost, currency: s.currency)),
+            // Masraflara girilen KDV düşülmüş maliyet (sunucunun rakamı);
+            // KDV girilmemişse KDV dahille aynıdır ve gösterilmez.
+            if (s.realizedCostNetDiffers)
+              _InfoRow(
+                label: 'Maliyet (KDV hariç)',
+                value: Formatters.money(s.realizedCostNet, currency: s.currency),
+              ),
             if (vat)
               _InfoRow(
                 label: 'Kâr (KDV hariç)',
@@ -798,6 +805,11 @@ class _FinancialSummaryCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             _InfoRow(label: 'Tahmini Maliyet', value: Formatters.money(s.forecastCost, currency: s.currency)),
+            if (s.forecastCostNetDiffers)
+              _InfoRow(
+                label: 'Maliyet (KDV hariç)',
+                value: Formatters.money(s.forecastCostNet, currency: s.currency),
+              ),
             if (vat)
               _InfoRow(
                 label: 'Tahmini Kâr (KDV hariç)',
