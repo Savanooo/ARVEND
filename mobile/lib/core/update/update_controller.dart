@@ -157,6 +157,14 @@ class UpdateController extends Notifier<UpdateState> {
     return future;
   }
 
+  /// Süren bir denetim varsa bitmesini bekler. Yenilikler sayfası açılış
+  /// denetiminin kararını (zorunlu güncelleme var mı) bununla bekler; yeni
+  /// istek atmaz. Denetim hata fırlatmadığı için bu da fırlatmaz.
+  Future<void> whenIdle() async {
+    final running = _inFlight;
+    if (running != null) await running;
+  }
+
   UpdateCheckResult _asManual(UpdateCheckResult r) => r.postponed
       ? UpdateCheckResult(r.status, release: r.release, installed: r.installed, mandatory: r.mandatory)
       : r;

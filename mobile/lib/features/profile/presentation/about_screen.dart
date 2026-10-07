@@ -9,6 +9,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/update/update_check_tile.dart';
+import '../../../core/whats_new/whats_new_sheet.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/async_state_view.dart';
 
@@ -57,6 +58,8 @@ class AboutScreen extends ConsumerWidget {
             // Yalnızca Android'de görünür (store'a çıkana kadar APK
             // sunucudan güncellenir, bkz. core/update/).
             const UpdateCheckTile(),
+            // Güncellemeden sonra bir kez açılan notları yeniden açar.
+            const WhatsNewTile(),
             const AppCard(
               child: Text(
                 'ARVEND Yapı; proje, teklif, şantiye, görev ve personel yönetimi uygulamasıdır.',

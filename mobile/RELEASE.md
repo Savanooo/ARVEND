@@ -427,6 +427,9 @@ kapsamında hiçbir telemetri paketi EKLENMEDİ.
 ### Mobil
 - [ ] Production API URL'i doğrulandı (§3 — zaten doğru).
 - [ ] Versiyon/build numarası politikaya göre güncellendi (§5).
+- [ ] "Yenilikler" notu: `lib/core/whats_new/whats_new_content.dart`'ta bu
+      build'in (`+N`) kaydı var -- güncellemeden sonraki ilk açılışta gösterilir;
+      yoksa `derle.sh` uyarır ve kullanıcı hiçbir not görmez.
 - [ ] Android imzalama tamamlandı (§1).
 - [ ] iOS ikon/splash gerçek marka varlıklarıyla güncellendi (§8).
 - [ ] Gizlilik Politikası linki (gerçek URL hazır olduğunda) Hakkında

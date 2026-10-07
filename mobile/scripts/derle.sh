@@ -105,11 +105,32 @@ unset PW
 SURUM=$(sed -n 's/^version: *//p' "$MOBIL/pubspec.yaml" | head -n1)
 BUILD="${SURUM##*+}"
 
+# --- Yenilikler notu ------------------------------------------------------------
+# Güncellemeden sonraki ilk açılışta gösterilen "Yenilikler" sayfası notları
+# uygulamanın içinde, build numarasıyla eşleşir. Bu build için kayıt yoksa
+# sayfa hiç açılmaz. Derlemeyi DURDURMAZ (her yayında söylenecek bir şey
+# olmayabilir: yalnızca hata düzeltmesi) ama unutulmasın diye derlemeden önce
+# ve sonra uyarır -- derleme çıktısı ilk uyarıyı ekrandan kaydırıyor.
+YENILIKLER="lib/core/whats_new/whats_new_content.dart"
+if grep -Eq "build: *${BUILD}([^0-9]|\$)" "$MOBIL/$YENILIKLER" 2>/dev/null; then
+  YENILIK_NOTU="var"
+else
+  YENILIK_NOTU="YOK"
+fi
+yenilik_uyar() {
+  [ "$YENILIK_NOTU" = "var" ] && return 0
+  printf '\n!!! UYARI: %s içinde build %s için not yok -- kullanıcılar bu sürümde "Yenilikler" görmeyecek.\n' \
+    "$YENILIKLER" "$BUILD" >&2
+  printf '    Söylenecek bir şey varsa listenin başına bir WhatsNewRelease ekleyip yeniden derleyin.\n\n' >&2
+}
+
 echo "Kanal      : $kanal"
 echo "Sürüm      : $SURUM"
 echo "API adresi : $API_BASE_URL"
 echo "Anahtar    : $KEYSTORE ($KEY_ALIAS)"
+echo "Yenilikler : $YENILIK_NOTU (build $BUILD)"
 echo
+yenilik_uyar
 
 cd "$MOBIL"
 DEFINES=(--dart-define=API_BASE_URL="$API_BASE_URL" --dart-define=DISTRIBUTION="$flavor")
@@ -168,6 +189,8 @@ else
   echo "İmza                     : upload anahtarı (${GERCEK:0:16}…) -- doğru"
 fi
 echo "versionCode              : $BUILD"
+echo "Yenilikler notu          : $YENILIK_NOTU"
+yenilik_uyar
 echo
 echo "Çıktı: $MOBIL/$CIKTI ($(du -h "$CIKTI" | cut -f1))"
 if [ "$kanal" = "play" ]; then
