@@ -26,6 +26,10 @@ class FakeHttpClientAdapter implements HttpClientAdapter {
   /// filtre testleri içindir (bkz. test/customers_workflow_test.dart).
   final List<Map<String, dynamic>> requestQueries = [];
 
+  /// `options.path` ile 1:1 sırada -- HTTP yöntemi (GET/POST/PUT…). Aynı
+  /// yola giden oluşturma/düzenleme ayrımı içindir.
+  final List<String> methods = [];
+
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
@@ -33,6 +37,7 @@ class FakeHttpClientAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     calls.add(options.path);
+    methods.add(options.method);
     requestBodies.add(options.data);
     requestQueries.add(options.queryParameters);
     final queue = _script[options.path];
