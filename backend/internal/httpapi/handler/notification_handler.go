@@ -104,6 +104,10 @@ func (h *NotificationHandler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "kayıt bulunamadı")
+	case isInternalError(err), isUnexpectedServiceError(err):
+		// Bu uçların servis hataları yalnızca ErrNotFound ya da veritabanı
+		// hatasıdır -- ham DB metni 400 ile istemciye gitmesin.
+		writeInternalError(w, err)
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}

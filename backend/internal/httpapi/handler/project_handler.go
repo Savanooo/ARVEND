@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/httpapi/middleware"
@@ -374,19 +375,31 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrChangeOrderNotRevisable),
 		errors.Is(err, service.ErrChangeOrderWouldGoNegative):
 		httpjson.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrFileTooLarge):
+		httpjson.Error(w, http.StatusRequestEntityTooLarge, err.Error())
 	case errors.Is(err, service.ErrInvalidEmployee),
 		errors.Is(err, service.ErrInvalidSchedule),
 		errors.Is(err, service.ErrUnsupportedType),
-		errors.Is(err, service.ErrFileTooLarge),
 		errors.Is(err, service.ErrEmptyFile),
+		errors.Is(err, service.ErrProjectFieldTooLong),
 		errors.Is(err, service.ErrInvalidChangeOrderRef),
 		errors.Is(err, service.ErrNoChangeOrderItems):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, service.ErrStorageFailure):
 		writeInternalError(w, err)
-	case isInternalError(err):
+	case isInternalError(err), isUnexpectedServiceError(err):
 		writeInternalError(w, err)
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}
+}
+
+// isUnexpectedServiceError: isInternalError'un (pgconn/ağ/context)
+// yakalamadığı ama yine de bir GİRDİ hatası olmayan pgx sentinel'leri. Bir
+// servis yolunda eşlemesi unutulmuş pgx.ErrNoRows eskiden "no rows in
+// result set" ham metniyle 400 dönüyordu; bunlar sunucu hatasıdır (500,
+// ayrıntı yalnızca logda).
+func isUnexpectedServiceError(err error) bool {
+	return errors.Is(err, pgx.ErrNoRows) || errors.Is(err, pgx.ErrTooManyRows) ||
+		errors.Is(err, pgx.ErrTxClosed) || errors.Is(err, pgx.ErrTxCommitRollback)
 }

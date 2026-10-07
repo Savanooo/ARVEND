@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -21,12 +23,17 @@ import (
 )
 
 var (
-	ErrDuplicateMember  = errors.New("bu personel zaten projenin aktif ekibinde")
-	ErrInvalidEmployee  = errors.New("geçersiz personel")
-	ErrInvalidSchedule  = errors.New("geçersiz planlama aşaması")
-	ErrFileTooLarge     = errors.New("dosya boyutu sınırı aşıldı")
-	ErrEmptyFile        = errors.New("boş dosya yüklenemez")
-	ErrUnsupportedType  = errors.New("bu dosya türü kabul edilmiyor")
+	ErrDuplicateMember = errors.New("bu personel zaten projenin aktif ekibinde")
+	ErrInvalidEmployee = errors.New("geçersiz personel")
+	ErrInvalidSchedule = errors.New("geçersiz planlama aşaması")
+	// ErrFileTooLarge, handler'da 413'e eşlenir; metin istemciye aynen
+	// gösterilir (MaxUploadBytes ile aynı sınır).
+	ErrFileTooLarge    = errors.New("Dosya 25 MB'tan büyük olamaz")
+	ErrEmptyFile       = errors.New("boş dosya yüklenemez")
+	ErrUnsupportedType = errors.New("bu dosya türü kabul edilmiyor")
+	// ErrDuplicateContent: aynı içerik bu projede zaten var. Servis bunu
+	// mevcut kaydın adıyla zenginleştirilmiş duplicateContentError olarak
+	// döner (errors.Is ile yakalanır, handler 409).
 	ErrDuplicateContent = errors.New("bu dosya bu projeye zaten yüklenmiş")
 	// ErrStorageFailure, depolama katmanından (dosya sistemi) gelen HAM
 	// hatanın istemciye YANSITILMAMASI için kullanılan genel sentinel'dir.
@@ -34,6 +41,90 @@ var (
 	// taşır) yalnızca sunucu logunda görünür (bkz. wrapStorageErr).
 	ErrStorageFailure = errors.New("dosya işlemi sırasında bir hata oluştu")
 )
+
+// duplicateContentError: yükleme, projede zaten bulunan bir dosyayla
+// birebir aynı. Eskiden mevcut kayıt 201 ile dönüyordu -- kullanıcı "yeni
+// dosya yüklendi" sanıyordu, liste ise değişmiyordu.
+type duplicateContentError struct{ msg string }
+
+func (e *duplicateContentError) Error() string        { return e.msg }
+func (e *duplicateContentError) Is(target error) bool { return target == ErrDuplicateContent }
+
+// projectClosedError: kapalı (tamamlanmış/iptal) projede operasyon kaydı
+// (ekip/planlama/görev/dosya/fotoğraf/WBS) açma girişimi. requireOpenProject
+// finans için yazılmıştı ve "yeni finans hareketi oluşturulamaz" diyordu;
+// fotoğraf yükleyen saha kullanıcısına bu metin anlamsızdı. ErrProjectLocked
+// ile errors.Is uyumludur (handler'ın 409 eşlemesi ve mevcut çağıranlar
+// değişmez).
+type projectClosedError struct{ cancelled bool }
+
+func (e projectClosedError) Error() string {
+	if e.cancelled {
+		return "Proje iptal edildi; iptal edilen projede yeni kayıt oluşturulamaz."
+	}
+	return "Proje tamamlandı olarak kapatıldı; bu işlem için önce projeyi yeniden aktif yapın."
+}
+
+func (e projectClosedError) Is(target error) bool { return target == ErrProjectLocked }
+
+// requireOpenProjectForOps, requireOpenProject'in (aynı satır kilidi,
+// aynı kural) operasyon uçları için olan karşılığıdır; yalnızca hata
+// metni projenin neden kapalı olduğunu ve ne yapılacağını söyler.
+func (s *ProjectService) requireOpenProjectForOps(ctx context.Context, q *sqlc.Queries, projectID, orgID pgtype.UUID) (sqlc.Project, error) {
+	p, err := q.GetProjectByIDForUpdate(ctx, sqlc.GetProjectByIDForUpdateParams{ID: projectID, OrganizationID: orgID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sqlc.Project{}, domain.ErrNotFound
+		}
+		return sqlc.Project{}, err
+	}
+	switch p.Status {
+	case domain.ProjectStatusCancelled:
+		return sqlc.Project{}, projectClosedError{cancelled: true}
+	case domain.ProjectStatusCompleted:
+		return sqlc.Project{}, projectClosedError{}
+	}
+	return p, nil
+}
+
+// ErrProjectFieldTooLong: bir metin alanı veritabanı sütun sınırını aşıyor.
+// Eskiden INSERT/UPDATE "value too long" ile düşüp genel bir 500
+// üretiyordu; şimdi alan adı ve sınırla 400 döner (handler varsayılanı).
+// errors.Is ile yakalanır; metni fieldTooLongError üretir.
+var ErrProjectFieldTooLong = errors.New("alan çok uzun")
+
+type fieldTooLongError struct {
+	field string
+	max   int
+}
+
+func (e *fieldTooLongError) Error() string {
+	return fmt.Sprintf("%s en fazla %d karakter olabilir", e.field, e.max)
+}
+
+func (e *fieldTooLongError) Is(target error) bool { return target == ErrProjectFieldTooLong }
+
+// Sütun sınırları (migration 0025/0023/0035) -- karakter (rune) sayısıdır;
+// PostgreSQL varchar(n) de karakter sayar.
+const (
+	maxRoleTitleRunes    = 120 // project_members.role_title
+	maxScheduleNameRunes = 200 // project_schedule_items.name
+	maxTaskTitleRunes    = 200 // project_tasks.title
+	maxUploadDescRunes   = 500 // project_files/project_photos.description
+	maxProjectNameRunes  = 200 // projects.name
+	maxProjectTypeRunes  = 100 // projects.project_type
+	maxWBSCodeRunes      = 30  // project_wbs_nodes.code
+	maxWBSNameRunes      = 150 // project_wbs_nodes.name
+)
+
+// checkFieldLen: value (zaten TrimSpace edilmiş) max karakteri aşıyorsa
+// alan adını taşıyan doğrulama hatası.
+func checkFieldLen(value, field string, max int) error {
+	if utf8.RuneCountInString(value) > max {
+		return &fieldTooLongError{field: field, max: max}
+	}
+	return nil
+}
 
 // MaxUploadBytes, tek bir yükleme için üst sınırdır (25 MB).
 const MaxUploadBytes = 25 << 20
@@ -113,6 +204,10 @@ func (s *ProjectService) AssignMember(ctx context.Context, projectID, organizati
 	if err != nil {
 		return nil, ErrInvalidEmployee
 	}
+	roleTitle := strings.TrimSpace(in.RoleTitle)
+	if err := checkFieldLen(roleTitle, "Görev/rol", maxRoleTitleRunes); err != nil {
+		return nil, err
+	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -121,7 +216,7 @@ func (s *ProjectService) AssignMember(ctx context.Context, projectID, organizati
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+	if _, err := s.requireOpenProjectForOps(ctx, txq, pid, orgID); err != nil {
 		return nil, err
 	}
 
@@ -139,7 +234,7 @@ func (s *ProjectService) AssignMember(ctx context.Context, projectID, organizati
 		ProjectID:      pid,
 		EmployeeID:     eid,
 		EmployeeName:   emp.FullName,
-		RoleTitle:      strings.TrimSpace(in.RoleTitle),
+		RoleTitle:      roleTitle,
 		StartDate:      repository.TimePtrToDate(in.StartDate),
 		Notes:          strings.TrimSpace(in.Notes),
 		CreatedBy:      actorUUID(in.UserID),
@@ -263,6 +358,9 @@ func (s *ProjectService) CreateScheduleItem(ctx context.Context, projectID, orga
 	if name == "" {
 		return nil, errors.New("aşama adı zorunludur")
 	}
+	if err := checkFieldLen(name, "Aşama adı", maxScheduleNameRunes); err != nil {
+		return nil, err
+	}
 	status := in.Status
 	if status == "" {
 		status = domain.ScheduleStatusPlanned
@@ -278,7 +376,7 @@ func (s *ProjectService) CreateScheduleItem(ctx context.Context, projectID, orga
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+	if _, err := s.requireOpenProjectForOps(ctx, txq, pid, orgID); err != nil {
 		return nil, err
 	}
 	var assigneeID, assigneeUser pgtype.UUID
@@ -349,6 +447,9 @@ func (s *ProjectService) UpdateScheduleItem(ctx context.Context, projectID, item
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
 		return nil, errors.New("aşama adı zorunludur")
+	}
+	if err := checkFieldLen(name, "Aşama adı", maxScheduleNameRunes); err != nil {
+		return nil, err
 	}
 	if !domain.ValidScheduleStatus(in.Status) {
 		return nil, errors.New("geçersiz aşama durumu")
@@ -481,6 +582,9 @@ func (s *ProjectService) CreateTask(ctx context.Context, projectID, organization
 	if title == "" {
 		return nil, errors.New("görev başlığı zorunludur")
 	}
+	if err := checkFieldLen(title, "Görev başlığı", maxTaskTitleRunes); err != nil {
+		return nil, err
+	}
 	priority := in.Priority
 	if priority == "" {
 		priority = domain.TaskPriorityNormal
@@ -508,7 +612,7 @@ func (s *ProjectService) CreateTask(ctx context.Context, projectID, organization
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+	if _, err := s.requireOpenProjectForOps(ctx, txq, pid, orgID); err != nil {
 		return nil, err
 	}
 	scheduleID, employeeID, employeeName, employeeUserID, err := s.resolveTaskRelations(ctx, txq, pid, orgID, in)
@@ -684,6 +788,9 @@ func (s *ProjectService) UpdateTask(ctx context.Context, projectID, taskID, orga
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
 		return nil, errors.New("görev başlığı zorunludur")
+	}
+	if err := checkFieldLen(title, "Görev başlığı", maxTaskTitleRunes); err != nil {
+		return nil, err
 	}
 	if !domain.ValidTaskPriority(in.Priority) {
 		return nil, errors.New("geçersiz öncelik")
@@ -896,6 +1003,13 @@ func (s *ProjectService) UploadFile(ctx context.Context, projectID, organization
 	if len([]rune(name)) > 255 {
 		name = string([]rune(name)[:255])
 	}
+	// Açıklama, dosya depolamaya yazılmadan ÖNCE doğrulanır: eskiden INSERT
+	// "value too long" ile düşünce yüklenen dosya sessizce silinip genel bir
+	// 500 dönüyordu -- kullanıcı ne olduğunu anlamadan dosyası kayboluyordu.
+	description := strings.TrimSpace(in.Description)
+	if err := checkFieldLen(description, "Açıklama", maxUploadDescRunes); err != nil {
+		return nil, err
+	}
 
 	// Proje sahipliği ve durumu, HERHANGİ bir bayt diske yazılmadan önce
 	// doğrulanır. Kayıt ve olay yazımı TEK transaction içinde yapılır --
@@ -908,7 +1022,7 @@ func (s *ProjectService) UploadFile(ctx context.Context, projectID, organization
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	project, err := s.requireOpenProject(ctx, txq, pid, orgID)
+	project, err := s.requireOpenProjectForOps(ctx, txq, pid, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -927,25 +1041,26 @@ func (s *ProjectService) UploadFile(ctx context.Context, projectID, organization
 		SizeBytes:      obj.Size,
 		Sha256:         obj.SHA256,
 		Category:       category,
-		Description:    strings.TrimSpace(in.Description),
+		Description:    description,
 		UploadedBy:     actorUUID(in.UserID),
 	})
 	if err != nil {
-		// Aynı içerik zaten yüklenmiş: yeni nesneyi sil, mevcut kaydı dön.
+		// Aynı içerik zaten yüklenmiş: yeni nesneyi sil ve 409 dön -- hangi
+		// dosyayla çakıştığını söyleyerek. (Eskiden mevcut kayıt 201 ile
+		// dönüyordu; yükleme "başarılı" görünüp liste değişmiyordu.)
 		// DİKKAT: bir INSERT hatası transaction'ı "aborted" duruma
 		// düşürür -- kurtarma sorgusu aynı tx (txq) ÜZERİNDEN DEĞİL,
 		// havuzdan (s.q) çalıştırılmalıdır (bkz. CreateCollection'daki
 		// aynı desen).
+		_ = s.store.Delete(ctx, key)
 		if isUniqueViolation(err) {
-			_ = s.store.Delete(ctx, key)
 			if existing, gerr := s.q.GetProjectFileBySHA(ctx, sqlc.GetProjectFileBySHAParams{
 				ProjectID: pid, Sha256: obj.SHA256,
 			}); gerr == nil {
-				out := repository.ToDomainProjectFile(existing)
-				return &out, nil
+				return nil, &duplicateContentError{msg: "Bu dosya bu projeye zaten yüklenmiş: " + existing.OriginalName}
 			}
+			return nil, ErrDuplicateContent
 		}
-		_ = s.store.Delete(ctx, key)
 		return nil, err
 	}
 
@@ -1065,6 +1180,11 @@ func (s *ProjectService) UploadPhoto(ctx context.Context, projectID, organizatio
 	if len([]rune(name)) > 255 {
 		name = string([]rune(name)[:255])
 	}
+	// bkz. UploadFile: açıklama depolamadan ÖNCE doğrulanır.
+	description := strings.TrimSpace(in.Description)
+	if err := checkFieldLen(description, "Açıklama", maxUploadDescRunes); err != nil {
+		return nil, err
+	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -1073,7 +1193,7 @@ func (s *ProjectService) UploadPhoto(ctx context.Context, projectID, organizatio
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	project, err := s.requireOpenProject(ctx, txq, pid, orgID)
+	project, err := s.requireOpenProjectForOps(ctx, txq, pid, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -1093,23 +1213,27 @@ func (s *ProjectService) UploadPhoto(ctx context.Context, projectID, organizatio
 		SizeBytes:      obj.Size,
 		Sha256:         obj.SHA256,
 		Stage:          stage,
-		Description:    strings.TrimSpace(in.Description),
+		Description:    description,
 		TakenAt:        repository.TimePtrToTimestamptz(in.TakenAt),
 		UploadedBy:     actorUUID(in.UserID),
 	})
 	if err != nil {
-		// bkz. UploadFile: kurtarma sorgusu havuzdan (s.q) çalışır --
-		// bu noktada txq'nun transaction'ı "aborted" durumdadır.
+		// bkz. UploadFile: aynı içerik 409 (hangi fotoğrafla çakıştığıyla);
+		// kurtarma sorgusu havuzdan (s.q) çalışır -- bu noktada txq'nun
+		// transaction'ı "aborted" durumdadır.
+		_ = s.store.Delete(ctx, key)
 		if isUniqueViolation(err) {
-			_ = s.store.Delete(ctx, key)
 			if existing, gerr := s.q.GetProjectPhotoBySHA(ctx, sqlc.GetProjectPhotoBySHAParams{
 				ProjectID: pid, Sha256: obj.SHA256,
 			}); gerr == nil {
-				out := repository.ToDomainProjectPhoto(existing)
-				return &out, nil
+				label := existing.Description
+				if label == "" {
+					label = existing.OriginalName
+				}
+				return nil, &duplicateContentError{msg: "Bu fotoğraf bu projeye zaten yüklenmiş: " + label}
 			}
+			return nil, ErrDuplicateContent
 		}
-		_ = s.store.Delete(ctx, key)
 		return nil, err
 	}
 

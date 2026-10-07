@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -474,13 +475,24 @@ func toFileResponse(f domain.ProjectFile) fileResponse {
 	}
 }
 
+// errUploadUnreadable: multipart gövdesi çözümlenemedi. Ham Go hatası
+// ("multipart: NextPart: EOF" vb.) yalnızca sunucu loguna yazılır.
+var errUploadUnreadable = errors.New("dosya okunamadı; lütfen tekrar deneyin")
+
 // readUpload, multipart isteğinden dosyayı çıkarır. Gövde
 // MaxBytesReader ile sınırlanır: sınırı aşan bir istek diske hiç
-// yazılmadan kesilir.
+// yazılmadan kesilir. Sınır aşımı service.ErrFileTooLarge döner (413, net
+// Türkçe metin) -- eskiden "dosya okunamadı: http: request body too
+// large" ham metni 400 ile dönüyordu.
 func readUpload(w http.ResponseWriter, r *http.Request) (io.Reader, string, map[string]string, error) {
 	r.Body = http.MaxBytesReader(w, r.Body, service.MaxUploadBytes+1024)
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
-		return nil, "", nil, fmt.Errorf("dosya okunamadı: %w", err)
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return nil, "", nil, service.ErrFileTooLarge
+		}
+		log.Printf("yükleme gövdesi çözümlenemedi: %v", err)
+		return nil, "", nil, errUploadUnreadable
 	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
@@ -510,7 +522,7 @@ func (h *ProjectHandler) ListFiles(w http.ResponseWriter, r *http.Request) {
 func (h *ProjectHandler) UploadFile(w http.ResponseWriter, r *http.Request) {
 	body, name, fields, err := readUpload(w, r)
 	if err != nil {
-		httpjson.Error(w, http.StatusBadRequest, err.Error())
+		h.writeError(w, err)
 		return
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
@@ -608,7 +620,7 @@ func (h *ProjectHandler) ListPhotos(w http.ResponseWriter, r *http.Request) {
 func (h *ProjectHandler) UploadPhoto(w http.ResponseWriter, r *http.Request) {
 	body, name, fields, err := readUpload(w, r)
 	if err != nil {
-		httpjson.Error(w, http.StatusBadRequest, err.Error())
+		h.writeError(w, err)
 		return
 	}
 	var takenAt *time.Time

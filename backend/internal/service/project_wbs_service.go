@@ -69,6 +69,19 @@ func resolveWBSParentRef(ctx context.Context, q *sqlc.Queries, parentID string, 
 	return parent, nil
 }
 
+func validateWBSInput(in WBSNodeInput) error {
+	if in.Code == "" {
+		return errors.New("WBS kodu zorunludur")
+	}
+	if in.Name == "" {
+		return errors.New("WBS adı zorunludur")
+	}
+	if err := checkFieldLen(in.Code, "WBS kodu", maxWBSCodeRunes); err != nil {
+		return err
+	}
+	return checkFieldLen(in.Name, "WBS adı", maxWBSNameRunes)
+}
+
 func (s *ProjectService) CreateWBSNode(ctx context.Context, projectID, organizationID string, in WBSNodeInput) (*domain.WBSNode, error) {
 	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
@@ -76,11 +89,8 @@ func (s *ProjectService) CreateWBSNode(ctx context.Context, projectID, organizat
 	}
 	in.Code = strings.TrimSpace(in.Code)
 	in.Name = strings.TrimSpace(in.Name)
-	if in.Code == "" {
-		return nil, errors.New("WBS kodu zorunludur")
-	}
-	if in.Name == "" {
-		return nil, errors.New("WBS adı zorunludur")
+	if err := validateWBSInput(in); err != nil {
+		return nil, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -90,7 +100,7 @@ func (s *ProjectService) CreateWBSNode(ctx context.Context, projectID, organizat
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+	if _, err := s.requireOpenProjectForOps(ctx, txq, pid, orgID); err != nil {
 		return nil, err
 	}
 	parentID, err := resolveWBSParentRef(ctx, txq, in.ParentID, pid, orgID)
@@ -133,11 +143,8 @@ func (s *ProjectService) UpdateWBSNode(ctx context.Context, projectID, nodeID, o
 	}
 	in.Code = strings.TrimSpace(in.Code)
 	in.Name = strings.TrimSpace(in.Name)
-	if in.Code == "" {
-		return nil, errors.New("WBS kodu zorunludur")
-	}
-	if in.Name == "" {
-		return nil, errors.New("WBS adı zorunludur")
+	if err := validateWBSInput(in); err != nil {
+		return nil, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
