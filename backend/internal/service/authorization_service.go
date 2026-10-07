@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/repository"
@@ -21,11 +22,14 @@ import (
 // Context kontrolüyle daha önce muaf tutulur, tıpkı RequireOnboarded'daki
 // AYNI desen).
 type AuthorizationService struct {
-	q *sqlc.Queries
+	pool *pgxpool.Pool
+	q    *sqlc.Queries
 }
 
-func NewAuthorizationService(q *sqlc.Queries) *AuthorizationService {
-	return &AuthorizationService{q: q}
+// pool: rol izinlerinin "sil + yeniden yaz"ı ve rol değişikliği (son-Sahip
+// kilidiyle) tek transaction'da yapılsın diye.
+func NewAuthorizationService(pool *pgxpool.Pool, q *sqlc.Queries) *AuthorizationService {
+	return &AuthorizationService{pool: pool, q: q}
 }
 
 // AuthzContext, TEK bir istek boyunca yeniden kullanılan, önceden
@@ -223,13 +227,25 @@ func (s *AuthorizationService) SetRolePermissions(ctx context.Context, roleID, o
 		return nil, err
 	}
 
-	if err := s.q.ClearRolePermissions(ctx, rid); err != nil {
+	// Sil + yeniden yaz TEK transaction'da: yarıda kalan bir yazım (bağlantı
+	// kopması, tek bir satırın hatası) rolü kısmi -- hatta boş -- bir izin
+	// kümesiyle bırakıyordu; o roldeki herkes sessizce yetki kaybediyordu.
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+	if err := txq.ClearRolePermissions(ctx, rid); err != nil {
 		return nil, err
 	}
 	for _, code := range clean {
-		if err := s.q.AddRolePermission(ctx, sqlc.AddRolePermissionParams{OrganizationRoleID: rid, PermissionCode: code}); err != nil {
+		if err := txq.AddRolePermission(ctx, sqlc.AddRolePermissionParams{OrganizationRoleID: rid, PermissionCode: code}); err != nil {
 			return nil, err
 		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
 	}
 
 	dr := repository.ToDomainOrganizationRole(role)
@@ -434,8 +450,37 @@ func sortedOrEmpty(codes []string) []string {
 // (yalnızca migration'da seed edilen 6 kod var, hepsi tenant rolü).
 // Son aktif Owner koruması ve kaba rol senkronu user_lifecycle.go'da --
 // platform tarafı (PlatformService) ile AYNI kural.
-func (s *AuthorizationService) SetUserOrganizationRole(ctx context.Context, userID, organizationID, roleCode string) (*domain.OrganizationRole, error) {
-	return setUserOrganizationRole(ctx, s.q, userID, organizationID, roleCode)
+//
+// Bir Sahip'in rolünü değiştirmek ya da birine Sahip rolü vermek yalnızca
+// bir Sahip'in işidir (actorUserID, bkz. guardOwnerOnlyAction): Yönetici,
+// kendini Sahip yapıp asıl Sahibi düşürerek firmayı ele geçirebiliyordu.
+// Kontrol, son-Sahip kilidi ve değişiklik tek transaction'da.
+func (s *AuthorizationService) SetUserOrganizationRole(ctx context.Context, userID, organizationID, actorUserID, roleCode string) (*domain.OrganizationRole, error) {
+	uid, err := repository.StringToUUID(userID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+	if err := guardOwnerOnlyAction(ctx, txq, actorUserID, uid, orgID, strings.TrimSpace(roleCode)); err != nil {
+		return nil, err
+	}
+	role, err := setUserOrganizationRole(ctx, txq, userID, organizationID, roleCode)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return role, nil
 }
 
 // ---------- Kullanıcı listesi (organizasyon rolüyle zenginleştirilmiş) ----------

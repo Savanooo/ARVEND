@@ -150,6 +150,7 @@ func (h *EmployeeHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	in.ChangedBy, _ = middleware.UserIDFromContext(r.Context())
 	e, err := h.svc.Create(r.Context(), orgID, in)
 	if err != nil {
 		h.writeError(w, err)
@@ -170,6 +171,7 @@ func (h *EmployeeHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	in.ChangedBy, _ = middleware.UserIDFromContext(r.Context())
 	e, err := h.svc.Update(r.Context(), chi.URLParam(r, "id"), orgID, in)
 	if err != nil {
 		h.writeError(w, err)
@@ -195,6 +197,9 @@ func (h *EmployeeHandler) writeError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrEmployeeUserCrossOrg):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
+	case isInternalError(err):
+		// Ham veritabanı metni (tablo/kısıt adları) kullanıcıya gitmesin.
+		writeInternalError(w, err)
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}

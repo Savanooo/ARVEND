@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -321,7 +322,163 @@ func TestSalaryPayments(t *testing.T) {
 			t.Errorf("geçersiz ay: %v", err)
 		}
 	})
+
+	summaryRow := func(t *testing.T, period, emp string) *domain.PayrollSummaryRow {
+		t.Helper()
+		rows, err := svc.Summary(ctx, orgA.ID, period)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := range rows {
+			if rows[i].EmployeeID == emp {
+				return &rows[i]
+			}
+		}
+		return nil
+	}
+
+	t.Run("11_carry_over_chains_across_months", func(t *testing.T) {
+		// Denetimdeki örnek: yevmiye 1000; Nisan 10 gün + 30.000 avans
+		// (20.000 fazla), Mayıs ve Haziran 10'ar gün, ödeme yok.
+		emp := mustCreateEmployee(t, ctx, pool, orgA.ID, "Zincir Usta", true)
+		if _, err := pool.Exec(ctx, `UPDATE employees SET daily_wage = 1000 WHERE id = $1`, emp); err != nil {
+			t.Fatal(err)
+		}
+		for _, month := range []string{"2026-04", "2026-05", "2026-06"} {
+			for dd := 1; dd <= 10; dd++ {
+				mustAttendance(t, ctx, pool, orgA.ID, emp, fmt.Sprintf("%s-%02d", month, dd), "geldi", 9)
+			}
+		}
+		if _, err := svc.Create(ctx, orgA.ID, service.SalaryPaymentInput{
+			EmployeeID: emp, Period: "2026-04", PaymentType: domain.PaymentTypeAvans, Amount: 30000,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if r := summaryRow(t, "2026-05", emp); r == nil || r.CarryOver != 20000 || r.Remaining != -10000 {
+			t.Fatalf("Mayıs: devir 20000, kalan -10000 beklendi: %+v", r)
+		}
+		r := summaryRow(t, "2026-06", emp)
+		if r == nil || r.CarryOver != 10000 || r.Remaining != 0 {
+			t.Fatalf("Haziran: Mayıs'tan kalan 10.000 devretmeli (eskiden kayboluyordu): %+v", r)
+		}
+		if r := summaryRow(t, "2026-07", emp); r != nil && r.CarryOver != 0 {
+			t.Errorf("Temmuz: zincir tükendi, devir 0 beklendi: %v", r.CarryOver)
+		}
+		// Döküm de aynı hesaptan gelir.
+		st, err := svc.Statement(ctx, orgA.ID, emp, "2026-06")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Row.CarryOver != 10000 {
+			t.Errorf("döküm devri ekranla aynı olmalı: %v", st.Row.CarryOver)
+		}
+	})
+
+	t.Run("12_monthly_salary_not_owed_before_start_or_in_future", func(t *testing.T) {
+		emp := mustCreateEmployee(t, ctx, pool, orgA.ID, "Yeni Giren Kalfa", true)
+		if _, err := pool.Exec(ctx, `UPDATE employees SET salary = 30000, start_date = '2026-08-15' WHERE id = $1`, emp); err != nil {
+			t.Fatal(err)
+		}
+		if r := summaryRow(t, "2026-07", emp); r != nil {
+			t.Errorf("işe girişten önceki ay (verisi yok) listelenmemeli: %+v", r)
+		}
+		if r := summaryRow(t, "2026-08", emp); r == nil || r.Earned != 30000 {
+			t.Errorf("işe girdiği ay tam maaş beklendi: %+v", r)
+		}
+		future := service.IstanbulToday().AddDate(0, 2, 0).Format("2006-01")
+		if r := summaryRow(t, future, emp); r == nil || r.Earned != 0 || r.Remaining != 0 {
+			t.Errorf("ileri ay (%s) borç gösterilmemeli: %+v", future, r)
+		}
+		// İşe girmeden önceki aya verilen avans o ay listelenir ve devreder.
+		if _, err := svc.Create(ctx, orgA.ID, service.SalaryPaymentInput{
+			EmployeeID: emp, Period: "2026-07", PaymentType: domain.PaymentTypeAvans, Amount: 5000,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if r := summaryRow(t, "2026-07", emp); r == nil || r.Earned != 0 || r.Remaining != -5000 {
+			t.Errorf("girişten önceki ayın avansı: hakediş 0, kalan -5000 beklendi: %+v", r)
+		}
+		if r := summaryRow(t, "2026-08", emp); r == nil || r.CarryOver != 5000 || r.Remaining != 25000 {
+			t.Errorf("avans girişin ilk ayına devretmeli: %+v", r)
+		}
+	})
+
+	t.Run("13_wage_change_does_not_rewrite_past_months", func(t *testing.T) {
+		empSvc := service.NewEmployeeService(pool, q)
+		today := service.IstanbulToday()
+		thisMonth := today.Format("2006-01")
+		lastMonth := time.Date(today.Year(), today.Month()-1, 1, 0, 0, 0, 0, time.UTC).Format("2006-01")
+		start := time.Date(today.Year()-1, 1, 1, 0, 0, 0, 0, time.UTC)
+		e, err := empSvc.Create(ctx, orgA.ID, service.EmployeeInput{FullName: "Zamlı Usta", Salary: fp(30000), StartDate: &start})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.Create(ctx, orgA.ID, service.SalaryPaymentInput{
+			EmployeeID: e.ID, Period: lastMonth, PaymentType: domain.PaymentTypeMaas, Amount: 30000,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if r := summaryRow(t, lastMonth, e.ID); r == nil || r.Remaining != 0 {
+			t.Fatalf("zamdan önce geçen ay tamamen ödenmiş olmalı: %+v", r)
+		}
+
+		// Bugün zam: 34.000.
+		if _, err := empSvc.Update(ctx, e.ID, orgA.ID, service.EmployeeInput{
+			FullName: "Zamlı Usta", Salary: fp(34000), StartDate: &start, IsActive: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		r := summaryRow(t, lastMonth, e.ID)
+		if r == nil || r.Earned != 30000 || r.Remaining != 0 || r.Salary == nil || *r.Salary != 30000 {
+			t.Errorf("zam geçen ayı değiştirmemeli (hakediş 30000, kalan 0, ücret 30000): %+v", r)
+		}
+		r = summaryRow(t, thisMonth, e.ID)
+		if r == nil || r.Earned != 34000 || r.CarryOver != 0 || r.Remaining != 34000 {
+			t.Errorf("bu ay yeni ücretle, sahte devir yok: %+v", r)
+		}
+
+		// Ücret değişmeyen bir düzenleme yeni geçmiş satırı yazmaz; geçmiş
+		// tenant kapsamlı.
+		if _, err := empSvc.Update(ctx, e.ID, orgA.ID, service.EmployeeInput{
+			FullName: "Zamlı Usta (düzeltildi)", Salary: fp(34000), StartDate: &start, IsActive: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		var n int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM employee_wage_history WHERE employee_id = $1 AND organization_id = $2`, e.ID, orgA.ID).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 2 {
+			t.Errorf("başlangıç + zam = 2 geçmiş satırı beklendi, %d", n)
+		}
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO employee_wage_history (organization_id, employee_id, salary, effective_from)
+			VALUES ($1, $2, 1, '2026-01-01')`, orgB.ID, e.ID); err == nil {
+			t.Error("DB tetikleyicisi başka firmanın personeline ücret geçmişi yazmayı engellemeli")
+		}
+	})
+
+	t.Run("14_wage_change_for_employee_without_history_keeps_old_rate", func(t *testing.T) {
+		// Servisi atlayarak eklenmiş (geçmişi olmayan) personel: ilk
+		// değişiklikte eski ücret başlangıç satırı olarak kaydedilmeli.
+		empSvc := service.NewEmployeeService(pool, q)
+		emp := mustCreateEmployee(t, ctx, pool, orgA.ID, "Aktarılmış Usta", true)
+		if _, err := pool.Exec(ctx, `UPDATE employees SET daily_wage = 1000 WHERE id = $1`, emp); err != nil {
+			t.Fatal(err)
+		}
+		mustAttendance(t, ctx, pool, orgA.ID, emp, "2026-03-02", "geldi", 9)
+		if _, err := empSvc.Update(ctx, emp, orgA.ID, service.EmployeeInput{
+			FullName: "Aktarılmış Usta", DailyWage: fp(1500), IsActive: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if r := summaryRow(t, "2026-03", emp); r == nil || r.Earned != 1000 {
+			t.Errorf("Mart eski yevmiyeyle (1000) kalmalı: %+v", r)
+		}
+	})
 }
+
+func fp(v float64) *float64 { return &v }
 
 func day(y int, m time.Month, d int) time.Time { return time.Date(y, m, d, 0, 0, 0, 0, time.UTC) }
 

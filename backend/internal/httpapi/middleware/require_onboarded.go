@@ -51,6 +51,13 @@ func RequireOnboarded(q *sqlc.Queries) func(http.Handler) http.Handler {
 				http.Error(w, `{"error":"oturum geçersiz veya süresi dolmuş"}`, http.StatusUnauthorized)
 				return
 			}
+			// Pasifleştirilen/silinen kullanıcı ve düşürülen rol, token'ın
+			// ömrünü beklemeden burada etkili olur (aynı satırdan, ek sorgu
+			// yok) -- bkz. applyUserGate.
+			r, ok = applyUserGate(w, r, status.IsActive, status.UserDeleted, status.Role, status.OrganizationID)
+			if !ok {
+				return
+			}
 			if status.MustChangePassword {
 				http.Error(w, `{"error":"devam etmeden önce şifrenizi değiştirmeniz gerekiyor"}`, http.StatusForbidden)
 				return

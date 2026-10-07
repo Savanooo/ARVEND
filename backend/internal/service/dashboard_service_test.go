@@ -49,7 +49,7 @@ func newDashTestEnv(t *testing.T, slug string) *dashTestEnv {
 		ctx: ctx, pool: pool,
 		offerSvc:   service.NewOfferService(pool, q, settingsSvc, "http://localhost:3000"),
 		projectSvc: service.NewProjectService(pool, q, mustTestStore(t), settingsSvc, "http://localhost:3000"),
-		userSvc:    service.NewUserService(q),
+		userSvc:    service.NewUserService(pool, q),
 		svc:        service.NewDashboardService(pool, q),
 		now:        now,
 		clk:        service.NewDashboardClock(now),

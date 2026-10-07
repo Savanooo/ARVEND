@@ -104,7 +104,7 @@ func TestRequireOnboarded_BusinessEndpointGate(t *testing.T) {
 	t.Cleanup(func() { pool.Close() })
 	q := sqlc.New(pool)
 
-	userSvc := service.NewUserService(q)
+	userSvc := service.NewUserService(pool, q)
 	calcSvc := service.NewCalcService(q)
 	productSvc := service.NewProductService(q)
 	platformSvc := service.NewPlatformService(pool, q, userSvc, calcSvc, productSvc)
@@ -133,7 +133,7 @@ func TestRequireOnboarded_BusinessEndpointGate(t *testing.T) {
 		result := mustCreateOrgWithOwner(t, ctx, platformSvc, pool, "onboarded-gate-incomplete")
 		t.Cleanup(func() { cleanupOnboardedTestOrg(t, pool, result.Organization.ID) })
 		// must_change_password'ü temizle ki YALNIZCA onboarding izole olsun.
-		if err := userSvc.SetInitialPassword(ctx, result.Owner.ID, result.Organization.ID, "YeniSifre123!"); err != nil {
+		if err := userSvc.SetInitialPassword(ctx, result.Owner.ID, result.Organization.ID, "YeniSifre123!", ""); err != nil {
 			t.Fatalf("must_change_password temizlenemedi: %v", err)
 		}
 		token, err := issuer.IssueAccessToken(result.Owner.ID, domain.RoleAdmin, result.Organization.ID)
@@ -165,7 +165,7 @@ func TestRequireOnboarded_BusinessEndpointGate(t *testing.T) {
 	t.Run("must_change_password=false + onboarding_completed=true -> normal erişim", func(t *testing.T) {
 		result := mustCreateOrgWithOwner(t, ctx, platformSvc, pool, "onboarded-gate-complete")
 		t.Cleanup(func() { cleanupOnboardedTestOrg(t, pool, result.Organization.ID) })
-		if err := userSvc.SetInitialPassword(ctx, result.Owner.ID, result.Organization.ID, "YeniSifre123!"); err != nil {
+		if err := userSvc.SetInitialPassword(ctx, result.Owner.ID, result.Organization.ID, "YeniSifre123!", ""); err != nil {
 			t.Fatalf("must_change_password temizlenemedi: %v", err)
 		}
 		if _, err := pool.Exec(ctx, "UPDATE organizations SET onboarding_completed = true WHERE id = $1", result.Organization.ID); err != nil {

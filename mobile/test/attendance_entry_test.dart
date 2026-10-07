@@ -5,6 +5,7 @@ import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:arvend/core/api/api_providers.dart';
 import 'package:arvend/core/theme/app_theme.dart';
+import 'package:arvend/features/attendance/domain/attendance.dart';
 import 'package:arvend/features/attendance/domain/attendance_entry.dart';
 import 'package:arvend/features/attendance/presentation/attendance_screen.dart';
 
@@ -39,6 +40,27 @@ void main() {
       expect(statusHasHours('yarım gün'), isTrue);
       expect(statusHasHours('gelmedi'), isFalse);
       expect(statusHasHours('izinli'), isFalse);
+    });
+
+    test('parseWorkHours: Türkçe virgül kabul, "8 saat" gibi metin geçersiz', () {
+      expect(parseWorkHours('8'), 8);
+      expect(parseWorkHours('7,5'), 7.5);
+      expect(parseWorkHours(' 7.25 '), 7.25);
+      expect(parseWorkHours('0'), 0);
+      expect(parseWorkHours('24'), 24);
+      expect(parseWorkHours('8 saat'), isNull);
+      expect(parseWorkHours(''), isNull);
+      expect(parseWorkHours('-1'), isNull);
+      expect(parseWorkHours('25'), isNull);
+      expect(parseWorkHours('1.000'), isNull, reason: 'binlik ayraç saat değildir');
+    });
+
+    test('mesai günü bugünü (İstanbul) geçemez', () {
+      // UTC 22:30 = İstanbul ertesi gün 01:30.
+      final now = DateTime.utc(2026, 10, 7, 22, 30);
+      expect(attendanceLastDay(now), DateTime(2026, 10, 8));
+      expect(clampToAttendanceDay(DateTime(2026, 11, 1), now), DateTime(2026, 10, 8));
+      expect(clampToAttendanceDay(DateTime(2026, 10, 3, 15), now), DateTime(2026, 10, 3));
     });
 
     test('BulkEntryResult özeti', () {
@@ -147,5 +169,73 @@ void main() {
       expect(body['work_hours'], 0);
       expect(body['check_in'], '');
     });
+
+    testWidgets('geçersiz saat ("8 saat") kaydedilmez, hata gösterilir', (tester) async {
+      final adapter = await pumpBulk(tester, [
+        for (final d in ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-05'])
+          (status: 201, body: created('e1', d)),
+      ]);
+      await tester.tap(find.widgetWithText(FilterChip, 'Ali Kaya'));
+      await tester.enterText(find.byKey(const Key('mesai-saat')), '8 saat');
+      await tester.ensureVisible(find.text('4 kaydı gir'));
+      await tester.tap(find.text('4 kaydı gir'));
+      await tester.pumpAndSettle();
+      expect(adapter.calls.where((c) => c == '/attendance'), isEmpty, reason: 'istek gitmemeli');
+      expect(find.textContaining('Çalışma saati geçersiz'), findsOneWidget);
+    });
+  });
+
+  testWidgets('gelmedi kaydı geldi yapılınca saat giriş-çıkıştan hesaplanır (0 kalmaz)', (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/attendance/a1': [
+        (
+          status: 200,
+          body: {
+            'id': 'a1', 'employee_id': 'e1', 'employee_name': 'Ali Kaya', 'date': '2026-10-02',
+            'check_in': '08:00', 'check_out': '17:00', 'work_hours': 9, 'status': 'geldi', 'note': '',
+          },
+        ),
+      ],
+    });
+    final client = await buildFakeApiClient(adapter);
+    await tester.binding.setSurfaceSize(const Size(400, 1600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [apiClientProvider.overrideWithValue(client)],
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => Center(
+                child: TextButton(
+                  onPressed: () => showAttendanceForm(
+                    context,
+                    onSaved: () {},
+                    existing: const AttendanceRecord(
+                      id: 'a1', employeeId: 'e1', employeeName: 'Ali Kaya', date: '2026-10-02',
+                      checkIn: '', checkOut: '', workHours: 0, status: 'gelmedi', note: '',
+                    ),
+                  ),
+                  child: const Text('aç'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('aç'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Geldi'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextField, '9'), findsOneWidget);
+    await tester.ensureVisible(find.text('Kaydet'));
+    await tester.tap(find.text('Kaydet'));
+    await tester.pumpAndSettle();
+    final body = adapter.requestBodies[adapter.calls.indexOf('/attendance/a1')] as Map;
+    expect(body['status'], 'geldi');
+    expect(body['work_hours'], 9);
+    expect(body['check_in'], '08:00');
   });
 }

@@ -187,7 +187,7 @@ func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
 	t.Cleanup(func() { pool.Close() })
 	q := sqlc.New(pool)
 
-	userSvc := service.NewUserService(q)
+	userSvc := service.NewUserService(pool, q)
 	productSvc := service.NewProductService(q)
 	settingsSvc := service.NewSettingsService(q, secretBox)
 	offerSvc := service.NewOfferService(pool, q, settingsSvc, "http://localhost:3000")
@@ -197,12 +197,12 @@ func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
 	}
 	projectSvc := service.NewProjectService(pool, q, fileStore, settingsSvc, "http://localhost:3000")
 	customerSvc := service.NewCustomerService(q)
-	employeeSvc := service.NewEmployeeService(q)
+	employeeSvc := service.NewEmployeeService(pool, q)
 	attendanceSvc := service.NewAttendanceService(q)
 	calcSvc := service.NewCalcService(q)
 	platformSvc := service.NewPlatformService(pool, q, userSvc, calcSvc, productSvc)
 	onboardingSvc := service.NewOnboardingService(q, secretBox)
-	authzSvc := service.NewAuthorizationService(q)
+	authzSvc := service.NewAuthorizationService(pool, q)
 	costCodeSvc := service.NewCostCodeService(pool, q)
 	supplierSvc := service.NewSupplierService(pool, q, secretBox)
 	priceFetch := &stubPriceFetcher{}
@@ -269,7 +269,7 @@ func mustCreateReadyOrg(t *testing.T, ctx context.Context, d *rbacTestDeps, slug
 	if err != nil {
 		t.Fatalf("test organizasyonu+owner oluşturulamadı: %v", err)
 	}
-	if err := d.userSvc.SetInitialPassword(ctx, result.Owner.ID, result.Organization.ID, "SabitSifre123!"); err != nil {
+	if err := d.userSvc.SetInitialPassword(ctx, result.Owner.ID, result.Organization.ID, "SabitSifre123!", ""); err != nil {
 		t.Fatalf("must_change_password temizlenemedi: %v", err)
 	}
 	if _, err := d.pool.Exec(ctx, "UPDATE organizations SET onboarding_completed = true WHERE id = $1", result.Organization.ID); err != nil {
@@ -319,10 +319,10 @@ func mustCreateRoleUser(t *testing.T, ctx context.Context, d *rbacTestDeps, orgI
 	if err != nil {
 		t.Fatalf("%s kullanıcısı oluşturulamadı: %v", username, err)
 	}
-	if err := d.userSvc.SetInitialPassword(ctx, u.ID, orgID, "SabitSifre123!"); err != nil {
-		t.Fatalf("%s için must_change_password temizlenemedi: %v", username, err)
-	}
-	if _, err := d.authzSvc.SetUserOrganizationRole(ctx, u.ID, orgID, orgRoleCode); err != nil {
+	// Create, must_change_password'ü açmaz -- "ilk şifre" adımı gerekmez
+	// (ve artık bayrak kapalıyken reddedilir). Sahip rolü dışındaki
+	// atamalar aktör gerektirmez.
+	if _, err := d.authzSvc.SetUserOrganizationRole(ctx, u.ID, orgID, "", orgRoleCode); err != nil {
 		t.Fatalf("%s için organizasyon rolü (%s) atanamadı: %v", username, orgRoleCode, err)
 	}
 	token, err := d.issuer.IssueAccessToken(u.ID, domain.RoleKullanici, orgID)

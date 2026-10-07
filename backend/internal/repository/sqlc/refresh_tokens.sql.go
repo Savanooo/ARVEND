@@ -14,7 +14,7 @@ import (
 const createRefreshToken = `-- name: CreateRefreshToken :one
 INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
 VALUES ($1, $2, $3)
-RETURNING id, user_id, token_hash, expires_at, revoked_at, created_at
+RETURNING id, user_id, token_hash, expires_at, revoked_at, created_at, rotated_at
 `
 
 type CreateRefreshTokenParams struct {
@@ -33,19 +33,29 @@ func (q *Queries) CreateRefreshToken(ctx context.Context, arg CreateRefreshToken
 		&i.ExpiresAt,
 		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.RotatedAt,
 	)
 	return i, err
 }
 
-const getValidRefreshToken = `-- name: GetValidRefreshToken :one
-SELECT id, user_id, token_hash, expires_at, revoked_at, created_at FROM refresh_tokens
+const getRecentlyRotatedRefreshToken = `-- name: GetRecentlyRotatedRefreshToken :one
+SELECT id, user_id, token_hash, expires_at, revoked_at, created_at, rotated_at FROM refresh_tokens
 WHERE token_hash = $1
-  AND revoked_at IS NULL
+  AND rotated_at IS NOT NULL
+  AND rotated_at > $2::timestamptz
   AND expires_at > now()
 `
 
-func (q *Queries) GetValidRefreshToken(ctx context.Context, tokenHash string) (RefreshToken, error) {
-	row := q.db.QueryRow(ctx, getValidRefreshToken, tokenHash)
+type GetRecentlyRotatedRefreshTokenParams struct {
+	TokenHash    string             `json:"token_hash"`
+	RotatedAfter pgtype.Timestamptz `json:"rotated_after"`
+}
+
+// Tolerans: az önce (rotated_after'dan sonra) YENİLEME ile iptal edilmiş
+// token. Çıkış/şifre değişikliği/pasifleştirme rotated_at'i temizlediği
+// için onlardan sonra burada satır çıkmaz.
+func (q *Queries) GetRecentlyRotatedRefreshToken(ctx context.Context, arg GetRecentlyRotatedRefreshTokenParams) (RefreshToken, error) {
+	row := q.db.QueryRow(ctx, getRecentlyRotatedRefreshToken, arg.TokenHash, arg.RotatedAfter)
 	var i RefreshToken
 	err := row.Scan(
 		&i.ID,
@@ -54,26 +64,78 @@ func (q *Queries) GetValidRefreshToken(ctx context.Context, tokenHash string) (R
 		&i.ExpiresAt,
 		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.RotatedAt,
 	)
 	return i, err
 }
 
 const revokeAllUserRefreshTokens = `-- name: RevokeAllUserRefreshTokens :exec
-UPDATE refresh_tokens SET revoked_at = now()
-WHERE user_id = $1 AND revoked_at IS NULL
+UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now()), rotated_at = NULL
+WHERE user_id = $1 AND (revoked_at IS NULL OR rotated_at IS NOT NULL)
 `
 
+// Açık oturumlar iptal edilir ve yenileme toleransı da kalkar
+// (rotated_at = NULL): pasifleştirme/şifre sıfırlamadan sonra az önce
+// yenilenmiş bir token'la oturum geri açılamaz.
 func (q *Queries) RevokeAllUserRefreshTokens(ctx context.Context, userID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, revokeAllUserRefreshTokens, userID)
 	return err
 }
 
-const revokeRefreshToken = `-- name: RevokeRefreshToken :exec
-UPDATE refresh_tokens SET revoked_at = now()
-WHERE token_hash = $1
+const revokeRefreshTokenForLogout = `-- name: RevokeRefreshTokenForLogout :exec
+UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now()), rotated_at = NULL
+WHERE user_id = (SELECT rt.user_id FROM refresh_tokens rt WHERE rt.token_hash = $1 LIMIT 1)
+  AND (token_hash = $1 OR rotated_at IS NOT NULL)
 `
 
-func (q *Queries) RevokeRefreshToken(ctx context.Context, tokenHash string) error {
-	_, err := q.db.Exec(ctx, revokeRefreshToken, tokenHash)
+// Çıkış: bu token iptal edilir VE kullanıcının yenileme toleransındaki
+// (rotated_at dolu) token'larının toleransı kalkar -- çıkıştan hemen sonra
+// bir önceki token'la oturum geri açılamaz.
+func (q *Queries) RevokeRefreshTokenForLogout(ctx context.Context, tokenHash string) error {
+	_, err := q.db.Exec(ctx, revokeRefreshTokenForLogout, tokenHash)
 	return err
+}
+
+const revokeUserRefreshTokensExcept = `-- name: RevokeUserRefreshTokensExcept :exec
+UPDATE refresh_tokens SET revoked_at = COALESCE(revoked_at, now()), rotated_at = NULL
+WHERE user_id = $1 AND token_hash <> $2 AND (revoked_at IS NULL OR rotated_at IS NOT NULL)
+`
+
+type RevokeUserRefreshTokensExceptParams struct {
+	UserID    pgtype.UUID `json:"user_id"`
+	TokenHash string      `json:"token_hash"`
+}
+
+// Şifre değişince kullanıcının DİĞER oturumları kapanır (toleransları da);
+// şifreyi değiştiren cihazın kendi oturumu (token_hash) açık kalır.
+func (q *Queries) RevokeUserRefreshTokensExcept(ctx context.Context, arg RevokeUserRefreshTokensExceptParams) error {
+	_, err := q.db.Exec(ctx, revokeUserRefreshTokensExcept, arg.UserID, arg.TokenHash)
+	return err
+}
+
+const rotateRefreshToken = `-- name: RotateRefreshToken :one
+UPDATE refresh_tokens SET revoked_at = now(), rotated_at = now()
+WHERE token_hash = $1
+  AND revoked_at IS NULL
+  AND expires_at > now()
+RETURNING id, user_id, token_hash, expires_at, revoked_at, created_at, rotated_at
+`
+
+// Yenilemenin TEK adımı: geçerli token'ı atomik olarak iptal eder ve
+// "yenileme ile iptal edildi" (rotated_at) işaretler. Aynı token'la gelen
+// iki eşzamanlı istekten yalnızca biri satır alır -- diğeri tolerans
+// yoluna (GetRecentlyRotatedRefreshToken) düşer.
+func (q *Queries) RotateRefreshToken(ctx context.Context, tokenHash string) (RefreshToken, error) {
+	row := q.db.QueryRow(ctx, rotateRefreshToken, tokenHash)
+	var i RefreshToken
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.TokenHash,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.RotatedAt,
+	)
+	return i, err
 }

@@ -68,12 +68,15 @@ type payrollSummaryResponse struct {
 	Remaining  float64 `json:"remaining"`
 }
 
-// payrollPeriodParam, ?month=YYYY-MM'i okur; verilmezse içinde bulunulan ay.
+// payrollPeriodParam, ?month=YYYY-MM'i okur; verilmezse içinde bulunulan ay
+// (İstanbul takvimiyle -- sunucu UTC'de, ayın 1'inde 00:00-03:00 arası
+// time.Now() bir önceki ayı verirdi). Geçersiz ay servis katmanında 400
+// (ErrInvalidPeriod) olur, sessizce bu aya düşmez.
 func payrollPeriodParam(r *http.Request) string {
 	if m := r.URL.Query().Get("month"); m != "" {
 		return m
 	}
-	return time.Now().Format("2006-01")
+	return service.IstanbulToday().Format("2006-01")
 }
 
 // List, bir ayın ödeme tablosunu (personel başına özet) VE o ayın tek tek

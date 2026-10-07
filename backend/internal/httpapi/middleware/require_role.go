@@ -8,6 +8,9 @@ import (
 
 // RequireRole, RequireAuth'tan SONRA zincirlenmeli. Buradaki kontrol asıl
 // güvenlik sınırıdır -- frontend'deki route guard'ları yalnız UX içindir.
+// Tenant rotalarında RequireOnboarded ya da RequireActiveUser'dan SONRA
+// gelmeli: onlar context'teki rolü veritabanındaki güncel rolle değiştirir;
+// aksi hâlde token'daki (en fazla 15 dakika eski) rol okunur.
 func RequireRole(role domain.Role) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

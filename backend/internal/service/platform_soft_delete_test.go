@@ -62,7 +62,7 @@ func TestSoftDeleteUser(t *testing.T) {
 	if _, err := authSvc.Login(ctx, "sd_field", "GecicSifre123!"); err != nil {
 		t.Fatalf("saha ilk giriş: %v", err)
 	}
-	if err := userSvc.SetInitialPassword(ctx, field.ID, org.ID, "SabitSifre123!"); err != nil {
+	if err := userSvc.SetInitialPassword(ctx, field.ID, org.ID, "SabitSifre123!", ""); err != nil {
 		t.Fatalf("saha şifre belirleme: %v", err)
 	}
 

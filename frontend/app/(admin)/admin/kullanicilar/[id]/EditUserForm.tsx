@@ -61,7 +61,9 @@ export function EditUserForm({
         method: "PATCH",
         body: JSON.stringify({ new_password: newPassword }),
       });
-      setPasswordMsg("Şifre güncellendi.");
+      // Backend sıfırlanan şifreyi geçici sayar (ilk girişte kullanıcı kendi
+      // şifresini belirler) ve açık oturumlarını kapatır.
+      setPasswordMsg("Şifre sıfırlandı. Açık oturumları kapatıldı; ilk girişte kendi şifresini belirleyecek.");
       setNewPassword("");
     } catch (err) {
       setPasswordMsg(err instanceof ApiError ? err.message : "Bağlantı hatası");

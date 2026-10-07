@@ -152,15 +152,21 @@ func (q *Queries) DeactivateUser(ctx context.Context, arg DeactivateUserParams) 
 }
 
 const getOnboardingGateStatus = `-- name: GetOnboardingGateStatus :one
-SELECT u.must_change_password, o.onboarding_completed
+SELECT u.must_change_password, o.onboarding_completed,
+       u.is_active, (u.deleted_at IS NOT NULL)::boolean AS user_deleted,
+       u.role, u.organization_id
 FROM users u
 JOIN organizations o ON o.id = u.organization_id
 WHERE u.id = $1
 `
 
 type GetOnboardingGateStatusRow struct {
-	MustChangePassword  bool `json:"must_change_password"`
-	OnboardingCompleted bool `json:"onboarding_completed"`
+	MustChangePassword  bool        `json:"must_change_password"`
+	OnboardingCompleted bool        `json:"onboarding_completed"`
+	IsActive            bool        `json:"is_active"`
+	UserDeleted         bool        `json:"user_deleted"`
+	Role                string      `json:"role"`
+	OrganizationID      pgtype.UUID `json:"organization_id"`
 }
 
 // middleware.RequireOnboarded'ın her "business" istekte çağırdığı hafif
@@ -169,10 +175,22 @@ type GetOnboardingGateStatusRow struct {
 // organization_id dolu (super_admin olmayan) kullanıcılar için çağrılır --
 // super_admin bu JOIN'e hiç girmeden, rol kontrolüyle daha önce muaf
 // tutulur.
+//
+// Aynı satırdan kullanıcının GÜNCEL durumu da okunur (is_active, silinme,
+// kaba rol): access token 15 dakika geçerli ve rolü içinde taşıyor --
+// pasifleştirilen ya da yetkisi düşürülen biri token'ın ömrü boyunca
+// çalışmaya devam ediyordu. Ek sorgu yok, zaten okunan satır.
 func (q *Queries) GetOnboardingGateStatus(ctx context.Context, id pgtype.UUID) (GetOnboardingGateStatusRow, error) {
 	row := q.db.QueryRow(ctx, getOnboardingGateStatus, id)
 	var i GetOnboardingGateStatusRow
-	err := row.Scan(&i.MustChangePassword, &i.OnboardingCompleted)
+	err := row.Scan(
+		&i.MustChangePassword,
+		&i.OnboardingCompleted,
+		&i.IsActive,
+		&i.UserDeleted,
+		&i.Role,
+		&i.OrganizationID,
+	)
 	return i, err
 }
 
@@ -255,6 +273,35 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.OrganizationRoleID,
 		&i.DeletedAt,
 		&i.DeletedBy,
+	)
+	return i, err
+}
+
+const getUserGateStatus = `-- name: GetUserGateStatus :one
+SELECT u.is_active, (u.deleted_at IS NOT NULL)::boolean AS user_deleted,
+       u.role, u.organization_id
+FROM users u
+WHERE u.id = $1
+`
+
+type GetUserGateStatusRow struct {
+	IsActive       bool        `json:"is_active"`
+	UserDeleted    bool        `json:"user_deleted"`
+	Role           string      `json:"role"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+// RequireActiveUser'ın hafif okuması: requireOnboarded ALMAYAN uçlarda
+// (onboarding, firma ayarları, ilk şifre, cihaz kaydı...) aynı "kullanıcı
+// hâlâ aktif mi, rolü ne" kontrolü.
+func (q *Queries) GetUserGateStatus(ctx context.Context, id pgtype.UUID) (GetUserGateStatusRow, error) {
+	row := q.db.QueryRow(ctx, getUserGateStatus, id)
+	var i GetUserGateStatusRow
+	err := row.Scan(
+		&i.IsActive,
+		&i.UserDeleted,
+		&i.Role,
+		&i.OrganizationID,
 	)
 	return i, err
 }
@@ -443,7 +490,7 @@ SELECT u.id, u.username, u.password_hash, u.full_name, u.role, u.is_active, u.cr
 FROM users u
 LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
 WHERE u.organization_id = $1 AND u.deleted_at IS NULL
-ORDER BY u.created_at DESC
+ORDER BY u.created_at DESC, u.id
 LIMIT $2 OFFSET $3
 `
 
@@ -477,6 +524,8 @@ type ListUsersWithOrganizationRoleRow struct {
 // AYNI sorguda (N+1 yok). super_admin bu listede HİÇ görünmez zaten
 // (organization_id filtresiyle doğal olarak dışarıda kalır). Silinmiş
 // kullanıcılar HER ZAMAN dışarıda -- bkz. ListDeletedUsersWithOrganizationRole.
+// id ikincil sıralama: aynı anda oluşturulmuş kullanıcılar (ör. toplu
+// aktarım) sayfa sınırında iki sayfada birden görünmesin / kaybolmasın.
 func (q *Queries) ListUsersWithOrganizationRole(ctx context.Context, arg ListUsersWithOrganizationRoleParams) ([]ListUsersWithOrganizationRoleRow, error) {
 	rows, err := q.db.Query(ctx, listUsersWithOrganizationRole, arg.OrganizationID, arg.Limit, arg.Offset)
 	if err != nil {
@@ -577,7 +626,7 @@ func (q *Queries) RestoreUser(ctx context.Context, arg RestoreUserParams) (int64
 
 const setPasswordAndClearMustChange = `-- name: SetPasswordAndClearMustChange :execrows
 UPDATE users SET password_hash = $3, must_change_password = false
-WHERE id = $1 AND organization_id = $2
+WHERE id = $1 AND organization_id = $2 AND must_change_password = true
 `
 
 type SetPasswordAndClearMustChangeParams struct {
@@ -587,7 +636,10 @@ type SetPasswordAndClearMustChangeParams struct {
 }
 
 // İlk giriş "şifre belirle" akışı: parolayı değiştirir VE
-// must_change_password bayrağını temizler, tek sorguda.
+// must_change_password bayrağını temizler, tek sorguda. YALNIZCA bayrak
+// açıkken: bu uç mevcut şifreyi sormaz -- bayrak koşulu olmasaydı açık
+// oturumu olan herkes (ör. kilitlenmemiş bir telefon) şifreyi bilmeden
+// değiştirebilirdi. 0 satır = bayrak kapalı (ya da kullanıcı yok).
 func (q *Queries) SetPasswordAndClearMustChange(ctx context.Context, arg SetPasswordAndClearMustChangeParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setPasswordAndClearMustChange, arg.ID, arg.OrganizationID, arg.PasswordHash)
 	if err != nil {

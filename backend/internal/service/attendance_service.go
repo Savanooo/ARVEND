@@ -16,12 +16,18 @@ import (
 
 var ErrAttendanceExists = errors.New("bu personel için bu tarihte zaten mesai kaydı var")
 
+// ErrAttendanceFutureDate: henüz gelmemiş bir güne "geldi" yazılırsa maaş
+// tablosu o günü çalışılmış sayar ve yevmiyeli personele ödenmemiş bir
+// iş için hakediş çıkar.
+var ErrAttendanceFutureDate = errors.New("ileri bir tarihe mesai girilemez")
+
 type AttendanceService struct {
-	q *sqlc.Queries
+	q   *sqlc.Queries
+	now func() time.Time
 }
 
 func NewAttendanceService(q *sqlc.Queries) *AttendanceService {
-	return &AttendanceService{q: q}
+	return &AttendanceService{q: q, now: time.Now}
 }
 
 type AttendanceInput struct {
@@ -80,6 +86,13 @@ func (s *AttendanceService) Create(ctx context.Context, organizationID string, i
 	}
 	if !domain.ValidAttendanceStatus(in.Status) {
 		return nil, errors.New("geçersiz mesai durumu")
+	}
+	// "Bugün" İstanbul takvimiyle (sunucu UTC'de; 00:00-03:00 arası girilen
+	// bugünkü kayıt aksi hâlde "ileri tarih" sayılırdı). Mobildeki toplu
+	// giriş her gün için ayrı Create çağırır -- kural ona da uygulanır.
+	day := time.Date(in.Date.Year(), in.Date.Month(), in.Date.Day(), 0, 0, 0, 0, time.UTC)
+	if day.After(istanbulToday(s.now())) {
+		return nil, ErrAttendanceFutureDate
 	}
 	empID, err := repository.StringToUUID(in.EmployeeID)
 	if err != nil {

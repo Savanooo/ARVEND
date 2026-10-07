@@ -228,6 +228,9 @@ func (h *OnboardingHandler) writeOnboardingError(w http.ResponseWriter, err erro
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "organizasyon bulunamadı")
+	case isInternalError(err):
+		// Ham veritabanı metni (tablo/kısıt adları) kullanıcıya gitmesin.
+		writeInternalError(w, err)
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}

@@ -53,9 +53,12 @@ RETURNING *;
 
 -- name: SetPasswordAndClearMustChange :execrows
 -- İlk giriş "şifre belirle" akışı: parolayı değiştirir VE
--- must_change_password bayrağını temizler, tek sorguda.
+-- must_change_password bayrağını temizler, tek sorguda. YALNIZCA bayrak
+-- açıkken: bu uç mevcut şifreyi sormaz -- bayrak koşulu olmasaydı açık
+-- oturumu olan herkes (ör. kilitlenmemiş bir telefon) şifreyi bilmeden
+-- değiştirebilirdi. 0 satır = bayrak kapalı (ya da kullanıcı yok).
 UPDATE users SET password_hash = $3, must_change_password = false
-WHERE id = $1 AND organization_id = $2;
+WHERE id = $1 AND organization_id = $2 AND must_change_password = true;
 
 -- name: ListUsersWithOrganizationRole :many
 -- "Kullanıcılar" ekranının RBAC/Project Membership sprint'iyle
@@ -67,7 +70,9 @@ SELECT u.*, orole.code AS organization_role_code, orole.name AS organization_rol
 FROM users u
 LEFT JOIN organization_roles orole ON orole.id = u.organization_role_id
 WHERE u.organization_id = $1 AND u.deleted_at IS NULL
-ORDER BY u.created_at DESC
+-- id ikincil sıralama: aynı anda oluşturulmuş kullanıcılar (ör. toplu
+-- aktarım) sayfa sınırında iki sayfada birden görünmesin / kaybolmasın.
+ORDER BY u.created_at DESC, u.id
 LIMIT $2 OFFSET $3;
 
 -- name: ListDeletedUsersWithOrganizationRole :many
@@ -96,9 +101,25 @@ WHERE u.id = $1 AND u.organization_id = $2;
 -- organization_id dolu (super_admin olmayan) kullanıcılar için çağrılır --
 -- super_admin bu JOIN'e hiç girmeden, rol kontrolüyle daha önce muaf
 -- tutulur.
-SELECT u.must_change_password, o.onboarding_completed
+--
+-- Aynı satırdan kullanıcının GÜNCEL durumu da okunur (is_active, silinme,
+-- kaba rol): access token 15 dakika geçerli ve rolü içinde taşıyor --
+-- pasifleştirilen ya da yetkisi düşürülen biri token'ın ömrü boyunca
+-- çalışmaya devam ediyordu. Ek sorgu yok, zaten okunan satır.
+SELECT u.must_change_password, o.onboarding_completed,
+       u.is_active, (u.deleted_at IS NOT NULL)::boolean AS user_deleted,
+       u.role, u.organization_id
 FROM users u
 JOIN organizations o ON o.id = u.organization_id
+WHERE u.id = $1;
+
+-- name: GetUserGateStatus :one
+-- RequireActiveUser'ın hafif okuması: requireOnboarded ALMAYAN uçlarda
+-- (onboarding, firma ayarları, ilk şifre, cihaz kaydı...) aynı "kullanıcı
+-- hâlâ aktif mi, rolü ne" kontrolü.
+SELECT u.is_active, (u.deleted_at IS NOT NULL)::boolean AS user_deleted,
+       u.role, u.organization_id
+FROM users u
 WHERE u.id = $1;
 
 -- name: ReactivateUser :execrows

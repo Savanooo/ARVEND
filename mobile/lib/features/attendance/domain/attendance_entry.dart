@@ -37,6 +37,33 @@ double? hoursBetween(String checkIn, String checkOut) {
 /// Gelmedi/izinli günde saat ve giriş-çıkış anlamsız: 0 ve boş gönderilir.
 bool statusHasHours(String status) => status == 'geldi' || status == 'yarım gün';
 
+/// Mesai girilebilecek son gün: bugün, İstanbul takvimiyle (Türkiye sabit
+/// UTC+3). İleri bir güne girilen "geldi" maaşta çalışılmış gün sayılıyordu;
+/// backend artık reddediyor, seçiciler de bugünün ötesini göstermez.
+/// Seçicilerin kullandığı yerel gün (saat 00:00) olarak döner.
+DateTime attendanceLastDay([DateTime? now]) {
+  final t = (now ?? DateTime.now()).toUtc().add(const Duration(hours: 3));
+  return DateTime(t.year, t.month, t.day);
+}
+
+/// [day] bugünden sonraysa bugüne çeker (ör. ileri bir ayın ekranından
+/// açılan form); saatini atar.
+DateTime clampToAttendanceDay(DateTime day, [DateTime? now]) {
+  final d = DateTime(day.year, day.month, day.day);
+  final last = attendanceLastDay(now);
+  return d.isAfter(last) ? last : d;
+}
+
+/// Çalışma saati girişi: "8", "7,5" (Türkçe klavyede ayraç virgül) ya da
+/// "7.5"; 0-24 arası. Başka her şey null -- "8 saat" gibi bir metin
+/// eskiden sessizce 0 saat olarak kaydediliyordu.
+double? parseWorkHours(String raw) {
+  final s = raw.trim().replaceAll(',', '.');
+  if (!RegExp(r'^\d{1,2}(\.\d{1,2})?$').hasMatch(s)) return null;
+  final v = double.parse(s);
+  return v > 24 ? null : v;
+}
+
 /// Toplu girişin sonucu: eklenen, zaten kayıtlı olduğu için atlanan
 /// (sunucu 409) ve -- yarıda kaldıysa -- ilk hata.
 class BulkEntryResult {

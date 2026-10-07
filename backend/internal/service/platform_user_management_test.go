@@ -32,7 +32,7 @@ func TestPlatformUserManagement(t *testing.T) {
 	t.Cleanup(func() { pool.Close() })
 	q := sqlc.New(pool)
 	platformSvc, userSvc := newPlatformTestServices(q, pool)
-	authzSvc := service.NewAuthorizationService(q)
+	authzSvc := service.NewAuthorizationService(pool, q)
 	authSvc := service.NewAuthService(q, auth.NewJWTIssuer("test-secret-um", 15*time.Minute), 24*time.Hour)
 
 	const slug = "platform-um-firma"
@@ -116,10 +116,10 @@ func TestPlatformUserManagement(t *testing.T) {
 		if err := platformSvc.DeactivateOrganizationUser(ctx, org.ID, owner1.ID, ""); !errors.Is(err, domain.ErrLastOwner) {
 			t.Errorf("platform deactivate err = %v, want ErrLastOwner", err)
 		}
-		if err := userSvc.Deactivate(ctx, owner1.ID, org.ID); !errors.Is(err, domain.ErrLastOwner) {
+		if err := userSvc.Deactivate(ctx, owner1.ID, org.ID, owner1.ID); !errors.Is(err, domain.ErrLastOwner) {
 			t.Errorf("tenant deactivate err = %v, want ErrLastOwner", err)
 		}
-		if _, err := userSvc.Update(ctx, owner1.ID, org.ID, "Birinci Sahip", false); !errors.Is(err, domain.ErrLastOwner) {
+		if _, err := userSvc.Update(ctx, owner1.ID, org.ID, owner1.ID, "Birinci Sahip", false); !errors.Is(err, domain.ErrLastOwner) {
 			t.Errorf("tenant update(is_active=false) err = %v, want ErrLastOwner", err)
 		}
 		u, err := userSvc.Get(ctx, owner1.ID, org.ID)
@@ -132,7 +132,7 @@ func TestPlatformUserManagement(t *testing.T) {
 		if _, err := platformSvc.SetOrganizationUserRole(ctx, org.ID, owner1.ID, domain.OrgRoleProjectManager, ""); !errors.Is(err, domain.ErrLastOwner) {
 			t.Errorf("platform demote err = %v, want ErrLastOwner", err)
 		}
-		if _, err := authzSvc.SetUserOrganizationRole(ctx, owner1.ID, org.ID, domain.OrgRoleFinance); !errors.Is(err, domain.ErrLastOwner) {
+		if _, err := authzSvc.SetUserOrganizationRole(ctx, owner1.ID, org.ID, owner1.ID, domain.OrgRoleFinance); !errors.Is(err, domain.ErrLastOwner) {
 			t.Errorf("tenant demote err = %v, want ErrLastOwner", err)
 		}
 	})

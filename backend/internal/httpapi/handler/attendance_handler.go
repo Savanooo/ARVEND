@@ -49,7 +49,9 @@ func toAttendanceResponse(a domain.AttendanceLog) attendanceResponse {
 
 func (h *AttendanceHandler) ListByMonth(w http.ResponseWriter, r *http.Request) {
 	monthParam := r.URL.Query().Get("month")
-	month := time.Now()
+	// Varsayılan ay İstanbul takvimiyle: sunucu UTC'de, ayın 1'inde
+	// 00:00-03:00 arası time.Now() bir önceki ayı verirdi.
+	month := service.IstanbulToday()
 	if monthParam != "" {
 		t, err := time.Parse("2006-01", monthParam)
 		if err != nil {
@@ -145,6 +147,9 @@ func (h *AttendanceHandler) writeError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusNotFound, "mesai kaydı bulunamadı")
 	case errors.Is(err, service.ErrAttendanceExists):
 		httpjson.Error(w, http.StatusConflict, err.Error())
+	case isInternalError(err):
+		// Ham veritabanı metni (tablo/kısıt adları) kullanıcıya gitmesin.
+		writeInternalError(w, err)
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}

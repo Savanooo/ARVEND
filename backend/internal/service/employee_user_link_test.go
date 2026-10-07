@@ -28,8 +28,8 @@ func TestEmployeeUserLink(t *testing.T) {
 
 	q := sqlc.New(pool)
 	orgSvc := service.NewOrganizationService(q)
-	userSvc := service.NewUserService(q)
-	employeeSvc := service.NewEmployeeService(q)
+	userSvc := service.NewUserService(pool, q)
+	employeeSvc := service.NewEmployeeService(pool, q)
 
 	orgA := mustCreateOrg(t, ctx, orgSvc, pool, "EmpLink A", "emplink-a")
 	orgB := mustCreateOrg(t, ctx, orgSvc, pool, "EmpLink B", "emplink-b")

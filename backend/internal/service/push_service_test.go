@@ -45,8 +45,8 @@ func TestPushAndAnnouncements(t *testing.T) {
 	}
 	t.Cleanup(func() { pool.Close() })
 	q := sqlc.New(pool)
-	userSvc := service.NewUserService(q)
-	authzSvc := service.NewAuthorizationService(q)
+	userSvc := service.NewUserService(pool, q)
+	authzSvc := service.NewAuthorizationService(pool, q)
 	notifSvc := service.NewNotificationService(q)
 	platformSvc := service.NewPlatformService(pool, q, userSvc, service.NewCalcService(q), service.NewProductService(q))
 	sender := &fakeSender{}
@@ -74,7 +74,7 @@ func TestPushAndAnnouncements(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := authzSvc.SetUserOrganizationRole(ctx, u.ID, orgID, domain.OrgRoleField); err != nil {
+		if _, err := authzSvc.SetUserOrganizationRole(ctx, u.ID, orgID, "", domain.OrgRoleField); err != nil {
 			t.Fatal(err)
 		}
 		return u

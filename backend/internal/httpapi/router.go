@@ -76,6 +76,10 @@ func NewRouter(d Deps) http.Handler {
 	// logout, refresh, set-initial-password, onboarding/*, organization/
 	// settings/* ve platform/* BİLİNÇLİ OLARAK almaz (bkz. require_onboarded.go).
 	requireOnboarded := appmw.RequireOnboarded(d.Queries)
+	// requireOnboarded'ın "kullanıcı hâlâ aktif mi + güncel rolü" kontrolü,
+	// requireOnboarded ALMAYAN tenant rotaları için tek başına. requireAdmin
+	// ondan SONRA gelmeli -- rolü token'dan değil veritabanından okusun.
+	requireActiveUser := appmw.RequireActiveUser(d.Queries)
 	// RBAC/Project Membership sprint'i: loadAuthorization, requireOnboarded'dan
 	// SONRA -- ve HER permission/projectPermission kontrolünden ÖNCE --
 	// zincirlenmeli. Rol/izin bilgisini istek başına BİR KEZ yükler; perm/
@@ -120,7 +124,7 @@ func NewRouter(d Deps) http.Handler {
 			// belirlemesi. requireAdmin VE requireOnboarded YOK -- bu
 			// kullanıcının onboarding gate'inden ÇIKMASINI sağlayan tek uç,
 			// gate'in kendisi burayı kilitleyemez.
-			r.Post("/me/set-initial-password", d.Users.SetInitialPassword)
+			r.With(requireActiveUser).Post("/me/set-initial-password", d.Users.SetInitialPassword)
 
 			r.Group(func(r chi.Router) {
 				r.Use(requireOnboarded)
@@ -576,12 +580,15 @@ func NewRouter(d Deps) http.Handler {
 		// telefonunu kaydeder/siler -- izin yok, kullanıcı context'ten.
 		r.Route("/push/devices", func(r chi.Router) {
 			r.Use(requireAuth, requireTenant)
-			r.Post("/", d.Push.RegisterDevice)
+			// Pasifleştirilmiş biri, token'ı dolana kadar telefonunu yeniden
+			// kaydedip bildirim almaya devam edemesin (pasifleştirme cihaz
+			// kayıtlarını siler). Çıkıştaki kayıt silme serbest kalır.
+			r.With(requireActiveUser).Post("/", d.Push.RegisterDevice)
 			r.Post("/unregister", d.Push.UnregisterDevice)
 		})
 
 		// Öneri / görüş: her kullanıcı platform ekibine yazabilir (izin yok).
-		r.With(requireAuth, requireTenant).Post("/feedback", d.Feedback.Submit)
+		r.With(requireAuth, requireTenant, requireActiveUser).Post("/feedback", d.Feedback.Submit)
 
 		// Firma yöneticisinin kendi ekibine duyurusu.
 		r.With(requireAuth, requireTenant, requireOnboarded, loadAuthorization, perm(domain.PermOrganizationUsersManage)).
@@ -709,30 +716,36 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/", d.Authorization.ListPermissions)
 		})
 
+		// Firma ayarları iki yoldan yazılır -- ilk-giriş sihirbazı ve sonradan
+		// "Firma Ayarları" -- AYNI handler/servis metodlarıyla (bkz.
+		// OnboardingHandler yorumu). İkisi de requireAdmin'in ÜSTÜNE
+		// organization.settings.read/manage ister: yalnızca kaba admin rolüne
+		// bakıldığında, "Firma ayarlarını düzenleme" izni geri alınmış bir
+		// Yönetici ayarları değiştirmeye devam ediyordu (sihirbaz yolu da
+		// onboarding bittikten sonra açık bir arka kapıydı). Sahip HER ZAMAN
+		// tüm izinlere sahiptir (GetUserPermissions) -- yeni firmanın Sahibi
+		// sihirbazı yine tamamlayabilir. requireOnboarded BİLİNÇLİ OLARAK
+		// yok (sihirbaz onboarding'den önce çalışır); onun yerine
+		// requireActiveUser pasif kullanıcıyı keser ve requireAdmin'e
+		// güncel rolü verir.
+		settingsRoutes := func(r chi.Router) {
+			r.Use(requireAuth, requireTenant, requireActiveUser, requireAdmin, loadAuthorization)
+			r.With(perm(domain.PermOrganizationSettingsRead)).Get("/", d.Onboarding.GetState)
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermOrganizationSettingsManage))
+				r.Put("/company", d.Onboarding.SaveCompany)
+				r.Put("/billing", d.Onboarding.SaveBilling)
+				r.Put("/offers", d.Onboarding.SaveOffers)
+				r.Put("/finance", d.Onboarding.SaveFinance)
+				r.Put("/business", d.Onboarding.SaveBusiness)
+			})
+		}
 		// İlk-giriş onboarding sihirbazı (5 adım) -- server-authoritative,
-		// web/mobil AYNI state'i okur/yazar. requireAdmin: onboarding'i
-		// tamamlayacak olan Super Admin'in provision ettiği Owner'dır.
-		r.Route("/onboarding", func(r chi.Router) {
-			r.Use(requireAuth, requireTenant, requireAdmin)
-			r.Get("/", d.Onboarding.GetState)
-			r.Put("/company", d.Onboarding.SaveCompany)
-			r.Put("/billing", d.Onboarding.SaveBilling)
-			r.Put("/offers", d.Onboarding.SaveOffers)
-			r.Put("/finance", d.Onboarding.SaveFinance)
-			r.Put("/business", d.Onboarding.SaveBusiness)
-		})
-
-		// Onboarding SONRASI "Firma Ayarları" düzenleme -- AYNI handler/
-		// servis metodları (bkz. OnboardingHandler yorumu), farklı path.
-		r.Route("/organization/settings", func(r chi.Router) {
-			r.Use(requireAuth, requireTenant, requireAdmin)
-			r.Get("/", d.Onboarding.GetState)
-			r.Put("/company", d.Onboarding.SaveCompany)
-			r.Put("/billing", d.Onboarding.SaveBilling)
-			r.Put("/offers", d.Onboarding.SaveOffers)
-			r.Put("/finance", d.Onboarding.SaveFinance)
-			r.Put("/business", d.Onboarding.SaveBusiness)
-		})
+		// web/mobil AYNI state'i okur/yazar. Onboarding'i tamamlayacak olan
+		// Super Admin'in provision ettiği Owner'dır.
+		r.Route("/onboarding", settingsRoutes)
+		// Onboarding SONRASI "Firma Ayarları" düzenleme -- farklı path.
+		r.Route("/organization/settings", settingsRoutes)
 
 		// Super Admin platform yönetimi -- organizasyon izolasyonu YOK
 		// (bilinçli), YALNIZCA requireSuperAdmin arkasında. Normal

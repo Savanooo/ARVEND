@@ -31,7 +31,7 @@ func TestUserServiceCreateOrganizationRole(t *testing.T) {
 
 	q := sqlc.New(pool)
 	orgSvc := service.NewOrganizationService(q)
-	userSvc := service.NewUserService(q)
+	userSvc := service.NewUserService(pool, q)
 
 	org := mustCreateOrg(t, ctx, orgSvc, pool, "UserSvcRole Org", "usersvc-role")
 	// mustCreateOrg, düz OrganizationService.Create çağırır -- organization_roles
@@ -96,7 +96,7 @@ func TestUserServiceCreateOrganizationRole(t *testing.T) {
 		// organization_role_id'yi ayarlar) -- bu yüzden burada kaba `Role`
 		// alanı doğrulanır, DB'deki gerçek atama authzSvc.GetUserWithRole
 		// ile (join yapan sorgu) ayrıca kontrol edilir.
-		authzSvc := service.NewAuthorizationService(q)
+		authzSvc := service.NewAuthorizationService(pool, q)
 
 		uAdmin, err := userSvc.Create(ctx, org.ID, "usersvc_legacy_admin", "GeciciSifre123!", "Eski Admin", domain.RoleAdmin, "")
 		if err != nil {

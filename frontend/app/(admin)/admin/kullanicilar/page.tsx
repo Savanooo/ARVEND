@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { Pagination } from "@/components/ui/Pagination";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
@@ -11,17 +12,39 @@ import { requirePagePermission } from "@/lib/auth";
 import { canAccess, PAGE_PERMISSIONS } from "@/lib/permissions";
 import type { User } from "@/lib/types";
 
-async function fetchUsers() {
+// Eskiden sayfa gönderilmiyordu: backend en yeni 50 kullanıcıyı döndüğü
+// için en eskiler (Sahip dahil) listede hiç görünmüyordu.
+const PAGE_SIZE = 50;
+// Backend OFFSET'i int32 hesaplar -- uçuk bir ?page= taşıp 500'e dönmesin.
+const MAX_PAGE = 100_000;
+
+function parsePage(raw: string | undefined): number {
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return Math.min(n, MAX_PAGE);
+}
+
+async function fetchUsers(page: number) {
   const cookieHeader = (await cookies()).toString();
   return apiServer<{ users: User[]; total: number }>(
-    "/api/v1/users",
+    `/api/v1/users?page=${page}&limit=${PAGE_SIZE}`,
     cookieHeader
   );
 }
 
-export default async function KullanicilarPage() {
+function pageHref(target: number) {
+  return target > 1 ? `/admin/kullanicilar?page=${target}` : "/admin/kullanicilar";
+}
+
+export default async function KullanicilarPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
   const me = await requirePagePermission(PAGE_PERMISSIONS.users);
-  const { users } = await fetchUsers();
+  const page = parsePage((await searchParams).page);
+  const { users, total } = await fetchUsers(page);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const canManage = canAccess(me, "organization.users.manage");
   // Yeni kullanıcı formu rol listesini de çeker (bkz. yeni/page.tsx kapısı).
   const canCreate = canManage && canAccess(me, PAGE_PERMISSIONS.roles);
@@ -38,7 +61,7 @@ export default async function KullanicilarPage() {
           ) : undefined
         }
       />
-      <div className="p-8">
+      <div className="flex flex-col gap-4 p-8">
         <Card>
           <Table>
             <thead>
@@ -83,13 +106,14 @@ export default async function KullanicilarPage() {
               {users.length === 0 && (
                 <tr>
                   <Td colSpan={5} className="text-center text-text-muted">
-                    Henüz kullanıcı yok.
+                    {total === 0 ? "Henüz kullanıcı yok." : "Bu sayfada kullanıcı yok."}
                   </Td>
                 </tr>
               )}
             </tbody>
           </Table>
         </Card>
+        <Pagination page={page} totalPages={totalPages} total={total} itemLabel="kullanıcı" hrefForPage={pageHref} />
       </div>
     </>
   );

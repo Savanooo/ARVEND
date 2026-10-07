@@ -281,7 +281,7 @@ func TestPriceSourceSync(t *testing.T) {
 	t.Cleanup(func() { pool.Close() })
 	q := sqlc.New(pool)
 	orgSvc := service.NewOrganizationService(q)
-	userSvc := service.NewUserService(q)
+	userSvc := service.NewUserService(pool, q)
 	fake := &fakeSource{}
 	svc := service.NewPriceSourceService(pool, q, ulasOnly(fake))
 

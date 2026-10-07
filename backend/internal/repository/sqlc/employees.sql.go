@@ -145,6 +145,39 @@ func (q *Queries) GetEmployeeByUserID(ctx context.Context, arg GetEmployeeByUser
 	return i, err
 }
 
+const getEmployeeForUpdate = `-- name: GetEmployeeForUpdate :one
+SELECT id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id, user_id FROM employees WHERE id = $1 AND organization_id = $2 FOR UPDATE
+`
+
+type GetEmployeeForUpdateParams struct {
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+// Ücret değişikliğini (eski -> yeni) aynı transaction içinde güvenle
+// karşılaştırmak için satırı kilitler (bkz. EmployeeService.Update).
+func (q *Queries) GetEmployeeForUpdate(ctx context.Context, arg GetEmployeeForUpdateParams) (Employee, error) {
+	row := q.db.QueryRow(ctx, getEmployeeForUpdate, arg.ID, arg.OrganizationID)
+	var i Employee
+	err := row.Scan(
+		&i.ID,
+		&i.FullName,
+		&i.Phone,
+		&i.Position,
+		&i.Salary,
+		&i.DailyWage,
+		&i.StartDate,
+		&i.IsActive,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ArchivedAt,
+		&i.OrganizationID,
+		&i.UserID,
+	)
+	return i, err
+}
+
 const listEmployees = `-- name: ListEmployees :many
 SELECT id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id, user_id FROM employees
 WHERE organization_id = $1
@@ -195,7 +228,8 @@ func (q *Queries) ListEmployees(ctx context.Context, arg ListEmployeesParams) ([
 const updateEmployee = `-- name: UpdateEmployee :one
 UPDATE employees
 SET full_name = $3, phone = $4, position = $5, salary = $6, daily_wage = $7,
-    start_date = $8, description = $9, is_active = $10, user_id = $11
+    start_date = $8, description = $9, is_active = $10, user_id = $11,
+    archived_at = CASE WHEN $10::boolean THEN NULL ELSE COALESCE(archived_at, now()) END
 WHERE id = $1 AND organization_id = $2
 RETURNING id, full_name, phone, position, salary, daily_wage, start_date, is_active, description, created_at, updated_at, archived_at, organization_id, user_id
 `
@@ -214,6 +248,11 @@ type UpdateEmployeeParams struct {
 	UserID         pgtype.UUID    `json:"user_id"`
 }
 
+// archived_at, is_active ile TUTARLI tutulur: "Pasifleştir" (ArchiveEmployee)
+// archived_at'i dolduruyordu ama formdan yeniden "Aktif" yapılan personelde
+// temizlenmiyor, "Aktif" işareti kaldırılınca da hiç dolmuyordu -- ana sayfa
+// archived_at'e baktığı için aktif bir personel orada arşivli görünüyordu.
+// Pasife alınırken mevcut arşiv zamanı korunur (ilk pasifleştirme anı).
 func (q *Queries) UpdateEmployee(ctx context.Context, arg UpdateEmployeeParams) (Employee, error) {
 	row := q.db.QueryRow(ctx, updateEmployee,
 		arg.ID,

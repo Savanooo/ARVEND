@@ -1,0 +1,13 @@
+-- Refresh token rotasyonu için kısa tolerans.
+--
+-- Refresh token tek kullanımlık: yenilemede eskisi iptal edilir, yenisi
+-- verilir. İki sekme (ya da sekme + mobil arka plan isteği) AYNI token'la
+-- aynı anda yenileyince geç kalan "geçersiz token" alıyor ve cevabında
+-- cookie'ler siliniyordu -- tarayıcıdaki BÜTÜN sekmeler oturumdan düşüyordu.
+--
+-- rotated_at: token'ın YENİLEME sonucu (çıkış/şifre değişikliği/pasifleştirme
+-- değil) iptal edildiği an. Yalnızca bu alan doluysa ve çok yakın zamandaysa
+-- (bkz. service.refreshReuseGrace) aynı token bir kez daha yeni bir çift
+-- alabilir. Çıkış, şifre değişikliği ve pasifleştirme bu alanı temizler --
+-- toleransla oturum geri açılamaz.
+ALTER TABLE refresh_tokens ADD COLUMN rotated_at timestamptz;
