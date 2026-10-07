@@ -179,6 +179,8 @@ class _NotificationTile extends StatelessWidget {
   IconData get _icon => switch (notification.entityType) {
     'task' => Icons.checklist_outlined,
     'offer' => Icons.description_outlined,
+    // Ek iş (müşteri kararı) -- proje detayındaki "Ek İşler" bölümüyle aynı simge.
+    'change_order' => Icons.post_add_outlined,
     'subcontract' => Icons.handshake_outlined,
     'subcontract_change_order' => Icons.rule_folder_outlined,
     'progress_claim' => Icons.receipt_long_outlined,
