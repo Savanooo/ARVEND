@@ -345,7 +345,8 @@ class _PasswordResetCardState extends ConsumerState<_PasswordResetCard> {
       _controller.clear();
       setState(() {
         _ok = true;
-        _message = 'Şifre güncellendi.';
+        // Backend sıfırlanan şifreyi geçici sayar ve açık oturumları kapatır.
+        _message = 'Şifre sıfırlandı. Açık oturumları kapatıldı; ilk girişte kendi şifresini belirleyecek.';
       });
     } on ApiException catch (e) {
       if (mounted) {

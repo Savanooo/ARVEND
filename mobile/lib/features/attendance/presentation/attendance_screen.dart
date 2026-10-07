@@ -24,6 +24,7 @@ import '../domain/attendance_people.dart';
 import 'person_month_screen.dart';
 import '../data/attendance_providers.dart';
 import '../domain/attendance.dart';
+import '../../../core/widgets/app_sheet.dart';
 
 String _todayIso() {
   final now = DateTime.now();
@@ -293,7 +294,7 @@ Future<void> showAttendanceForm(
   String? employeeName,
   DateTime? initialDate,
 }) {
-  return showModalBottomSheet(
+  return showAppSheet(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,

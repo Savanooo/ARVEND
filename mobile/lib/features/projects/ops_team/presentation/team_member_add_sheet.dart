@@ -12,6 +12,7 @@ import '../data/ops_team_providers.dart';
 import '../domain/ops_dates.dart';
 import '../domain/team_member.dart';
 import 'widgets/ops_common.dart';
+import '../../../../core/widgets/app_sheet.dart';
 
 /// "Ekibe Ekle" alt sayfası; eklenen üyeyi döner (vazgeçilirse null).
 /// Yalnızca `projects.operations.manage` sahibine ve kilitli olmayan
@@ -22,11 +23,10 @@ Future<ProjectTeamMember?> showTeamMemberAddSheet(
   required String projectId,
   required Set<String> activeEmployeeIds,
 }) {
-  return showModalBottomSheet<ProjectTeamMember>(
+  return showAppSheet<ProjectTeamMember>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    enableDrag: false,
     builder: (_) => TeamMemberAddSheet(projectId: projectId, activeEmployeeIds: activeEmployeeIds),
   );
 }

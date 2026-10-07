@@ -160,7 +160,7 @@ void main() {
       await scrollAndTap(tester, find.text('Şifreyi Sıfırla'));
       expect(access.calls, contains('resetPassword u-pm'));
       expect(access.lastPassword, 'yeterince-uzun');
-      expect(find.text('Şifre güncellendi.'), findsOneWidget);
+      expect(find.textContaining('Şifre sıfırlandı.'), findsOneWidget);
     });
 
     testWidgets('yalnızca görüntüleme: form, şifre ve kaydet düğmeleri yok', (tester) async {
