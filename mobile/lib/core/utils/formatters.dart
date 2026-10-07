@@ -159,10 +159,15 @@ abstract final class Formatters {
       };
 
   /// "YYYY-MM-DD" -> "dd.MM.yyyy". Parse edilemeyen değeri olduğu gibi döner.
+  /// RFC3339 zaman damgası da kabul edilir (ör. dosya/fotoğraf yükleme
+  /// anı): `dateTime` gibi yerel saate çevrilir -- aksi halde İstanbul'da
+  /// 00:00-03:00 arası yüklenen dosya bir önceki günün tarihiyle görünürdü.
+  /// Saatsiz tarih ("2026-09-01") zaten yerel gün olarak okunur, kaymaz.
   static String date(String? isoDate) {
     if (isoDate == null || isoDate.isEmpty) return '-';
     try {
-      return _dateFormat.format(DateTime.parse(isoDate));
+      final parsed = DateTime.parse(isoDate);
+      return _dateFormat.format(parsed.isUtc ? parsed.toLocal() : parsed);
     } on FormatException {
       return isoDate;
     }
