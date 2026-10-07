@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/repository"
@@ -38,23 +39,72 @@ func (s *ProductService) List(ctx context.Context, organizationID, search string
 	if page <= 0 {
 		page = 1
 	}
-	norm := domain.NormalizeName(search)
-	rows, err := s.q.ListProducts(ctx, sqlc.ListProductsParams{
-		OrganizationID: orgID,
-		Limit:          int32(limit),
-		Offset:         int32((page - 1) * limit),
-		Column4:        norm,
-	})
+	offset := int32((page - 1) * limit)
+	// Arama yoksa (ya da sorgu yalnızca noktalamaysa) liste eskisi gibi ad
+	// sırasıyla döner -- web tüm kataloğu bu yoldan sayfa sayfa çeker, arama
+	// sorgusunun maliyetini ödemez.
+	terms := domain.ProductSearchTerms(search)
+	if len(terms) == 0 {
+		rows, err := s.q.ListProducts(ctx, sqlc.ListProductsParams{OrganizationID: orgID, Limit: int32(limit), Offset: offset})
+		if err != nil {
+			return nil, err
+		}
+		total, err := s.q.CountProducts(ctx, orgID)
+		if err != nil {
+			return nil, err
+		}
+		products := make([]domain.Product, len(rows))
+		for i, r := range rows {
+			products[i] = repository.ToDomainProduct(r)
+		}
+		return &ProductListResult{Products: products, Total: total}, nil
+	}
+	return s.search(ctx, orgID, terms, int32(limit), offset)
+}
+
+// search: kelime bazlı katalog araması -- her kelime adda, kategoride ya da
+// tedarikçide geçmeli; ad eşleşmesi önce sıralanır (bkz.
+// domain/product_search.go ve SearchProducts sorgusu). Toplam aynı
+// sorgudan (pencere sayımı) gelir; sayfa sonun ötesindeyse satır olmadığı
+// için toplam ilk sayfadan okunur.
+func (s *ProductService) search(ctx context.Context, orgID pgtype.UUID, terms []string, limit, offset int32) (*ProductListResult, error) {
+	patterns, wordStart := domain.ProductSearchPatterns(terms)
+	sourceCodes, sourceLabels := domain.ProductSearchSources()
+	params := sqlc.SearchProductsParams{
+		OrganizationID:    orgID,
+		Patterns:          patterns,
+		WordStartPatterns: wordStart,
+		Phrase:            strings.Join(terms, " "),
+		FirstTerm:         terms[0],
+		SourceCodes:       sourceCodes,
+		SourceLabels:      sourceLabels,
+		RowLimit:          limit,
+		RowOffset:         offset,
+	}
+	rows, err := s.q.SearchProducts(ctx, params)
 	if err != nil {
 		return nil, err
 	}
-	total, err := s.q.CountProducts(ctx, sqlc.CountProductsParams{OrganizationID: orgID, Column2: norm})
-	if err != nil {
-		return nil, err
+	var total int64
+	if len(rows) > 0 {
+		total = rows[0].Total
+	} else if offset > 0 {
+		params.RowLimit, params.RowOffset = 1, 0
+		first, err := s.q.SearchProducts(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		if len(first) > 0 {
+			total = first[0].Total
+		}
 	}
 	products := make([]domain.Product, len(rows))
 	for i, r := range rows {
-		products[i] = repository.ToDomainProduct(r)
+		products[i] = repository.ToDomainProduct(sqlc.Product{
+			ID: r.ID, Name: r.Name, NormalizedName: r.NormalizedName, Unit: r.Unit, UnitPrice: r.UnitPrice,
+			Description: r.Description, Category: r.Category, Source: r.Source, SourcePrice: r.SourcePrice,
+			CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, OrganizationID: r.OrganizationID, SourceSyncedAt: r.SourceSyncedAt,
+		})
 	}
 	return &ProductListResult{Products: products, Total: total}, nil
 }
