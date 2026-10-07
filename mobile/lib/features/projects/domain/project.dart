@@ -106,18 +106,26 @@ class FinancialSummary {
 
   /// Yukarıdaki bedel ve kârlar KDV DAHİL. KDV hariç karşılıklar sunucuda
   /// hesaplanır (web ile aynı rakam); [contractVatKnown] false ise proje
-  /// tekliften açılmamıştır, KDV bilinmez ve net değerler KDV dahille aynıdır.
+  /// tekliften açılmamıştır, KDV bilinmez ve net kârlar KDV dahille aynıdır.
   final bool contractVatKnown;
   final double contractVatAmount;
   final double currentContractValueNet;
   final double realizedGrossProfitNet;
   final double realizedMarginPercentNet;
 
+  /// Onaylı masrafların içindeki KDV (KDV oranı girilmiş olanlar) ve ondan
+  /// türeyen KDV hariç maliyetler -- sunucu hesaplar. Eski sunucuda alan
+  /// yok: KDV 0, maliyetler KDV dahille aynı.
+  final double expenseVatTotal;
+  final double realizedCostNet;
+  final double committedCostNet;
+
   /// "Tahmini" bölümünün TEK kaynağı -- seçimi sunucu yapar:
   /// `budget` = Maliyet Kontrolü EAC (+ eski taşeron), `commitments` =
   /// taahhüt bazlı. Web de aynısını gösterir.
   final String forecastBasis;
   final double forecastCost;
+  final double forecastCostNet;
   final double forecastProfit;
   final double forecastProfitNet;
   final double forecastMarginPercent;
@@ -142,8 +150,12 @@ class FinancialSummary {
     double? currentContractValueNet,
     double? realizedGrossProfitNet,
     double? realizedMarginPercentNet,
+    this.expenseVatTotal = 0,
+    double? realizedCostNet,
+    double? committedCostNet,
     this.forecastBasis = 'commitments',
     double? forecastCost,
+    double? forecastCostNet,
     double? forecastProfit,
     double? forecastProfitNet,
     double? forecastMarginPercent,
@@ -151,13 +163,21 @@ class FinancialSummary {
   })  : currentContractValueNet = currentContractValueNet ?? currentContractValue,
         realizedGrossProfitNet = realizedGrossProfitNet ?? realizedGrossProfit,
         realizedMarginPercentNet = realizedMarginPercentNet ?? realizedMarginPercent,
+        realizedCostNet = realizedCostNet ?? realizedCost,
+        committedCostNet = committedCostNet ?? committedCost,
         forecastCost = forecastCost ?? committedCost,
+        forecastCostNet = forecastCostNet ?? forecastCost ?? committedCost,
         forecastProfit = forecastProfit ?? estimatedGrossProfit,
         forecastProfitNet = forecastProfitNet ?? estimatedGrossProfit,
         forecastMarginPercent = forecastMarginPercent ?? estimatedMarginPercent,
         forecastMarginPercentNet = forecastMarginPercentNet ?? estimatedMarginPercent;
 
   bool get forecastFromBudget => forecastBasis == 'budget';
+
+  /// "Maliyet (KDV hariç)" satırı yalnızca KDV dahilden farklıysa gösterilir
+  /// (masraflarda KDV girilmemişse aynı rakamı iki kez yazmanın anlamı yok).
+  bool get realizedCostNetDiffers => (realizedCost - realizedCostNet).abs() >= 0.005;
+  bool get forecastCostNetDiffers => (forecastCost - forecastCostNet).abs() >= 0.005;
 
   factory FinancialSummary.fromJson(Map<String, dynamic> json) => FinancialSummary(
         currentContractValue: (json['current_contract_value'] as num).toDouble(),
@@ -179,8 +199,12 @@ class FinancialSummary {
         currentContractValueNet: (json['current_contract_value_net'] as num?)?.toDouble(),
         realizedGrossProfitNet: (json['realized_gross_profit_net'] as num?)?.toDouble(),
         realizedMarginPercentNet: (json['realized_margin_percent_net'] as num?)?.toDouble(),
+        expenseVatTotal: (json['expense_vat_total'] as num?)?.toDouble() ?? 0,
+        realizedCostNet: (json['realized_cost_net'] as num?)?.toDouble(),
+        committedCostNet: (json['committed_cost_net'] as num?)?.toDouble(),
         forecastBasis: json['forecast_basis'] as String? ?? 'commitments',
         forecastCost: (json['forecast_cost'] as num?)?.toDouble(),
+        forecastCostNet: (json['forecast_cost_net'] as num?)?.toDouble(),
         forecastProfit: (json['forecast_profit'] as num?)?.toDouble(),
         forecastProfitNet: (json['forecast_profit_net'] as num?)?.toDouble(),
         forecastMarginPercent: (json['forecast_margin_percent'] as num?)?.toDouble(),
@@ -196,6 +220,10 @@ const kExpenseRejected = 'rejected';
 
 /// Masraf onaylama/reddetme izni (backend domain.PermProjectsExpensesApprove).
 const kExpenseApprovePermission = 'projects.expenses.approve';
+
+/// Masraf formunda sunulan KDV oranları (%); "Belirtilmedi" ayrıca (null).
+/// Sunucu 0-100 arası her oranı kabul eder.
+const kExpenseVatRates = <double>[0, 1, 10, 20];
 
 class Expense {
   final String id;
@@ -225,6 +253,14 @@ class Expense {
   /// Ret gerekçesi (onayda boş).
   final String decisionNote;
 
+  /// KDV (backend migration 0065): [amount] ödenen tutardır (oran varsa KDV
+  /// dahil). [vatRate] null = belirtilmedi; o zaman [vatAmount]/[netAmount]
+  /// da null (bilinmeyen KDV sıfır sayılmaz). Tutarları sunucu hesaplar.
+  /// Alan gelmezse (eski sunucu) hepsi null.
+  final double? vatRate;
+  final double? vatAmount;
+  final double? netAmount;
+
   const Expense({
     required this.id,
     required this.category,
@@ -244,6 +280,9 @@ class Expense {
     this.approvalStatus = kExpenseApproved,
     this.decidedAt,
     this.decisionNote = '',
+    this.vatRate,
+    this.vatAmount,
+    this.netAmount,
   });
 
   bool get isVoided => voidedAt != null;
@@ -275,6 +314,9 @@ class Expense {
         approvalStatus: json['approval_status'] as String? ?? kExpenseApproved,
         decidedAt: json['decided_at'] as String?,
         decisionNote: json['decision_note'] as String? ?? '',
+        vatRate: (json['vat_rate'] as num?)?.toDouble(),
+        vatAmount: (json['vat_amount'] as num?)?.toDouble(),
+        netAmount: (json['net_amount'] as num?)?.toDouble(),
       );
 }
 
