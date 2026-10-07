@@ -18,6 +18,7 @@ class AppListCard extends StatelessWidget {
     this.trailing,
     this.onTap,
     this.margin = const EdgeInsets.only(bottom: AppSpacing.sm),
+    this.footer,
   });
 
   final String title;
@@ -26,6 +27,9 @@ class AppListCard extends StatelessWidget {
   final Widget? trailing;
   final VoidCallback? onTap;
   final EdgeInsetsGeometry? margin;
+
+  /// Alt metnin altında küçük bir ek satır (ör. uyarı ya da durum çipi).
+  final Widget? footer;
 
   @override
   Widget build(BuildContext context) {
@@ -61,6 +65,10 @@ class AppListCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                ],
+                if (footer != null) ...[
+                  const SizedBox(height: 4),
+                  footer!,
                 ],
               ],
             ),

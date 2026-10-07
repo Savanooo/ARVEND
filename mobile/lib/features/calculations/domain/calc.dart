@@ -91,6 +91,21 @@ class CalcResultItem {
   final String wastePercent;
   final String roundingType;
 
+  /// `unit_price` nereden geldi: product | reference (ürün fiyatı yok/0,
+  /// reçetenin referans fiyatı) | none (hiç fiyat yok, 0). Alanı göndermeyen
+  /// eski sunucuda ''.
+  final String priceSource;
+
+  /// Ürün fiyatı kullanılamadıysa sunucunun kısa Türkçe sebebi
+  /// ("referans fiyat kullanıldı" / "fiyat yok"); aksi halde null.
+  final String? priceWarning;
+
+  static const priceSourceProduct = 'product';
+  static const priceSourceReference = 'reference';
+  static const priceSourceNone = 'none';
+
+  bool get hasPriceWarning => priceWarning != null && priceWarning!.isNotEmpty;
+
   const CalcResultItem({
     required this.recipeItemId,
     required this.materialName,
@@ -104,6 +119,8 @@ class CalcResultItem {
     required this.factor,
     required this.wastePercent,
     required this.roundingType,
+    this.priceSource = '',
+    this.priceWarning,
   });
 
   factory CalcResultItem.fromJson(Map<String, dynamic> json) => CalcResultItem(
@@ -119,7 +136,35 @@ class CalcResultItem {
         factor: json['factor'] as String,
         wastePercent: json['waste_percent'] as String,
         roundingType: json['rounding_type'] as String,
+        priceSource: json['price_source'] as String? ?? '',
+        priceWarning: json['price_warning'] as String?,
       );
+}
+
+/// Metraj sonucundaki fiyat uyarılarının özeti -- ekranda tek not olarak
+/// gösterilir (satırlar ayrıca işaretlenir). Uyarı yoksa null.
+String? calcPriceSummary(List<CalcResultItem> items) {
+  final reference = items.where((i) => i.priceSource == CalcResultItem.priceSourceReference).length;
+  final none = items.where((i) => i.priceSource == CalcResultItem.priceSourceNone).length;
+  if (reference == 0 && none == 0) return null;
+  final parts = [
+    if (reference > 0) '$reference kalemde ürün fiyatı olmadığından reçetedeki referans fiyat kullanıldı',
+    if (none > 0) '$none kalemin fiyatı yok (0 TL hesaplandı)',
+  ];
+  return '${parts.join('; ')}. Teklife eklemeden önce fiyatları kontrol edin; '
+      'kalıcı çözüm için ürün fiyatlarını Ürünler ekranından girin.';
+}
+
+/// Satırlarda zaten işaretlenen fiyat uyarıları (ürün yok / ürün 0 TL)
+/// üstteki uyarı listesinden çıkarılır -- yeni firmada her satır için bir
+/// kutu tekrar etmesin. Eski sunucuda (satır işareti yok) hepsi kalır.
+List<CalcWarning> nonPriceWarnings(CalcRunResult result) {
+  final marked = {
+    for (final i in result.items)
+      if (i.hasPriceWarning) i.recipeItemId,
+  };
+  const priceCodes = {'product_missing', 'product_zero_price'};
+  return result.warnings.where((w) => !(priceCodes.contains(w.code) && marked.contains(w.itemId))).toList();
 }
 
 class CalcRunResult {
@@ -210,6 +255,9 @@ List<OfferItem> buildOfferItemsFromCalcResult(CalcRunResult result, Set<String> 
               'waste_percent': i.wastePercent,
               'rounding_type': i.roundingType,
               'price_at_calc': i.unitPrice,
+              // Fiyat ürün yerine reçete referansından geldiyse sonradan
+              // "bu fiyat nereden?" sorusu yanıtlanabilsin.
+              if (i.priceSource.isNotEmpty) 'price_source': i.priceSource,
             },
           ))
       .toList();
