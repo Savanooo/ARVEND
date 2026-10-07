@@ -1,10 +1,10 @@
 package middleware_test
 
-// Masraf onayı (migration 0060) -- izin kapısı GERÇEK router'a karşı:
+// Masraf onayı (migration 0060, 0066) -- izin kapısı GERÇEK router'a karşı:
 //
-//	legacy_user / project_manager: masraf girer (finance.manage) ama ONAYLAYAMAZ
-//	finance:                       üyesi olduğu projede onaylar/reddeder
-//	owner/admin:                   her projede (üyelikten muaf)
+//	legacy_user / project_manager / finance: masraf girer ama ONAYLAYAMAZ
+//	                                         (0066: "onayı sadece yönetici verir")
+//	owner/admin:                             her projede (üyelikten muaf)
 
 import (
 	"context"
@@ -29,6 +29,7 @@ func TestExpenseApprovalSecurity(t *testing.T) {
 	finUser, finToken := mustCreateRoleUser(t, ctx, d, org.Organization.ID, "ea_fin", domain.OrgRoleFinance)
 	_, legacyToken := mustCreateRoleUser(t, ctx, d, org.Organization.ID, "ea_legacy", domain.OrgRoleLegacyUser)
 	pmUser, pmToken := mustCreateRoleUser(t, ctx, d, org.Organization.ID, "ea_pm", domain.OrgRoleProjectManager)
+	_, adminToken := mustCreateRoleUser(t, ctx, d, org.Organization.ID, "ea_admin", domain.OrgRoleAdmin)
 
 	pA := mustCreateProject(t, ctx, d, org.Organization.ID, "Masraf Onay A (üye)")
 	pB := mustCreateProject(t, ctx, d, org.Organization.ID, "Masraf Onay B (üye değil)")
@@ -60,7 +61,8 @@ func TestExpenseApprovalSecurity(t *testing.T) {
 
 	t.Run("1_entering_roles_cannot_approve", func(t *testing.T) {
 		id := newExpense(t, pA.ID)
-		for name, tok := range map[string]string{"legacy": legacyToken, "pm": pmToken} {
+		// Finans projenin üyesi olsa da onaylayamaz (0066).
+		for name, tok := range map[string]string{"legacy": legacyToken, "pm": pmToken, "finance": finToken} {
 			rec, body := rbacDo(t, d.router, http.MethodPost, path(pA.ID, id, "approve"), tok, "")
 			if rec.Code != http.StatusForbidden || body["code"] != "permission_denied" {
 				t.Errorf("%s onaylayabildi: %d %v", name, rec.Code, body)
@@ -72,11 +74,11 @@ func TestExpenseApprovalSecurity(t *testing.T) {
 		}
 	})
 
-	t.Run("2_finance_member_approves_and_summary_counts_it", func(t *testing.T) {
+	t.Run("2_admin_approves_and_summary_counts_it", func(t *testing.T) {
 		id := newExpense(t, pA.ID)
-		rec, body := rbacDo(t, d.router, http.MethodPost, path(pA.ID, id, "approve"), finToken, "")
+		rec, body := rbacDo(t, d.router, http.MethodPost, path(pA.ID, id, "approve"), adminToken, "")
 		if rec.Code != http.StatusOK || body["approval_status"] != domain.ExpenseApprovalApproved || body["decided_at"] == nil {
-			t.Fatalf("finans onaylayamadı: %d %v", rec.Code, body)
+			t.Fatalf("yönetici onaylayamadı: %d %v", rec.Code, body)
 		}
 		rec, body = rbacDo(t, d.router, http.MethodPost, path(pA.ID, id, "approve"), ownerToken, "")
 		if rec.Code != http.StatusConflict {
@@ -88,11 +90,11 @@ func TestExpenseApprovalSecurity(t *testing.T) {
 		}
 	})
 
-	t.Run("3_finance_outside_project_denied", func(t *testing.T) {
+	t.Run("3_admin_approves_without_project_membership", func(t *testing.T) {
 		id := newExpense(t, pB.ID)
-		rec, body := rbacDo(t, d.router, http.MethodPost, path(pB.ID, id, "approve"), finToken, "")
-		if rec.Code != http.StatusForbidden || body["code"] != "project_access_denied" {
-			t.Errorf("üye olmadığı projede onay: %d %v", rec.Code, body)
+		rec, body := rbacDo(t, d.router, http.MethodPost, path(pB.ID, id, "approve"), adminToken, "")
+		if rec.Code != http.StatusOK || body["approval_status"] != domain.ExpenseApprovalApproved {
+			t.Errorf("yönetici üye olmadığı projede onaylayamadı: %d %v", rec.Code, body)
 		}
 	})
 
