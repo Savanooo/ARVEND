@@ -313,6 +313,11 @@ SELECT p.id, p.organization_id, p.project_no, p.name, p.project_type, p.source_o
                   WHERE sp2.subcontractor_id = s.id AND sp2.voided_at IS NULL), 0), 0))
               FROM project_subcontractors s
               WHERE s.project_id = p.id AND s.status <> 'cancelled'), 0)::numeric(18,2) AS subcontractor_remaining,
+    -- Yeni modül (Sprint 5) taşeron ödemeleri: GetProjectFinancialSummary
+    -- realized_cost'a zaten giriyordu, liste girmiyordu -- liste ile detay
+    -- "gerçekleşen maliyet/kâr"da ayrışıyordu.
+    COALESCE((SELECT sum(np.amount) FROM subcontract_payments np
+              WHERE np.project_id = p.id AND np.voided_at IS NULL), 0)::numeric(18,2) AS new_subcontract_paid,
     COALESCE((SELECT count(*) FROM project_invoices i
               WHERE i.project_id = p.id AND i.invoice_type = 'sales' AND i.status <> 'cancelled'), 0)::bigint AS invoice_count,
     COALESCE((SELECT count(*) FROM project_invoices i
@@ -392,6 +397,7 @@ type ListProjectsRow struct {
 	TotalExpenses          pgtype.Numeric     `json:"total_expenses"`
 	SubcontractorPaid      pgtype.Numeric     `json:"subcontractor_paid"`
 	SubcontractorRemaining pgtype.Numeric     `json:"subcontractor_remaining"`
+	NewSubcontractPaid     pgtype.Numeric     `json:"new_subcontract_paid"`
 	InvoiceCount           int64              `json:"invoice_count"`
 	PaidInvoiceCount       int64              `json:"paid_invoice_count"`
 	ChangeOrderNet         pgtype.Numeric     `json:"change_order_net"`
@@ -450,6 +456,7 @@ func (q *Queries) ListProjects(ctx context.Context, arg ListProjectsParams) ([]L
 			&i.TotalExpenses,
 			&i.SubcontractorPaid,
 			&i.SubcontractorRemaining,
+			&i.NewSubcontractPaid,
 			&i.InvoiceCount,
 			&i.PaidInvoiceCount,
 			&i.ChangeOrderNet,

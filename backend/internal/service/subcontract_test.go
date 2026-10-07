@@ -1351,6 +1351,38 @@ func TestSubcontracts(t *testing.T) {
 		}
 	})
 
+	t.Run("44_project_list_realized_cost_includes_subcontract_payments", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 300000)
+		cc := newCostCode(t, orgA.ID, "S44-CC")
+		s := newSupplier(t, orgA.ID, "S44-S")
+		sc := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 100000)
+		if _, err := projectSvc.CreateSubcontractPayment(ctx, p.ID, sc.ID, orgA.ID, service.SubcontractPaymentInput{
+			Amount: 25000, Currency: "TRY", PaidDate: time.Now(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		summary, err := projectSvc.FinancialSummary(ctx, p.ID, orgA.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		list, err := projectSvc.List(ctx, orgA.ID, service.ProjectListFilter{Limit: 200})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var row *domain.Project
+		for i := range list.Projects {
+			if list.Projects[i].ID == p.ID {
+				row = &list.Projects[i]
+			}
+		}
+		if row == nil {
+			t.Fatalf("proje listede yok")
+		}
+		if row.NewSubcontractPaid != 25000 || row.RealizedCost() != summary.RealizedCost || row.RealizedGrossProfit() != summary.RealizedGrossProfit {
+			t.Fatalf("liste (ödenen %v, maliyet %v) detayla (maliyet %v) aynı olmalı", row.NewSubcontractPaid, row.RealizedCost(), summary.RealizedCost)
+		}
+	})
+
 	t.Run("37_finance_summary_terminated_remaining_is_certified_minus_paid", func(t *testing.T) {
 		p := newProject(t, orgA.ID, 900000)
 		cc := newCostCode(t, orgA.ID, "S37-CC")

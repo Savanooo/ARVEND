@@ -577,6 +577,7 @@ func ToDomainProjectListItem(r sqlc.ListProjectsRow) domain.Project {
 	dp.TotalExpenses = NumericToFloat64(r.TotalExpenses)
 	dp.SubcontractorPaid = NumericToFloat64(r.SubcontractorPaid)
 	dp.SubcontractorRemaining = NumericToFloat64(r.SubcontractorRemaining)
+	dp.NewSubcontractPaid = NumericToFloat64(r.NewSubcontractPaid)
 	dp.InvoiceCount = r.InvoiceCount
 	dp.PaidInvoiceCount = r.PaidInvoiceCount
 	dp.ChangeOrderNet = NumericToFloat64(r.ChangeOrderNet)

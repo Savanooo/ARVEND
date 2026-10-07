@@ -2,6 +2,8 @@ import { PROJECT_EVENT_LABELS } from "@/lib/events";
 import { formatMoney } from "@/lib/format";
 import type { FinancialSummary, ProjectEvent } from "@/lib/types";
 
+import { subcontractTotals } from "./FinanceSummary";
+
 function Line({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
     <div className={`flex justify-between ${strong ? "font-semibold" : ""}`}>
@@ -18,6 +20,7 @@ function Line({ label, value, strong }: { label: string; value: string; strong?:
 // devam eder -- aynı satırı iki sütunda tekrar etmez.
 export function ProfitabilitySection({ summary }: { summary: FinancialSummary }) {
   const c = summary.currency;
+  const sub = subcontractTotals(summary);
   return (
     <div className="flex flex-col gap-6 md:flex-row">
       <div className="flex flex-1 flex-col gap-1.5">
@@ -26,7 +29,7 @@ export function ProfitabilitySection({ summary }: { summary: FinancialSummary })
         </div>
         <Line label="Güncel proje bedeli" value={formatMoney(summary.current_contract_value, c)} />
         <Line label="Masraflar" value={`- ${formatMoney(summary.total_expenses, c)}`} />
-        <Line label="Taşerona ödenen" value={`- ${formatMoney(summary.subcontractor_paid, c)}`} />
+        <Line label="Taşerona ödenen" value={`- ${formatMoney(sub.paid, c)}`} />
         <div className="my-1 border-t border-border" />
         <Line label="Gerçekleşen maliyet" value={formatMoney(summary.realized_cost, c)} />
         <Line
@@ -42,7 +45,7 @@ export function ProfitabilitySection({ summary }: { summary: FinancialSummary })
         </div>
         <Line
           label="Gerçekleşen maliyetin üzerine taşeron kalan taahhüdü"
-          value={`+ ${formatMoney(summary.subcontractor_remaining, c)}`}
+          value={`+ ${formatMoney(sub.remaining, c)}`}
         />
         <div className="my-1 border-t border-border" />
         <Line label="Tahmini maliyet" value={formatMoney(summary.committed_cost, c)} />

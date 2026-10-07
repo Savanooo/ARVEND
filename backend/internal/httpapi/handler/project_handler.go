@@ -60,6 +60,7 @@ type projectResponse struct {
 	TotalExpenses          *float64 `json:"total_expenses,omitempty"`
 	SubcontractorPaid      *float64 `json:"subcontractor_paid,omitempty"`
 	SubcontractorRemaining *float64 `json:"subcontractor_remaining,omitempty"`
+	NewSubcontractPaid     *float64 `json:"new_subcontract_paid,omitempty"`
 	RemainingReceivable    *float64 `json:"remaining_receivable,omitempty"`
 	RealizedCost           *float64 `json:"realized_cost,omitempty"`
 	RealizedGrossProfit    *float64 `json:"realized_gross_profit,omitempty"`
@@ -101,6 +102,7 @@ func toProjectResponse(p domain.Project) projectResponse {
 		resp.TotalExpenses = &p.TotalExpenses
 		resp.SubcontractorPaid = &p.SubcontractorPaid
 		resp.SubcontractorRemaining = &p.SubcontractorRemaining
+		resp.NewSubcontractPaid = &p.NewSubcontractPaid
 		remaining := p.RemainingReceivable()
 		resp.RemainingReceivable = &remaining
 		realizedCost := p.RealizedCost()

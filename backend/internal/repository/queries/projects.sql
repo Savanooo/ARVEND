@@ -47,6 +47,11 @@ SELECT p.*, o.offer_no, r.revision_no,
                   WHERE sp2.subcontractor_id = s.id AND sp2.voided_at IS NULL), 0), 0))
               FROM project_subcontractors s
               WHERE s.project_id = p.id AND s.status <> 'cancelled'), 0)::numeric(18,2) AS subcontractor_remaining,
+    -- Yeni modül (Sprint 5) taşeron ödemeleri: GetProjectFinancialSummary
+    -- realized_cost'a zaten giriyordu, liste girmiyordu -- liste ile detay
+    -- "gerçekleşen maliyet/kâr"da ayrışıyordu.
+    COALESCE((SELECT sum(np.amount) FROM subcontract_payments np
+              WHERE np.project_id = p.id AND np.voided_at IS NULL), 0)::numeric(18,2) AS new_subcontract_paid,
     COALESCE((SELECT count(*) FROM project_invoices i
               WHERE i.project_id = p.id AND i.invoice_type = 'sales' AND i.status <> 'cancelled'), 0)::bigint AS invoice_count,
     COALESCE((SELECT count(*) FROM project_invoices i
