@@ -951,7 +951,8 @@ func (s *ProjectService) RecordChangeOrderDecision(ctx context.Context, projectI
 // proje bedelini negatife düşürüyorsa reddedilir. Sözleşme bedeline etki
 // ayrıca yazılmaz: güncel bedel her zaman onaylı ek işlerden hesaplanır
 // (migration 0027). decidedBy geçersizse karar müşterinin kendi linkinden
-// gelmiştir.
+// gelmiştir. Bildirim de burada yazılır (notifyChangeOrderDecision) --
+// iki yol aynı alıcılara gider, kaydeden personel hariç.
 func applyChangeOrderDecision(ctx context.Context, txq *sqlc.Queries, orgID, pid, cid pgtype.UUID, decision string,
 	decidedBy pgtype.UUID, note string, eventMeta map[string]any,
 ) (sqlc.ProjectChangeOrder, error) {
@@ -1001,6 +1002,9 @@ func applyChangeOrderDecision(ctx context.Context, txq *sqlc.Queries, orgID, pid
 		meta[k] = v
 	}
 	if err := logProjectEvent(ctx, txq, row.OrganizationID, row.ProjectID, eventType, decidedBy, meta); err != nil {
+		return sqlc.ProjectChangeOrder{}, err
+	}
+	if err := notifyChangeOrderDecision(ctx, txq, row, decidedBy); err != nil {
 		return sqlc.ProjectChangeOrder{}, err
 	}
 	return row, nil

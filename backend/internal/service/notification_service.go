@@ -11,12 +11,13 @@ import (
 )
 
 // NotificationService, uygulama-içi bildirim kalıcılığı + okuma +
-// alıcı-çözümlemesidir. GERÇEK push (FCM/APNs) YOK (bkz. migration 0042
-// başlık yorumu) -- Create/CreateForUsers yalnızca bir DB INSERT'tir,
+// alıcı-çözümlemesidir. Create/CreateForUsers yalnızca bir DB INSERT'tir,
 // hiçbir harici servise ağ çağrısı yapmaz, bu yüzden çağıranın kendi
 // transaction'ına GÜVENLE piyabinebilir (bkz. Faz 1 araştırması: her
 // olay zaten bir tx içinde çalışıyor -- bildirim satırı, iş eylemiyle
-// ATOMIK olur).
+// ATOMIK olur). Telefona gönderim ayrıdır: PushService.Run commit edilmiş
+// her satırı FCM'e iletir (migration 0053, push_service.go) -- burada
+// yazılan her bildirim ek bir şey yapmadan telefona da düşer.
 type NotificationService struct {
 	q *sqlc.Queries
 }
@@ -78,34 +79,8 @@ func createNotificationsForUsers(ctx context.Context, txq *sqlc.Queries, userIDs
 	return nil
 }
 
-// notifyOfferDecision, teklif durumu "kabul edildi"/"reddedildi"ye
-// geçtiğinde teklifi OLUŞTURAN personele bildirim yazar -- diğer durum
-// geçişleri (gönderildi, taslağa dönme vb.) İÇİN HİÇBİR ŞEY YAPMAZ (bkz.
-// Faz 1 araştırması: yalnızca bu ikisi "meaningful status change" olarak
-// değerlendirildi -- revize/projeye dönüştürme kendi eylemini yapan
-// personeli bilgilendirmenin bir anlamı yok, bu yüzden onlar İÇİN
-// bildirim YOKTUR). createdBy geçersizse (teklif hiçbir kullanıcıya
-// bağlı değilse) createNotification zaten sessizce atlar. Hem personelin
-// kendisinin (UpdateStatus) hem müşterinin genel paylaşım linkinden
-// (RespondByShareLinkToken) tetiklediği kabul/red için AYNI fonksiyon
-// kullanılır -- iki ayrı bildirim mantığı İCAT EDİLMEZ.
-func notifyOfferDecision(ctx context.Context, txq *sqlc.Queries, orgID, offerID pgtype.UUID, offerNo string, createdBy pgtype.UUID, status string) error {
-	var notifType, title string
-	switch status {
-	case domain.OfferStatusKabulEdildi:
-		notifType, title = domain.NotificationOfferAccepted, "Teklif kabul edildi"
-	case domain.OfferStatusReddedildi:
-		notifType, title = domain.NotificationOfferRejected, "Teklif reddedildi"
-	default:
-		return nil
-	}
-	return createNotification(ctx, txq, CreateNotificationInput{
-		OrganizationID: orgID, UserID: createdBy, Type: notifType,
-		Title: title, Body: offerNo,
-		EntityType: domain.NotificationEntityOffer, EntityID: offerID,
-		ActionTarget: "/teklifler/" + offerID.String(),
-	})
-}
+// Teklif/ek iş kararı ve teklifin ilk açılışı (müşteri paylaşım linki):
+// bkz. customer_link_notify.go.
 
 // resolveProjectApprovers, BELİRLİ bir projede BELİRLİ bir izin kodunu
 // (ör. projects.procurement.approve) tutan kullanıcıları döner --

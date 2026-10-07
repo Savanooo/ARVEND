@@ -1081,8 +1081,12 @@ func (s *OfferService) UpdateStatus(ctx context.Context, id, organizationID, sta
 	if err := logOfferEvent(ctx, txq, orgID, offerRow.ID, offerRow.CurrentRevisionID, eventType, actorID, statusMeta, "", ""); err != nil {
 		return nil, err
 	}
-	if err := notifyOfferDecision(ctx, txq, orgID, offerRow.ID, offerRow.OfferNo, offerRow.CreatedBy, status); err != nil {
-		return nil, err
+	// Yalnızca gerçek geçişte: zaten reddedilmiş teklifi yeniden "reddedildi"
+	// kaydetmek herkese ikinci bir bildirim düşürmesin.
+	if status != previousStatus {
+		if err := notifyOfferDecision(ctx, txq, offerRow, updatedRev, status, actorID); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -1604,11 +1608,74 @@ func (s *OfferService) GetPublicView(ctx context.Context, token, ip, userAgent s
 	rev := repository.ToDomainOfferRevision(revRow)
 	offer := repository.MergeOfferRevision(base, rev, items)
 
-	if err := logOfferEvent(ctx, s.q, link.OrganizationID, link.OfferID, link.RevisionID, domain.EventCustomerViewed,
-		pgtype.UUID{}, nil, ip, userAgent); err != nil {
+	awaitingDecision := offerRow.CurrentRevisionID == link.RevisionID && revRow.Status == domain.OfferStatusGonderildi
+	if err := s.recordCustomerView(ctx, offerRow, revRow, awaitingDecision, ip, userAgent); err != nil {
 		log.Printf("customer_viewed olayı yazılamadı: %v", err)
 	}
 	return &PublicOfferView{Offer: offer, CanRespond: canRespond, ValidityExpired: expired, OrganizationName: org.Name}, nil
+}
+
+// recordCustomerView, customer_viewed olayını yazar. Revizyon müşterinin
+// kararını beklerken (teklifin güncel revizyonu, "gönderildi") yapılan İLK
+// açılışta olay first_open ile işaretlenir ve teklifi hazırlayana "Müşteri
+// teklifi açtı" bildirimi gider (notifyOfferFirstOpen). Gürültüyü düşük
+// tutan kural:
+//   - Revizyon başına BİR kez. Sayfa yenileme, linki tekrar açma, aynı
+//     revizyonun ikinci bir linki bildirim üretmez; yeni bir revizyon
+//     gönderilince onun ilk açılışı yeniden bildirilir (müşterinin revize
+//     teklife baktığı da haberdir).
+//   - Yalnızca karar beklenirken. Taslak revizyonun linkini personelin
+//     önizlemesi ya da karar verilmiş/eskimiş bir revizyonun açılması
+//     bildirim değildir ve "ilk açılış" hakkını da tüketmez.
+//   - "İlk" bilgisi offer_events'in kendisinden okunur (first_open işaretli
+//     bir görüntülenme var mı) -- ayrı kolon/migration yok. Eşzamanlı iki
+//     açılış revizyon anahtarlı advisory lock ile sıraya girer; yalnızca
+//     biri "ilk" sayılır.
+//
+// Bot/önizleme ayıklanmaz, ayıklanamaz: müşteri sayfası (/paylas) Next.js
+// sunucusunda render edilir ve bu ucu kendisi çağırır; tarayıcının
+// User-Agent'ı ve IP'si buraya ulaşmaz (gelen her istek Next sunucusunun
+// kendisidir). Linki WhatsApp'a yapıştırınca gönderenin telefonunun
+// yaptığı önizleme ya da e-posta güvenlik tarayıcısının tıklaması da bu
+// yüzden "açılış" görünür (Ana Sayfa'daki görüntülenme sayıları da aynı
+// durumda, bkz. DashboardOfferLatestViews).
+//
+// En iyi çaba: hata müşterinin teklifi görmesini engellemez (çağıran
+// yalnızca loglar).
+func (s *OfferService) recordCustomerView(ctx context.Context, offerRow sqlc.Offer, revRow sqlc.OfferRevision, awaitingDecision bool, ip, userAgent string) error {
+	if !awaitingDecision {
+		return logOfferEvent(ctx, s.q, offerRow.OrganizationID, offerRow.ID, revRow.ID, domain.EventCustomerViewed,
+			pgtype.UUID{}, nil, ip, userAgent)
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+	// Respond/Revise'ın teklif kilidinden ayrı anahtar: bir görüntülenme
+	// kaydı müşterinin kabul/red isteğini beklemesin.
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", "offer_first_open:"+revRow.ID.String()); err != nil {
+		return err
+	}
+	logged, err := txq.OfferRevisionFirstOpenLogged(ctx, sqlc.OfferRevisionFirstOpenLoggedParams{OfferID: offerRow.ID, RevisionID: revRow.ID})
+	if err != nil {
+		return err
+	}
+	var meta map[string]any
+	if !logged {
+		meta = map[string]any{"first_open": true}
+	}
+	if err := logOfferEvent(ctx, txq, offerRow.OrganizationID, offerRow.ID, revRow.ID, domain.EventCustomerViewed,
+		pgtype.UUID{}, meta, ip, userAgent); err != nil {
+		return err
+	}
+	if !logged {
+		if err := notifyOfferFirstOpen(ctx, txq, offerRow, revRow); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 // RespondByShareLinkToken, müşterinin paylaşım linkinden teklifi kabul/red
@@ -1712,7 +1779,7 @@ func (s *OfferService) RespondByShareLinkToken(ctx context.Context, token, decis
 	if err := logOfferEvent(ctx, txq, link.OrganizationID, link.OfferID, link.RevisionID, eventType, pgtype.UUID{}, nil, ip, userAgent); err != nil {
 		return nil, err
 	}
-	if err := notifyOfferDecision(ctx, txq, link.OrganizationID, offerRow.ID, offerRow.OfferNo, offerRow.CreatedBy, decision); err != nil {
+	if err := notifyOfferDecision(ctx, txq, offerRow, updatedRev, decision, pgtype.UUID{}); err != nil {
 		return nil, err
 	}
 

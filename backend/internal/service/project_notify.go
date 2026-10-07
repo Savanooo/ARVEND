@@ -232,8 +232,7 @@ func resolveProjectAudience(ctx context.Context, txq *sqlc.Queries, orgID, proje
 	}
 	var out []pgtype.UUID
 	for _, h := range holders {
-		firmManager := h.OrganizationRoleCode == domain.OrgRoleOwner || h.OrganizationRoleCode == domain.OrgRoleAdmin
-		if firmManager || memberSet[h.ID] {
+		if isFirmManagerRole(h.OrganizationRoleCode) || memberSet[h.ID] {
 			out = append(out, h.ID)
 		}
 	}
