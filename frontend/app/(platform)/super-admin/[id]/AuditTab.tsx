@@ -16,6 +16,11 @@ const ACTION_LABELS: Record<string, string> = {
   user_reactivated: "Kullanıcı aktifleştirildi",
   user_role_changed: "Kullanıcı rolü değiştirildi",
   user_password_reset: "Geçici şifre verildi",
+  // Yumuşak silme/geri yükleme (migration 0043, domain/platform.go).
+  user_deleted: "Kullanıcı silindi",
+  user_restored: "Kullanıcı geri yüklendi",
+  organization_deleted: "Firma silindi",
+  organization_restored: "Firma geri yüklendi",
 };
 
 const META_LABELS: Record<string, string> = {
