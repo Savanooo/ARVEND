@@ -493,8 +493,8 @@ class _NoBudgetSummaryCard extends StatelessWidget {
           // yalnızca görüntüleyebilen bütçeyi kimin açabileceğine yönlenir.
           Text(
             '${onCreate != null ? 'Bu proje için henüz bir bütçe oluşturulmadı; aşağıdaki "Bütçe Oluştur" ile '
-                'başlayabilirsin.' : 'Bu proje için henüz bir bütçe oluşturulmadı. Bütçeyi "Proje bütçesini '
-                'oluşturma/onaylama/revize etme" izni olan biri oluşturabilir.'} Aşağıdaki kırılım yalnızca doğrudan '
+                'başlayabilirsin.' : 'Bu proje için henüz bir bütçe oluşturulmadı. Bütçeyi '
+                '"$kBudgetManagePermissionLabel" izni olan biri oluşturabilir.'} Aşağıdaki kırılım yalnızca doğrudan '
             'maliyet koduna bağlanmış (bütçe dışı) taahhüt/gider varsa satır gösterir.',
             style: AppTypography.metadata,
           ),

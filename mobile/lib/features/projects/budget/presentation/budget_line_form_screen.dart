@@ -134,9 +134,7 @@ class _BudgetLineFormScreenState extends ConsumerState<BudgetLineFormScreen> {
       return AppPageScaffold(
         title: title,
         body: const BudgetNoAccessView(
-          message:
-              'Bütçe kalemi eklemek veya düzenlemek için rolünde "Proje bütçesini oluşturma/onaylama/revize '
-              'etme" izni olmalı.',
+          message: 'Bütçe kalemi eklemek veya düzenlemek için rolünde "$kBudgetManagePermissionLabel" izni olmalı.',
         ),
       );
     }

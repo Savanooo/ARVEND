@@ -240,7 +240,8 @@ repository below.
 
 **Budget / cost control** (`lib/features/projects/budget/`):
 - `projects.budget.read`: `GET /wbs`, `GET /budget` (404 = no budget), `GET /budget/lines` (404 = no budget), `GET /budget/adjustments`.
-- `projects.budget.manage`: `POST /wbs`, `PUT/DELETE /wbs/{nodeId}` (DELETE = archive), `POST /budget`, `POST /budget/baseline`, `POST /budget/lines`, `PUT/DELETE /budget/lines/{lineId}` (draft budget), `POST /budget/adjustments` (non-zero, may be negative), `POST /budget/adjustments/{adjId}/approve|reject`.
+- `projects.budget.manage`: `POST /wbs`, `PUT/DELETE /wbs/{nodeId}` (DELETE = archive), `POST /budget`, `POST /budget/baseline`, `POST /budget/lines`, `PUT/DELETE /budget/lines/{lineId}` (draft budget), `POST /budget/adjustments` (non-zero, may be negative; notifies `projects.budget.approve` holders with project access, creator excluded).
+- `projects.budget.approve` (since 2026-10-07, default Owner/Admin/Finance): `POST /budget/adjustments/{adjId}/approve|reject`. 409 with a Turkish message when deciding your OWN adjustment (Owner exempt) or when approval would make the line's revised budget negative. Adjustment rows carry `created_by`/`approved_by`; the app hides approve/reject on the user's own adjustment unless Owner.
 - `projects.cost_control.read`: `GET /commitments`, `GET /forecasts`, `GET /cost-control`. `projects.cost_control.manage`: `POST /commitments` (manual, `idempotency_key`), `POST /commitments/{cId}/void {reason}` (app offers void ONLY for active manual commitments), `PUT /budget/lines/{lineId}/forecast`.
 - Pickers/breakdown: `GET /organization/cost-codes` (`organization.cost_codes.read`), `GET /projects/{id}/expenses` (`projects.finance.read`; the "Gerçekleşen" card is hidden without it).
 

@@ -29,9 +29,11 @@ export '../../suppliers/suppliers_test_support.dart' show goldenTheme, loadAppFo
 
 const kProjectId = 'p1';
 
+// Sahip/Finans varsayılanı: revizyon kararı da (migration 0062).
 const _allBudget = {
   kBudgetReadPermission,
   kBudgetManagePermission,
+  kBudgetApprovePermission,
   kCostControlReadPermission,
   kCostControlManagePermission,
 };
