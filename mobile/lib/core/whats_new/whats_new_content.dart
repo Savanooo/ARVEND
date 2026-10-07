@@ -60,8 +60,15 @@ const kWhatsNewReleases = <WhatsNewRelease>[
       WhatsNewItem(
         icon: Icons.verified_user_outlined,
         title: 'Masraf onayı yönetimde',
-        body: 'Masrafları yalnızca Sahip ve Yönetici onaylar; kimse kendi masrafını onaylamaz.',
+        body: 'Masrafları Sahip ve Yönetici onaylar; Yönetici kendi masrafını onaylayamaz.',
         permission: 'projects.expenses.approve',
+      ),
+      WhatsNewItem(
+        icon: Icons.notifications_active_outlined,
+        title: 'Teklif bildirimleri',
+        body: 'Müşteri teklifi açınca, onaylayınca ya da reddedince bildirim gelir.',
+        // Teklif kararı/ilk açılış bildirimleri teklifleri görebilene gider.
+        permission: 'offers.read',
       ),
     ],
   ),
