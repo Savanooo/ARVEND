@@ -231,6 +231,26 @@ void main() {
       expect(find.textContaining('Daha fazla göster'), findsNothing);
     });
 
+    for (final (label, perms, visible) in [
+      ('finans izni yok', ['projects.read'], false),
+      ('finans izni var', ['projects.read', 'projects.finance.read'], true),
+    ]) {
+      testWidgets('liste kartı: sözleşme bedeli ve tahsilat yalnızca finans izniyle ($label)', (tester) async {
+        final project = {..._projectJson(), 'current_contract_value': 100000, 'collected_amount': 25000};
+        final adapter = FakeHttpClientAdapter(script: {
+          '/auth/me': [(status: 200, body: _meJson(permissions: perms))],
+          '/projects': [
+            (status: 200, body: {'projects': [project], 'total': 1}),
+          ],
+        });
+        await _pump(tester, adapter, const ProjectsScreen());
+
+        expect(find.text('Merkez Ofis İnşaatı'), findsOneWidget);
+        expect(find.textContaining('Tahsilat: %25'), visible ? findsOneWidget : findsNothing);
+        expect(find.textContaining('100.000'), visible ? findsOneWidget : findsNothing);
+      });
+    }
+
     testWidgets('proje kartına dokunmak /projeler/:id yoluna yönlendirir', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
         '/auth/me': [(status: 200, body: _meJson())],

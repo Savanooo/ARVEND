@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/app_shell.dart';
+import '../../../core/auth/auth_controller.dart';
+import '../../../core/auth/permissions.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -83,6 +85,9 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
   @override
   Widget build(BuildContext context) {
     final projectsAsync = ref.watch(projectsListProvider(_listQuery));
+    // Sözleşme bedeli ve tahsilat yüzdesi yalnızca finans görüntüleme
+    // iznine (detay ekranıyla aynı kural, bkz. _OverviewTab).
+    final showFinance = ref.watch(authControllerProvider).valueOrNull.can('projects.finance.read');
 
     return Scaffold(
       appBar: buildAppBar('Projeler'),
@@ -163,6 +168,7 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
                       for (final p in page.projects)
                         ProjectListCard(
                           project: p,
+                          showFinance: showFinance,
                           onTap: () => context.push('/projeler/${p.id}'),
                         ),
                       _LoadMoreFooter(
