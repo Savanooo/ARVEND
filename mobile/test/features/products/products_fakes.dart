@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -366,6 +367,10 @@ class FakeProductsRepository implements ProductsRepository {
     final slice = start >= matching.length ? const <Map<String, dynamic>>[] : matching.sublist(start, (start + limit).clamp(0, matching.length));
     return ProductPage.fromJson({'products': slice, 'total': matching.length});
   }
+
+  @override
+  Future<ProductPage> suggest(String q, {int limit = kProductSuggestionLimit, CancelToken? cancelToken}) =>
+      list(q: q, limit: limit);
 
   @override
   Future<Product> get(String id) async {

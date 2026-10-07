@@ -44,6 +44,21 @@ class WhatsNewRelease {
 
 /// En yeni sürüm en üstte.
 const kWhatsNewReleases = <WhatsNewRelease>[
+  // Teklif kaleminde katalog önerileri (backend: kelime bazlı ürün araması).
+  WhatsNewRelease(
+    build: 17,
+    version: '1.5.11',
+    items: [
+      WhatsNewItem(
+        icon: Icons.inventory_2_outlined,
+        title: 'Katalogdan ürün seç',
+        body: 'Teklifte ürün adını yazınca katalogdan öneriler gelir; seçince birim ve fiyat dolar.',
+        // Teklif formu bu izinle açılır; öneriler ayrıca products.read ister
+        // (offers.create taşıyan varsayılan rollerin hepsinde var).
+        permission: 'offers.create',
+      ),
+    ],
+  ),
   // Masrafı herkes girer, onayı en üst yönetim verir (backend migration
   // 0066). pubspec henüz 1.5.9+15: sürümü ürün sahibi yükseltir.
   WhatsNewRelease(

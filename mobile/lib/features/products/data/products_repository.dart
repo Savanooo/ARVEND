@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart' show CancelToken;
+
 import '../../../core/api/api_client.dart';
 import '../domain/price_change.dart';
 import '../domain/price_source.dart';
@@ -8,6 +10,10 @@ import '../domain/product.dart';
 /// katalog sayfa sayfa çekilir (web ile aynı 100).
 const kProductsPageSize = 100;
 
+/// Teklif formunda bir kalemin altında gösterilen öneri sayısı -- küçük
+/// telefonda klavye açıkken de kart taşmasın.
+const kProductSuggestionLimit = 6;
+
 /// Ürünler / Fiyat Kaynakları / Zam Geçmişi uçları (backend router.go
 /// `/products`): okuma products.read, yazma (ürün ekle/düzenle, kaynak
 /// ayarı, senkron) products.manage. Tedarikçi fiyatı ve kâr oranları
@@ -17,13 +23,27 @@ class ProductsRepository {
   ProductsRepository(this._client);
   final ApiClient _client;
 
-  /// `q` yalnızca ürün adında arar (backend normalize edilmiş ad).
+  /// `q` kelime bazlıdır: her kelime adda, kategoride ya da tedarikçide
+  /// geçmeli ("demir" Demir Profil ürünlerini, "kutu 40" 40'lı kutu
+  /// profilleri bulur); ad eşleşmesi önce sıralanır (bkz. API_CONTRACT.md).
   Future<ProductPage> list({String q = '', int page = 1, int limit = kProductsPageSize}) async {
     final json = await _client.get<Map<String, dynamic>>('/products', query: {
       'page': '$page',
       'limit': '$limit',
       if (q.isNotEmpty) 'q': q,
     });
+    return ProductPage.fromJson(json);
+  }
+
+  /// Teklif kalemindeki katalog önerileri: aramanın ilk [limit] sonucu
+  /// (en iyi eşleşmeler önce) ve toplam eşleşme sayısı. [cancelToken]:
+  /// kullanıcı yazmaya devam edince eski istek iptal edilir.
+  Future<ProductPage> suggest(String q, {int limit = kProductSuggestionLimit, CancelToken? cancelToken}) async {
+    final json = await _client.get<Map<String, dynamic>>(
+      '/products',
+      query: {'page': '1', 'limit': '$limit', 'q': q},
+      cancelToken: cancelToken,
+    );
     return ProductPage.fromJson(json);
   }
 

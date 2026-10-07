@@ -17,11 +17,14 @@ import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/money_text.dart';
 import '../../calculations/presentation/metraj_screen.dart';
+import '../../products/domain/product.dart';
+import '../../products/presentation/products_paths.dart' show ProductsPermissions;
 import '../../projects/budget/domain/budget.dart' show formatTrDecimalInput, kMaxBudgetAmount, parseTrDecimal;
 import '../../projects/finance_plan/domain/finance_dates.dart' show parsePercentInput;
 import '../data/offers_providers.dart';
 import '../domain/offer.dart';
 import 'customer_picker_sheet.dart';
+import 'product_suggestions.dart';
 
 /// Teklif kalemlerinin sayı alanları -- bütçe/masraf/ek iş formlarıyla AYNI
 /// Türkçe kural ([parseTrDecimal]): "12.500" = on iki bin beş yüz,
@@ -61,6 +64,13 @@ class _DraftItem {
   String unitPrice = '';
   String unit = '';
   String? productId;
+
+  /// Kalemin bağlı olduğu katalog ürünü ve bağlandığı andaki ad (katalogdan
+  /// seçim ya da kayıtlı kalem). Ad bundan farklılaşınca bağ düşer -- web
+  /// formuyla aynı kural (product_id yalnızca ad bir ürünle birebir
+  /// eşleşirken gönderilir); aynı ada geri dönülürse bağ geri gelir.
+  String? _linkedProductId;
+  String? _linkedName;
   String? sectionLabel;
   String? calcCategoryId;
   Object? calcSnapshot;
@@ -78,6 +88,8 @@ class _DraftItem {
       ..unitPrice = formatTrDecimalInput(item.unitPrice)
       ..unit = item.unit
       ..productId = item.productId
+      .._linkedProductId = item.productId
+      .._linkedName = item.productId == null ? null : item.productName
       ..sectionLabel = item.sectionLabel
       ..calcCategoryId = item.calcCategoryId
       ..calcSnapshot = item.calcSnapshot
@@ -88,6 +100,25 @@ class _DraftItem {
       d.markupPercent = formatTrDecimalInput(item.markupPercent);
     }
     return d;
+  }
+
+  /// Ad alanı değişti: katalog bağı yalnızca ad bağlandığı adla aynıyken
+  /// korunur.
+  void setName(String value) {
+    productName = value;
+    final linked = _linkedName != null && value.trim() == _linkedName!.trim();
+    productId = linked ? _linkedProductId : null;
+  }
+
+  /// Katalogdan seçildi: web formuyla aynı alanlar (ad, fiyat, product_id)
+  /// + birim (web formunda birim alanı yok; mobilde var ve elle yazılıyordu).
+  /// Hepsi sonra düzenlenebilir.
+  void pickProduct(Product p) {
+    productName = p.name;
+    productId = _linkedProductId = p.id;
+    _linkedName = p.name;
+    unit = p.unit;
+    unitPrice = formatTrDecimalInput(p.unitPrice);
   }
 
   /// Hiç dokunulmamış satır gönderilmez; yarım ya da geçersiz bir satır ise
@@ -188,6 +219,14 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
   bool get _canManageInternal {
     final user = ref.watch(authControllerProvider).valueOrNull;
     return user?.hasPermission(kPermOffersInternalPricingManage) ?? false;
+  }
+
+  /// Kalem adında katalog önerileri yalnızca katalogu okuyabilene (web
+  /// formu da products.read yoksa ürün listesini hiç istemez). Fail-closed:
+  /// izin kümesi boş/yüklenmemişse düz alan -- her harfte 403 olmasın.
+  bool get _canPickProducts {
+    final user = ref.watch(authControllerProvider).valueOrNull;
+    return user?.hasPermission(ProductsPermissions.read) ?? false;
   }
 
   @override
@@ -438,6 +477,7 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
   @override
   Widget build(BuildContext context) {
     final canManageInternal = _canManageInternal;
+    final canPickProducts = _canPickProducts;
     final linked = _customerId != null;
     return AppPageScaffold(
       title: Text(widget.isEdit ? 'Teklifi Düzenle' : 'Yeni Teklif'),
@@ -555,6 +595,7 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
                               key: ObjectKey(entry.value),
                               item: entry.value,
                               showInternal: canManageInternal,
+                              canPickProducts: canPickProducts,
                               currency: _currency,
                               onChanged: () => setState(() {}),
                               onRemove: _items.length > 1 ? () => setState(() => _items.removeAt(entry.key)) : null,
@@ -652,12 +693,15 @@ class _StickyActionBar extends StatelessWidget {
   }
 }
 
-class _ItemRow extends StatelessWidget {
+/// Ad, birim ve fiyat TextEditingController'lıdır: katalogdan seçilen ürün
+/// üçünü de doldurur (initialValue'lu alan sonradan değiştirilemezdi).
+class _ItemRow extends StatefulWidget {
   const _ItemRow({
     super.key,
     required this.item,
     required this.onChanged,
     required this.showInternal,
+    required this.canPickProducts,
     this.currency = 'TRY',
     this.onRemove,
   });
@@ -665,11 +709,41 @@ class _ItemRow extends StatelessWidget {
   final _DraftItem item;
   final VoidCallback onChanged;
   final bool showInternal;
+  final bool canPickProducts;
   final String currency;
   final VoidCallback? onRemove;
 
   @override
+  State<_ItemRow> createState() => _ItemRowState();
+}
+
+class _ItemRowState extends State<_ItemRow> {
+  late final _name = TextEditingController(text: widget.item.productName);
+  late final _unit = TextEditingController(text: widget.item.unit);
+  late final _price = TextEditingController(text: widget.item.unitPrice);
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _unit.dispose();
+    _price.dispose();
+    super.dispose();
+  }
+
+  void _picked(Product p) {
+    widget.item.pickProduct(p);
+    _unit.text = widget.item.unit;
+    _price.text = widget.item.unitPrice;
+    widget.onChanged();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final item = widget.item;
+    final showInternal = widget.showInternal;
+    final currency = widget.currency;
+    final onChanged = widget.onChanged;
+    final onRemove = widget.onRemove;
     final preview = item.previewSellPrice;
     final markupMode = showInternal && item.pricingMode == OfferItem.pricingModeMarkup;
     final lineTotal = item.lineTotal(showInternal: showInternal);
@@ -679,19 +753,20 @@ class _ItemRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: TextFormField(
-                  initialValue: item.productName,
-                  decoration: InputDecoration(
-                    labelText: item.fromCalc ? 'Ürün / Hizmet (metraj)' : 'Ürün / Hizmet Adı',
-                    isDense: true,
-                  ),
+                child: OfferProductNameField(
+                  controller: _name,
+                  label: item.fromCalc ? 'Ürün / Hizmet (metraj)' : 'Ürün / Hizmet Adı',
+                  catalogEnabled: widget.canPickProducts,
+                  offerCurrency: currency,
                   validator: (v) => item.isBlank || (v ?? '').trim().isNotEmpty ? null : 'Ürün / hizmet adı gerekli',
                   onChanged: (v) {
-                    item.productName = v;
+                    item.setName(v);
                     onChanged();
                   },
+                  onPicked: _picked,
                 ),
               ),
               if (onRemove != null) IconButton(icon: const Icon(Icons.close, size: 18), onPressed: onRemove),
@@ -725,7 +800,7 @@ class _ItemRow extends StatelessWidget {
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: TextFormField(
-                  initialValue: item.unit,
+                  controller: _unit,
                   decoration: const InputDecoration(labelText: 'Birim', isDense: true),
                   onChanged: (v) {
                     item.unit = v;
@@ -736,7 +811,7 @@ class _ItemRow extends StatelessWidget {
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: TextFormField(
-                  initialValue: item.unitPrice,
+                  controller: _price,
                   decoration: InputDecoration(
                     labelText: item.pricingMode == OfferItem.pricingModeMarkup ? 'Satış (önizleme)' : 'Birim Fiyat',
                     isDense: true,
