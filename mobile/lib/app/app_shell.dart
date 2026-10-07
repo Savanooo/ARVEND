@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../core/auth/auth_controller.dart';
 import '../core/theme/app_colors.dart';
+import '../core/whats_new/whats_new_gate.dart';
 import '../features/dashboard/data/dashboard_providers.dart';
 
 class _BranchTab {
@@ -65,27 +66,31 @@ class AppShell extends ConsumerWidget {
     final currentVisibleIndex = visible.indexOf(navigationShell.currentIndex);
     final safeCurrentIndex = currentVisibleIndex >= 0 ? currentVisibleIndex : 0;
 
-    return Scaffold(
-      body: navigationShell,
-      bottomNavigationBar: DecoratedBox(
-        decoration: const BoxDecoration(
-          border: Border(top: BorderSide(color: AppColors.border)),
-        ),
-        child: BottomNavigationBar(
-          currentIndex: safeCurrentIndex,
-          onTap: (tappedVisibleIndex) {
-            final branchIndex = visible[tappedVisibleIndex];
-            // Zaten açık olan Ana Sayfa'ya tekrar dokunmak: ekran başa kayar
-            // ve yenilenir (bkz. DashboardScreen, homeTabReselectProvider).
-            if (branchIndex == 0 && navigationShell.currentIndex == 0) {
-              ref.read(homeTabReselectProvider.notifier).state++;
-            }
-            navigationShell.goBranch(
-              branchIndex,
-              initialLocation: branchIndex == navigationShell.currentIndex,
-            );
-          },
-          items: [for (final i in visible) _branchTabs[i].item],
+    // Güncellemeden sonraki ilk açılışta "Yenilikler" -- kabuk yalnızca
+    // oturum açıkken kurulduğu için giriş ekranında hiç açılmaz.
+    return WhatsNewGate(
+      child: Scaffold(
+        body: navigationShell,
+        bottomNavigationBar: DecoratedBox(
+          decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: AppColors.border)),
+          ),
+          child: BottomNavigationBar(
+            currentIndex: safeCurrentIndex,
+            onTap: (tappedVisibleIndex) {
+              final branchIndex = visible[tappedVisibleIndex];
+              // Zaten açık olan Ana Sayfa'ya tekrar dokunmak: ekran başa kayar
+              // ve yenilenir (bkz. DashboardScreen, homeTabReselectProvider).
+              if (branchIndex == 0 && navigationShell.currentIndex == 0) {
+                ref.read(homeTabReselectProvider.notifier).state++;
+              }
+              navigationShell.goBranch(
+                branchIndex,
+                initialLocation: branchIndex == navigationShell.currentIndex,
+              );
+            },
+            items: [for (final i in visible) _branchTabs[i].item],
+          ),
         ),
       ),
     );

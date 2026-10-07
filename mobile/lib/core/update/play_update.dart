@@ -154,9 +154,17 @@ class PlayUpdateController {
   final Ref _ref;
   bool _busy = false;
   DateTime? _lastCheckedAt;
+  final _firstDecision = Completer<void>();
 
   /// Son denetimde güncelleme zorunluydu -- her öne gelişte yeniden denenir.
   bool mandatoryPending = false;
+
+  /// İlk denetimde güncellemenin zorunlu olup olmadığı belli oldu
+  /// ([mandatoryPending] artık doğru). Yenilikler sayfası zorunlu
+  /// güncellemenin üstüne açılmasın diye bunu bekler. Play'in penceresi
+  /// açılmadan ÖNCE tamamlanır: esnek güncellemenin indirmesi dakikalar
+  /// sürebilir, onu beklemek gereksiz.
+  Future<void> get firstDecision => _firstDecision.future;
 
   bool get isStale {
     final last = _lastCheckedAt;
@@ -168,21 +176,26 @@ class PlayUpdateController {
   /// satırın dönen göstergesi indirme boyunca kilitli kalmasın. Hata
   /// FIRLATMAZ.
   Future<PlayUpdateStatus> run({required bool manual, VoidCallback? onChecked}) async {
-    if (!_ref.read(playUpdateSupportedProvider)) {
+    void checked() {
+      if (!_firstDecision.isCompleted) _firstDecision.complete();
       onChecked?.call();
+    }
+
+    if (!_ref.read(playUpdateSupportedProvider)) {
+      checked();
       return PlayUpdateStatus.unsupported;
     }
     if (_busy) {
       // Play'in penceresi açık ya da indirme sürüyor.
-      onChecked?.call();
+      checked();
       return PlayUpdateStatus.downloading;
     }
     _busy = true;
     try {
-      return await _run(manual, onChecked);
+      return await _run(manual, checked);
     } finally {
       _busy = false;
-      onChecked?.call();
+      checked();
     }
   }
 

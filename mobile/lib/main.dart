@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -8,6 +10,7 @@ import 'core/api/api_providers.dart';
 import 'core/auth/auth_controller.dart';
 import 'core/push/firebase_push_messaging.dart';
 import 'core/push/push_messaging.dart';
+import 'core/whats_new/whats_new.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,6 +50,11 @@ Future<void> main() async {
   apiClient.onAccountSetupRequired = () {
     container.read(authControllerProvider.notifier).recheckAccountSetup();
   };
+
+  // "Yenilikler": bu sürümün ilk açılışında kaydın tabanı yazılır
+  // (güncelleme mi, sıfırdan kurulum mu) -- kullanıcı giriş yapmasa da.
+  // Beklenmez; açılışı geciktirmez, hata da fırlatmaz.
+  unawaited(container.read(whatsNewControllerProvider).prepare());
 
   runApp(
     UncontrolledProviderScope(
