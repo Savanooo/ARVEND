@@ -7,8 +7,8 @@ UPDATE permissions
 SET description = 'Proje bütçesini oluşturma/onaylama/revize etme'
 WHERE code = 'projects.budget.manage';
 
--- seed_system_roles_for_org'u 0042'deki HALİNE geri döndür (gövde 0042'nin
--- up dosyasından birebir kopyadır).
+-- seed_system_roles_for_org'u 0060'taki HALİNE geri döndür (Finans'ta
+-- projects.expenses.approve var, projects.budget.approve yok).
 CREATE OR REPLACE FUNCTION seed_system_roles_for_org(org_id uuid) RETURNS void AS $$
 DECLARE
     r_owner uuid;
@@ -86,7 +86,7 @@ BEGIN
 
     INSERT INTO role_permissions (organization_role_id, permission_code)
     SELECT r_finance, code FROM permissions WHERE code IN (
-        'projects.read', 'projects.finance.read', 'projects.finance.manage',
+        'projects.read', 'projects.finance.read', 'projects.finance.manage', 'projects.expenses.approve',
         'projects.budget.read', 'projects.budget.manage',
         'projects.cost_control.read', 'projects.cost_control.manage',
         'organization.cost_codes.read', 'organization.cost_codes.manage',

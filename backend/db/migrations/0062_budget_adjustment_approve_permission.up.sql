@@ -9,7 +9,7 @@
 -- Varsayılan rol matrisi: Sahip + Yönetici + Finans. Sahip/Yönetici,
 -- seed_system_roles_for_org'da zaten "SELECT code FROM permissions" ile her
 -- izni alır; Finans'ın listesine eklemek için fonksiyon yeniden tanımlanır
--- (gövde 0042'nin birebir kopyası + 'projects.budget.approve'). Proje
+-- (gövde 0060'ın birebir kopyası + 'projects.budget.approve'; 0060'ın Finans'a verdiği projects.expenses.approve korunur). Proje
 -- Yöneticisi ve Eski Sistem (legacy_user) rolleri BİLİNÇLİ OLARAK almaz:
 -- revizyonu önerebilirler, onay finansın/yönetimin kararıdır.
 
@@ -108,7 +108,7 @@ BEGIN
 
     INSERT INTO role_permissions (organization_role_id, permission_code)
     SELECT r_finance, code FROM permissions WHERE code IN (
-        'projects.read', 'projects.finance.read', 'projects.finance.manage',
+        'projects.read', 'projects.finance.read', 'projects.finance.manage', 'projects.expenses.approve',
         'projects.budget.read', 'projects.budget.manage', 'projects.budget.approve',
         'projects.cost_control.read', 'projects.cost_control.manage',
         'organization.cost_codes.read', 'organization.cost_codes.manage',
