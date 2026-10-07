@@ -138,13 +138,21 @@ class ProjectsRepository {
   }
 
   /// GET /tasks/team — erişilebilir projelerdeki TÜM görevler (yönetici
-  /// buradan takip eder).
-  Future<List<(ProjectTask, String, String)>> teamTasks({String status = 'open'}) async {
+  /// buradan takip eder). Sunucu listeyi bir üst sınırda (500) keser:
+  /// `total` filtrenin gerçek toplamı, `truncated` kesildiyse true (eski
+  /// sunucu göndermez -> null/false).
+  Future<({List<(ProjectTask, String, String)> tasks, int? total, bool truncated})> teamTasks({
+    String status = 'open',
+  }) async {
     final json = await _client.get<Map<String, dynamic>>(
       '/tasks/team',
       query: {'status': status},
     );
-    return _taskRows(json);
+    return (
+      tasks: _taskRows(json),
+      total: (json['total'] as num?)?.toInt(),
+      truncated: json['truncated'] as bool? ?? false,
+    );
   }
 
   static List<(ProjectTask, String, String)> _taskRows(Map<String, dynamic> json) {

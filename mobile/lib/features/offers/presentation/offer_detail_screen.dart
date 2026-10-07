@@ -334,7 +334,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   StatusRegistry.build(offer.status, StatusRegistry.offer),
-                  MoneyText(offer.grandTotal, style: AppTypography.pageTitle),
+                  MoneyText(offer.grandTotal, currency: offer.currency, style: AppTypography.pageTitle),
                 ],
               ),
               const SizedBox(height: AppSpacing.sm),
@@ -358,15 +358,15 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
               const SizedBox(height: AppSpacing.lg),
               const AppSectionHeader(title: 'Kalemler'),
               const SizedBox(height: AppSpacing.sm),
-              ...offer.items.map((item) => _ItemCard(item: item, showInternal: canReadInternal)),
+              ...offer.items.map((item) => _ItemCard(item: item, showInternal: canReadInternal, currency: offer.currency)),
               AppCard(
                 margin: const EdgeInsets.only(top: AppSpacing.sm),
                 child: Column(
                   children: [
-                    _KV('Ara Toplam', Formatters.money(offer.subtotal)),
-                    _KV('KDV (%${offer.vatRate.toStringAsFixed(0)})', Formatters.money(offer.vatAmount)),
+                    _KV('Ara Toplam', Formatters.money(offer.subtotal, currency: offer.currency)),
+                    _KV('KDV (%${offer.vatRate.toStringAsFixed(0)})', Formatters.money(offer.vatAmount, currency: offer.currency)),
                     const Divider(),
-                    _KV('Genel Toplam', Formatters.money(offer.grandTotal), bold: true),
+                    _KV('Genel Toplam', Formatters.money(offer.grandTotal, currency: offer.currency), bold: true),
                   ],
                 ),
               ),
@@ -397,7 +397,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                                     style: AppTypography.cardTitle,
                                   ),
                                   Text(
-                                    '${Formatters.dateTime(r.createdAt)} · ${Formatters.money(r.grandTotal)}',
+                                    '${Formatters.dateTime(r.createdAt)} · ${Formatters.money(r.grandTotal, currency: r.currency)}',
                                     style: AppTypography.metadata,
                                   ),
                                 ],
@@ -748,7 +748,8 @@ class _ConvertToProjectSheetState extends ConsumerState<_ConvertToProjectSheet> 
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text('Projeye Dönüştür', style: AppTypography.pageTitle.copyWith(fontSize: 17)),
-            Text('${widget.offer.offerNo} · ${Formatters.money(widget.offer.grandTotal)}', style: AppTypography.metadata),
+            Text('${widget.offer.offerNo} · ${Formatters.money(widget.offer.grandTotal, currency: widget.offer.currency)}',
+                style: AppTypography.metadata),
             const SizedBox(height: AppSpacing.lg),
             TextField(
               key: const Key('convert-name'),
@@ -779,9 +780,10 @@ class _ConvertToProjectSheetState extends ConsumerState<_ConvertToProjectSheet> 
 }
 
 class _ItemCard extends StatelessWidget {
-  const _ItemCard({required this.item, required this.showInternal});
+  const _ItemCard({required this.item, required this.showInternal, required this.currency});
   final OfferItem item;
   final bool showInternal;
+  final String currency;
 
   @override
   Widget build(BuildContext context) {
@@ -794,11 +796,11 @@ class _ItemCard extends StatelessWidget {
           Row(
             children: [
               Expanded(child: Text(item.productName, style: AppTypography.cardTitle)),
-              MoneyText(item.lineTotal, style: AppTypography.body.copyWith(fontWeight: FontWeight.w700)),
+              MoneyText(item.lineTotal, currency: currency, style: AppTypography.body.copyWith(fontWeight: FontWeight.w700)),
             ],
           ),
           Text(
-            '${item.quantity.toStringAsFixed(item.quantity.truncateToDouble() == item.quantity ? 0 : 2)} ${item.unit} × ${Formatters.money(item.unitPrice)}'
+            '${item.quantity.toStringAsFixed(item.quantity.truncateToDouble() == item.quantity ? 0 : 2)} ${item.unit} × ${Formatters.money(item.unitPrice, currency: currency)}'
             '${item.sectionLabel != null ? '  ·  ${item.sectionLabel}' : ''}',
             style: AppTypography.metadata,
           ),
@@ -828,7 +830,7 @@ class _ItemCard extends StatelessWidget {
                     child: Text('Müşteri görmez', style: AppTypography.helper),
                   ),
                   if (item.internalSubcontractCost != null)
-                    Text('İç maliyet: ${Formatters.money(item.internalSubcontractCost!)}',
+                    Text('İç maliyet: ${Formatters.money(item.internalSubcontractCost!, currency: currency)}',
                         style: AppTypography.helper),
                   Text(
                     'Mod: ${item.pricingMode == OfferItem.pricingModeMarkup ? 'Markup' : item.pricingMode == OfferItem.pricingModeManual ? 'Manuel' : '-'}',
@@ -837,7 +839,8 @@ class _ItemCard extends StatelessWidget {
                   if (item.pricingMode == OfferItem.pricingModeMarkup && item.markupPercent != null)
                     Text('Markup: %${item.markupPercent!.toStringAsFixed(2)}', style: AppTypography.helper),
                   if (item.expectedProfit != null)
-                    Text('Beklenen kâr: ${Formatters.money(item.expectedProfit!)}', style: AppTypography.helper),
+                    Text('Beklenen kâr: ${Formatters.money(item.expectedProfit!, currency: currency)}',
+                        style: AppTypography.helper),
                   if (item.effectiveMarkupPercent != null)
                     Text('Efektif markup: %${item.effectiveMarkupPercent!.toStringAsFixed(2)}',
                         style: AppTypography.helper),

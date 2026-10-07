@@ -132,11 +132,17 @@ type CreateOfferInput struct {
 	CustomerEmail   string
 	CustomerAddress string
 	ValidUntil      *time.Time
-	Notes           string
-	// VatRate nil ise (istekte hiç gönderilmemişse) %20 varsayılır;
-	// açıkça 0 gönderilirse 0 olarak KALIR (BYZ'deki falsy-zero bug'ının
-	// tekrarlanmaması için pointer kullanılır).
-	VatRate        *float64
+	// ValidUntilProvided: ValidUntil nil iken alanın bilerek boş mu
+	// gönderildiğini (true: süresiz teklif) yoksa hiç gönderilmediğini
+	// (false: firma varsayılan geçerlilik süresi uygulanır) ayırır.
+	ValidUntilProvided bool
+	Notes              string
+	// VatRate nil ise (istekte hiç gönderilmemişse) firmanın varsayılan
+	// KDV'si (ayar yoksa %20) uygulanır; açıkça 0 gönderilirse 0 olarak
+	// KALIR (BYZ'deki falsy-zero bug'ının tekrarlanmaması için pointer).
+	VatRate *float64
+	// Currency nil/boş ise firmanın varsayılan para birimi (yoksa TRY).
+	Currency       *string
 	Items          []OfferItemInput
 	UserID         string
 	OrganizationID string
@@ -184,7 +190,9 @@ func computeOfferTotals(items []OfferItemInput, vatRateInput *float64, canManage
 		return nil, 0, 0, 0, 0, errors.New(msg)
 	}
 	hundred := decimal.NewFromInt(100)
-	vatRate := decimal.NewFromInt(20)
+	// Çağıranlar oranı (istek ya da firma varsayılanı) zaten çözer; nil
+	// yalnızca son çare.
+	vatRate := decimal.NewFromFloat(domain.DefaultOfferVATRate)
 	if vatRateInput != nil {
 		vatRate = decimal.NewFromFloat(*vatRateInput).Round(2)
 	}
@@ -390,10 +398,33 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 	if len(in.Items) == 0 {
 		return nil, errors.New("en az bir kalem girilmelidir")
 	}
-	if err := validateOfferValidUntil(in.ValidUntil, time.Now()); err != nil {
+	now := time.Now()
+	if err := validateOfferValidUntil(in.ValidUntil, now); err != nil {
 		return nil, err
 	}
-	items, subtotal, vatRate, vatAmount, grandTotal, err := computeOfferTotals(in.Items, in.VatRate, in.CanManageInternalPricing)
+	// Gönderilmeyen KDV/para birimi/geçerlilik firma ayarından gelir;
+	// gönderilen değer (0 ve "süresiz" dahil) her zaman korunur.
+	defaults, err := loadOfferDefaults(ctx, s.q, orgID)
+	if err != nil {
+		return nil, err
+	}
+	vatIn := in.VatRate
+	if vatIn == nil {
+		vatIn = &defaults.VATRate
+	}
+	currency := defaults.Currency
+	if in.Currency != nil && strings.TrimSpace(*in.Currency) != "" {
+		c, ok := domain.NormalizeCurrency(*in.Currency)
+		if !ok {
+			return nil, ErrInvalidOfferCurrency
+		}
+		currency = c
+	}
+	validUntil := in.ValidUntil
+	if validUntil == nil && !in.ValidUntilProvided {
+		validUntil = defaults.ValidUntilFrom(istanbulDay(now))
+	}
+	items, subtotal, vatRate, vatAmount, grandTotal, err := computeOfferTotals(in.Items, vatIn, in.CanManageInternalPricing)
 	if err != nil {
 		return nil, err
 	}
@@ -451,7 +482,7 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 		CustomerPhone:   strings.TrimSpace(customerPhone),
 		CustomerEmail:   strings.TrimSpace(customerEmail),
 		CustomerAddress: strings.TrimSpace(customerAddress),
-		ValidUntil:      repository.TimePtrToDate(in.ValidUntil),
+		ValidUntil:      repository.TimePtrToDate(validUntil),
 		Subtotal:        repository.Float64ToNumeric(subtotal),
 		DiscountType:    domain.DiscountNone,
 		DiscountValue:   repository.Float64ToNumeric(0),
@@ -459,7 +490,7 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 		VatRate:         repository.Float64ToNumeric(vatRate),
 		VatAmount:       repository.Float64ToNumeric(vatAmount),
 		GrandTotal:      repository.Float64ToNumeric(grandTotal),
-		Currency:        "TRY",
+		Currency:        currency,
 		Notes:           strings.TrimSpace(in.Notes),
 		Status:          domain.OfferStatusTaslak,
 		CreatedBy:       createdBy,
@@ -738,7 +769,7 @@ type UpdateOfferInput struct {
 	// her kayıt (ör. mobil form) tarihi sessizce NULL'a çekiyordu.
 	ValidUntilProvided bool
 	Notes              string
-	VatRate            *float64
+	VatRate            *float64 // nil = revizyonun mevcut oranı korunur
 	Items              []OfferItemInput
 	UserID             string
 	// CanManageInternalPricing: bkz. CreateOfferInput.
@@ -748,6 +779,11 @@ type UpdateOfferInput struct {
 // ErrOfferValidUntilInPast: yeni girilen geçerlilik tarihi bugünden önce
 // olamaz -- böyle bir teklif müşteriye ulaştığı anda yanıtlanamazdı.
 var ErrOfferValidUntilInPast = errors.New("geçerlilik tarihi bugünden önce olamaz")
+
+// ErrInvalidOfferCurrency: para birimi 3 harfli bir kod olmalı (currency
+// kolonu varchar(3); daha uzun bir değer ham "value too long" ile 500'e
+// düşerdi).
+var ErrInvalidOfferCurrency = errors.New("para birimi 3 harfli bir kod olmalıdır (ör. TRY, USD, EUR)")
 
 // calendarDay, bir anın takvim gününü (saat/dilim bilgisi atılmış) döner.
 func calendarDay(t time.Time) time.Time {
@@ -819,13 +855,23 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	// Gönderilmeyen geçerlilik tarihi ve KDV oranı KORUNUR (Create'teki
+	// firma varsayılanı burada uygulanmaz -- taslak zaten bir değer taşır;
+	// eskiden KDV'siz bir kayıt oranı sessizce %20'ye çeviriyordu).
 	validUntil := repository.TimePtrToDate(in.ValidUntil)
-	if !in.ValidUntilProvided {
+	vatIn := in.VatRate
+	if !in.ValidUntilProvided || vatIn == nil {
 		currentRev, err := txq.GetOfferRevisionByID(ctx, sqlc.GetOfferRevisionByIDParams{ID: offerRow.CurrentRevisionID, OrganizationID: orgID})
 		if err != nil {
 			return nil, err
 		}
-		validUntil = currentRev.ValidUntil
+		if !in.ValidUntilProvided {
+			validUntil = currentRev.ValidUntil
+		}
+		if vatIn == nil {
+			v := repository.NumericToFloat64(currentRev.VatRate)
+			vatIn = &v
+		}
 	}
 
 	// İç fiyatlama yetkisi olmayan düzenleyici: istemcinin gönderdiği iç
@@ -845,7 +891,7 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 		}
 		trustInternal = true
 	}
-	items, subtotal, vatRate, vatAmount, grandTotal, err := computeOfferTotals(itemsIn, in.VatRate, trustInternal)
+	items, subtotal, vatRate, vatAmount, grandTotal, err := computeOfferTotals(itemsIn, vatIn, trustInternal)
 	if err != nil {
 		return nil, err
 	}

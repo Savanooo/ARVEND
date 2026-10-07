@@ -492,7 +492,7 @@ class _OffersSection extends ConsumerWidget {
                   children: [
                     StatusRegistry.build(o.status, StatusRegistry.offer),
                     const SizedBox(height: 4),
-                    MoneyText(o.grandTotal, style: AppTypography.metadata),
+                    MoneyText(o.grandTotal, currency: o.currency, style: AppTypography.metadata),
                   ],
                 ),
               ),

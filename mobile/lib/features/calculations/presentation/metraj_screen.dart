@@ -340,6 +340,8 @@ class _ResultSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final warnings = nonPriceWarnings(result);
+    final priceSummary = calcPriceSummary(result.items);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -382,25 +384,13 @@ class _ResultSection extends StatelessWidget {
               AppDataRow(label: 'Çevre', value: '${Formatters.quantityFromString(result.perimeter!)} m'),
           ],
         ),
-        if (result.warnings.isNotEmpty) ...[
+        if (priceSummary != null || warnings.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.md),
-          for (final w in result.warnings)
-            Container(
-              margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-              padding: const EdgeInsets.all(AppSpacing.md),
-              decoration: BoxDecoration(
-                color: AppColors.warning.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(AppRadius.control),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(Icons.warning_amber_rounded, color: AppColors.warning, size: 18),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(child: Text(w.message, style: AppTypography.body.copyWith(fontSize: 12.5))),
-                ],
-              ),
-            ),
+          // Fiyat uyarıları tek notta özetlenir, satırlar ayrıca işaretlenir
+          // (yeni firmada her satır için ayrı kutu listeyi boğuyordu).
+          if (priceSummary != null)
+            _WarningBox(key: const ValueKey('metraj-price-summary'), message: priceSummary),
+          for (final w in warnings) _WarningBox(message: w.message),
         ],
         const SizedBox(height: AppSpacing.lg),
         const AppSectionHeader(title: 'Malzeme Listesi'),
@@ -439,9 +429,63 @@ class _ResultSection extends StatelessWidget {
         subtitle: '${Formatters.quantityFromString(item.quantity)} ${item.unit} × '
             '${Formatters.moneyFromString(item.unitPrice)}',
         trailing: _lineTotalText(item.lineTotal),
+        footer: item.hasPriceWarning ? _PriceWarningLine(item: item) : null,
       ));
     }
     return widgets;
+  }
+}
+
+class _WarningBox extends StatelessWidget {
+  const _WarningBox({super.key, required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(AppRadius.control),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: AppColors.warning, size: 18),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(child: Text(message, style: AppTypography.body.copyWith(fontSize: 12.5))),
+        ],
+      ),
+    );
+  }
+}
+
+/// Satırın fiyatı üründen gelmediyse sunucunun kısa sebebi: referans fiyat
+/// (uyarı rengi) ya da hiç fiyat yok (tehlike rengi, satır 0 TL).
+class _PriceWarningLine extends StatelessWidget {
+  const _PriceWarningLine({required this.item});
+  final CalcResultItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = item.priceSource == CalcResultItem.priceSourceNone ? AppColors.danger : AppColors.warning;
+    final text = item.priceWarning!;
+    return Row(
+      key: ValueKey('metraj-price-warning-${item.recipeItemId}'),
+      children: [
+        Icon(Icons.warning_amber_rounded, size: 13, color: color),
+        const SizedBox(width: 3),
+        Flexible(
+          child: Text(
+            text[0].toUpperCase() + text.substring(1),
+            style: AppTypography.helper.copyWith(color: color, fontWeight: FontWeight.w600),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
   }
 }
 

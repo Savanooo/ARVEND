@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/api_exception.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -132,7 +133,8 @@ class _CustomerFormSheetState extends ConsumerState<CustomerFormSheet> {
     );
   }
 
-  Future<void> _submit() async {
+  /// [allowDuplicate]: kullanıcı çakışma uyarısında "Yine de kaydet" dedi.
+  Future<void> _submit({bool allowDuplicate = false}) async {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
       setState(() => _error = 'Müşteri adı zorunludur');
@@ -160,6 +162,7 @@ class _CustomerFormSheetState extends ConsumerState<CustomerFormSheet> {
           taxNumber: _taxNumberController.text.trim(),
           notes: _notesController.text.trim(),
           isActive: widget.existing!.isActive,
+          allowDuplicate: allowDuplicate,
         );
         ref.invalidate(customerDetailProvider(widget.existing!.id));
       } else {
@@ -171,14 +174,84 @@ class _CustomerFormSheetState extends ConsumerState<CustomerFormSheet> {
           taxOffice: _taxOfficeController.text.trim(),
           taxNumber: _taxNumberController.text.trim(),
           notes: _notesController.text.trim(),
+          allowDuplicate: allowDuplicate,
         );
       }
       ref.invalidate(customersListProvider);
       if (mounted) Navigator.of(context).pop();
     } on ApiException catch (e) {
-      setState(() => _error = e.message);
+      final dup = DuplicateCustomer.fromError(e);
+      if (dup != null && !allowDuplicate) {
+        if (mounted) setState(() => _submitting = false);
+        await _onDuplicate(dup);
+        return;
+      }
+      if (mounted) setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
   }
+
+  /// Aynı vergi no/telefonla kayıtlı müşteri: web'deki gibi kullanıcı seçer.
+  /// Sessizce reddetmek aynı müşterinin farklı yazımlarla tekrar açılmasını
+  /// önlerken iki şubeli firmayı kaydedilemez bırakırdı.
+  Future<void> _onDuplicate(DuplicateCustomer dup) async {
+    final choice = await showDialog<_DuplicateChoice>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const ValueKey('customer-duplicate-dialog'),
+        title: const Text('Bu müşteri zaten kayıtlı olabilir'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              dup.field == 'tax_number'
+                  ? 'Aynı vergi numarasıyla kayıtlı bir müşteri var:'
+                  : 'Aynı telefon numarasıyla kayıtlı bir müşteri var:',
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              dup.isActive ? dup.name : '${dup.name} (arşivde)',
+              style: AppTypography.cardTitle,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Aynı firmanın ayrı bir kaydıysa (ör. ikinci şube) yine de kaydedebilirsin.',
+              style: AppTypography.helper,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(_DuplicateChoice.cancel),
+            child: const Text('Vazgeç'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(_DuplicateChoice.open),
+            child: const Text('Mevcut müşteriyi aç'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(_DuplicateChoice.saveAnyway),
+            child: const Text('Yine de kaydet'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    switch (choice) {
+      case _DuplicateChoice.saveAnyway:
+        await _submit(allowDuplicate: true);
+      case _DuplicateChoice.open:
+        // Sheet kapanınca context gider; router önce alınır.
+        final router = GoRouter.maybeOf(context);
+        Navigator.of(context).pop();
+        router?.push('/diger/musteriler/${Uri.encodeComponent(dup.id)}');
+      case _DuplicateChoice.cancel:
+      case null:
+        break;
+    }
+  }
 }
+
+enum _DuplicateChoice { cancel, open, saveAnyway }

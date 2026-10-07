@@ -92,7 +92,8 @@ for the app to call.
 backend never validates or types it. The shape the mobile app writes
 (`recipe_item_id`, `category_id`, `category_name`, `footprint_area`,
 `effective_area`, `perimeter`, `calculation_type`, `factor`, `waste_percent`,
-`rounding_type`, `price_at_calc`) is a **client convention**, not a backend
+`rounding_type`, `price_at_calc`, plus `price_source` when the server sends
+it — since 2026-10-07) is a **client convention**, not a backend
 contract — matches the intent described in the domain code comment but
 isn't enforced.
 

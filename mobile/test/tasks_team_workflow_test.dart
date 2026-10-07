@@ -252,6 +252,96 @@ void main() {
     });
   });
 
+  // Sunucu kapalı projenin görevini project_closed ile, kesilen Ekip
+  // listesini total/truncated ile bildirir.
+  group('TasksScreen — kapalı proje ve kesilen liste', () {
+    testWidgets('kapalı projenin görevinde "Proje kapalı" çipi, diğerinde yok', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _me(_managerPerms))],
+        '/tasks/team': [
+          (
+            status: 200,
+            body: {
+              'tasks': [
+                _task(id: 't1', title: 'Teslim tutanağı', projectName: 'Eski Şantiye')
+                  ..['project_closed'] = true
+                  ..['project_status'] = 'completed',
+                _task(id: 't2', title: 'Beton dökümü')
+                  ..['project_closed'] = false
+                  ..['project_status'] = 'active',
+              ],
+              'total': 2,
+              'truncated': false,
+            },
+          ),
+        ],
+      });
+      await _pump(tester, adapter, const TasksScreen());
+
+      expect(find.byKey(const Key('proje-kapali-t1')), findsOneWidget);
+      expect(find.byKey(const Key('proje-kapali-t2')), findsNothing);
+      expect(find.text('Proje kapalı'), findsOneWidget);
+      expect(find.byKey(const Key('gorev-liste-kesildi')), findsNothing);
+    });
+
+    testWidgets('kesilen Ekip listesi "İlk N görev gösteriliyor" notu taşır', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _me(_managerPerms))],
+        '/tasks/team': [
+          (
+            status: 200,
+            body: {
+              'tasks': [_task(id: 't1'), _task(id: 't2', title: 'Kalıp')],
+              'total': 732,
+              'truncated': true,
+            },
+          ),
+        ],
+      });
+      await _pump(tester, adapter, const TasksScreen());
+
+      expect(find.byKey(const Key('gorev-liste-kesildi')), findsOneWidget);
+      expect(find.textContaining('İlk 2 görev gösteriliyor (toplam 732)'), findsOneWidget);
+    });
+
+    testWidgets('"Benim" görünümünde de kapalı proje işaretlenir', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _me(_fieldPerms))],
+        '/tasks/mine': [
+          (
+            status: 200,
+            body: {
+              'tasks': [_task(id: 't7', title: 'Son kontrol')..['project_closed'] = true],
+              'linked_employee': true,
+            },
+          ),
+        ],
+      });
+      await _pump(tester, adapter, const TasksScreen());
+
+      expect(find.byKey(const Key('proje-kapali-t7')), findsOneWidget);
+    });
+
+    test('teamTasks total/truncated okur; eski sunucuda null/false', () async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/tasks/team': [
+          (status: 200, body: {'tasks': [_task()], 'total': 900, 'truncated': true}),
+          (status: 200, body: {'tasks': [_task()]}),
+        ],
+      });
+      final client = await buildFakeApiClient(adapter);
+      final container = ProviderContainer(overrides: [apiClientProvider.overrideWithValue(client)]);
+      addTearDown(container.dispose);
+      final repo = container.read(projectsRepositoryProvider);
+
+      final page = await repo.teamTasks();
+      expect((page.total, page.truncated, page.tasks.length), (900, true, 1));
+      expect(page.tasks.single.$1.projectClosed, isFalse);
+      final old = await repo.teamTasks();
+      expect((old.total, old.truncated), (null, false));
+    });
+  });
+
   group('görevi tamamla onay kutusu', () {
     testWidgets('istek sürerken ikinci dokunuş yok; başarısızlıkta backend mesajı gösterilir', (tester) async {
       final adapter = _GatedAdapter(script: {

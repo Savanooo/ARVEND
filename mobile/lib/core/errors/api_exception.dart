@@ -7,10 +7,20 @@ class ApiException implements Exception {
   final String message;
   final ApiErrorKind kind;
 
+  /// Gövdedeki makine-okunur `code` (ör. `duplicate_customer`); çoğu hatada
+  /// yoktur.
+  final String? code;
+
+  /// Ham JSON hata gövdesi -- `code` taşıyan hatalarda ek alanlar için
+  /// (ör. 409 duplicate_customer'daki `existing_customer`).
+  final Map<String, dynamic>? body;
+
   const ApiException({
     required this.statusCode,
     required this.message,
     required this.kind,
+    this.code,
+    this.body,
   });
 
   bool get isAuthError => kind == ApiErrorKind.unauthorized;
@@ -37,7 +47,7 @@ enum ApiErrorKind {
 /// `serverMessage`, backend'in gerçek `error` alanıdır - varsa ONA öncelik
 /// verilir (backend zaten Türkçe, kullanıcıya en doğru bilgiyi o verir);
 /// yoksa generic Türkçe mesaja düşülür.
-ApiException mapHttpError(int? statusCode, String? serverMessage) {
+ApiException mapHttpError(int? statusCode, String? serverMessage, {String? code, Map<String, dynamic>? body}) {
   final kind = switch (statusCode) {
     400 => ApiErrorKind.badRequest,
     401 => ApiErrorKind.unauthorized,
@@ -67,6 +77,8 @@ ApiException mapHttpError(int? statusCode, String? serverMessage) {
     statusCode: statusCode,
     message: (serverMessage != null && serverMessage.trim().isNotEmpty) ? serverMessage : fallback,
     kind: kind,
+    code: code,
+    body: body,
   );
 }
 

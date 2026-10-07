@@ -9,6 +9,7 @@ package service_test
 import (
 	"context"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -332,6 +333,79 @@ func TestCalcModule_CRUDAndCalculation(t *testing.T) {
 			if it.MaterialName == "Ürünsüz Kalem" && it.ProductID != nil {
 				t.Fatal("Run() salt-okur olmalıydı ama ürünsüz kaleme bir ürün BAĞLANMIŞ")
 			}
+		}
+	})
+
+	// Yeni firmalarda reçeteler fiyatsız/ürünsüz açılıyor: ürün fiyatı
+	// yok ya da 0 ise reçetenin referans fiyatı kullanılır ve satır
+	// işaretlenir; ikisi de yoksa 0 TL "fiyat yok" olarak işaretlenir.
+	t.Run("fiyat yedeği: ürün fiyatı yok/0 ise referans fiyat, satır işaretli", func(t *testing.T) {
+		g := mustGroup(t, ctx, calcSvc, orgA.ID, "fiyat-yedek-grup")
+		cat := mustCategory(t, ctx, calcSvc, orgA.ID, g.ID, "fiyat-yedek-kategori")
+
+		priced, err := productSvc.Create(ctx, orgA.ID, "Fiyatlı Ürün", "adet", 50, "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		zero, err := productSvc.Create(ctx, orgA.ID, "Fiyatsız Ürün", "adet", 0, "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		type row struct {
+			name      string
+			productID *string
+			reference string
+		}
+		for _, r := range []row{
+			{"Fiyatlı", &priced.ID, "40"},
+			{"Sıfır Ürün Referanslı", &zero.ID, "30"},
+			{"Ürünsüz Referanslı", nil, "20"},
+			{"Hiç Fiyatı Yok", nil, "0"},
+		} {
+			if _, err := calcSvc.CreateRecipeItem(ctx, orgA.ID, service.CalcRecipeItemInput{
+				CategoryID: cat.ID, ProductID: r.productID, MaterialName: r.name, Unit: "adet",
+				CalculationType: domain.CalcTypeFixed, FixedQuantity: d("2"),
+				ReferenceUnitPrice: d(r.reference), RoundingType: domain.RoundingNone,
+			}); err != nil {
+				t.Fatalf("kalem oluşturulamadı (%s): %v", r.name, err)
+			}
+		}
+
+		result, err := calcSvc.Run(ctx, orgA.ID, service.CalcRunInput{CategoryID: cat.ID, CalcInput: domain.CalcInput{Area: dPtr("10")}})
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		want := map[string]struct{ price, source, warning string }{
+			"Fiyatlı":               {"50", domain.CalcPriceSourceProduct, ""},
+			"Sıfır Ürün Referanslı": {"30", domain.CalcPriceSourceReference, "referans fiyat kullanıldı"},
+			"Ürünsüz Referanslı":    {"20", domain.CalcPriceSourceReference, "referans fiyat kullanıldı"},
+			"Hiç Fiyatı Yok":        {"0", domain.CalcPriceSourceNone, "fiyat yok"},
+		}
+		for _, it := range result.Items {
+			w := want[it.MaterialName]
+			if !it.UnitPrice.Equal(d(w.price)) || it.PriceSource != w.source || it.PriceWarning != w.warning {
+				t.Errorf("%s: fiyat=%s kaynak=%q uyarı=%q; istenen %s/%q/%q",
+					it.MaterialName, it.UnitPrice, it.PriceSource, it.PriceWarning, w.price, w.source, w.warning)
+			}
+			if !it.LineTotal.Equal(d(w.price).Mul(d("2"))) {
+				t.Errorf("%s: satır toplamı %s, kullanılan fiyattan hesaplanmalı", it.MaterialName, it.LineTotal)
+			}
+			// 0 TL ürün yine bağlı kalır (teklif kalemi ürüne bağlansın).
+			if it.MaterialName == "Sıfır Ürün Referanslı" && (it.ProductID == nil || *it.ProductID != zero.ID) {
+				t.Errorf("0 TL ürünün product_id'si korunmalı: %v", it.ProductID)
+			}
+		}
+		if !result.TotalCost.Equal(d("200")) { // 100 + 60 + 40 + 0
+			t.Errorf("toplam = %s, istenen 200", result.TotalCost)
+		}
+		var zeroMsg string
+		for _, w := range result.Warnings {
+			if w.Code == "product_zero_price" {
+				zeroMsg = w.Message
+			}
+		}
+		if !strings.Contains(zeroMsg, "referans fiyat (30,00 TL) kullanıldı") {
+			t.Errorf("uyarı kullanılan referans fiyatı söylemeli: %q", zeroMsg)
 		}
 	})
 

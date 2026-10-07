@@ -263,8 +263,20 @@ class ApiClient {
       return mapHttpError(null, null);
     }
     final status = e.response?.statusCode;
-    final serverMessage = _extractError(e.response?.data);
-    return mapHttpError(status, serverMessage);
+    final data = e.response?.data;
+    final serverMessage = _extractError(data);
+    // `code` + ham gövde: ekran ek alanları (ör. çakışan müşteri) okuyabilsin.
+    return mapHttpError(status, serverMessage, code: _extractCode(data), body: _asJsonMap(data));
+  }
+
+  Map<String, dynamic>? _asJsonMap(dynamic data) {
+    try {
+      final map = data is String ? jsonDecode(data) : data;
+      if (map is Map<String, dynamic>) return map;
+    } catch (_) {
+      // bkz. _extractError.
+    }
+    return null;
   }
 
   String? _extractError(dynamic data) {
@@ -278,9 +290,10 @@ class ApiClient {
     return null;
   }
 
-  /// `code` alanı yalnızca ÜÇ backend ucunda bulunur (tenant_context_required/
-  /// permission_denied/project_access_denied, bkz. classifyAccountAccessIssue
-  /// yorumu) -- diğer TÜM hata gövdelerinde yoktur, bu yüzden `null` normaldir.
+  /// `code` alanı yalnızca birkaç hata gövdesinde bulunur (tenant_context_
+  /// required/permission_denied/project_access_denied, bkz.
+  /// classifyAccountAccessIssue yorumu; 409 duplicate_customer) -- diğerlerinde
+  /// yoktur, bu yüzden `null` normaldir.
   String? _extractCode(dynamic data) {
     try {
       final map = data is String ? jsonDecode(data) : data;

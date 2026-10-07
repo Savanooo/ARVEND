@@ -67,6 +67,12 @@ class OffersRepository {
     return Offer.fromJson(json);
   }
 
+  /// GET /offers/defaults (offers.create) -- firma teklif varsayılanları.
+  Future<OfferDefaults> defaults() async {
+    final json = await _client.get<Map<String, dynamic>>('/offers/defaults');
+    return OfferDefaults.fromJson(json);
+  }
+
   Future<List<OfferRevision>> revisions(String id) async {
     final json = await _client.get<Map<String, dynamic>>('/offers/$id/revisions');
     return (json['revisions'] as List).cast<Map<String, dynamic>>().map(OfferRevision.fromJson).toList();

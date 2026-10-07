@@ -9,11 +9,17 @@ typedef ProjectTaskWithProject = (ProjectTask task, String projectId, String pro
 /// bağlı olup olmadığı. Bağlı değilse kişiye görev atanamaz; boş listenin
 /// nedeni budur ve ekran bunu söyler.
 class TaskListPage {
-  const TaskListPage(this.items, {this.linkedEmployee});
+  const TaskListPage(this.items, {this.linkedEmployee, this.total, this.truncated = false});
   final List<ProjectTaskWithProject> items;
 
   /// null = bilinmiyor (eski sunucu ya da "Ekip" görünümü).
   final bool? linkedEmployee;
+
+  /// Yalnızca "Ekip": sunucu listeyi kestiyse (truncated) filtrenin gerçek
+  /// toplamı -- ekran "İlk N görev gösteriliyor" der; eskiden fazlası
+  /// sessizce yoktu.
+  final int? total;
+  final bool truncated;
 }
 
 /// GET /api/v1/tasks/mine — sunucu tarafında org + proje erişimi ile
@@ -35,8 +41,12 @@ final myTasksProvider = FutureProvider.autoDispose.family<TaskListPage, String>(
 /// tüm görevler. Yönetici görevi buradan atar ve takip eder.
 final teamTasksProvider = FutureProvider.autoDispose.family<TaskListPage, String>((ref, status) async {
   final repo = ref.watch(projectsRepositoryProvider);
-  final rows = await repo.teamTasks(status: status);
-  return TaskListPage([for (final row in rows) (row.$1, row.$2, row.$3)]);
+  final page = await repo.teamTasks(status: status);
+  return TaskListPage(
+    [for (final row in page.tasks) (row.$1, row.$2, row.$3)],
+    total: page.total,
+    truncated: page.truncated,
+  );
 });
 
 /// Görevin notları (en yeni önce).

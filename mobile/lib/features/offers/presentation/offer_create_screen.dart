@@ -168,8 +168,19 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
   String? _customerId;
 
   /// Formda geçerlilik tarihi alanı yok; mevcut teklifin tarihi düzenlemede
-  /// KORUNUR (PUT null gönderilirse sunucu tarihi silerdi).
+  /// KORUNUR (PUT null gönderilirse sunucu tarihi silerdi). Yeni teklifte
+  /// null gider ve sunucu firma varsayılan süresini uygular.
   String? _validUntil;
+
+  /// Yeni teklifte firma varsayılanları (GET /offers/defaults). Okunamazsa
+  /// null: form %20 ile açık kalır, kayıt engellenmez.
+  OfferDefaults? _defaults;
+
+  /// Kullanıcı KDV'yi elle değiştirdiyse geç gelen varsayılan onu ezmez.
+  bool _vatEdited = false;
+
+  /// Düzenlemede teklifin kendi para birimi; yenide firma varsayılanı.
+  String _currency = 'TRY';
   bool _loading = false;
   bool _submitting = false;
   String? _error;
@@ -189,12 +200,31 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
     if (widget.isEdit) {
       _loading = true;
       WidgetsBinding.instance.addPostFrameCallback((_) => _loadExisting());
-    } else if (widget.initialCustomerId != null) {
-      _customerId = widget.initialCustomerId;
-      _customerNameController.text = widget.initialCustomerName ?? '';
-      _customerPhoneController.text = widget.initialCustomerPhone ?? '';
-      _customerEmailController.text = widget.initialCustomerEmail ?? '';
-      _customerAddressController.text = widget.initialCustomerAddress ?? '';
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadDefaults());
+      if (widget.initialCustomerId != null) {
+        _customerId = widget.initialCustomerId;
+        _customerNameController.text = widget.initialCustomerName ?? '';
+        _customerPhoneController.text = widget.initialCustomerPhone ?? '';
+        _customerEmailController.text = widget.initialCustomerEmail ?? '';
+        _customerAddressController.text = widget.initialCustomerAddress ?? '';
+      }
+    }
+  }
+
+  /// Firma KDV'si forma yazılır (eskiden her teklif %20 açılıyordu, firma
+  /// %10 kaydetmiş olsa bile); alan düzenlenebilir kalır.
+  Future<void> _loadDefaults() async {
+    try {
+      final d = await ref.read(offersRepositoryProvider).defaults();
+      if (!mounted) return;
+      setState(() {
+        _defaults = d;
+        _currency = d.currency;
+        if (!_vatEdited) _vatRateController.text = formatTrDecimalInput(d.vatRate);
+      });
+    } catch (_) {
+      // Varsayılan okunamadı (ağ/izin): %20 ile devam, kayıt yine mümkün.
     }
   }
 
@@ -211,6 +241,7 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
       }
       _customerId = offer.customerId;
       _validUntil = offer.validUntil;
+      _currency = offer.currency;
       _customerNameController.text = offer.customerName;
       _customerPhoneController.text = offer.customerPhone;
       _customerEmailController.text = offer.customerEmail;
@@ -336,6 +367,11 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
       setState(() => _error = 'En az bir geçerli kalem girin (ürün adı, miktar > 0, birim fiyat >= 0).');
       return;
     }
+    // 0 fiyatlı kalem geçerlidir (ikram/hediye) ama çoğunlukla fiyatı
+    // olmayan ürün ya da metraj satırıdır -- sessizce kaydedilmesin.
+    final zeroPriced = items.where((i) => i.unitPrice == 0).length;
+    if (zeroPriced > 0 && !await _confirmZeroPrices(zeroPriced)) return;
+    if (!mounted) return;
     final vat = parsePercentInput(_vatRateController.text);
 
     setState(() {
@@ -381,6 +417,22 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  Future<bool> _confirmZeroPrices(int count) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const ValueKey('offer-zero-price-confirm'),
+        title: const Text('Fiyatı 0 olan kalem var'),
+        content: Text('$count kalemin fiyatı 0 ${currencyLabel(_currency)}. Yine de kaydedilsin mi?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Vazgeç')),
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Yine de Kaydet')),
+        ],
+      ),
+    );
+    return ok ?? false;
   }
 
   @override
@@ -475,8 +527,9 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
                             if (n > 100) return 'KDV oranı en fazla %100 olabilir';
                             return null;
                           },
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) => setState(() => _vatEdited = true),
                         ),
+                        if (_defaults != null) _DefaultsInfo(defaults: _defaults!),
                         const SizedBox(height: AppSpacing.xl),
                         const AppSectionHeader(title: 'Kalemler'),
                         const SizedBox(height: 4),
@@ -502,6 +555,7 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
                               key: ObjectKey(entry.value),
                               item: entry.value,
                               showInternal: canManageInternal,
+                              currency: _currency,
                               onChanged: () => setState(() {}),
                               onRemove: _items.length > 1 ? () => setState(() => _items.removeAt(entry.key)) : null,
                             )),
@@ -509,6 +563,7 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
                           items: _items,
                           vatRateText: _vatRateController.text,
                           showInternal: canManageInternal,
+                          currency: _currency,
                         ),
                         const SizedBox(height: AppSpacing.md),
                         TextFormField(
@@ -534,6 +589,37 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
                 ],
               ),
             ),
+    );
+  }
+}
+
+/// Yeni teklifte formda alanı olmayan firma varsayılanları: geçerlilik sonu
+/// (sunucu kayıtta bugün + firma süresi yazar) ve TRY dışı para birimi.
+/// Kullanıcı teklifin süresiz ya da TL açılacağını sanmasın.
+class _DefaultsInfo extends StatelessWidget {
+  const _DefaultsInfo({required this.defaults});
+  final OfferDefaults defaults;
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = <String>[
+      if (defaults.validUntil != null)
+        'Geçerlilik sonu: ${Formatters.date(defaults.validUntil)}'
+            '${defaults.validityDays != null ? ' (firma ayarı: ${defaults.validityDays} gün)' : ''}',
+      if (defaults.currency != 'TRY') 'Para birimi: ${defaults.currency} (firma ayarı)',
+    ];
+    if (lines.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      key: const ValueKey('offer-defaults-info'),
+      padding: const EdgeInsets.only(top: AppSpacing.xs),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline, size: 14, color: AppColors.textMuted),
+          const SizedBox(width: 4),
+          Expanded(child: Text(lines.join('\n'), style: AppTypography.helper)),
+        ],
+      ),
     );
   }
 }
@@ -572,12 +658,14 @@ class _ItemRow extends StatelessWidget {
     required this.item,
     required this.onChanged,
     required this.showInternal,
+    this.currency = 'TRY',
     this.onRemove,
   });
 
   final _DraftItem item;
   final VoidCallback onChanged;
   final bool showInternal;
+  final String currency;
   final VoidCallback? onRemove;
 
   @override
@@ -673,12 +761,12 @@ class _ItemRow extends StatelessWidget {
             const SizedBox(height: AppSpacing.xs),
             Align(
               alignment: Alignment.centerRight,
-              child: Text('Satır toplamı: ${Formatters.money(lineTotal)}', style: AppTypography.helper),
+              child: Text('Satır toplamı: ${Formatters.money(lineTotal, currency: currency)}', style: AppTypography.helper),
             ),
           ],
           if (showInternal) ...[
             const SizedBox(height: AppSpacing.md),
-            _InternalPricingBox(item: item, preview: preview, onChanged: onChanged),
+            _InternalPricingBox(item: item, preview: preview, currency: currency, onChanged: onChanged),
           ],
         ],
       ),
@@ -691,10 +779,16 @@ class _ItemRow extends StatelessWidget {
 /// nötr/koyu ton (durum renklerinden -- success/warning/danger/info --
 /// KASITLI OLARAK ayrı, çünkü bu bir "durum" değil bir "gizlilik" ekseni).
 class _InternalPricingBox extends StatelessWidget {
-  const _InternalPricingBox({required this.item, required this.preview, required this.onChanged});
+  const _InternalPricingBox({
+    required this.item,
+    required this.preview,
+    required this.onChanged,
+    this.currency = 'TRY',
+  });
   final _DraftItem item;
   final double? preview;
   final VoidCallback onChanged;
+  final String currency;
 
   @override
   Widget build(BuildContext context) {
@@ -781,7 +875,7 @@ class _InternalPricingBox extends StatelessWidget {
               Row(
                 children: [
                   Text('Önizleme satış: ', style: AppTypography.helper),
-                  MoneyText(preview!, style: AppTypography.helper.copyWith(fontWeight: FontWeight.w700)),
+                  MoneyText(preview!, currency: currency, style: AppTypography.helper.copyWith(fontWeight: FontWeight.w700)),
                   Text(' (sunucu kesinleştirir)', style: AppTypography.helper),
                 ],
               ),
@@ -799,11 +893,17 @@ class _InternalPricingBox extends StatelessWidget {
 /// görünsün diye; kesin toplamı kayıtta sunucu hesaplar. Geçerli satır
 /// yoksa çizilmez.
 class _TotalsPreview extends StatelessWidget {
-  const _TotalsPreview({required this.items, required this.vatRateText, required this.showInternal});
+  const _TotalsPreview({
+    required this.items,
+    required this.vatRateText,
+    required this.showInternal,
+    this.currency = 'TRY',
+  });
 
   final List<_DraftItem> items;
   final String vatRateText;
   final bool showInternal;
+  final String currency;
 
   @override
   Widget build(BuildContext context) {
@@ -820,7 +920,7 @@ class _TotalsPreview extends StatelessWidget {
           child: Row(
             children: [
               Expanded(child: Text(label, style: bold ? AppTypography.cardTitle : AppTypography.metadata)),
-              MoneyText(value, style: bold ? AppTypography.cardTitle : AppTypography.body),
+              MoneyText(value, currency: currency, style: bold ? AppTypography.cardTitle : AppTypography.body),
             ],
           ),
         );
