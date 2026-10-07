@@ -228,6 +228,34 @@ void main() {
       expect(find.text('Taşeron eklendi.'), findsOneWidget);
     });
 
+    testWidgets('taşeron ekle: kâr payı girilince kârımız ve müşteriye yansıyan önizlenir ve gönderilir', (tester) async {
+      final client = await _client(FakeHttpClientAdapter(script: {}));
+      final repo = FakeFinanceLedgerRepository();
+      await _pump(tester, buildLedgerApp(user: ledgerOwner, client: client, repo: repo, home: tab(cc.sampleProject())));
+
+      await tester.tap(find.text('Taşeron Ekle'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextFormField, 'Taşeron adı'), 'Kaya Alçı');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Sözleşme bedeli (TRY)'), '100.000');
+      await tester.enterText(find.byKey(const Key('legacy-subcontractor-profit')), '20');
+      await tester.pumpAndSettle();
+      final preview = tester.widget<Text>(find.textContaining('Kârımız')).data!;
+      expect(preview, contains('20.000'));
+      expect(preview, contains('Müşteriye yansıyan'));
+      expect(preview, contains('120.000'));
+
+      await tester.enterText(find.byKey(const Key('legacy-subcontractor-profit')), '1500');
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Taşeron Ekle'));
+      await tester.pumpAndSettle();
+      expect(find.text('0 ile 1000 arasında bir yüzde gir'), findsOneWidget);
+      expect(repo.createdSubcontractors, isEmpty);
+
+      await tester.enterText(find.byKey(const Key('legacy-subcontractor-profit')), '20');
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Taşeron Ekle'));
+      await tester.pumpAndSettle();
+      expect(repo.createdSubcontractors.single['profit_percent'], 20.0);
+    });
+
     testWidgets('salt-okur: ekleme düğmesi yok', (tester) async {
       final client = await _client(FakeHttpClientAdapter(script: {}));
       await _pump(tester, buildLedgerApp(user: ledgerViewer, client: client, home: tab(cc.sampleProject())));
@@ -379,6 +407,8 @@ void main() {
         'status': 'completed',
         'notes': 'Not',
         'cost_code_id': 'cc1',
+        // Kâr payı formda değiştirilmediyse null: sunucu mevcut değeri korur.
+        'profit_percent': null,
       });
 
       await repo.voidSubcontractorPayment('p1', 'sp1', reason: 'Mükerrer');

@@ -987,9 +987,11 @@ export function SubcontractorsSection({
     company_name: "",
     work_description: "",
     contract_amount: "",
+    profit_percent: "",
     status: "planned" as SubcontractorStatus,
   });
-  const [form, setForm] = useState({ name: "", company_name: "", work_description: "", contract_amount: "" });
+  const emptyForm = { name: "", company_name: "", work_description: "", contract_amount: "", profit_percent: "" };
+  const [form, setForm] = useState(emptyForm);
   const [payForm, setPayForm] = useState({ amount: "", paid_date: istanbulDate(new Date()), description: "" });
   // Anahtar TAŞERON BAŞINA tutulur (tek bir bölüm-geneli anahtar DEĞİL):
   // aksi halde taşeron A'ya ödeme yanıtı ağ hatasıyla kaybolduğunda, aynı
@@ -1014,12 +1016,13 @@ export function SubcontractorsSection({
         body: JSON.stringify({
           ...form,
           contract_amount: Number(form.contract_amount),
+          profit_percent: percentOrNull(form.profit_percent),
           currency: project.currency,
         }),
       })
     );
     if (ok) {
-      setForm({ name: "", company_name: "", work_description: "", contract_amount: "" });
+      setForm(emptyForm);
       setOpen(false);
     }
   }
@@ -1032,6 +1035,7 @@ export function SubcontractorsSection({
       company_name: sub.company_name,
       work_description: sub.work_description,
       contract_amount: String(sub.contract_amount),
+      profit_percent: sub.profit_percent == null ? "" : String(sub.profit_percent),
       status: sub.status,
     });
   }
@@ -1052,6 +1056,9 @@ export function SubcontractorsSection({
           email: sub.email,
           work_description: editForm.work_description,
           contract_amount: Number(editForm.contract_amount),
+          // Boş bırakılırsa null gider ve sunucu mevcut kâr payını korur;
+          // kaldırmak için 0 yazılır.
+          profit_percent: percentOrNull(editForm.profit_percent),
           currency: sub.currency,
           start_date: sub.start_date,
           end_date: sub.end_date,
@@ -1145,6 +1152,16 @@ export function SubcontractorsSection({
                       value={editForm.contract_amount}
                       onChange={(e) => setEditForm({ ...editForm, contract_amount: e.target.value })}
                     />
+                    <Input
+                      label="Kâr payımız (%)"
+                      name={`sub_profit_${s.id}`}
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="1000"
+                      value={editForm.profit_percent}
+                      onChange={(e) => setEditForm({ ...editForm, profit_percent: e.target.value })}
+                    />
                     <Select
                       label="Durum"
                       name={`sub_status_${s.id}`}
@@ -1205,6 +1222,22 @@ export function SubcontractorsSection({
                   <div className="font-medium">{formatMoney(s.remaining_amount, s.currency)}</div>
                 </div>
               </div>
+              {s.profit_percent != null && s.profit_amount != null && s.customer_amount != null && (
+                <div className="mt-2 grid grid-cols-3 gap-3 text-sm">
+                  <div>
+                    <div className="text-xs uppercase tracking-widest text-text-muted">Kâr payı</div>
+                    <div>%{s.profit_percent.toLocaleString("tr-TR")}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-widest text-text-muted">Kârımız</div>
+                    <div className="font-medium text-success">{formatMoney(s.profit_amount, s.currency)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-widest text-text-muted">Müşteriye yansıyan</div>
+                    <div>{formatMoney(s.customer_amount, s.currency)}</div>
+                  </div>
+                </div>
+              )}
 
               {subPayments.length > 0 && (
                 <ul className="mt-2 flex flex-col gap-0.5 border-t border-border pt-2 text-xs text-text-muted">
@@ -1305,6 +1338,18 @@ export function SubcontractorsSection({
             value={form.contract_amount}
             onChange={(e) => setForm({ ...form, contract_amount: e.target.value })}
           />
+          <Input
+            className="w-32"
+            placeholder="Kâr payı %"
+            aria-label="Kâr payımız (%)"
+            type="number"
+            step="0.01"
+            min="0"
+            max="1000"
+            value={form.profit_percent}
+            onChange={(e) => setForm({ ...form, profit_percent: e.target.value })}
+          />
+          {profitPreview(form.contract_amount, form.profit_percent, project.currency)}
           <Button type="submit" loading={busy}>
             Taşeron Ekle
           </Button>
@@ -1321,5 +1366,25 @@ export function SubcontractorsSection({
       )}
       {error && <p className="text-xs text-danger">{error}</p>}
     </div>
+  );
+}
+
+// Kâr payı alanı: boş = gönderme (null), aksi halde sayı.
+function percentOrNull(raw: string): number | null {
+  return raw.trim() === "" ? null : Number(raw);
+}
+
+// Taşeron eklerken kâr payının tutara etkisi (sunucu aynı formülle hesaplar:
+// kâr = bedel × % / 100, müşteriye = bedel + kâr).
+function profitPreview(amountRaw: string, percentRaw: string, currency: string) {
+  const amount = Number(amountRaw);
+  const percent = percentOrNull(percentRaw);
+  if (!amountRaw || !(amount > 0) || percent == null || !(percent >= 0)) return null;
+  const profit = Math.round(amount * percent) / 100;
+  return (
+    <p className="w-full text-xs text-text-muted">
+      Kârımız <span className="font-medium text-success">{formatMoney(profit, currency)}</span> · Müşteriye
+      yansıyan {formatMoney(Math.round((amount + profit) * 100) / 100, currency)}
+    </p>
   );
 }

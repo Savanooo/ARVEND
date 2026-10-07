@@ -406,9 +406,9 @@ const createSubcontractor = `-- name: CreateSubcontractor :one
 INSERT INTO project_subcontractors (
     organization_id, project_id, name, company_name, phone, email, work_description,
     contract_amount, currency, start_date, end_date, status, notes, created_by, change_order_id,
-    cost_code_id
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-RETURNING id, organization_id, project_id, name, company_name, phone, email, work_description, contract_amount, currency, start_date, end_date, status, notes, created_by, created_at, updated_at, change_order_id, cost_code_id
+    cost_code_id, profit_percent
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+RETURNING id, organization_id, project_id, name, company_name, phone, email, work_description, contract_amount, currency, start_date, end_date, status, notes, created_by, created_at, updated_at, change_order_id, cost_code_id, profit_percent
 `
 
 type CreateSubcontractorParams struct {
@@ -428,6 +428,7 @@ type CreateSubcontractorParams struct {
 	CreatedBy       pgtype.UUID    `json:"created_by"`
 	ChangeOrderID   pgtype.UUID    `json:"change_order_id"`
 	CostCodeID      pgtype.UUID    `json:"cost_code_id"`
+	ProfitPercent   pgtype.Numeric `json:"profit_percent"`
 }
 
 // ============ Taşeronlar ============
@@ -454,6 +455,7 @@ func (q *Queries) CreateSubcontractor(ctx context.Context, arg CreateSubcontract
 		arg.CreatedBy,
 		arg.ChangeOrderID,
 		arg.CostCodeID,
+		arg.ProfitPercent,
 	)
 	var i ProjectSubcontractor
 	err := row.Scan(
@@ -476,6 +478,7 @@ func (q *Queries) CreateSubcontractor(ctx context.Context, arg CreateSubcontract
 		&i.UpdatedAt,
 		&i.ChangeOrderID,
 		&i.CostCodeID,
+		&i.ProfitPercent,
 	)
 	return i, err
 }
@@ -1081,7 +1084,7 @@ func (q *Queries) GetProjectFinancialSummary(ctx context.Context, arg GetProject
 }
 
 const getSubcontractor = `-- name: GetSubcontractor :one
-SELECT id, organization_id, project_id, name, company_name, phone, email, work_description, contract_amount, currency, start_date, end_date, status, notes, created_by, created_at, updated_at, change_order_id, cost_code_id FROM project_subcontractors WHERE id = $1 AND organization_id = $2 AND project_id = $3
+SELECT id, organization_id, project_id, name, company_name, phone, email, work_description, contract_amount, currency, start_date, end_date, status, notes, created_by, created_at, updated_at, change_order_id, cost_code_id, profit_percent FROM project_subcontractors WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type GetSubcontractorParams struct {
@@ -1117,6 +1120,7 @@ func (q *Queries) GetSubcontractor(ctx context.Context, arg GetSubcontractorPara
 		&i.UpdatedAt,
 		&i.ChangeOrderID,
 		&i.CostCodeID,
+		&i.ProfitPercent,
 	)
 	return i, err
 }
@@ -1500,7 +1504,7 @@ func (q *Queries) ListSubcontractorPayments(ctx context.Context, arg ListSubcont
 }
 
 const listSubcontractors = `-- name: ListSubcontractors :many
-SELECT s.id, s.organization_id, s.project_id, s.name, s.company_name, s.phone, s.email, s.work_description, s.contract_amount, s.currency, s.start_date, s.end_date, s.status, s.notes, s.created_by, s.created_at, s.updated_at, s.change_order_id, s.cost_code_id,
+SELECT s.id, s.organization_id, s.project_id, s.name, s.company_name, s.phone, s.email, s.work_description, s.contract_amount, s.currency, s.start_date, s.end_date, s.status, s.notes, s.created_by, s.created_at, s.updated_at, s.change_order_id, s.cost_code_id, s.profit_percent,
        COALESCE((SELECT sum(p.amount) FROM project_subcontractor_payments p
                  WHERE p.subcontractor_id = s.id AND p.voided_at IS NULL), 0)::numeric(18,2) AS paid_amount
 FROM project_subcontractors s
@@ -1533,6 +1537,7 @@ type ListSubcontractorsRow struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 	ChangeOrderID   pgtype.UUID        `json:"change_order_id"`
 	CostCodeID      pgtype.UUID        `json:"cost_code_id"`
+	ProfitPercent   pgtype.Numeric     `json:"profit_percent"`
 	PaidAmount      pgtype.Numeric     `json:"paid_amount"`
 }
 
@@ -1567,6 +1572,7 @@ func (q *Queries) ListSubcontractors(ctx context.Context, arg ListSubcontractors
 			&i.UpdatedAt,
 			&i.ChangeOrderID,
 			&i.CostCodeID,
+			&i.ProfitPercent,
 			&i.PaidAmount,
 		); err != nil {
 			return nil, err
@@ -1774,9 +1780,10 @@ func (q *Queries) UpdatePaymentPlanItem(ctx context.Context, arg UpdatePaymentPl
 const updateSubcontractor = `-- name: UpdateSubcontractor :one
 UPDATE project_subcontractors
 SET name = $3, company_name = $4, phone = $5, email = $6, work_description = $7,
-    contract_amount = $8, start_date = $9, end_date = $10, status = $11, notes = $12, cost_code_id = $14
+    contract_amount = $8, start_date = $9, end_date = $10, status = $11, notes = $12, cost_code_id = $14,
+    profit_percent = COALESCE($15::numeric(6,2), profit_percent)
 WHERE id = $1 AND organization_id = $2 AND project_id = $13
-RETURNING id, organization_id, project_id, name, company_name, phone, email, work_description, contract_amount, currency, start_date, end_date, status, notes, created_by, created_at, updated_at, change_order_id, cost_code_id
+RETURNING id, organization_id, project_id, name, company_name, phone, email, work_description, contract_amount, currency, start_date, end_date, status, notes, created_by, created_at, updated_at, change_order_id, cost_code_id, profit_percent
 `
 
 type UpdateSubcontractorParams struct {
@@ -1794,10 +1801,13 @@ type UpdateSubcontractorParams struct {
 	Notes           string         `json:"notes"`
 	ProjectID       pgtype.UUID    `json:"project_id"`
 	CostCodeID      pgtype.UUID    `json:"cost_code_id"`
+	Column15        pgtype.Numeric `json:"column_15"`
 }
 
 // project_id EKLENDİ (bkz. GetSubcontractor notu). cost_code_id, Cost
-// Control sprint'i (migration 0035) -- opsiyonel.
+// Control sprint'i (migration 0035) -- opsiyonel. profit_percent NULL
+// gelirse mevcut değer KORUNUR: alanı bilmeyen eski istemciler (kâr payı
+// öncesi web/mobil) düzenleme yaparken onu silmesin.
 func (q *Queries) UpdateSubcontractor(ctx context.Context, arg UpdateSubcontractorParams) (ProjectSubcontractor, error) {
 	row := q.db.QueryRow(ctx, updateSubcontractor,
 		arg.ID,
@@ -1814,6 +1824,7 @@ func (q *Queries) UpdateSubcontractor(ctx context.Context, arg UpdateSubcontract
 		arg.Notes,
 		arg.ProjectID,
 		arg.CostCodeID,
+		arg.Column15,
 	)
 	var i ProjectSubcontractor
 	err := row.Scan(
@@ -1836,6 +1847,7 @@ func (q *Queries) UpdateSubcontractor(ctx context.Context, arg UpdateSubcontract
 		&i.UpdatedAt,
 		&i.ChangeOrderID,
 		&i.CostCodeID,
+		&i.ProfitPercent,
 	)
 	return i, err
 }

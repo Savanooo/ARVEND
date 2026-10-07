@@ -858,6 +858,7 @@ type ProjectSubcontractor struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 	ChangeOrderID   pgtype.UUID        `json:"change_order_id"`
 	CostCodeID      pgtype.UUID        `json:"cost_code_id"`
+	ProfitPercent   pgtype.Numeric     `json:"profit_percent"`
 }
 
 type ProjectSubcontractorPayment struct {

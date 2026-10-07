@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 // --- Ödeme planı kalemi durumları ---
 //
@@ -242,6 +245,10 @@ type Subcontractor struct {
 	// Ödeme kayıtlarından toplanır.
 	PaidAmount      float64
 	RemainingAmount float64
+	// ProfitPercent: taşeron bedelinin üstüne müşteriye yansıtılan kâr
+	// payımız (%). nil = girilmemiş. Tutarlar bundan hesaplanır, saklanmaz
+	// (bkz. SubcontractorProfit).
+	ProfitPercent *float64
 	// CostCodeID, Cost Control (Sprint 2) alanıdır -- OPSİYONELDİR (bkz.
 	// Expense.CostCodeID notu). Taşeron BUDGET_LINE_ID TAŞIMAZ (bkz.
 	// migration 0035: taşeron taahhüdü yalnızca cost_code_id üzerinden
@@ -329,4 +336,14 @@ type ProjectEvent struct {
 	UserID         *string
 	Metadata       map[string]any
 	CreatedAt      time.Time
+}
+
+// SubcontractorProfit: kâr payı girilmiş taşeronda (kârımız, müşteriye
+// yansıyan tutar) -- kuruşa yuvarlı. Kâr payı yoksa ok=false.
+func (s Subcontractor) SubcontractorProfit() (profit, customer float64, ok bool) {
+	if s.ProfitPercent == nil {
+		return 0, 0, false
+	}
+	profit = math.Round(s.ContractAmount*(*s.ProfitPercent)) / 100
+	return profit, math.Round((s.ContractAmount+profit)*100) / 100, true
 }

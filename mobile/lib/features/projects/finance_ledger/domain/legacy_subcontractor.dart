@@ -25,6 +25,9 @@ class LegacySubcontractor {
     this.startDate,
     this.endDate,
     this.costCodeId,
+    this.profitPercent,
+    this.profitAmount,
+    this.customerAmount,
   });
 
   final String id;
@@ -51,6 +54,12 @@ class LegacySubcontractor {
   final String? endDate;
   final String? costCodeId;
 
+  /// Bizim kâr payımız (%) ve ondan SUNUCUDA hesaplanan tutarlar (kârımız,
+  /// müşteriye yansıyan). Kâr payı girilmemişse üçü de null.
+  final double? profitPercent;
+  final double? profitAmount;
+  final double? customerAmount;
+
   factory LegacySubcontractor.fromJson(Map<String, dynamic> json) => LegacySubcontractor(
         id: json['id'] as String,
         name: json['name'] as String? ?? '',
@@ -67,6 +76,9 @@ class LegacySubcontractor {
         startDate: json['start_date'] as String?,
         endDate: json['end_date'] as String?,
         costCodeId: json['cost_code_id'] as String?,
+        profitPercent: (json['profit_percent'] as num?)?.toDouble(),
+        profitAmount: (json['profit_amount'] as num?)?.toDouble(),
+        customerAmount: (json['customer_amount'] as num?)?.toDouble(),
       );
 }
 

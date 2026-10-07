@@ -736,6 +736,11 @@ export interface Subcontractor {
   // Maliyet Kontrolü (Sprint 2) eşlemesi -- opsiyonel; taşeronun
   // budget_line_id'si YOKTUR (bkz. docs/cost-control.md).
   cost_code_id?: string | null;
+  // Bizim kâr payımız (%) ve ondan sunucuda hesaplanan tutarlar; kâr payı
+  // girilmemişse null.
+  profit_percent?: number | null;
+  profit_amount?: number | null;
+  customer_amount?: number | null;
 }
 
 export interface SubcontractorPayment {

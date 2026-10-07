@@ -68,7 +68,7 @@ func TestPayrollCalculate(t *testing.T) {
 		},
 		{
 			name: "aylık maaşlı, işe girişinden önceki ay: borç yok, yapılan avans devreder",
-			row: PayrollSummaryRow{Salary: f(30000), StartDate: timePtr(d("2026-10-15")), SalaryPaid: 5000},
+			row:  PayrollSummaryRow{Salary: f(30000), StartDate: timePtr(d("2026-10-15")), SalaryPaid: 5000},
 			// Eylül, ekimde işe giren için borç değil.
 			basis: WageBasisMonthly, earned: 0, remaining: -5000,
 		},

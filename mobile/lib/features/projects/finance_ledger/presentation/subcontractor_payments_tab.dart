@@ -20,7 +20,7 @@ import '../../../../core/widgets/status_badge.dart';
 import '../../../../core/widgets/viz/progress_bar.dart';
 import '../../budget/domain/budget.dart' show formatTrDecimalInput;
 import '../../domain/project.dart';
-import '../../finance_plan/domain/finance_dates.dart' show parseAmountInput;
+import '../../finance_plan/domain/finance_dates.dart' show parseAmountInput, parsePercentInput;
 import '../data/finance_ledger_providers.dart';
 import '../domain/legacy_subcontractor.dart';
 import 'ledger_entry_sheet.dart';
@@ -274,6 +274,27 @@ class LegacySubcontractorCard extends StatelessWidget {
               ),
             ],
           ),
+          if (s.profitPercent != null && s.profitAmount != null && s.customerAmount != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Row(
+              children: [
+                Expanded(
+                  child: _Figure(label: 'Kâr payı', value: Formatters.percent(s.profitPercent!)),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: _Figure(label: 'Kârımız', value: Formatters.money(s.profitAmount!, currency: s.currency)),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: _Figure(
+                    label: 'Müşteriye',
+                    value: Formatters.money(s.customerAmount!, currency: s.currency),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: AppSpacing.sm),
           AppProgressBar(
             pct: paidPct,
@@ -386,6 +407,7 @@ class _SubcontractorFormSheetState extends ConsumerState<_SubcontractorFormSheet
   late final _company = TextEditingController(text: widget.existing?.companyName ?? '');
   late final _work = TextEditingController(text: widget.existing?.workDescription ?? '');
   late final _amount = TextEditingController(text: formatTrDecimalInput(widget.existing?.contractAmount));
+  late final _profit = TextEditingController(text: formatTrDecimalInput(widget.existing?.profitPercent));
   bool _busy = false;
   String? _error;
 
@@ -395,8 +417,12 @@ class _SubcontractorFormSheetState extends ConsumerState<_SubcontractorFormSheet
     _company.dispose();
     _work.dispose();
     _amount.dispose();
+    _profit.dispose();
     super.dispose();
   }
+
+  /// Boş = girilmedi (düzenlemede sunucu mevcut değeri korur).
+  double? get _profitPercent => _profit.text.trim().isEmpty ? null : parsePercentInput(_profit.text);
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -415,6 +441,7 @@ class _SubcontractorFormSheetState extends ConsumerState<_SubcontractorFormSheet
               workDescription: _work.text.trim(),
               contractAmount: _parseAmount(_amount.text)!,
               currency: widget.currency,
+              profitPercent: _profitPercent,
             )
           : await repo.updateSubcontractor(
               widget.projectId,
@@ -423,6 +450,7 @@ class _SubcontractorFormSheetState extends ConsumerState<_SubcontractorFormSheet
               companyName: _company.text.trim(),
               workDescription: _work.text.trim(),
               contractAmount: _parseAmount(_amount.text)!,
+              profitPercent: _profitPercent,
             );
       if (mounted) Navigator.of(context).pop(saved);
     } on ApiException catch (e) {
@@ -430,6 +458,16 @@ class _SubcontractorFormSheetState extends ConsumerState<_SubcontractorFormSheet
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Sunucuyla aynı formül: kâr = bedel × % / 100, müşteriye = bedel + kâr.
+  String? _profitHelper() {
+    final amount = _parseAmount(_amount.text);
+    final pct = _profitPercent;
+    if (amount == null || amount <= 0 || pct == null || pct < 0) return null;
+    final profit = (amount * pct).roundToDouble() / 100;
+    return 'Kârımız ${Formatters.money(profit, currency: widget.currency)} · '
+        'Müşteriye yansıyan ${Formatters.money(amount + profit, currency: widget.currency)}';
   }
 
   @override
@@ -478,6 +516,23 @@ class _SubcontractorFormSheetState extends ConsumerState<_SubcontractorFormSheet
                   return 'Sözleşme bedeli ödenen tutarın '
                       '(${Formatters.money(existing.paidAmount, currency: existing.currency)}) altına indirilemez.';
                 }
+                return null;
+              },
+            ),
+            TextFormField(
+              key: const Key('legacy-subcontractor-profit'),
+              controller: _profit,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'Kâr payımız (%) (opsiyonel)',
+                helperText: _profitHelper(),
+                helperMaxLines: 2,
+              ),
+              validator: (v) {
+                if ((v ?? '').trim().isEmpty) return null;
+                final p = parsePercentInput(v!);
+                if (p == null || p < 0 || p > 1000) return '0 ile 1000 arasında bir yüzde gir';
                 return null;
               },
             ),

@@ -185,6 +185,7 @@ func ToDomainSubcontractor(r sqlc.ListSubcontractorsRow) domain.Subcontractor {
 		CreatedAt:       r.CreatedAt.Time,
 		PaidAmount:      paid,
 		RemainingAmount: remaining,
+		ProfitPercent:   NumericToFloat64Ptr(r.ProfitPercent),
 	}
 	if r.StartDate.Valid {
 		t := r.StartDate.Time
@@ -220,6 +221,7 @@ func ToDomainSubcontractorRow(s sqlc.ProjectSubcontractor) domain.Subcontractor 
 		Status:          s.Status,
 		Notes:           s.Notes,
 		CreatedAt:       s.CreatedAt.Time,
+		ProfitPercent:   NumericToFloat64Ptr(s.ProfitPercent),
 	}
 	if s.StartDate.Valid {
 		t := s.StartDate.Time

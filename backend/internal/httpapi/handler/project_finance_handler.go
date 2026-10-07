@@ -512,16 +512,26 @@ type subcontractorResponse struct {
 	Notes           string  `json:"notes"`
 	ChangeOrderID   *string `json:"change_order_id,omitempty"`
 	CostCodeID      *string `json:"cost_code_id,omitempty"`
+	// Kâr payı girilmişse: yüzde, kârımız ve müşteriye yansıyan tutar
+	// (sunucuda hesaplanır; web ve mobil aynı rakamı gösterir).
+	ProfitPercent  *float64 `json:"profit_percent"`
+	ProfitAmount   *float64 `json:"profit_amount"`
+	CustomerAmount *float64 `json:"customer_amount"`
 }
 
 func toSubcontractorResponse(s domain.Subcontractor) subcontractorResponse {
-	return subcontractorResponse{
+	resp := subcontractorResponse{
 		ID: s.ID, Name: s.Name, CompanyName: s.CompanyName, Phone: s.Phone, Email: s.Email,
 		WorkDescription: s.WorkDescription, ContractAmount: s.ContractAmount,
 		PaidAmount: s.PaidAmount, RemainingAmount: s.RemainingAmount, Currency: s.Currency,
 		StartDate: dateStrPtr(s.StartDate), EndDate: dateStrPtr(s.EndDate),
 		Status: s.Status, Notes: s.Notes, ChangeOrderID: s.ChangeOrderID, CostCodeID: s.CostCodeID,
+		ProfitPercent: s.ProfitPercent,
 	}
+	if profit, customer, ok := s.SubcontractorProfit(); ok {
+		resp.ProfitAmount, resp.CustomerAmount = &profit, &customer
+	}
+	return resp
 }
 
 type subcontractorRequest struct {
@@ -540,6 +550,9 @@ type subcontractorRequest struct {
 	// CostCodeID, Cost Control (Sprint 2) eşlemesi -- OPSİYONELDİR (bkz.
 	// service.SubcontractorInput.CostCodeID notu).
 	CostCodeID string `json:"cost_code_id"`
+	// ProfitPercent: kâr payımız (%). Gönderilmezse (null) düzenlemede
+	// mevcut değer korunur.
+	ProfitPercent *float64 `json:"profit_percent"`
 }
 
 func (r subcontractorRequest) toInput(userID string) service.SubcontractorInput {
@@ -548,7 +561,7 @@ func (r subcontractorRequest) toInput(userID string) service.SubcontractorInput 
 		WorkDescription: r.WorkDescription, ContractAmount: r.ContractAmount, Currency: r.Currency,
 		StartDate: parseDateParam(r.StartDate), EndDate: parseDateParam(r.EndDate),
 		Status: r.Status, Notes: r.Notes, ChangeOrderID: r.ChangeOrderID, UserID: userID,
-		CostCodeID: r.CostCodeID,
+		CostCodeID: r.CostCodeID, ProfitPercent: r.ProfitPercent,
 	}
 }
 

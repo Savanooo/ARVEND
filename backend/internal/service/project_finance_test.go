@@ -363,6 +363,68 @@ func TestProjectFinance(t *testing.T) {
 		}
 	})
 
+	t.Run("10d_subcontractor_profit_percent", func(t *testing.T) {
+		// Ürün sahibi kararı (2026-10-06): taşeron formunda sözleşme bedeli +
+		// bizim kâr payımız (%).
+		p := newProject(t, orgA.ID, 100000)
+		pct := func(v float64) *float64 { return &v }
+		sub, err := projectSvc.CreateSubcontractor(ctx, p.ID, orgA.ID, service.SubcontractorInput{
+			Name: "Kârlı Usta", ContractAmount: 100000, Currency: "TRY", ProfitPercent: pct(20),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		find := func() domain.Subcontractor {
+			t.Helper()
+			list, err := projectSvc.ListSubcontractors(ctx, p.ID, orgA.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, x := range list {
+				if x.ID == sub.ID {
+					return x
+				}
+			}
+			t.Fatal("taşeron listede yok")
+			return domain.Subcontractor{}
+		}
+		got := find()
+		profit, customer, ok := got.SubcontractorProfit()
+		if !ok || profit != 20000 || customer != 120000 {
+			t.Fatalf("kâr/müşteri tutarı: %v %v %v", profit, customer, ok)
+		}
+
+		// Alanı göndermeyen düzenleme (eski istemci) kâr payını silmez.
+		in := service.SubcontractorInput{Name: "Kârlı Usta", ContractAmount: 80000, Status: got.Status}
+		if _, err := projectSvc.UpdateSubcontractor(ctx, p.ID, sub.ID, orgA.ID, in); err != nil {
+			t.Fatal(err)
+		}
+		if got = find(); got.ProfitPercent == nil || *got.ProfitPercent != 20 {
+			t.Fatalf("kâr payı korunmalı: %v", got.ProfitPercent)
+		}
+		if profit, customer, _ := got.SubcontractorProfit(); profit != 16000 || customer != 96000 {
+			t.Errorf("yeni bedele göre: %v %v", profit, customer)
+		}
+
+		in.ProfitPercent = pct(0)
+		if _, err := projectSvc.UpdateSubcontractor(ctx, p.ID, sub.ID, orgA.ID, in); err != nil {
+			t.Fatal(err)
+		}
+		if got = find(); got.ProfitPercent == nil || *got.ProfitPercent != 0 {
+			t.Errorf("0 yazılabilmeli: %v", got.ProfitPercent)
+		}
+
+		in.ProfitPercent = pct(1500)
+		if _, err := projectSvc.UpdateSubcontractor(ctx, p.ID, sub.ID, orgA.ID, in); !errors.Is(err, service.ErrInvalidProfitPercent) {
+			t.Errorf("aralık dışı reddedilmeli: %v", err)
+		}
+		if _, err := projectSvc.CreateSubcontractor(ctx, p.ID, orgA.ID, service.SubcontractorInput{
+			Name: "Eksi", ContractAmount: 1000, Currency: "TRY", ProfitPercent: pct(-5),
+		}); !errors.Is(err, service.ErrInvalidProfitPercent) {
+			t.Errorf("negatif reddedilmeli: %v", err)
+		}
+	})
+
 	t.Run("9_and_10_subcontractor_commitment_and_payments", func(t *testing.T) {
 		p := newProject(t, orgA.ID, 100000)
 		sub, err := projectSvc.CreateSubcontractor(ctx, p.ID, orgA.ID, service.SubcontractorInput{

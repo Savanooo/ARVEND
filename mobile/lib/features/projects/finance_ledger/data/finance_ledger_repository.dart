@@ -46,6 +46,7 @@ class FinanceLedgerRepository {
     required String currency,
     String companyName = '',
     String workDescription = '',
+    double? profitPercent,
   }) async {
     final json = await _client.post<Map<String, dynamic>>('${_p(projectId)}/subcontractors', data: {
       'name': name,
@@ -53,6 +54,7 @@ class FinanceLedgerRepository {
       'work_description': workDescription,
       'contract_amount': contractAmount,
       'currency': currency,
+      'profit_percent': profitPercent,
     });
     return LegacySubcontractor.fromJson(json);
   }
@@ -68,6 +70,7 @@ class FinanceLedgerRepository {
     required String companyName,
     required String workDescription,
     required double contractAmount,
+    double? profitPercent,
   }) async {
     final json = await _client.put<Map<String, dynamic>>(
       '${_p(projectId)}/subcontractors/${Uri.encodeComponent(existing.id)}',
@@ -84,6 +87,8 @@ class FinanceLedgerRepository {
         'status': existing.status,
         'notes': existing.notes,
         'cost_code_id': existing.costCodeId ?? '',
+        // null = sunucu mevcut kâr payını korur; kaldırmak için 0 gönderilir.
+        'profit_percent': profitPercent,
       },
     );
     return LegacySubcontractor.fromJson(json);

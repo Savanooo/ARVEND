@@ -1044,7 +1044,17 @@ type SubcontractorInput struct {
 	// notu): taşeron taahhüdü yalnızca cost_code_id üzerinden "bütçe dışı"
 	// olarak kırılım tablosuna katkı verir.
 	CostCodeID string
-	UserID     string
+	// ProfitPercent: kâr payımız (%), 0-1000. Oluştururken nil = girilmedi;
+	// düzenlerken nil = mevcut değer korunur (alanı bilmeyen eski istemciler).
+	ProfitPercent *float64
+	UserID        string
+}
+
+// ErrInvalidProfitPercent: kâr payı aralık dışı.
+var ErrInvalidProfitPercent = errors.New("kâr payı 0 ile 1000 arasında bir yüzde olmalıdır")
+
+func validProfitPercent(p *float64) bool {
+	return p == nil || (*p >= 0 && *p <= 1000)
 }
 
 func (s *ProjectService) CreateSubcontractor(ctx context.Context, projectID, organizationID string, in SubcontractorInput) (*domain.Subcontractor, error) {
@@ -1058,6 +1068,9 @@ func (s *ProjectService) CreateSubcontractor(ctx context.Context, projectID, org
 	}
 	if strings.TrimSpace(in.Name) == "" {
 		return nil, errors.New("taşeron adı zorunludur")
+	}
+	if !validProfitPercent(in.ProfitPercent) {
+		return nil, ErrInvalidProfitPercent
 	}
 	status := in.Status
 	if status == "" {
@@ -1107,6 +1120,7 @@ func (s *ProjectService) CreateSubcontractor(ctx context.Context, projectID, org
 		CreatedBy:       actorUUID(in.UserID),
 		ChangeOrderID:   changeOrderID,
 		CostCodeID:      costCodeID,
+		ProfitPercent:   repository.Float64PtrToNumeric(in.ProfitPercent),
 	})
 	if err != nil {
 		return nil, err
@@ -1158,6 +1172,9 @@ func (s *ProjectService) UpdateSubcontractor(ctx context.Context, projectID, sub
 	if strings.TrimSpace(in.Name) == "" {
 		return nil, errors.New("taşeron adı zorunludur")
 	}
+	if !validProfitPercent(in.ProfitPercent) {
+		return nil, ErrInvalidProfitPercent
+	}
 	if in.ContractAmount <= 0 {
 		return nil, ErrInvalidAmount
 	}
@@ -1198,6 +1215,8 @@ func (s *ProjectService) UpdateSubcontractor(ctx context.Context, projectID, sub
 		Notes:           strings.TrimSpace(in.Notes),
 		ProjectID:       pid,
 		CostCodeID:      costCodeID,
+		// NULL = mevcut kâr payını koru (bkz. UpdateSubcontractor sorgusu).
+		Column15: repository.Float64PtrToNumeric(in.ProfitPercent),
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

@@ -195,6 +195,7 @@ class FakeFinanceLedgerRepository implements FinanceLedgerRepository {
     required String currency,
     String companyName = '',
     String workDescription = '',
+    double? profitPercent,
   }) async {
     calls.add('createSubcontractor');
     createdSubcontractors.add({
@@ -203,6 +204,7 @@ class FakeFinanceLedgerRepository implements FinanceLedgerRepository {
       'work_description': workDescription,
       'contract_amount': contractAmount,
       'currency': currency,
+      'profit_percent': profitPercent,
     });
     final created = LegacySubcontractor(
       id: 's${subs.length + 1}',
@@ -230,6 +232,7 @@ class FakeFinanceLedgerRepository implements FinanceLedgerRepository {
     required String companyName,
     required String workDescription,
     required double contractAmount,
+    double? profitPercent,
   }) async {
     calls.add('updateSubcontractor');
     updatedSubcontractors.add({
@@ -238,6 +241,7 @@ class FakeFinanceLedgerRepository implements FinanceLedgerRepository {
       'company_name': companyName,
       'work_description': workDescription,
       'contract_amount': contractAmount,
+      'profit_percent': profitPercent,
     });
     final updated = LegacySubcontractor(
       id: existing.id,
