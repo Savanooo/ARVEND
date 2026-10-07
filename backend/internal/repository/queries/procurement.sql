@@ -221,10 +221,13 @@ RETURNING *;
 -- name: ListSupplierQuotations :many
 -- Teklif Karşılaştırma ekranının kaynağı -- tedarikçi kimliğini de
 -- (N+1'siz) getirir.
+-- project_id ZORUNLU: yalnızca org+rfq ile filtrelemek, Proje A'nın
+-- URL'sinden Proje B'nin RFQ kimliğiyle B'nin tedarikçi fiyatlarını
+-- okutuyordu (çağıran ayrıca RFQ'yu projeye göre doğrular).
 SELECT sq.*, s.code AS supplier_code, s.legal_name AS supplier_legal_name
 FROM supplier_quotations sq
 JOIN suppliers s ON s.id = sq.supplier_id
-WHERE sq.rfq_id = $1 AND sq.organization_id = $2
+WHERE sq.rfq_id = $1 AND sq.organization_id = $2 AND sq.project_id = $3
 ORDER BY sq.total ASC;
 
 -- name: GetSupplierQuotation :one
@@ -278,7 +281,7 @@ SELECT qi.*, sq.supplier_id, s.code AS supplier_code, s.legal_name AS supplier_l
 FROM quotation_items qi
 JOIN supplier_quotations sq ON sq.id = qi.quotation_id
 JOIN suppliers s ON s.id = sq.supplier_id
-WHERE sq.rfq_id = $1 AND sq.organization_id = $2;
+WHERE sq.rfq_id = $1 AND sq.organization_id = $2 AND sq.project_id = $3;
 
 -- ============ Purchase Order ============
 

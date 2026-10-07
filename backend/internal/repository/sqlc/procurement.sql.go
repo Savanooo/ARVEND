@@ -1798,12 +1798,13 @@ SELECT qi.id, qi.organization_id, qi.project_id, qi.quotation_id, qi.rfq_item_id
 FROM quotation_items qi
 JOIN supplier_quotations sq ON sq.id = qi.quotation_id
 JOIN suppliers s ON s.id = sq.supplier_id
-WHERE sq.rfq_id = $1 AND sq.organization_id = $2
+WHERE sq.rfq_id = $1 AND sq.organization_id = $2 AND sq.project_id = $3
 `
 
 type ListQuotationItemsForRFQParams struct {
 	RfqID          pgtype.UUID `json:"rfq_id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
 type ListQuotationItemsForRFQRow struct {
@@ -1826,7 +1827,7 @@ type ListQuotationItemsForRFQRow struct {
 // sorguda getirir (N+1 yok) -- satır=rfq_item, sütun=tedarikçi eşlemesi
 // Go tarafında gruplanır.
 func (q *Queries) ListQuotationItemsForRFQ(ctx context.Context, arg ListQuotationItemsForRFQParams) ([]ListQuotationItemsForRFQRow, error) {
-	rows, err := q.db.Query(ctx, listQuotationItemsForRFQ, arg.RfqID, arg.OrganizationID)
+	rows, err := q.db.Query(ctx, listQuotationItemsForRFQ, arg.RfqID, arg.OrganizationID, arg.ProjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -1994,13 +1995,14 @@ const listSupplierQuotations = `-- name: ListSupplierQuotations :many
 SELECT sq.id, sq.organization_id, sq.project_id, sq.rfq_id, sq.supplier_id, sq.quotation_number, sq.quotation_date, sq.valid_until, sq.currency, sq.subtotal, sq.discount, sq.tax_rate, sq.tax, sq.total, sq.delivery_days, sq.payment_terms, sq.notes, sq.created_by, sq.created_at, sq.updated_at, s.code AS supplier_code, s.legal_name AS supplier_legal_name
 FROM supplier_quotations sq
 JOIN suppliers s ON s.id = sq.supplier_id
-WHERE sq.rfq_id = $1 AND sq.organization_id = $2
+WHERE sq.rfq_id = $1 AND sq.organization_id = $2 AND sq.project_id = $3
 ORDER BY sq.total ASC
 `
 
 type ListSupplierQuotationsParams struct {
 	RfqID          pgtype.UUID `json:"rfq_id"`
 	OrganizationID pgtype.UUID `json:"organization_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
 }
 
 type ListSupplierQuotationsRow struct {
@@ -2030,8 +2032,11 @@ type ListSupplierQuotationsRow struct {
 
 // Teklif Karşılaştırma ekranının kaynağı -- tedarikçi kimliğini de
 // (N+1'siz) getirir.
+// project_id ZORUNLU: yalnızca org+rfq ile filtrelemek, Proje A'nın
+// URL'sinden Proje B'nin RFQ kimliğiyle B'nin tedarikçi fiyatlarını
+// okutuyordu (çağıran ayrıca RFQ'yu projeye göre doğrular).
 func (q *Queries) ListSupplierQuotations(ctx context.Context, arg ListSupplierQuotationsParams) ([]ListSupplierQuotationsRow, error) {
-	rows, err := q.db.Query(ctx, listSupplierQuotations, arg.RfqID, arg.OrganizationID)
+	rows, err := q.db.Query(ctx, listSupplierQuotations, arg.RfqID, arg.OrganizationID, arg.ProjectID)
 	if err != nil {
 		return nil, err
 	}

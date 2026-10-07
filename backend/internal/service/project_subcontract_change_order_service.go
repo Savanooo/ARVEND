@@ -286,6 +286,14 @@ func (s *ProjectService) SubmitSubcontractChangeOrder(ctx context.Context, proje
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	// Değişiklik önce URL'deki projeye göre doğrulanır (kalemleri yalnızca
+	// change_order_id ile okunur).
+	if _, err := txq.GetSubcontractChangeOrderForUpdate(ctx, sqlc.GetSubcontractChangeOrderForUpdateParams{ID: id, OrganizationID: orgID, ProjectID: pid}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
 	items, err := txq.ListSubcontractChangeOrderItems(ctx, id)
 	if err != nil {
 		return nil, err

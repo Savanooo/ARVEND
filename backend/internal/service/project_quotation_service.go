@@ -177,16 +177,21 @@ func (s *ProjectService) GetQuotation(ctx context.Context, projectID, quotationI
 }
 
 func (s *ProjectService) ListQuotations(ctx context.Context, projectID, rfqID, organizationID string) ([]repository.SupplierQuotationDetailed, error) {
+	// RFQ önce URL'deki projeye göre doğrulanır: önceden pid hiç
+	// kullanılmıyordu ve Proje A'ya üye bir kullanıcı, Proje B'nin RFQ
+	// kimliğiyle B'nin tedarikçi tekliflerini (fiyatlarını) okuyabiliyordu.
+	if _, err := s.GetRFQ(ctx, projectID, rfqID, organizationID); err != nil {
+		return nil, err
+	}
 	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
 		return nil, err
 	}
-	_ = pid
 	rid, err := repository.StringToUUID(rfqID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	rows, err := s.q.ListSupplierQuotations(ctx, sqlc.ListSupplierQuotationsParams{RfqID: rid, OrganizationID: orgID})
+	rows, err := s.q.ListSupplierQuotations(ctx, sqlc.ListSupplierQuotationsParams{RfqID: rid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		return nil, err
 	}
@@ -359,11 +364,10 @@ func (s *ProjectService) GetBidComparison(ctx context.Context, projectID, rfqID,
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	cellRows, err := s.q.ListQuotationItemsForRFQ(ctx, sqlc.ListQuotationItemsForRFQParams{RfqID: rid, OrganizationID: orgID})
+	cellRows, err := s.q.ListQuotationItemsForRFQ(ctx, sqlc.ListQuotationItemsForRFQParams{RfqID: rid, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {
 		return nil, err
 	}
-	_ = pid
 
 	rowsByItem := make(map[string]*BidComparisonRow, len(items))
 	rows := make([]BidComparisonRow, len(items))

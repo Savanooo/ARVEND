@@ -1093,4 +1093,29 @@ func TestProcurement(t *testing.T) {
 			t.Fatalf("manuel taahhüt elle iptal edilebilmeli: %v", err)
 		}
 	})
+
+	t.Run("42_quotations_not_readable_through_another_project", func(t *testing.T) {
+		pA := newProject(t, orgA.ID, 100000)
+		pB := newProject(t, orgA.ID, 100000)
+		cc := newCostCode(t, orgA.ID, "XPQ-CC")
+		pr := newApprovedPR(t, orgA.ID, pB.ID, cc.ID)
+		s := newSupplier(t, orgA.ID, "XPQ-S")
+		rfq := newIssuedRFQ(t, orgA.ID, pB.ID, pr, []string{s.ID})
+		items, _ := projectSvc.ListRFQItems(ctx, pB.ID, rfq.ID, orgA.ID)
+		if _, err := projectSvc.CreateQuotation(ctx, pB.ID, rfq.ID, orgA.ID, service.QuotationInput{
+			SupplierID: s.ID, QuotationDate: time.Now(),
+			Items: []service.QuotationItemInput{{RFQItemID: items[0].ID, Quantity: 10, UnitPrice: 99}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if list, err := projectSvc.ListQuotations(ctx, pB.ID, rfq.ID, orgA.ID); err != nil || len(list) != 1 {
+			t.Fatalf("kendi projesinden teklif okunabilmeli: %v / %d", err, len(list))
+		}
+		if list, err := projectSvc.ListQuotations(ctx, pA.ID, rfq.ID, orgA.ID); !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("Proje A URL'sinden B'nin teklifleri okunamamalı (ErrNotFound), geldi: %v / %d kayıt", err, len(list))
+		}
+		if _, err := projectSvc.GetBidComparison(ctx, pA.ID, rfq.ID, orgA.ID); !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("Proje A URL'sinden B'nin karşılaştırması okunamamalı, geldi: %v", err)
+		}
+	})
 }

@@ -333,6 +333,15 @@ func (s *ProjectService) SubmitProgressClaim(ctx context.Context, projectID, cla
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	// Hakediş önce URL'deki projeye göre doğrulanır; kalemleri yalnızca
+	// claim id ile okunduğu için aksi halde başka projenin hakedişi
+	// hakkında bilgi (kalemi var/yok) sızardı.
+	if _, err := txq.GetSubcontractProgressClaimForUpdate(ctx, sqlc.GetSubcontractProgressClaimForUpdateParams{ID: id, OrganizationID: orgID, ProjectID: pid}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
 	items, err := txq.ListSubcontractProgressClaimItemsDetailed(ctx, id)
 	if err != nil {
 		return nil, err
