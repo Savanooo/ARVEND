@@ -148,8 +148,9 @@ final projectOperationsSummaryProvider = FutureProvider.autoDispose.family<Proje
   (ref, id) => ref.watch(projectsRepositoryProvider).operationsSummary(id),
 );
 
+/// Aşama sırasıyla (önce -> süreç -> sonra; bkz. sortPhotosByStage).
 final projectPhotosProvider = FutureProvider.autoDispose.family<List<ProjectPhoto>, String>(
-  (ref, id) => ref.watch(projectsRepositoryProvider).photos(id),
+  (ref, id) async => sortPhotosByStage(await ref.watch(projectsRepositoryProvider).photos(id)),
 );
 
 final projectFilesProvider = FutureProvider.autoDispose.family<List<ProjectFile>, String>(

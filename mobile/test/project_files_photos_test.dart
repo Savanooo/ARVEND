@@ -93,6 +93,33 @@ void main() {
         expect(StatusRegistry.fileCategory.containsKey(c), isTrue, reason: 'missing badge for category "$c"');
       }
     });
+
+    test('photos are ordered before -> progress -> after (backend sorts stages alphabetically), date order kept', () async {
+      // Backend sırası: stage ASC (alfabetik), sonra tarih DESC.
+      final adapter = FakeHttpClientAdapter(script: {
+        '/projects/p1/photos': [
+          (
+            status: 200,
+            body: {
+              'photos': [
+                _photoJson(id: 'after-new', stage: 'after'),
+                _photoJson(id: 'after-old', stage: 'after'),
+                _photoJson(id: 'before-1', stage: 'before'),
+                _photoJson(id: 'progress-new', stage: 'progress'),
+                _photoJson(id: 'progress-old', stage: 'progress'),
+              ],
+            },
+          ),
+        ],
+      });
+      final client = await buildFakeApiClient(adapter);
+      final container = ProviderContainer(overrides: [apiClientProvider.overrideWithValue(client)]);
+      addTearDown(container.dispose);
+
+      final photos = await container.read(projectPhotosProvider('p1').future);
+
+      expect(photos.map((p) => p.id), ['before-1', 'progress-new', 'progress-old', 'after-new', 'after-old']);
+    });
   });
 
   group('client-side size pre-check (UX only, backend 25 MiB cap is authoritative)', () {
