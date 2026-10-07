@@ -40,27 +40,49 @@ export function ProfitabilitySection({ summary }: { summary: FinancialSummary })
         <div className="my-1 border-t border-border" />
         <Line label="Gerçekleşen maliyet" value={formatMoney(summary.realized_cost, c)} />
         <Line
-          label={`Gerçekleşen brüt kâr (%${summary.realized_margin_percent})`}
+          label={`Gerçekleşen kâr, KDV dahil (%${summary.realized_margin_percent})`}
           value={formatMoney(summary.realized_gross_profit, c)}
-          strong
         />
+        {summary.contract_vat_known && (
+          <Line
+            label={`Gerçekleşen kâr, KDV hariç (%${summary.realized_margin_percent_net})`}
+            value={formatMoney(summary.realized_gross_profit_net, c)}
+            strong
+          />
+        )}
+        {summary.contract_vat_known && (
+          <div className="text-xs text-text-muted">
+            KDV hariç kâr = KDV hariç proje bedeli ({formatMoney(summary.current_contract_value_net, c)}) − maliyet.
+            Masraflar girildiği gibi alınır.
+          </div>
+        )}
       </div>
 
       <div className="flex flex-1 flex-col gap-1.5">
         <div className="text-xs font-semibold uppercase tracking-widest text-text-muted">
-          Taahhüt dahil (tahmini)
+          {summary.forecast_basis === "budget" ? "Bütçeye göre (tahmini)" : "Taahhüt dahil (tahmini)"}
         </div>
-        <Line
-          label="Gerçekleşen maliyetin üzerine taşeron kalan taahhüdü"
-          value={`+ ${formatMoney(sub.remaining, c)}`}
-        />
+        {summary.forecast_basis === "budget" ? (
+          <Line label="Maliyet Kontrolü EAC + eski taşeron kayıtları" value={formatMoney(summary.forecast_cost, c)} />
+        ) : (
+          <Line
+            label="Gerçekleşen maliyetin üzerine taşeron kalan taahhüdü"
+            value={`+ ${formatMoney(sub.remaining, c)}`}
+          />
+        )}
         <div className="my-1 border-t border-border" />
-        <Line label="Tahmini maliyet" value={formatMoney(summary.committed_cost, c)} />
+        <Line label="Tahmini maliyet" value={formatMoney(summary.forecast_cost, c)} />
         <Line
-          label={`Tahmini brüt kâr (%${summary.estimated_margin_percent})`}
-          value={formatMoney(summary.estimated_gross_profit, c)}
-          strong
+          label={`Tahmini kâr, KDV dahil (%${summary.forecast_margin_percent})`}
+          value={formatMoney(summary.forecast_profit, c)}
         />
+        {summary.contract_vat_known && (
+          <Line
+            label={`Tahmini kâr, KDV hariç (%${summary.forecast_margin_percent_net})`}
+            value={formatMoney(summary.forecast_profit_net, c)}
+            strong
+          />
+        )}
       </div>
     </div>
   );

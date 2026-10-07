@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
+	"math"
 	"strings"
 	"time"
 
@@ -1424,6 +1426,13 @@ func (s *ProjectService) VoidSubcontractorPayment(ctx context.Context, projectID
 
 // FinancialSummary, projenin tüm finans tablosunu TEK sorguda üretir.
 func (s *ProjectService) FinancialSummary(ctx context.Context, projectID, organizationID string) (*domain.ProjectFinancialSummary, error) {
+	return s.FinancialSummaryForViewer(ctx, projectID, organizationID, true)
+}
+
+// FinancialSummaryForViewer: canSeeCostControl=false ise (projects.
+// cost_control.read yok) tahmin bütçeye (EAC) hiç bakmaz, taahhüt bazlı
+// kalır -- bütçe bazlı rakamlar ayrı bir izinle korunuyor.
+func (s *ProjectService) FinancialSummaryForViewer(ctx context.Context, projectID, organizationID string, canSeeCostControl bool) (*domain.ProjectFinancialSummary, error) {
 	pid, err := repository.StringToUUID(projectID)
 	if err != nil {
 		return nil, domain.ErrNotFound
@@ -1440,7 +1449,51 @@ func (s *ProjectService) FinancialSummary(ctx context.Context, projectID, organi
 		return nil, err
 	}
 	out := repository.ToDomainFinancialSummary(row)
+	applyNetFigures(&out)
+
+	// "Tahmini" bölümü: bütçe varsa Maliyet Kontrolü'nün EAC'si, yoksa
+	// taahhüt bazlı tahmin. Maliyet Kontrolü okunamazsa özet yine döner
+	// (taahhüt bazlı) -- finans özeti bütçe yüzünden düşmemeli.
+	var cc *domain.CostControlSummary
+	if canSeeCostControl {
+		if c, err := s.CostControlSummary(ctx, projectID, organizationID); err == nil {
+			cc = c
+		} else {
+			log.Printf("finans özeti: maliyet kontrolü okunamadı (proje %s): %v", projectID, err)
+		}
+	}
+	applyForecast(&out, cc)
 	return &out, nil
+}
+
+// applyNetFigures: KDV hariç bedel, kâr ve marjlar. Maliyetler girildiği
+// gibi kullanılır (masraflarda KDV ayrı tutulmuyor).
+func applyNetFigures(s *domain.ProjectFinancialSummary) {
+	s.CurrentContractValueNet = math.Round((s.CurrentContractValue-s.ContractVATAmount)*100) / 100
+	s.RealizedGrossProfitNet = math.Round((s.CurrentContractValueNet-s.RealizedCost)*100) / 100
+	s.EstimatedGrossProfitNet = math.Round((s.CurrentContractValueNet-s.CommittedCost)*100) / 100
+	s.RealizedMarginPercentNet = domain.MarginPercent(s.RealizedGrossProfitNet, s.CurrentContractValueNet)
+	s.EstimatedMarginPercentNet = domain.MarginPercent(s.EstimatedGrossProfitNet, s.CurrentContractValueNet)
+}
+
+// applyForecast: "Tahmini" bölümünün kaynağı. Her yeni projeye boş bir
+// bütçe otomatik açıldığı için HasBudget tek başına "bütçe girildi" demek
+// değildir: bütçe tahmini (EAC) yalnızca bütçe kalemleri gerçekten girilmişse
+// (RevisedBudget > 0) kullanılır. Eski (legacy) taşeron kayıtları Maliyet
+// Kontrolü'ne hiç girmez; EAC'ye ayrıca eklenir -- önceden mobil bütçeli
+// her projede EAC'yi kullanıyor, bu taşeron ödemelerini görmüyordu.
+func applyForecast(s *domain.ProjectFinancialSummary, cc *domain.CostControlSummary) {
+	if cc != nil && cc.HasBudget && cc.RevisedBudget > 0 {
+		s.ForecastBasis = domain.ForecastBasisBudget
+		s.ForecastCost = math.Round((cc.EACTotal+s.SubcontractorPaid+s.SubcontractorRemaining)*100) / 100
+	} else {
+		s.ForecastBasis = domain.ForecastBasisCommitments
+		s.ForecastCost = s.CommittedCost
+	}
+	s.ForecastProfit = math.Round((s.CurrentContractValue-s.ForecastCost)*100) / 100
+	s.ForecastProfitNet = math.Round((s.CurrentContractValueNet-s.ForecastCost)*100) / 100
+	s.ForecastMarginPercent = domain.MarginPercent(s.ForecastProfit, s.CurrentContractValue)
+	s.ForecastMarginPercentNet = domain.MarginPercent(s.ForecastProfitNet, s.CurrentContractValueNet)
 }
 
 func (s *ProjectService) ListProjectEvents(ctx context.Context, projectID, organizationID string) ([]domain.ProjectEvent, error) {

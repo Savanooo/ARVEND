@@ -278,8 +278,15 @@ RETURNING *;
 -- ödemesi anlamlı değildir (GetSubcontractCurrentValue İLE AYNI ilke).
 -- name: GetProjectFinancialSummary :one
 WITH proj AS (
-    SELECT pr.contract_amount, pr.currency FROM projects pr
+    SELECT pr.contract_amount, pr.currency, pr.source_revision_id FROM projects pr
     WHERE pr.id = $1 AND pr.organization_id = $2
+),
+base_vat AS (
+    -- Ana sözleşmenin KDV'si, projenin açıldığı teklif revizyonundan
+    -- (contract_amount = o revizyonun KDV DAHİL genel toplamı). Tekliften
+    -- açılmamış (içe aktarılmış) projede KDV bilinmez: known = false.
+    SELECT COALESCE(r.vat_amount, 0)::numeric(18,2) AS total, (r.id IS NOT NULL) AS known
+    FROM proj LEFT JOIN offer_revisions r ON r.id = proj.source_revision_id
 ),
 coll AS (
     SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
@@ -392,7 +399,11 @@ co_effect AS (
         COALESCE(sum(grand_total) FILTER (WHERE change_type = 'addition' AND status IN ('draft','sent')), 0)::numeric(18,2)
             AS pending_additions,
         COALESCE(sum(grand_total) FILTER (WHERE change_type = 'deduction' AND status IN ('draft','sent')), 0)::numeric(18,2)
-            AS pending_deductions
+            AS pending_deductions,
+        COALESCE(sum(vat_amount) FILTER (WHERE change_type = 'addition' AND status = 'approved'), 0)::numeric(18,2)
+            AS approved_vat_additions,
+        COALESCE(sum(vat_amount) FILTER (WHERE change_type = 'deduction' AND status = 'approved'), 0)::numeric(18,2)
+            AS approved_vat_deductions
     FROM project_change_orders WHERE project_id = $1 AND organization_id = $2
 ),
 current_value AS (
@@ -408,6 +419,12 @@ SELECT
     current_value.total AS current_contract_value,
     co_effect.pending_additions,
     co_effect.pending_deductions,
+    -- Güncel proje bedelinin içindeki KDV (ana sözleşme + onaylı ek işler -
+    -- eksiltmeler). KDV hariç bedel ve kâr Go'da bundan türetilir
+    -- (ProjectService.FinancialSummary).
+    (base_vat.total + co_effect.approved_vat_additions - co_effect.approved_vat_deductions)::numeric(18,2)
+        AS contract_vat_amount,
+    base_vat.known::boolean AS contract_vat_known,
     (current_value.total + co_effect.pending_additions - co_effect.pending_deductions)::numeric(18,2)
         AS potential_contract_value,
     planned.total AS planned_collections,
@@ -444,7 +461,7 @@ SELECT
          THEN GREATEST(-99999999.99, LEAST(99999999.99,
               round((current_value.total - (expense_total.total + subpay.total + newsubpay.total + subremaining.total + newsubremaining.total)) * 100 / current_value.total, 2)))
          ELSE 0 END::numeric(10,2) AS estimated_margin_percent
-FROM proj, coll, planned, expense_total, subpay, subcommit, subremaining, newsubpay, newsubremaining, inv, co_effect, current_value;
+FROM proj, base_vat, coll, planned, expense_total, subpay, subcommit, subremaining, newsubpay, newsubremaining, inv, co_effect, current_value;
 
 -- ============ Proje Olayları (audit) ============
 

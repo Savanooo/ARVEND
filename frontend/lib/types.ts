@@ -784,6 +784,24 @@ export interface FinancialSummary {
   estimated_gross_profit: number;
   realized_margin_percent: number;
   estimated_margin_percent: number;
+  // Yukarıdakiler KDV DAHİL. KDV hariç karşılıklar (sözleşmenin KDV'si
+  // teklif revizyonundan; contract_vat_known=false ise teklifsiz projedir,
+  // net değerler KDV dahille aynıdır).
+  contract_vat_amount: number;
+  contract_vat_known: boolean;
+  current_contract_value_net: number;
+  realized_gross_profit_net: number;
+  estimated_gross_profit_net: number;
+  realized_margin_percent_net: number;
+  estimated_margin_percent_net: number;
+  // "Tahmini" bölümünün tek kaynağı (mobil de aynısını gösterir):
+  // budget = Maliyet Kontrolü EAC (+ eski taşeron), commitments = taahhüt bazlı.
+  forecast_basis: "budget" | "commitments";
+  forecast_cost: number;
+  forecast_profit: number;
+  forecast_profit_net: number;
+  forecast_margin_percent: number;
+  forecast_margin_percent_net: number;
 }
 
 export interface ProjectEvent {

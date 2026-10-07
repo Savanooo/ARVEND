@@ -316,6 +316,46 @@ type ProjectFinancialSummary struct {
 	EstimatedGrossProfit   float64
 	RealizedMarginPercent  float64
 	EstimatedMarginPercent float64
+
+	// KDV: yukarıdaki bedel ve kârlar KDV DAHİLDİR (sözleşme bedeli teklifin
+	// KDV dahil genel toplamı; maliyetler girildiği gibi). Ürün sahibi kararı
+	// (2026-10-06): KDV hariç kâr da gösterilir. ContractVATKnown=false ise
+	// proje tekliften açılmamıştır, KDV bilinmez ve "net" alanlar KDV dahil
+	// değerlerle aynıdır.
+	ContractVATAmount         float64
+	ContractVATKnown          bool
+	CurrentContractValueNet   float64
+	RealizedGrossProfitNet    float64
+	EstimatedGrossProfitNet   float64
+	RealizedMarginPercentNet  float64
+	EstimatedMarginPercentNet float64
+
+	// Forecast*: "Tahmini" bölümünün TEK kaynağı -- bütçe varsa Maliyet
+	// Kontrolü'nün EAC'si (ForecastBasis = "budget"), yoksa taahhüt bazlı
+	// tahmin ("commitments"). Web ve mobil aynı rakamı göstersin diye seçim
+	// sunucuda yapılır (önceden yalnızca mobil seçiyordu).
+	ForecastBasis            string
+	ForecastCost             float64
+	ForecastProfit           float64
+	ForecastProfitNet        float64
+	ForecastMarginPercent    float64
+	ForecastMarginPercentNet float64
+}
+
+// Tahmin kaynakları (ProjectFinancialSummary.ForecastBasis).
+const (
+	ForecastBasisBudget      = "budget"
+	ForecastBasisCommitments = "commitments"
+)
+
+// MarginPercent: kâr / bedel × 100, kuruş hassasiyetinde; bedel <= 0 ise 0.
+// SQL'deki marj ile AYNI bant (±99.999.999,99) -- veri hatasında taşmasın.
+func MarginPercent(profit, base float64) float64 {
+	if base <= 0 {
+		return 0
+	}
+	m := math.Round(profit*100/base*100) / 100
+	return math.Max(-99999999.99, math.Min(99999999.99, m))
 }
 
 // OverCollected, müşterinin sözleşme bedelinden fazla ödeme yaptığı

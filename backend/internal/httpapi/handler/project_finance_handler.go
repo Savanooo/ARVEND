@@ -723,11 +723,30 @@ type financialSummaryResponse struct {
 	EstimatedGrossProfit         float64 `json:"estimated_gross_profit"`
 	RealizedMarginPercent        float64 `json:"realized_margin_percent"`
 	EstimatedMarginPercent       float64 `json:"estimated_margin_percent"`
+
+	// KDV hariç karşılıklar (bkz. domain.ProjectFinancialSummary).
+	ContractVATAmount         float64 `json:"contract_vat_amount"`
+	ContractVATKnown          bool    `json:"contract_vat_known"`
+	CurrentContractValueNet   float64 `json:"current_contract_value_net"`
+	RealizedGrossProfitNet    float64 `json:"realized_gross_profit_net"`
+	EstimatedGrossProfitNet   float64 `json:"estimated_gross_profit_net"`
+	RealizedMarginPercentNet  float64 `json:"realized_margin_percent_net"`
+	EstimatedMarginPercentNet float64 `json:"estimated_margin_percent_net"`
+
+	// "Tahmini" bölümünün tek kaynağı: forecast_basis = budget (EAC) |
+	// commitments (taahhüt bazlı).
+	ForecastBasis            string  `json:"forecast_basis"`
+	ForecastCost             float64 `json:"forecast_cost"`
+	ForecastProfit           float64 `json:"forecast_profit"`
+	ForecastProfitNet        float64 `json:"forecast_profit_net"`
+	ForecastMarginPercent    float64 `json:"forecast_margin_percent"`
+	ForecastMarginPercentNet float64 `json:"forecast_margin_percent_net"`
 }
 
 func (h *ProjectHandler) FinancialSummary(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	s, err := h.svc.FinancialSummary(r.Context(), chi.URLParam(r, "id"), orgID)
+	s, err := h.svc.FinancialSummaryForViewer(r.Context(), chi.URLParam(r, "id"), orgID,
+		hasOfferPermission(r, domain.PermProjectsCostControlRead))
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -747,6 +766,13 @@ func (h *ProjectHandler) FinancialSummary(w http.ResponseWriter, r *http.Request
 		RealizedCost: s.RealizedCost, CommittedCost: s.CommittedCost,
 		RealizedGrossProfit: s.RealizedGrossProfit, EstimatedGrossProfit: s.EstimatedGrossProfit,
 		RealizedMarginPercent: s.RealizedMarginPercent, EstimatedMarginPercent: s.EstimatedMarginPercent,
+		ContractVATAmount: s.ContractVATAmount, ContractVATKnown: s.ContractVATKnown,
+		CurrentContractValueNet: s.CurrentContractValueNet,
+		RealizedGrossProfitNet:  s.RealizedGrossProfitNet, EstimatedGrossProfitNet: s.EstimatedGrossProfitNet,
+		RealizedMarginPercentNet: s.RealizedMarginPercentNet, EstimatedMarginPercentNet: s.EstimatedMarginPercentNet,
+		ForecastBasis: s.ForecastBasis, ForecastCost: s.ForecastCost,
+		ForecastProfit: s.ForecastProfit, ForecastProfitNet: s.ForecastProfitNet,
+		ForecastMarginPercent: s.ForecastMarginPercent, ForecastMarginPercentNet: s.ForecastMarginPercentNet,
 	})
 }
 

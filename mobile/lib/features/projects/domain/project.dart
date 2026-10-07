@@ -104,6 +104,25 @@ class FinancialSummary {
   final double estimatedMarginPercent;
   final String currency;
 
+  /// Yukarıdaki bedel ve kârlar KDV DAHİL. KDV hariç karşılıklar sunucuda
+  /// hesaplanır (web ile aynı rakam); [contractVatKnown] false ise proje
+  /// tekliften açılmamıştır, KDV bilinmez ve net değerler KDV dahille aynıdır.
+  final bool contractVatKnown;
+  final double contractVatAmount;
+  final double currentContractValueNet;
+  final double realizedGrossProfitNet;
+  final double realizedMarginPercentNet;
+
+  /// "Tahmini" bölümünün TEK kaynağı -- seçimi sunucu yapar:
+  /// `budget` = Maliyet Kontrolü EAC (+ eski taşeron), `commitments` =
+  /// taahhüt bazlı. Web de aynısını gösterir.
+  final String forecastBasis;
+  final double forecastCost;
+  final double forecastProfit;
+  final double forecastProfitNet;
+  final double forecastMarginPercent;
+  final double forecastMarginPercentNet;
+
   const FinancialSummary({
     required this.currentContractValue,
     required this.collectedAmount,
@@ -118,7 +137,27 @@ class FinancialSummary {
     required this.realizedMarginPercent,
     required this.estimatedMarginPercent,
     required this.currency,
-  });
+    this.contractVatKnown = false,
+    this.contractVatAmount = 0,
+    double? currentContractValueNet,
+    double? realizedGrossProfitNet,
+    double? realizedMarginPercentNet,
+    this.forecastBasis = 'commitments',
+    double? forecastCost,
+    double? forecastProfit,
+    double? forecastProfitNet,
+    double? forecastMarginPercent,
+    double? forecastMarginPercentNet,
+  })  : currentContractValueNet = currentContractValueNet ?? currentContractValue,
+        realizedGrossProfitNet = realizedGrossProfitNet ?? realizedGrossProfit,
+        realizedMarginPercentNet = realizedMarginPercentNet ?? realizedMarginPercent,
+        forecastCost = forecastCost ?? committedCost,
+        forecastProfit = forecastProfit ?? estimatedGrossProfit,
+        forecastProfitNet = forecastProfitNet ?? estimatedGrossProfit,
+        forecastMarginPercent = forecastMarginPercent ?? estimatedMarginPercent,
+        forecastMarginPercentNet = forecastMarginPercentNet ?? estimatedMarginPercent;
+
+  bool get forecastFromBudget => forecastBasis == 'budget';
 
   factory FinancialSummary.fromJson(Map<String, dynamic> json) => FinancialSummary(
         currentContractValue: (json['current_contract_value'] as num).toDouble(),
@@ -134,6 +173,18 @@ class FinancialSummary {
         realizedMarginPercent: (json['realized_margin_percent'] as num?)?.toDouble() ?? 0,
         estimatedMarginPercent: (json['estimated_margin_percent'] as num?)?.toDouble() ?? 0,
         currency: json['currency'] as String? ?? 'TRY',
+        // Yeni alanlar eski sunucuda yok: yoksa KDV dahil değerlere düşülür.
+        contractVatKnown: json['contract_vat_known'] as bool? ?? false,
+        contractVatAmount: (json['contract_vat_amount'] as num?)?.toDouble() ?? 0,
+        currentContractValueNet: (json['current_contract_value_net'] as num?)?.toDouble(),
+        realizedGrossProfitNet: (json['realized_gross_profit_net'] as num?)?.toDouble(),
+        realizedMarginPercentNet: (json['realized_margin_percent_net'] as num?)?.toDouble(),
+        forecastBasis: json['forecast_basis'] as String? ?? 'commitments',
+        forecastCost: (json['forecast_cost'] as num?)?.toDouble(),
+        forecastProfit: (json['forecast_profit'] as num?)?.toDouble(),
+        forecastProfitNet: (json['forecast_profit_net'] as num?)?.toDouble(),
+        forecastMarginPercent: (json['forecast_margin_percent'] as num?)?.toDouble(),
+        forecastMarginPercentNet: (json['forecast_margin_percent_net'] as num?)?.toDouble(),
       );
 }
 

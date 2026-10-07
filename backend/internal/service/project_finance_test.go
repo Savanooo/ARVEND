@@ -425,6 +425,68 @@ func TestProjectFinance(t *testing.T) {
 		}
 	})
 
+	t.Run("10e_profit_with_and_without_vat", func(t *testing.T) {
+		// Ürün sahibi kararı (2026-10-06): kâr hem KDV dahil hem KDV hariç.
+		// KDV %20: sözleşme 1.200.000 (KDV dahil) = 1.000.000 + 200.000 KDV.
+		o, err := offerSvc.Create(ctx, service.CreateOfferInput{
+			OrganizationID: orgA.ID, CustomerName: "KDV Müşteri", VatRate: ptrFloat(20),
+			Items: []service.OfferItemInput{{ProductName: "İş", Quantity: 1, UnitPrice: 1000000}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := offerSvc.UpdateStatus(ctx, o.ID, orgA.ID, domain.OfferStatusGonderildi, ""); err != nil {
+			t.Fatal(err)
+		}
+		link, err := offerSvc.CreateShareLink(ctx, o.ID, orgA.ID, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := offerSvc.RespondByShareLinkToken(ctx, link.Token, domain.OfferStatusKabulEdildi, "", ""); err != nil {
+			t.Fatal(err)
+		}
+		p, err := projectSvc.CreateFromOffer(ctx, o.ID, orgA.ID, service.CreateProjectInput{Name: "KDV Projesi"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// 900.000 maliyet (taşeron ödemesi -- masraf onay akışından bağımsız).
+		sub, err := projectSvc.CreateSubcontractor(ctx, p.ID, orgA.ID, service.SubcontractorInput{
+			Name: "Ana Taşeron", ContractAmount: 900000, Currency: "TRY",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.CreateSubcontractorPayment(ctx, p.ID, sub.ID, orgA.ID, service.SubcontractorPaymentInput{
+			Amount: 900000, Currency: "TRY", PaidDate: today,
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		fs, err := projectSvc.FinancialSummary(ctx, p.ID, orgA.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fs.CurrentContractValue != 1200000 || fs.ContractVATAmount != 200000 || !fs.ContractVATKnown {
+			t.Fatalf("bedel/KDV: %v %v %v", fs.CurrentContractValue, fs.ContractVATAmount, fs.ContractVATKnown)
+		}
+		if fs.CurrentContractValueNet != 1000000 {
+			t.Errorf("KDV hariç bedel: %v", fs.CurrentContractValueNet)
+		}
+		if fs.RealizedGrossProfit != 300000 || fs.RealizedGrossProfitNet != 100000 {
+			t.Errorf("kâr KDV dahil/hariç: %v / %v", fs.RealizedGrossProfit, fs.RealizedGrossProfitNet)
+		}
+		if fs.RealizedMarginPercent != 25 || fs.RealizedMarginPercentNet != 10 {
+			t.Errorf("marj KDV dahil/hariç: %v / %v", fs.RealizedMarginPercent, fs.RealizedMarginPercentNet)
+		}
+		// Bütçe yok: tahmin taahhüt bazlı ve web/mobil için tek kaynak.
+		if fs.ForecastBasis != domain.ForecastBasisCommitments || fs.ForecastCost != fs.CommittedCost {
+			t.Errorf("tahmin kaynağı: %v %v/%v", fs.ForecastBasis, fs.ForecastCost, fs.CommittedCost)
+		}
+		if fs.ForecastProfit != 300000 || fs.ForecastProfitNet != 100000 || fs.ForecastMarginPercentNet != 10 {
+			t.Errorf("tahmini kâr: %v / %v / %v", fs.ForecastProfit, fs.ForecastProfitNet, fs.ForecastMarginPercentNet)
+		}
+	})
+
 	t.Run("9_and_10_subcontractor_commitment_and_payments", func(t *testing.T) {
 		p := newProject(t, orgA.ID, 100000)
 		sub, err := projectSvc.CreateSubcontractor(ctx, p.ID, orgA.ID, service.SubcontractorInput{

@@ -57,7 +57,16 @@ export function FinanceSummary({ summary }: { summary: FinancialSummary }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Card label="Güncel Proje Bedeli" value={formatMoney(summary.current_contract_value, c)} tone="gold" />
+        <Card
+          label="Güncel Proje Bedeli"
+          value={formatMoney(summary.current_contract_value, c)}
+          tone="gold"
+          hint={
+            summary.contract_vat_known
+              ? `KDV hariç ${formatMoney(summary.current_contract_value_net, c)}`
+              : "KDV bilgisi yok (teklifsiz proje)"
+          }
+        />
         <Card
           label="Tahsil Edilen"
           value={formatMoney(summary.collected_amount, c)}
@@ -78,14 +87,24 @@ export function FinanceSummary({ summary }: { summary: FinancialSummary }) {
         />
         <Card
           label="Tahmini Maliyet"
-          value={formatMoney(summary.committed_cost, c)}
-          hint={`Taşeron kalan taahhüt: ${formatMoney(sub.remaining, c)}`}
+          value={formatMoney(summary.forecast_cost, c)}
+          hint={
+            summary.forecast_basis === "budget"
+              ? "Bütçeye göre (EAC)"
+              : `Taahhüt bazlı · taşeron kalan ${formatMoney(sub.remaining, c)}`
+          }
         />
+        {/* Kâr hem KDV hariç hem KDV dahil (ürün sahibi kararı); rakamlar
+            sunucudan, mobil ile aynı. */}
         <Card
-          label="Tahmini Kâr"
-          value={formatMoney(summary.estimated_gross_profit, c)}
-          tone={summary.estimated_gross_profit >= 0 ? "success" : "danger"}
-          hint={`Marj %${summary.estimated_margin_percent}`}
+          label={summary.contract_vat_known ? "Tahmini Kâr (KDV hariç)" : "Tahmini Kâr"}
+          value={formatMoney(summary.forecast_profit_net, c)}
+          tone={summary.forecast_profit_net >= 0 ? "success" : "danger"}
+          hint={
+            summary.contract_vat_known
+              ? `Marj %${summary.forecast_margin_percent_net} · KDV dahil ${formatMoney(summary.forecast_profit, c)}`
+              : `Marj %${summary.forecast_margin_percent}`
+          }
         />
       </div>
       {/* Potansiyel değer, GERÇEK güncel proje bedeliyle KESİNLİKLE

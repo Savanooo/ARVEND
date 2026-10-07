@@ -390,7 +390,6 @@ class _OverviewTab extends ConsumerWidget {
     final closed = isProjectClosed(project.status);
     final canCreateTask = _failOpen(user, 'projects.tasks.create') && !closed;
     final canManageFiles = _failOpen(user, 'projects.operations.manage') && !closed;
-    final canSeeCostControl = _failOpen(user, 'projects.cost_control.read');
 
     // Tamamlanmış/iptal edilmiş projede finans hareketi girilemez (backend
     // 409, web `locked`) -- hızlı işlem de gösterilmez.
@@ -399,7 +398,6 @@ class _OverviewTab extends ConsumerWidget {
     final canReadCustomers = _failOpen(user, 'customers.read');
 
     final summaryAsync = canFinance ? ref.watch(projectFinancialSummaryProvider(projectId)) : null;
-    final costControlAsync = canFinance && canSeeCostControl ? ref.watch(projectCostControlProvider(projectId)) : null;
 
     final quickActions = <QuickActionButton>[
       if (canAddLedger)
@@ -546,7 +544,7 @@ class _OverviewTab extends ConsumerWidget {
           AsyncStateView(
             value: summaryAsync,
             onRetry: () async => ref.invalidate(projectFinancialSummaryProvider(projectId)),
-            data: (context, s) => _FinancialSummaryCard(summary: s, costControl: costControlAsync?.valueOrNull),
+            data: (context, s) => _FinancialSummaryCard(summary: s),
           ),
         ],
         const SizedBox(height: AppSpacing.xl),
@@ -687,15 +685,9 @@ class _FinanceTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final summaryAsync = ref.watch(projectFinancialSummaryProvider(projectId));
-    final user = ref.watch(authControllerProvider).valueOrNull;
-    // Maliyet Kontrolü (bütçe bazlı EAC/tahmini kâr) AYRI bir izin
-    // (projects.cost_control.read) -- Finans sekmesini görebilen her
-    // kullanıcı bunu göremeyebilir; izin yoksa özet kartı yalnızca
-    // financial-summary'nin HER ZAMAN dolu olan taahhüt-bazlı tahminine
-    // (committed_cost/estimated_gross_profit) düşer, gereksiz 403 isteği
-    // atılmaz.
-    final canSeeCostControl = _failOpen(user, 'projects.cost_control.read');
-    final costControlAsync = canSeeCostControl ? ref.watch(projectCostControlProvider(projectId)) : null;
+    // Tahminin bütçe (EAC) mi taahhüt bazlı mı olacağını sunucu seçer --
+    // Maliyet Kontrolü izni (projects.cost_control.read) olmayana bütçe
+    // bazlı rakam göstermez.
 
     return RefreshIndicator(
       onRefresh: () async => invalidateProjectLedger(ref.invalidate, projectId),
@@ -706,7 +698,7 @@ class _FinanceTab extends ConsumerWidget {
           AsyncStateView(
             value: summaryAsync,
             onRetry: () async => ref.invalidate(projectFinancialSummaryProvider(projectId)),
-            data: (context, s) => _FinancialSummaryCard(summary: s, costControl: costControlAsync?.valueOrNull),
+            data: (context, s) => _FinancialSummaryCard(summary: s),
           ),
           const SizedBox(height: AppSpacing.lg),
           LedgerLockedNotice(project: project),
@@ -727,22 +719,17 @@ class _FinanceTab extends ConsumerWidget {
 /// yanıltıcı rakamda birleştirilmez (bkz. iş isteği). Backend'in hesapladığı
 /// hiçbir rakam burada YENİDEN hesaplanmaz.
 class _FinancialSummaryCard extends StatelessWidget {
-  const _FinancialSummaryCard({required this.summary, required this.costControl});
+  const _FinancialSummaryCard({required this.summary});
   final FinancialSummary summary;
-  final ({CostControlSummary summary, List<CostControlLine> lines})? costControl;
 
   @override
   Widget build(BuildContext context) {
     final s = summary;
-    final cc = costControl?.summary;
-    final hasForecastBudget = cc != null && cc.hasBudget;
-    // Bütçe varsa EAC/tahmini-kâr/marj bütçe-bazlı (cost-control) kaynaktan;
-    // yoksa financial-summary'nin HER ZAMAN dolu olan taahhüt-bazlı
-    // (legacy taşeron ödemesi + gider) tahmininden -- iki kaynak asla
-    // TOPLANMAZ, yalnızca biri seçilir.
-    final forecastCost = hasForecastBudget ? cc.eac : s.committedCost;
-    final forecastProfit = hasForecastBudget ? cc.forecastProfit : s.estimatedGrossProfit;
-    final forecastMargin = hasForecastBudget ? cc.forecastMarginPercent : s.estimatedMarginPercent;
+    // Kâr hem KDV hariç hem KDV dahil (ürün sahibi kararı, 2026-10-06).
+    // Tahmini bölümün kaynağını (bütçe EAC / taahhüt) SUNUCU seçer -- web
+    // ile aynı rakam; burada hesap yapılmaz.
+    final vat = s.contractVatKnown;
+    Color tone(double v) => v < 0 ? AppStatusColors.error : AppStatusColors.success;
 
     return Card(
       child: Padding(
@@ -753,24 +740,40 @@ class _FinancialSummaryCard extends StatelessWidget {
             const Text('Özet', style: TextStyle(fontWeight: FontWeight.w700)),
             const SizedBox(height: 8),
             _InfoRow(
-              label: 'Satış / Sözleşme Bedeli',
+              label: vat ? 'Sözleşme Bedeli (KDV dahil)' : 'Satış / Sözleşme Bedeli',
               value: Formatters.money(s.currentContractValue, currency: s.currency),
               emphasize: true,
             ),
+            if (vat)
+              _InfoRow(
+                label: 'KDV hariç',
+                value: Formatters.money(s.currentContractValueNet, currency: s.currency),
+              ),
             _InfoRow(label: 'Tahsil Edilen', value: Formatters.money(s.collectedAmount, currency: s.currency)),
             _InfoRow(label: 'Kalan Alacak', value: Formatters.money(s.remainingReceivable, currency: s.currency)),
             const Divider(height: 24),
             const Text('Gerçekleşen', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppColors.textMuted)),
             const SizedBox(height: 4),
             _InfoRow(label: 'Gerçekleşen Maliyet', value: Formatters.money(s.realizedCost, currency: s.currency)),
+            if (vat)
+              _InfoRow(
+                label: 'Kâr (KDV hariç)',
+                value: Formatters.money(s.realizedGrossProfitNet, currency: s.currency),
+                valueColor: tone(s.realizedGrossProfitNet),
+              ),
             _InfoRow(
-              label: 'Gerçekleşen Kâr',
+              label: vat ? 'Kâr (KDV dahil)' : 'Gerçekleşen Kâr',
               value: Formatters.money(s.realizedGrossProfit, currency: s.currency),
-              valueColor: s.realizedGrossProfit < 0 ? AppStatusColors.error : AppStatusColors.success,
+              valueColor: tone(s.realizedGrossProfit),
             ),
             // Türkçe ondalık virgül -- Maliyet Kontrolü'ndeki marjla aynı biçim
             // ("%32,78", "%35").
-            _InfoRow(label: 'Gerçekleşen Marj', value: formatBudgetPercent(s.realizedMarginPercent)),
+            _InfoRow(
+              label: vat ? 'Marj (KDV hariç / dahil)' : 'Gerçekleşen Marj',
+              value: vat
+                  ? '${formatBudgetPercent(s.realizedMarginPercentNet)} / ${formatBudgetPercent(s.realizedMarginPercent)}'
+                  : formatBudgetPercent(s.realizedMarginPercent),
+            ),
             const Divider(height: 24),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -784,7 +787,7 @@ class _FinancialSummaryCard extends StatelessWidget {
                 const SizedBox(width: AppSpacing.sm),
                 Flexible(
                   child: Text(
-                    hasForecastBudget ? 'bütçeye göre (EAC)' : 'taahhüt bazlı',
+                    s.forecastFromBudget ? 'bütçeye göre (EAC)' : 'taahhüt bazlı',
                     textAlign: TextAlign.right,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -794,13 +797,24 @@ class _FinancialSummaryCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 4),
-            _InfoRow(label: 'Tahmini Maliyet', value: Formatters.money(forecastCost, currency: s.currency)),
+            _InfoRow(label: 'Tahmini Maliyet', value: Formatters.money(s.forecastCost, currency: s.currency)),
+            if (vat)
+              _InfoRow(
+                label: 'Tahmini Kâr (KDV hariç)',
+                value: Formatters.money(s.forecastProfitNet, currency: s.currency),
+                valueColor: tone(s.forecastProfitNet),
+              ),
             _InfoRow(
-              label: 'Tahmini Kâr',
-              value: Formatters.money(forecastProfit, currency: s.currency),
-              valueColor: forecastProfit < 0 ? AppStatusColors.error : AppStatusColors.success,
+              label: vat ? 'Tahmini Kâr (KDV dahil)' : 'Tahmini Kâr',
+              value: Formatters.money(s.forecastProfit, currency: s.currency),
+              valueColor: tone(s.forecastProfit),
             ),
-            _InfoRow(label: 'Tahmini Marj', value: formatBudgetPercent(forecastMargin)),
+            _InfoRow(
+              label: vat ? 'Tahmini Marj (KDV hariç / dahil)' : 'Tahmini Marj',
+              value: vat
+                  ? '${formatBudgetPercent(s.forecastMarginPercentNet)} / ${formatBudgetPercent(s.forecastMarginPercent)}'
+                  : formatBudgetPercent(s.forecastMarginPercent),
+            ),
           ],
         ),
       ),

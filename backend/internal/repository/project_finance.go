@@ -298,6 +298,8 @@ func ToDomainFinancialSummary(r sqlc.GetProjectFinancialSummaryRow) domain.Proje
 		EstimatedGrossProfit:         NumericToFloat64(r.EstimatedGrossProfit),
 		RealizedMarginPercent:        NumericToFloat64(r.RealizedMarginPercent),
 		EstimatedMarginPercent:       NumericToFloat64(r.EstimatedMarginPercent),
+		ContractVATAmount:            NumericToFloat64(r.ContractVatAmount),
+		ContractVATKnown:             r.ContractVatKnown,
 	}
 }
 
