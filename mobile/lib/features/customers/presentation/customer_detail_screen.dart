@@ -82,9 +82,17 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
             data: (c) => c.isActive
                 ? IconButton(
                     icon: const Icon(Icons.archive_outlined),
+                    tooltip: 'Pasifleştir',
                     onPressed: _archiving ? null : () => _archive(c),
                   )
-                : const SizedBox.shrink(),
+                // Pasif müşteri eskiden mobilden geri alınamıyordu (web
+                // "Aktif" kutusuyla alabiliyor).
+                : IconButton(
+                    key: const ValueKey('customer-reactivate'),
+                    icon: const Icon(Icons.unarchive_outlined),
+                    tooltip: 'Aktifleştir',
+                    onPressed: _archiving ? null : () => _reactivate(c),
+                  ),
             orElse: () => const SizedBox.shrink(),
           ),
       ],
@@ -214,6 +222,36 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
       useSafeArea: true,
       builder: (sheetContext) => CustomerFormSheet(existing: existing),
     );
+  }
+
+  Future<void> _reactivate(Customer c) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Müşteriyi Aktifleştir'),
+        content: Text('${c.name} yeniden aktifleştirilsin mi? Yeni teklif ve projelerde seçilebilir olur.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
+          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Aktifleştir')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _archiving = true);
+    try {
+      await ref.read(customersRepositoryProvider).reactivate(c);
+      ref.invalidate(customerDetailProvider(c.id));
+      ref.invalidate(customersListProvider);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Müşteri aktifleştirildi.')));
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _archiving = false);
+    }
   }
 
   Future<void> _archive(Customer c) async {

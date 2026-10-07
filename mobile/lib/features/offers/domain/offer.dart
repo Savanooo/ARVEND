@@ -148,6 +148,23 @@ class Offer {
   bool get canRevise =>
       !isPassive && (status == statusGonderildi || status == statusReddedildi);
 
+  /// PDF dosya adı -- backend `offerPDFFilename` ile AYNI kural (sunucunun
+  /// Content-Disposition'ı `ApiClient.getBytes`'tan okunamıyor): Türkçe
+  /// harfler ASCII'ye, izin dışı karakter dizileri "-"ye çevrilir;
+  /// revizyonda "-R2" eklenir. "TKL/2026 Çatı-0042" R2 ->
+  /// "Teklif-TKL-2026-Cati-0042-R2.pdf".
+  String get pdfFilename {
+    const fold = {
+      'ç': 'c', 'Ç': 'C', 'ğ': 'g', 'Ğ': 'G', 'ı': 'i', 'İ': 'I',
+      'ö': 'o', 'Ö': 'O', 'ş': 's', 'Ş': 'S', 'ü': 'u', 'Ü': 'U',
+    };
+    var no = offerNo.split('').map((c) => fold[c] ?? c).join();
+    no = no.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '-').replaceAll(RegExp(r'^-+|-+$'), '');
+    if (no.isEmpty) no = 'teklif';
+    if (revisionNo > 0) no = '$no-R$revisionNo';
+    return 'Teklif-$no.pdf';
+  }
+
   factory Offer.fromJson(Map<String, dynamic> json) => Offer(
         id: json['id'] as String,
         offerNo: json['offer_no'] as String,

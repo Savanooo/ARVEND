@@ -881,6 +881,7 @@ class ProjectsRepository {
     String referenceNo = '',
     String description = '',
     String? progressClaimId,
+    String? idempotencyKey,
   }) async {
     final json = await _client.post<Map<String, dynamic>>(
       '/projects/$projectId/subcontracts/$subcontractId/payments',
@@ -891,7 +892,11 @@ class ProjectsRepository {
         'reference_no': referenceNo,
         'description': description,
         'progress_claim_id': progressClaimId,
-        'idempotency_key': '${DateTime.now().microsecondsSinceEpoch}',
+        // Çağıran form örneği başına SABİT bir anahtar verir (bkz.
+        // subcontract_payment_form_sheet.dart): yanıtı kaybolan isteği
+        // yeniden denemek mükerrer ödeme oluşturmaz. Her çağrıda yeni zaman
+        // damgası üretmek tam da bunu bozuyordu.
+        'idempotency_key': idempotencyKey ?? '${DateTime.now().microsecondsSinceEpoch}',
       },
     );
     return SubcontractPayment.fromJson(json);

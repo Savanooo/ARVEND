@@ -400,7 +400,23 @@ class ProgressClaim {
   bool get canCertify => status == statusSubmitted;
   bool get canReject => status == statusSubmitted;
   bool get canCancel => status == statusDraft || status == statusSubmitted;
+
+  /// Ödeme yalnızca sertifikalı bir hakedişe bağlanabilir (backend
+  /// `ErrSubcontractPaymentClaimInvalid`).
+  bool get isPayable => status == statusCertified;
 }
+
+/// Bu hakedişe bağlanmış, iptal edilmemiş ödemelerin toplamı.
+double paidAgainstClaim(Iterable<SubcontractPayment> payments, String claimId) => payments
+    .where((p) => p.progressClaimId == claimId && !p.isVoided)
+    .fold<double>(0, (sum, p) => sum + p.amount);
+
+/// Bu hakedişin ödenmemiş kalanı: NET hakediş (kesintiler düşülmüş, bu
+/// hakedişin borcu) eksi bu hakedişe karşı ödenen. `currentCertifiedAmount`
+/// TÜM hakedişlerin kümülatif BRÜT toplamıdır -- onu kullanmak kalanı her
+/// yeni hakedişte şişirirdi. Fazla ödemede negatif çıkabilir, kırpılmaz.
+double claimUnpaidRemainder(ProgressClaim claim, Iterable<SubcontractPayment> payments) =>
+    claim.netPayable - paidAgainstClaim(payments, claim.id);
 
 /// Bir hakedişin tek bir SOV kalemine karşılık gelen satırı. `scheduledValue`/
 /// `previousProgressAmount`/`cumulativeProgressAmount` backend-hesaplıdır

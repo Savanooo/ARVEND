@@ -22,6 +22,9 @@ class LegacySubcontractor {
     this.phone = '',
     this.email = '',
     this.notes = '',
+    this.startDate,
+    this.endDate,
+    this.costCodeId,
   });
 
   final String id;
@@ -41,6 +44,13 @@ class LegacySubcontractor {
   final String email;
   final String notes;
 
+  /// "YYYY-MM-DD" ya da null. Formda gösterilmez ama düzenlemede GERİ
+  /// gönderilir: `PUT /subcontractors/{id}` tüm alanları yazar, eksik alan
+  /// silinirdi (bkz. [FinanceLedgerRepository.updateSubcontractor]).
+  final String? startDate;
+  final String? endDate;
+  final String? costCodeId;
+
   factory LegacySubcontractor.fromJson(Map<String, dynamic> json) => LegacySubcontractor(
         id: json['id'] as String,
         name: json['name'] as String? ?? '',
@@ -54,6 +64,9 @@ class LegacySubcontractor {
         phone: json['phone'] as String? ?? '',
         email: json['email'] as String? ?? '',
         notes: json['notes'] as String? ?? '',
+        startDate: json['start_date'] as String?,
+        endDate: json['end_date'] as String?,
+        costCodeId: json['cost_code_id'] as String?,
       );
 }
 

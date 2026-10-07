@@ -219,6 +219,47 @@ class FakeFinanceLedgerRepository implements FinanceLedgerRepository {
     return created;
   }
 
+  final List<Map<String, Object?>> updatedSubcontractors = [];
+  final List<Map<String, Object?>> voidedPayments = [];
+
+  @override
+  Future<LegacySubcontractor> updateSubcontractor(
+    String projectId,
+    LegacySubcontractor existing, {
+    required String name,
+    required String companyName,
+    required String workDescription,
+    required double contractAmount,
+  }) async {
+    calls.add('updateSubcontractor');
+    updatedSubcontractors.add({
+      'id': existing.id,
+      'name': name,
+      'company_name': companyName,
+      'work_description': workDescription,
+      'contract_amount': contractAmount,
+    });
+    final updated = LegacySubcontractor(
+      id: existing.id,
+      name: name,
+      companyName: companyName,
+      workDescription: workDescription,
+      contractAmount: contractAmount,
+      paidAmount: existing.paidAmount,
+      remainingAmount: contractAmount - existing.paidAmount,
+      currency: existing.currency,
+      status: existing.status,
+    );
+    subs[subs.indexWhere((s) => s.id == existing.id)] = updated;
+    return updated;
+  }
+
+  @override
+  Future<void> voidSubcontractorPayment(String projectId, String paymentId, {String reason = ''}) async {
+    calls.add('voidPayment');
+    voidedPayments.add({'payment_id': paymentId, 'reason': reason});
+  }
+
   @override
   Future<LegacySubcontractorPayment> createSubcontractorPayment(
     String projectId,

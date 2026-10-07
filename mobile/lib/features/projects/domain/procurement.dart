@@ -610,3 +610,63 @@ class Commitment {
         voidReason: json['void_reason'] as String? ?? '',
       );
 }
+
+double _round2(double v) => (v * 100).roundToDouble() / 100;
+
+/// Ödüllü bir tekliften sipariş kalemleri ("Bu Tekliften Sipariş Oluştur").
+/// RFQ kaleminin açıklama/birim/WBS/bütçe kalemi/MALİYET KODU taşınır (PO'da
+/// maliyet kodu zorunludur; eskiden boş gelip her satırda yeniden
+/// seçiliyordu). Siparişte iskonto alanı YOKTUR (backend: toplam = ara
+/// toplam + KDV) -- teklifin iskontosu atılsaydı sipariş toplamı kazanan
+/// tekliften yüksek çıkardı. Bu yüzden iskonto birim fiyatlara satır
+/// tutarıyla ORANTILI dağıtılır; kuruş yuvarlaması miktarı en küçük satırın
+/// fiyatına yüklenir (miktarı 1 olan bir satır varsa toplam birebir tutar,
+/// yoksa en çok birkaç kuruş fark kalabilir). İskonto ara toplamı
+/// karşılıyorsa (≥) fiyat sıfırlanamayacağı için dağıtılmaz.
+List<PurchaseOrderItem> purchaseOrderItemsFromAward({
+  required List<RFQItem> rfqItems,
+  required List<QuotationItem> quotationItems,
+  double discount = 0,
+}) {
+  final byId = {for (final it in rfqItems) it.id: it};
+  final subtotal = _round2(quotationItems.fold<double>(0, (sum, qi) => sum + _round2(qi.quantity * qi.unitPrice)));
+  final distribute = discount > 0 && subtotal > 0 && discount < subtotal;
+  final factor = distribute ? (subtotal - discount) / subtotal : 1.0;
+  final prices = [
+    for (final qi in quotationItems) distribute ? _round2(qi.unitPrice * factor) : qi.unitPrice,
+  ];
+  if (distribute && quotationItems.isNotEmpty) {
+    final target = _round2(subtotal - discount);
+    var current = 0.0;
+    for (var i = 0; i < quotationItems.length; i++) {
+      current += _round2(quotationItems[i].quantity * prices[i]);
+    }
+    final diff = _round2(target - current);
+    if (diff != 0) {
+      var k = 0;
+      for (var i = 1; i < quotationItems.length; i++) {
+        if (quotationItems[i].quantity < quotationItems[k].quantity) k = i;
+      }
+      final adjusted = _round2(prices[k] + diff / quotationItems[k].quantity);
+      if (adjusted > 0) prices[k] = adjusted;
+    }
+  }
+  final out = <PurchaseOrderItem>[];
+  for (var i = 0; i < quotationItems.length; i++) {
+    final qi = quotationItems[i];
+    final rfqItem = byId[qi.rfqItemId];
+    out.add(PurchaseOrderItem(
+      id: '',
+      wbsNodeId: rfqItem?.wbsNodeId,
+      costCodeId: rfqItem?.costCodeId ?? '',
+      budgetLineId: rfqItem?.budgetLineId,
+      description: rfqItem?.description ?? qi.notes,
+      quantity: qi.quantity,
+      unit: rfqItem?.unit ?? '',
+      unitPrice: prices[i],
+      lineTotal: _round2(qi.quantity * prices[i]),
+      sortOrder: i,
+    ));
+  }
+  return out;
+}

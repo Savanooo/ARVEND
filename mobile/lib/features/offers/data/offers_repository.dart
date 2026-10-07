@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../../../core/api/api_client.dart';
 import '../domain/offer.dart';
 
@@ -186,6 +188,11 @@ class OffersRepository {
   /// `to`/`subject`/`message` boş bırakılırsa backend varsayılanları
   /// kullanır: alıcı = teklifin kayıtlı müşteri e-postası, konu/gövde
   /// hazır Türkçe şablon + paylaşım linki (bkz. OfferService.SendOfferEmail).
+  /// `GET /offers/{id}/pdf` (offers.read) -- teklifin güncel revizyonunun
+  /// PDF'i. ApiClient üzerinden alınır: oturum çerezi ve 401 -> yenile ->
+  /// tekrar dene akışı geçerlidir.
+  Future<Uint8List> pdfBytes(String offerId) => _client.getBytes('/offers/$offerId/pdf');
+
   Future<void> sendEmail(String offerId, {String to = '', String subject = '', String message = ''}) =>
       _client.post<void>('/offers/$offerId/send-email', data: {
         'to': to,

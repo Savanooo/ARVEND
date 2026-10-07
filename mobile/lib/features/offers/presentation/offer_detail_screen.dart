@@ -21,6 +21,7 @@ import '../../../core/widgets/status_badge.dart';
 import '../data/offers_providers.dart';
 import '../domain/offer.dart';
 import '../history/offer_history_routes.dart' show OfferHistorySection, invalidateOfferHistory;
+import 'offer_pdf.dart';
 
 class OfferDetailScreen extends ConsumerStatefulWidget {
   const OfferDetailScreen({super.key, required this.offerId});
@@ -33,6 +34,7 @@ class OfferDetailScreen extends ConsumerStatefulWidget {
 class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
   bool _creatingLink = false;
   bool _sendingEmail = false;
+  bool _downloadingPdf = false;
 
   String get offerId => widget.offerId;
 
@@ -49,6 +51,60 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
       invalidateOfferHistory(invalidate, offerId);
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  /// Durum düğmeleri tek dokunuşla geri alınamaz sonuç doğurur: "Kabul
+  /// Edildi" teklifi KALICI olarak kilitler (sunucu `ErrOfferLocked`; bir
+  /// daha düzenlenemez, revize edilemez, durumu değişmez), "Reddedildi" ve
+  /// "Gönderildi" ise yalnızca yeni bir revizyonla düzeltilebilir. Bu yüzden
+  /// her biri onay ister -- yanlışlıkla dokunmak teklifi kilitlemesin.
+  Future<void> _confirmAndSetStatus(
+    String status, {
+    required String title,
+    required String message,
+    required String confirmLabel,
+    bool danger = false,
+  }) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
+          TextButton(
+            key: const ValueKey('offer-status-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            style: danger ? TextButton.styleFrom(foregroundColor: AppColors.danger) : null,
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _setStatus(status);
+  }
+
+  /// Teklifin PDF'ini indirir (`GET /offers/{id}/pdf`) ve cihazın PDF
+  /// görüntüleyicisiyle açar -- müşteriye elden/WhatsApp ile iletmek için.
+  Future<void> _downloadPdf(Offer offer) async {
+    if (_downloadingPdf) return;
+    setState(() => _downloadingPdf = true);
+    final opener = ref.read(offerPdfOpenerProvider);
+    try {
+      final bytes = await ref.read(offersRepositoryProvider).pdfBytes(offer.id);
+      final error = await opener(offer.pdfFilename, bytes);
+      if (error != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      }
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } on Exception catch (_) {
+      // Dosya yazılamadı / görüntüleyici eklentisi yok: çökme yok.
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF açılamadı.')));
+    } finally {
+      if (mounted) setState(() => _downloadingPdf = false);
     }
   }
 
@@ -215,6 +271,17 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
       title: offerAsync.maybeWhen(data: (o) => Text(o.offerNo), orElse: () => const Text('Teklif')),
       actions: [
         offerAsync.maybeWhen(
+          data: (o) => IconButton(
+            key: const ValueKey('offer-pdf-appbar'),
+            tooltip: 'PDF İndir',
+            icon: _downloadingPdf
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.picture_as_pdf_outlined),
+            onPressed: _downloadingPdf ? null : () => _downloadPdf(o),
+          ),
+          orElse: () => const SizedBox.shrink(),
+        ),
+        offerAsync.maybeWhen(
           data: (o) => o.isEditable
               ? IconButton(
                   tooltip: 'Düzenle',
@@ -352,7 +419,13 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
               if (offer.isEditable)
                 PrimaryButton(
                   label: 'Gönderildi Olarak İşaretle',
-                  onPressed: () => _setStatus(Offer.statusGonderildi),
+                  onPressed: () => _confirmAndSetStatus(
+                    Offer.statusGonderildi,
+                    title: 'Gönderildi Olarak İşaretle',
+                    message: '${offer.offerNo} gönderildi olarak işaretlensin mi? Bu revizyon artık '
+                        'düzenlenemez; değişiklik için yeni bir revizyon gerekir.',
+                    confirmLabel: 'İşaretle',
+                  ),
                 ),
               if (offer.status == Offer.statusGonderildi)
                 Row(
@@ -360,14 +433,28 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                     Expanded(
                       child: PrimaryButton(
                         label: 'Kabul Edildi',
-                        onPressed: () => _setStatus(Offer.statusKabulEdildi),
+                        onPressed: () => _confirmAndSetStatus(
+                          Offer.statusKabulEdildi,
+                          title: 'Teklif Kabul Edildi',
+                          message: '${offer.offerNo} kabul edildi olarak işaretlensin mi? Kabul edilen teklif '
+                              'KALICI olarak kilitlenir: bir daha düzenlenemez, revize edilemez ve durumu '
+                              'değiştirilemez.',
+                          confirmLabel: 'Kabul Edildi',
+                        ),
                       ),
                     ),
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(
                       child: SecondaryButton(
                         label: 'Reddedildi',
-                        onPressed: () => _setStatus(Offer.statusReddedildi),
+                        onPressed: () => _confirmAndSetStatus(
+                          Offer.statusReddedildi,
+                          title: 'Teklif Reddedildi',
+                          message: '${offer.offerNo} reddedildi olarak işaretlensin mi? Teklif ancak yeni bir '
+                              'revizyonla yeniden açılabilir.',
+                          confirmLabel: 'Reddedildi',
+                          danger: true,
+                        ),
                       ),
                     ),
                   ],
@@ -389,31 +476,36 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                   orElse: () => const SizedBox.shrink(),
                 ),
               ],
-              if (offer.canRevise || !offer.isPassive) ...[
-                const SizedBox(height: AppSpacing.md),
-                Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.sm,
-                  children: [
-                    if (offer.canRevise)
-                      SecondaryButton(icon: Icons.refresh, label: 'Revize Et ve Düzenle', onPressed: _reviseAndEdit),
-                    if (!offer.isPassive) ...[
-                      SecondaryButton(
-                        icon: Icons.ios_share_outlined,
-                        label: 'Paylaşım Linki',
-                        loading: _creatingLink,
-                        onPressed: _createShareLink,
-                      ),
-                      SecondaryButton(
-                        icon: Icons.mail_outline,
-                        label: 'E-posta Gönder',
-                        loading: _sendingEmail,
-                        onPressed: _sendEmail,
-                      ),
-                    ],
+              // PDF her teklifte (pasif dahil) indirilebilir -- yalnızca okuma ister.
+              const SizedBox(height: AppSpacing.md),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: [
+                  SecondaryButton(
+                    icon: Icons.picture_as_pdf_outlined,
+                    label: 'PDF İndir',
+                    loading: _downloadingPdf,
+                    onPressed: () => _downloadPdf(offer),
+                  ),
+                  if (offer.canRevise)
+                    SecondaryButton(icon: Icons.refresh, label: 'Revize Et ve Düzenle', onPressed: _reviseAndEdit),
+                  if (!offer.isPassive) ...[
+                    SecondaryButton(
+                      icon: Icons.ios_share_outlined,
+                      label: 'Paylaşım Linki',
+                      loading: _creatingLink,
+                      onPressed: _createShareLink,
+                    ),
+                    SecondaryButton(
+                      icon: Icons.mail_outline,
+                      label: 'E-posta Gönder',
+                      loading: _sendingEmail,
+                      onPressed: _sendEmail,
+                    ),
                   ],
-                ),
-              ],
+                ],
+              ),
             ],
           ),
         ),

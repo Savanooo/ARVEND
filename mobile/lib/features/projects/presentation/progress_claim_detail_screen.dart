@@ -93,11 +93,15 @@ class _ProgressClaimDetailBody extends ConsumerWidget {
     // detayından okunur, yeni bir istek atılmaz.
     final scArgs = (projectId: projectId, subcontractId: subcontractId);
     final currency = ref.watch(subcontractDetailProvider(scArgs)).valueOrNull?.subcontract.currency ?? 'TRY';
-    final paymentsAsync = ref.watch(subcontractPaymentsProvider(scArgs));
-    final matchingPayments =
-        paymentsAsync.valueOrNull?.where((p) => p.progressClaimId == claim.id && !p.isVoided).toList();
-    final paidAgainstClaim = matchingPayments?.fold<double>(0, (sum, p) => sum + p.amount);
-    final remainingUnpaid = paidAgainstClaim == null ? null : claim.currentCertifiedAmount - paidAgainstClaim;
+    final payments = ref.watch(subcontractPaymentsProvider(scArgs)).valueOrNull;
+    // Ödeme yalnızca SERTİFİKALI hakedişe bağlanabilir; taslak/gönderilmiş
+    // bir hakedişte "ödenmemiş kalan" henüz doğmamış bir borcu gösterirdi.
+    final showPayment = payments != null && claim.isPayable;
+    final paidAmount = showPayment ? paidAgainstClaim(payments, claim.id) : null;
+    // Kalan = bu hakedişin NET tutarı − ona karşı ödenen (bkz.
+    // claimUnpaidRemainder). Eskiden kümülatif BRÜT sertifikadan
+    // düşülüyordu; ikinci hakedişten itibaren kalan şişiyordu.
+    final remainingUnpaid = showPayment ? claimUnpaidRemainder(claim, payments) : null;
 
     void refreshAll() {
       final claimArgs = (projectId: projectId, claimId: claimId);
@@ -192,16 +196,20 @@ class _ProgressClaimDetailBody extends ConsumerWidget {
                 label: 'Güncel Kümülatif Sertifika',
                 value: Formatters.money(claim.currentCertifiedAmount, currency: currency),
               ),
-              if (paidAgainstClaim != null) ...[
+              if (paidAmount != null && remainingUnpaid != null) ...[
                 const Divider(height: AppSpacing.xl),
                 AppDataRow(
+                  label: 'Net Hakediş',
+                  value: Formatters.money(claim.netPayable, currency: currency),
+                ),
+                AppDataRow(
                   label: 'Bu Hakedişe Karşı Ödenen',
-                  value: Formatters.money(paidAgainstClaim, currency: currency),
+                  value: Formatters.money(paidAmount, currency: currency),
                   valueColor: AppStatusColors.success,
                 ),
                 AppDataRow(
                   label: 'Ödenmemiş Kalan',
-                  value: Formatters.money(remainingUnpaid!, currency: currency),
+                  value: Formatters.money(remainingUnpaid, currency: currency),
                   emphasize: true,
                   valueColor: remainingUnpaid > 0.0009 ? AppStatusColors.warning : AppStatusColors.success,
                 ),
