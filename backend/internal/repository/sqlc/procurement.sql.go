@@ -2453,7 +2453,7 @@ func (q *Queries) SubmitPurchaseRequest(ctx context.Context, arg SubmitPurchaseR
 const updatePurchaseOrderFields = `-- name: UpdatePurchaseOrderFields :one
 UPDATE purchase_orders SET
     issue_date = $4, expected_delivery_date = $5, payment_terms = $6, delivery_address = $7,
-    notes = $8, tax_rate = $9
+    notes = $8, tax_rate = $9, supplier_id = $10
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'draft'
 RETURNING id, organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency, status, issue_date, expected_delivery_date, payment_terms, delivery_address, notes, subtotal, tax_rate, tax, total, created_by, approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason, closed_by, closed_at, created_at, updated_at
 `
@@ -2468,8 +2468,11 @@ type UpdatePurchaseOrderFieldsParams struct {
 	DeliveryAddress      string         `json:"delivery_address"`
 	Notes                string         `json:"notes"`
 	TaxRate              pgtype.Numeric `json:"tax_rate"`
+	SupplierID           pgtype.UUID    `json:"supplier_id"`
 }
 
+// supplier_id dahil: önceden taslak güncellemesinde gönderilen yeni
+// tedarikçi sessizce düşürülüyordu (çağıran tedarikçiyi doğrular).
 func (q *Queries) UpdatePurchaseOrderFields(ctx context.Context, arg UpdatePurchaseOrderFieldsParams) (PurchaseOrder, error) {
 	row := q.db.QueryRow(ctx, updatePurchaseOrderFields,
 		arg.ID,
@@ -2481,6 +2484,7 @@ func (q *Queries) UpdatePurchaseOrderFields(ctx context.Context, arg UpdatePurch
 		arg.DeliveryAddress,
 		arg.Notes,
 		arg.TaxRate,
+		arg.SupplierID,
 	)
 	var i PurchaseOrder
 	err := row.Scan(

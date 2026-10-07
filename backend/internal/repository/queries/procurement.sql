@@ -315,9 +315,11 @@ SELECT count(*)::int AS open_count FROM purchase_orders
 WHERE source_quotation_id = $1 AND organization_id = $2 AND project_id = $3 AND status <> 'cancelled';
 
 -- name: UpdatePurchaseOrderFields :one
+-- supplier_id dahil: önceden taslak güncellemesinde gönderilen yeni
+-- tedarikçi sessizce düşürülüyordu (çağıran tedarikçiyi doğrular).
 UPDATE purchase_orders SET
     issue_date = $4, expected_delivery_date = $5, payment_terms = $6, delivery_address = $7,
-    notes = $8, tax_rate = $9
+    notes = $8, tax_rate = $9, supplier_id = $10
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'draft'
 RETURNING *;
 

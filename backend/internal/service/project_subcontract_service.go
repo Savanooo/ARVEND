@@ -545,6 +545,11 @@ func (s *ProjectService) ActivateSubcontract(ctx context.Context, projectID, sub
 	if current.Status != domain.SubcontractStatusDraft {
 		return nil, ErrSubcontractNotActivatable
 	}
+	// Proje kilidi sözleşme kilidinden SONRA (CreateSubcontractPayment İLE
+	// AYNI sıra): kapalı projede yeni taahhüt doğmaz.
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+		return nil, err
+	}
 	items, err := txq.ListSubcontractItems(ctx, id)
 	if err != nil {
 		return nil, err

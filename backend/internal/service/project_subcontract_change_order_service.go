@@ -377,6 +377,10 @@ func (s *ProjectService) ApproveSubcontractChangeOrder(ctx context.Context, proj
 	if sc.Status != domain.SubcontractStatusActive {
 		return nil, ErrSubcontractNotActiveForChange
 	}
+	// Sıra: değişiklik -> sözleşme -> proje (ödeme de sözleşme -> proje).
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+		return nil, err
+	}
 
 	row, err := txq.ApproveSubcontractChangeOrder(ctx, sqlc.ApproveSubcontractChangeOrderParams{ID: id, OrganizationID: orgID, ProjectID: pid, ApprovedBy: actorUUID(userID)})
 	if err != nil {

@@ -157,6 +157,12 @@ func (s *ProjectService) VoidCommitment(ctx context.Context, projectID, commitme
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	// Tamamlanmış/iptal edilmiş projenin rakamları değişmez (bkz.
+	// requireOpenProject; tamamlanan proje yeniden aktife alınarak açılır).
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+		return nil, err
+	}
+
 	row, err := txq.VoidCommitment(ctx, sqlc.VoidCommitmentParams{
 		ID: cid, OrganizationID: orgID, ProjectID: pid, VoidedBy: actorUUID(userID), VoidReason: strings.TrimSpace(reason),
 	})

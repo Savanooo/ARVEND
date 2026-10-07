@@ -145,6 +145,11 @@ func (s *ProjectService) CreateProgressClaim(ctx context.Context, projectID, sub
 	if sc.Status != domain.SubcontractStatusActive {
 		return nil, ErrSubcontractNotActiveForClaim
 	}
+	// Tamamlanmış/iptal edilmiş projenin rakamları değişmez (bkz.
+	// requireOpenProject; tamamlanan proje yeniden aktife alınarak açılır).
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+		return nil, err
+	}
 
 	retentionPercent := repository.NumericToFloat64(sc.RetentionPercent)
 	if in.RetentionPercent != nil {

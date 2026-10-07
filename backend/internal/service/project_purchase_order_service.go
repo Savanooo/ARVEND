@@ -323,6 +323,9 @@ func (s *ProjectService) UpdatePurchaseOrderDraft(ctx context.Context, projectID
 	if len(in.Items) == 0 {
 		return nil, ErrPurchaseOrderItemsRequired
 	}
+	if err := validatePercent(in.TaxRate, ErrInvalidTaxRate); err != nil {
+		return nil, err
+	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -331,10 +334,47 @@ func (s *ProjectService) UpdatePurchaseOrderDraft(ctx context.Context, projectID
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	current, err := txq.GetPurchaseOrderForUpdate(ctx, sqlc.GetPurchaseOrderForUpdateParams{ID: id, OrganizationID: orgID, ProjectID: pid})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	// Tedarikçi değişikliği önceden SESSİZCE düşürülüyordu (istek 200
+	// dönüyor, sipariş eski tedarikçide kalıyordu). Artık uygulanır:
+	// CreatePurchaseOrder İLE AYNI kontroller; kazanan tekliften açılmış
+	// siparişin tedarikçisi o teklifin tedarikçisi olmak zorunda olduğundan
+	// değiştirilemez. Boş supplier_id = mevcut tedarikçi korunur.
+	supplierID := current.SupplierID
+	if v := strings.TrimSpace(in.SupplierID); v != "" {
+		requested, err := repository.StringToUUID(v)
+		if err != nil {
+			return nil, ErrSupplierRefNotFound
+		}
+		if requested != current.SupplierID {
+			if current.SourceQuotationID.Valid {
+				return nil, ErrPurchaseOrderSupplierMismatch
+			}
+			supplier, err := txq.GetSupplier(ctx, sqlc.GetSupplierParams{ID: requested, OrganizationID: orgID})
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return nil, ErrSupplierRefNotFound
+				}
+				return nil, err
+			}
+			if !supplier.IsActive {
+				return nil, ErrPurchaseOrderSupplierInactive
+			}
+			supplierID = requested
+		}
+	}
+
 	row, err := txq.UpdatePurchaseOrderFields(ctx, sqlc.UpdatePurchaseOrderFieldsParams{
 		ID: id, OrganizationID: orgID, ProjectID: pid,
 		IssueDate: repository.TimeToDate(in.IssueDate), ExpectedDeliveryDate: repository.TimePtrToDate(in.ExpectedDeliveryDate),
 		PaymentTerms: in.PaymentTerms, DeliveryAddress: in.DeliveryAddress, Notes: in.Notes, TaxRate: repository.Float64ToNumeric(in.TaxRate),
+		SupplierID: supplierID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -387,6 +427,12 @@ func (s *ProjectService) ApprovePurchaseOrder(ctx context.Context, projectID, po
 	}
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
+
+	// Tamamlanmış/iptal edilmiş projenin rakamları değişmez (bkz.
+	// requireOpenProject; tamamlanan proje yeniden aktife alınarak açılır).
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+		return nil, err
+	}
 
 	current, err := txq.GetPurchaseOrderForUpdate(ctx, sqlc.GetPurchaseOrderForUpdateParams{ID: id, OrganizationID: orgID, ProjectID: pid})
 	if err != nil {

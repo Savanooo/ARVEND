@@ -227,6 +227,12 @@ func (s *ProjectService) VoidSubcontractPayment(ctx context.Context, projectID, 
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	// Tamamlanmış/iptal edilmiş projenin rakamları değişmez (bkz.
+	// requireOpenProject; tamamlanan proje yeniden aktife alınarak açılır).
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+		return nil, err
+	}
+
 	row, err := txq.VoidSubcontractPayment(ctx, sqlc.VoidSubcontractPaymentParams{
 		ID: payID, OrganizationID: orgID, ProjectID: pid, VoidedBy: actorUUID(userID), VoidReason: strings.TrimSpace(reason),
 	})

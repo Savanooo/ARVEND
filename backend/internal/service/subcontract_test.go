@@ -1383,6 +1383,145 @@ func TestSubcontracts(t *testing.T) {
 		}
 	})
 
+	t.Run("45_closed_project_figures_locked", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 500000)
+		cc := newCostCode(t, orgA.ID, "S45-CC")
+		s := newSupplier(t, orgA.ID, "S45-S")
+		today := time.Now()
+
+		// Kapanıştan ÖNCE hazırlanan kayıtlar.
+		activeSC := newActiveSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 100000)
+		draftSC := newDraftSubcontract(t, orgA.ID, p.ID, s.ID, cc.ID, 50000)
+		pay, err := projectSvc.CreateSubcontractPayment(ctx, p.ID, activeSC.ID, orgA.ID, service.SubcontractPaymentInput{Amount: 1000, Currency: "TRY", PaidDate: today})
+		if err != nil {
+			t.Fatal(err)
+		}
+		exp, err := projectSvc.CreateExpense(ctx, p.ID, orgA.ID, service.ExpenseInput{Category: domain.ExpenseMaterial, Description: "M", Amount: 500, ExpenseDate: today})
+		if err != nil {
+			t.Fatal(err)
+		}
+		coll, err := projectSvc.CreateCollection(ctx, p.ID, orgA.ID, service.CollectionInput{Amount: 700, Currency: "TRY", ReceivedDate: today})
+		if err != nil {
+			t.Fatal(err)
+		}
+		legacy, err := projectSvc.CreateSubcontractor(ctx, p.ID, orgA.ID, service.SubcontractorInput{Name: "Eski", ContractAmount: 5000, Currency: "TRY"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		legacyPay, err := projectSvc.CreateSubcontractorPayment(ctx, p.ID, legacy.ID, orgA.ID, service.SubcontractorPaymentInput{Amount: 100, Currency: "TRY", PaidDate: today})
+		if err != nil {
+			t.Fatal(err)
+		}
+		manual, err := projectSvc.CreateCommitment(ctx, p.ID, orgA.ID, service.CommitmentInput{CostCodeID: cc.ID, Description: "Manuel", CommittedAmount: 300, CommittedAt: today})
+		if err != nil {
+			t.Fatal(err)
+		}
+		po, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, service.PurchaseOrderInput{
+			SupplierID: s.ID, IssueDate: today,
+			Items: []service.PurchaseOrderItemInput{{CostCodeID: cc.ID, Description: "K", Quantity: 1, UnitPrice: 100}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		co, err := projectSvc.CreateSubcontractChangeOrder(ctx, p.ID, activeSC.ID, orgA.ID, service.SubcontractChangeOrderInput{
+			Title: "Ek", ChangeType: domain.SubcontractChangeTypeAddition,
+			Items: []service.SubcontractChangeOrderItemInput{{CostCodeID: cc.ID, Description: "K", Amount: 10}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.SubmitSubcontractChangeOrder(ctx, p.ID, co.ID, orgA.ID, ""); err != nil {
+			t.Fatal(err)
+		}
+		items, _ := projectSvc.ListSubcontractItems(ctx, p.ID, activeSC.ID, orgA.ID)
+
+		for _, st := range []string{domain.ProjectStatusActive, domain.ProjectStatusCompleted} {
+			if _, err := projectSvc.Update(ctx, p.ID, orgA.ID, service.UpdateProjectInput{Name: p.Name, Status: st}); err != nil {
+				t.Fatalf("proje durumu %s yapılamadı: %v", st, err)
+			}
+		}
+
+		checks := []struct {
+			name string
+			call func() error
+		}{
+			{"UpdateExpense", func() error {
+				_, err := projectSvc.UpdateExpense(ctx, p.ID, exp.ID, orgA.ID, service.ExpenseInput{Category: domain.ExpenseMaterial, Description: "M", Amount: 900, ExpenseDate: today})
+				return err
+			}},
+			{"VoidExpense", func() error { _, err := projectSvc.VoidExpense(ctx, p.ID, exp.ID, orgA.ID, "", "x"); return err }},
+			{"VoidCollection", func() error { _, err := projectSvc.VoidCollection(ctx, p.ID, coll.ID, orgA.ID, "", "x"); return err }},
+			{"UpdateSubcontractor", func() error {
+				_, err := projectSvc.UpdateSubcontractor(ctx, p.ID, legacy.ID, orgA.ID, service.SubcontractorInput{Name: "Eski", ContractAmount: 9000, Status: domain.SubcontractorPlanned})
+				return err
+			}},
+			{"VoidSubcontractorPayment", func() error {
+				_, err := projectSvc.VoidSubcontractorPayment(ctx, p.ID, legacyPay.ID, orgA.ID, "", "x")
+				return err
+			}},
+			{"VoidSubcontractPayment", func() error {
+				_, err := projectSvc.VoidSubcontractPayment(ctx, p.ID, pay.ID, orgA.ID, "", "x")
+				return err
+			}},
+			{"VoidCommitment", func() error { _, err := projectSvc.VoidCommitment(ctx, p.ID, manual.ID, orgA.ID, "", "x"); return err }},
+			{"ApprovePurchaseOrder", func() error { _, err := projectSvc.ApprovePurchaseOrder(ctx, p.ID, po.ID, orgA.ID, ""); return err }},
+			{"ActivateSubcontract", func() error { _, err := projectSvc.ActivateSubcontract(ctx, p.ID, draftSC.ID, orgA.ID, ""); return err }},
+			{"ApproveSubcontractChangeOrder", func() error {
+				_, err := projectSvc.ApproveSubcontractChangeOrder(ctx, p.ID, co.ID, orgA.ID, "")
+				return err
+			}},
+			{"CreateProgressClaim", func() error {
+				_, err := projectSvc.CreateProgressClaim(ctx, p.ID, activeSC.ID, orgA.ID, service.ProgressClaimInput{
+					PeriodEnd: today, Items: []service.ProgressClaimItemInput{{SubcontractItemID: items[0].ID, CurrentProgressAmount: 10}},
+				})
+				return err
+			}},
+		}
+		for _, c := range checks {
+			if err := c.call(); !errors.Is(err, service.ErrProjectLocked) {
+				t.Errorf("%s tamamlanmış projede ErrProjectLocked dönmeli, geldi: %v", c.name, err)
+			}
+		}
+
+		// Yeniden aktife alınan projede aynı işlemler serbest.
+		if _, err := projectSvc.Update(ctx, p.ID, orgA.ID, service.UpdateProjectInput{Name: p.Name, Status: domain.ProjectStatusActive}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := projectSvc.VoidSubcontractPayment(ctx, p.ID, pay.ID, orgA.ID, "", "x"); err != nil {
+			t.Errorf("açık projede iptal serbest olmalı: %v", err)
+		}
+		if _, err := projectSvc.ApprovePurchaseOrder(ctx, p.ID, po.ID, orgA.ID, ""); err != nil {
+			t.Errorf("açık projede PO onayı serbest olmalı: %v", err)
+		}
+	})
+
+	t.Run("46_po_draft_supplier_change_applied_or_rejected", func(t *testing.T) {
+		p := newProject(t, orgA.ID, 100000)
+		cc := newCostCode(t, orgA.ID, "S46-CC")
+		s1 := newSupplier(t, orgA.ID, "S46-S1")
+		s2 := newSupplier(t, orgA.ID, "S46-S2")
+		in := service.PurchaseOrderInput{
+			SupplierID: s1.ID, IssueDate: time.Now(),
+			Items: []service.PurchaseOrderItemInput{{CostCodeID: cc.ID, Description: "K", Quantity: 1, UnitPrice: 100}},
+		}
+		po, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.SupplierID = s2.ID
+		updated, err := projectSvc.UpdatePurchaseOrderDraft(ctx, p.ID, po.ID, orgA.ID, in)
+		if err != nil {
+			t.Fatalf("taslak tedarikçisi değiştirilebilmeli: %v", err)
+		}
+		if updated.SupplierID != s2.ID {
+			t.Fatalf("yeni tedarikçi uygulanmalı (sessizce düşürülmemeli), geldi %s", updated.SupplierID)
+		}
+		in.SupplierID = "00000000-0000-0000-0000-000000000000"
+		if _, err := projectSvc.UpdatePurchaseOrderDraft(ctx, p.ID, po.ID, orgA.ID, in); !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("olmayan tedarikçi reddedilmeli, geldi: %v", err)
+		}
+	})
+
 	t.Run("37_finance_summary_terminated_remaining_is_certified_minus_paid", func(t *testing.T) {
 		p := newProject(t, orgA.ID, 900000)
 		cc := newCostCode(t, orgA.ID, "S37-CC")
