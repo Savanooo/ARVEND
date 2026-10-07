@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/api_exception.dart';
+import '../../../core/utils/form_exit.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_buttons.dart';
@@ -182,7 +182,12 @@ class _SubcontractChangeOrderFormScreenState extends ConsumerState<SubcontractCh
         ref.invalidate(subcontractChangeOrderDetailProvider((projectId: widget.projectId, changeOrderId: widget.changeOrderId!)));
       }
       if (mounted) {
-        context.go('/projeler/${widget.projectId}/taseronlar/${widget.subcontractId}/degisiklik-emirleri/${co.id}');
+        leaveSavedForm(
+          context,
+          '/projeler/${widget.projectId}/taseronlar/${widget.subcontractId}/degisiklik-emirleri/${co.id}',
+          isEdit: widget.isEdit,
+          result: co,
+        );
       }
     } on ApiException catch (e) {
       setState(() => _error = e.message);

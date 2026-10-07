@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/errors/api_exception.dart';
+import '../../../core/utils/form_exit.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_shadows.dart';
@@ -375,7 +375,7 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
       ref.invalidate(offerDetailProvider(offer.id));
       ref.invalidate(offersListProvider(''));
       ref.invalidate(offerRevisionsProvider(offer.id));
-      if (mounted) context.go('/teklifler/${offer.id}');
+      if (mounted) leaveSavedForm(context, '/teklifler/${offer.id}', isEdit: widget.isEdit, result: offer);
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } finally {

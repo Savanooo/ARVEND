@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/api_exception.dart';
+import '../../../core/utils/form_exit.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_shadows.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -209,7 +209,12 @@ class _RFQFormScreenState extends ConsumerState<RFQFormScreen> {
         );
       }
       if (mounted) {
-        context.go('/projeler/${widget.projectId}/satin-alma/rfqlar/${rfq.id}');
+        leaveSavedForm(
+          context,
+          '/projeler/${widget.projectId}/satin-alma/rfqlar/${rfq.id}',
+          isEdit: widget.isEdit,
+          result: rfq,
+        );
       }
     } on ApiException catch (e) {
       setState(() => _error = e.message);

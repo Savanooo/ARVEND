@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/api_exception.dart';
+import '../../../core/utils/form_exit.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -194,7 +194,14 @@ class _PurchaseRequestFormScreenState extends ConsumerState<PurchaseRequestFormS
       if (widget.isEdit) {
         ref.invalidate(purchaseRequestDetailProvider((projectId: widget.projectId, prId: widget.prId!)));
       }
-      if (mounted) context.go('/projeler/${widget.projectId}/satin-alma/talepler/${pr.id}');
+      if (mounted) {
+        leaveSavedForm(
+          context,
+          '/projeler/${widget.projectId}/satin-alma/talepler/${pr.id}',
+          isEdit: widget.isEdit,
+          result: pr,
+        );
+      }
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } finally {
