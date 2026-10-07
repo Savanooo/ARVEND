@@ -14,10 +14,10 @@ import '../../../core/widgets/app_list_card.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../dashboard/presentation/widgets/project_picker_sheet.dart';
-import '../../projects/data/projects_providers.dart';
 import '../../projects/domain/project.dart';
 import '../data/tasks_providers.dart';
 import '../domain/task_filters.dart';
+import 'task_complete_checkbox.dart';
 
 /// Global görevler. İki görünüm:
 /// - "Benim": GET /tasks/mine -- bana atananlar.
@@ -366,17 +366,7 @@ class _TaskRow extends ConsumerWidget {
                       : Icons.radio_button_unchecked,
               color: done ? AppColors.success : AppColors.textMuted,
             )
-          : Checkbox(
-              value: done,
-              onChanged: done
-                  ? null
-                  : (_) async {
-                      await ref
-                          .read(projectsRepositoryProvider)
-                          .completeTask(projectId, task.id);
-                      invalidateTaskLists(ref);
-                    },
-            ),
+          : TaskCompleteCheckbox(projectId: projectId, task: task),
       title: task.title,
       subtitle: showAssignee
           ? '$projectName · ${task.assignedName.isNotEmpty ? task.assignedName : 'Atanmamış'}'

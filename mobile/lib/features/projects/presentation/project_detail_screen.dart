@@ -29,6 +29,7 @@ import '../../../core/widgets/quick_action_button.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../auth/domain/user.dart';
 import '../../tasks/domain/task_filters.dart';
+import '../../tasks/presentation/task_complete_checkbox.dart';
 import '../activity/activity_routes.dart' show projectActivityPath;
 import '../budget/budget_routes.dart' show budgetSections;
 import '../budget/presentation/widgets/budget_ui.dart' show formatBudgetPercent;
@@ -1139,15 +1140,7 @@ class _OperationsTabState extends ConsumerState<_OperationsTab> {
                           margin: const EdgeInsets.only(bottom: 8),
                           child: ListTile(
                             onTap: () => context.push('/projeler/${widget.projectId}/gorevler/${t.id}'),
-                            leading: Checkbox(
-                              value: t.status == ProjectTask.statusCompleted,
-                              onChanged: t.status == ProjectTask.statusCompleted
-                                  ? null
-                                  : (_) async {
-                                      await ref.read(projectsRepositoryProvider).completeTask(widget.projectId, t.id);
-                                      refreshAll();
-                                    },
-                            ),
+                            leading: TaskCompleteCheckbox(projectId: widget.projectId, task: t),
                             title: Text(
                               t.title,
                               maxLines: 1,

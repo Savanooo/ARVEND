@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -101,6 +104,19 @@ Future<void> _pumpRouter(WidgetTester tester, FakeHttpClientAdapter adapter, GoR
     ),
   );
   await tester.pumpAndSettle();
+}
+
+/// `/complete` yanıtını test bırakana kadar bekletir -- istek sürerken
+/// ikinci dokunuşu görebilmek için.
+class _GatedAdapter extends FakeHttpClientAdapter {
+  _GatedAdapter({required super.script});
+  final gate = Completer<void>();
+
+  @override
+  Future<ResponseBody> fetch(RequestOptions options, Stream<List<int>>? requestStream, Future<void>? cancelFuture) async {
+    if (options.path.endsWith('/complete')) await gate.future;
+    return super.fetch(options, requestStream, cancelFuture);
+  }
 }
 
 void main() {
@@ -233,6 +249,34 @@ void main() {
       await tester.tap(find.byKey(const Key('gorev-ata')));
       await tester.pumpAndSettle();
       expect(opened, 'p1:liste');
+    });
+  });
+
+  group('görevi tamamla onay kutusu', () {
+    testWidgets('istek sürerken ikinci dokunuş yok; başarısızlıkta backend mesajı gösterilir', (tester) async {
+      final adapter = _GatedAdapter(script: {
+        '/auth/me': [(status: 200, body: _me(_fieldPerms))],
+        '/tasks/mine': [
+          (status: 200, body: {'tasks': [_task(title: 'Kalıp sökümü')], 'linked_employee': true}),
+        ],
+        '/projects/p1/tasks/t1/complete': [
+          (status: 409, body: {'error': 'tamamlanmış veya iptal edilmiş projede görev güncellenemez'}),
+        ],
+      });
+      await _pump(tester, adapter, const TasksScreen());
+
+      await tester.tap(find.byType(Checkbox));
+      await tester.pump();
+      // İstek sürüyor: kutunun yerinde gösterge, ikinci dokunuş mümkün değil.
+      expect(find.byType(Checkbox), findsNothing);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+      adapter.gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(adapter.calls.where((c) => c == '/projects/p1/tasks/t1/complete'), hasLength(1));
+      expect(find.text('tamamlanmış veya iptal edilmiş projede görev güncellenemez'), findsOneWidget);
+      expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, isFalse);
     });
   });
 
