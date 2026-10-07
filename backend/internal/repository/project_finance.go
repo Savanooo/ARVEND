@@ -110,6 +110,8 @@ func ToDomainExpense(e sqlc.ProjectExpense) domain.Expense {
 		CreatedAt:      e.CreatedAt.Time,
 		ApprovalStatus: e.ApprovalStatus,
 		DecisionNote:   e.DecisionNote,
+		VATRate:        NumericToFloat64Ptr(e.VatRate),
+		VATAmount:      NumericToFloat64Ptr(e.VatAmount),
 	}
 	if e.CreatedBy.Valid {
 		s := e.CreatedBy.String()
@@ -310,6 +312,8 @@ func ToDomainFinancialSummary(r sqlc.GetProjectFinancialSummaryRow) domain.Proje
 		EstimatedMarginPercent:       NumericToFloat64(r.EstimatedMarginPercent),
 		ContractVATAmount:            NumericToFloat64(r.ContractVatAmount),
 		ContractVATKnown:             r.ContractVatKnown,
+		ExpenseVATTotal:              NumericToFloat64(r.ExpenseVatTotal),
+		CodedExpenseVATTotal:         NumericToFloat64(r.CodedExpenseVatTotal),
 	}
 }
 

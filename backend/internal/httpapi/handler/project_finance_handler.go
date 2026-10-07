@@ -288,6 +288,11 @@ type expenseResponse struct {
 	DecidedBy      *string `json:"decided_by"`
 	DecidedAt      *string `json:"decided_at"`
 	DecisionNote   string  `json:"decision_note"`
+	// KDV (migration 0065): amount ödenen tutardır (oran varsa KDV dahil).
+	// vat_rate null = belirtilmedi; o zaman vat_amount ve net_amount da null.
+	VATRate   *float64 `json:"vat_rate"`
+	VATAmount *float64 `json:"vat_amount"`
+	NetAmount *float64 `json:"net_amount"`
 }
 
 func toExpenseResponse(e domain.Expense) expenseResponse {
@@ -299,6 +304,7 @@ func toExpenseResponse(e domain.Expense) expenseResponse {
 		ChangeOrderID: e.ChangeOrderID, CostCodeID: e.CostCodeID, BudgetLineID: e.BudgetLineID,
 		ApprovalStatus: e.ApprovalStatus, DecidedBy: e.DecidedBy, DecidedAt: tsStrPtr(e.DecidedAt),
 		DecisionNote: e.DecisionNote,
+		VATRate:      e.VATRate, VATAmount: e.VATAmount, NetAmount: e.NetAmount(),
 	}
 }
 
@@ -317,6 +323,10 @@ type expenseRequest struct {
 	// de OPSİYONELDİR (bkz. service.ExpenseInput.CostCodeID notu).
 	CostCodeID   string `json:"cost_code_id"`
 	BudgetLineID string `json:"budget_line_id"`
+	// VATRate OPSİYONELDİR (migration 0065): alan yok ya da null =
+	// "belirtilmedi" -- alanı göndermeyen istemciler (bugünkü web formu)
+	// masrafı önceki gibi KDV bilgisiz girer.
+	VATRate *float64 `json:"vat_rate"`
 }
 
 func (r expenseRequest) toInput(userID string, expenseDate time.Time) service.ExpenseInput {
@@ -326,6 +336,7 @@ func (r expenseRequest) toInput(userID string, expenseDate time.Time) service.Ex
 		InvoiceNo: r.InvoiceNo, Notes: r.Notes, IdempotencyKey: r.IdempotencyKey,
 		ChangeOrderID: r.ChangeOrderID, UserID: userID,
 		CostCodeID: r.CostCodeID, BudgetLineID: r.BudgetLineID,
+		VATRate: r.VATRate,
 	}
 }
 
@@ -765,9 +776,13 @@ type financialSummaryResponse struct {
 	EstimatedMarginPercent       float64 `json:"estimated_margin_percent"`
 
 	// KDV hariç karşılıklar (bkz. domain.ProjectFinancialSummary).
+	// expense_vat_total: onaylı masrafların içindeki KDV; *_cost_net bundan.
 	ContractVATAmount         float64 `json:"contract_vat_amount"`
 	ContractVATKnown          bool    `json:"contract_vat_known"`
 	CurrentContractValueNet   float64 `json:"current_contract_value_net"`
+	ExpenseVATTotal           float64 `json:"expense_vat_total"`
+	RealizedCostNet           float64 `json:"realized_cost_net"`
+	CommittedCostNet          float64 `json:"committed_cost_net"`
 	RealizedGrossProfitNet    float64 `json:"realized_gross_profit_net"`
 	EstimatedGrossProfitNet   float64 `json:"estimated_gross_profit_net"`
 	RealizedMarginPercentNet  float64 `json:"realized_margin_percent_net"`
@@ -777,6 +792,7 @@ type financialSummaryResponse struct {
 	// commitments (taahhüt bazlı).
 	ForecastBasis            string  `json:"forecast_basis"`
 	ForecastCost             float64 `json:"forecast_cost"`
+	ForecastCostNet          float64 `json:"forecast_cost_net"`
 	ForecastProfit           float64 `json:"forecast_profit"`
 	ForecastProfitNet        float64 `json:"forecast_profit_net"`
 	ForecastMarginPercent    float64 `json:"forecast_margin_percent"`
@@ -808,9 +824,10 @@ func (h *ProjectHandler) FinancialSummary(w http.ResponseWriter, r *http.Request
 		RealizedMarginPercent: s.RealizedMarginPercent, EstimatedMarginPercent: s.EstimatedMarginPercent,
 		ContractVATAmount: s.ContractVATAmount, ContractVATKnown: s.ContractVATKnown,
 		CurrentContractValueNet: s.CurrentContractValueNet,
-		RealizedGrossProfitNet:  s.RealizedGrossProfitNet, EstimatedGrossProfitNet: s.EstimatedGrossProfitNet,
+		ExpenseVATTotal:         s.ExpenseVATTotal, RealizedCostNet: s.RealizedCostNet, CommittedCostNet: s.CommittedCostNet,
+		RealizedGrossProfitNet: s.RealizedGrossProfitNet, EstimatedGrossProfitNet: s.EstimatedGrossProfitNet,
 		RealizedMarginPercentNet: s.RealizedMarginPercentNet, EstimatedMarginPercentNet: s.EstimatedMarginPercentNet,
-		ForecastBasis: s.ForecastBasis, ForecastCost: s.ForecastCost,
+		ForecastBasis: s.ForecastBasis, ForecastCost: s.ForecastCost, ForecastCostNet: s.ForecastCostNet,
 		ForecastProfit: s.ForecastProfit, ForecastProfitNet: s.ForecastProfitNet,
 		ForecastMarginPercent: s.ForecastMarginPercent, ForecastMarginPercentNet: s.ForecastMarginPercentNet,
 	})

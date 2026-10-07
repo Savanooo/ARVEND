@@ -83,7 +83,8 @@ final ledgerExpenses = [
   }),
 ];
 
-/// Masraf onayı fikstürü: onaylı (e1), onay bekleyen (e3), reddedilen (e4).
+/// Masraf onayı fikstürü: onaylı (e1), onay bekleyen (e3, %10 KDV'li),
+/// reddedilen (e4).
 final approvalExpenses = [
   ledgerExpenses.first,
   Expense.fromJson({
@@ -96,6 +97,10 @@ final approvalExpenses = [
     'supplier_name': 'Lokanta',
     'approval_status': 'pending',
     'created_at': '2026-09-20T12:00:00Z',
+    // Sunucunun hesabı: round(3250,50 × 10 / 110, 2) = 295,50.
+    'vat_rate': 10,
+    'vat_amount': 295.5,
+    'net_amount': 2955,
   }),
   Expense.fromJson({
     'id': 'e4',

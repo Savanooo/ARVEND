@@ -129,6 +129,34 @@ void main() {
       await tester.pumpAndSettle();
       await expectGolden(tester, 'expense_detail_sheet_pending_approver_360x800');
     });
+
+    // Masraf düzenleme (backend migration 0065): reddedilen masraf ret
+    // gerekçesiyle dolu açılır; KDV seçimi ve canlı KDV hariç/KDV önizlemesi.
+    testWidgets('reddedilen masrafı düzenleme formu (KDV %20)', (tester) async {
+      final project = cc.sampleProject();
+      final rejected = Expense.fromJson({
+        'id': 'e4',
+        'category': 'equipment',
+        'description': 'Kırıcı kiralama',
+        'amount': 18000,
+        'currency': 'TRY',
+        'expense_date': '2026-09-18',
+        'supplier_name': 'Kiralama A.Ş.',
+        'approval_status': 'rejected',
+        'decided_at': '2026-09-19T08:30:00Z',
+        'decision_note': 'Fatura eksik',
+        'vat_rate': 20,
+        'vat_amount': 3000,
+        'net_amount': 15000,
+        'created_at': '2026-09-18T09:00:00Z',
+      });
+      await pumpAt(tester, user: ledgerOwner, expenses: [rejected], home: page(sections(project)));
+      await tester.tap(find.byKey(const ValueKey('masraf-e4')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('masraf-duzenle')));
+      await tester.pumpAndSettle();
+      await expectGolden(tester, 'expense_edit_form_rejected_360x800');
+    });
   });
 
   group('Taşeron Ödemeleri', () {

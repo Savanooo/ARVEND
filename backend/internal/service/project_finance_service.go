@@ -557,6 +557,22 @@ type ExpenseInput struct {
 	// onaylı yazılır, onaylayıcılara bildirim gitmez. HTTP isteği bunu
 	// ayarlayamaz (handler eşlemez): kullanıcı girişi her zaman onay bekler.
 	PreApproved bool
+	// VATRate: KDV oranı (%), 0-100; nil = belirtilmedi (migration 0065) --
+	// tutar KDV hariç kâra tamamıyla maliyet olarak girer. Düzenlemede de
+	// nil "belirtilmedi" demektir (PUT satırı bütünüyle yeniden yazar).
+	VATRate *float64
+}
+
+// ErrInvalidExpenseVATRate: masraf KDV oranı aralık dışı.
+var ErrInvalidExpenseVATRate = errors.New("KDV oranı 0 ile 100 arasında olmalıdır")
+
+// expenseEventMetadata: masraf olayının izi; KDV oranı yalnızca girildiyse.
+func expenseEventMetadata(expenseID string, in ExpenseInput) map[string]any {
+	m := map[string]any{"expense_id": expenseID, "amount": in.Amount, "category": in.Category}
+	if in.VATRate != nil {
+		m["vat_rate"] = *in.VATRate
+	}
+	return m
 }
 
 func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizationID string, in ExpenseInput) (*domain.Expense, error) {
@@ -573,6 +589,9 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 	}
 	if strings.TrimSpace(in.Description) == "" {
 		return nil, errors.New("masraf açıklaması zorunludur")
+	}
+	if !domain.ValidExpenseVATRate(in.VATRate) {
+		return nil, ErrInvalidExpenseVATRate
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -638,6 +657,7 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 		CostCodeID:     costCodeID,
 		BudgetLineID:   budgetLineID,
 		ApprovalStatus: approvalStatus,
+		VatRate:        repository.Float64PtrToNumeric(in.VATRate),
 	})
 	if err != nil {
 		// bkz. CreateCollection: eşzamanlı aynı anahtarlı istek kazandıysa
@@ -654,7 +674,7 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 		return nil, err
 	}
 	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventExpenseAdded, actorUUID(in.UserID),
-		map[string]any{"expense_id": row.ID.String(), "amount": in.Amount, "category": in.Category}); err != nil {
+		expenseEventMetadata(row.ID.String(), in)); err != nil {
 		return nil, err
 	}
 	// Masraf onay bekleyerek doğar (migration 0060): onaylayıcılara haber ver.
@@ -705,8 +725,14 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 	if !domain.ValidExpenseCategory(in.Category) {
 		return nil, errors.New("geçersiz masraf kategorisi")
 	}
+	if strings.TrimSpace(in.Description) == "" {
+		return nil, errors.New("masraf açıklaması zorunludur")
+	}
 	if in.Amount <= 0 {
 		return nil, ErrInvalidAmount
+	}
+	if !domain.ValidExpenseVATRate(in.VATRate) {
+		return nil, ErrInvalidExpenseVATRate
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -723,6 +749,12 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 		return nil, err
 	}
 
+	// Ek iş bağı da yeniden yazılır (önceden düzenleme onu sessizce yok
+	// sayıyordu); başka projenin ek işine bağlanamaz.
+	changeOrderID, err := resolveChangeOrderRef(ctx, txq, in.ChangeOrderID, pid, orgID)
+	if err != nil {
+		return nil, err
+	}
 	costCodeID, budgetLineID, err := resolveCostAllocation(ctx, txq, in.CostCodeID, in.BudgetLineID, pid, orgID)
 	if err != nil {
 		return nil, err
@@ -741,6 +773,8 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 		ProjectID:      pid,
 		CostCodeID:     costCodeID,
 		BudgetLineID:   budgetLineID,
+		VatRate:        repository.Float64PtrToNumeric(in.VATRate),
+		ChangeOrderID:  changeOrderID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -749,7 +783,7 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 		return nil, err
 	}
 	if err := logProjectEvent(ctx, txq, orgID, row.ProjectID, domain.ProjectEventExpenseUpdated, actorUUID(in.UserID),
-		map[string]any{"expense_id": expenseID, "amount": in.Amount}); err != nil {
+		expenseEventMetadata(expenseID, in)); err != nil {
 		return nil, err
 	}
 	if err := notifyExpensePendingApproval(ctx, txq, project, row, actorUUID(in.UserID)); err != nil {
@@ -1487,15 +1521,26 @@ func (s *ProjectService) FinancialSummaryForViewer(ctx context.Context, projectI
 	return &out, nil
 }
 
-// applyNetFigures: KDV hariç bedel, kâr ve marjlar. Maliyetler girildiği
-// gibi kullanılır (masraflarda KDV ayrı tutulmuyor).
+// applyNetFigures: KDV hariç bedel, maliyet, kâr ve marjlar. Maliyetten
+// onaylı masrafların içindeki KDV düşülür (KDV'si belirtilmemiş masraf
+// tutarının tamamıyla kalır; taşeron ödemelerinde KDV bilgisi yok).
 func applyNetFigures(s *domain.ProjectFinancialSummary) {
-	s.CurrentContractValueNet = math.Round((s.CurrentContractValue-s.ContractVATAmount)*100) / 100
-	s.RealizedGrossProfitNet = math.Round((s.CurrentContractValueNet-s.RealizedCost)*100) / 100
-	s.EstimatedGrossProfitNet = math.Round((s.CurrentContractValueNet-s.CommittedCost)*100) / 100
+	s.CurrentContractValueNet = roundKurus(s.CurrentContractValue - s.ContractVATAmount)
+	s.RealizedCostNet = roundKurus(s.RealizedCost - s.ExpenseVATTotal)
+	s.CommittedCostNet = roundKurus(s.CommittedCost - s.ExpenseVATTotal)
+	realized, committed := s.RealizedCostNet, s.CommittedCostNet
+	if !s.ContractVATKnown {
+		// Sözleşmenin KDV'si bilinmiyor (bedel KDV dahil kalıyor): KDV hariç
+		// maliyeti çıkarmak kârı şişirirdi -- kâr "net"i KDV dahille aynı kalır.
+		realized, committed = s.RealizedCost, s.CommittedCost
+	}
+	s.RealizedGrossProfitNet = roundKurus(s.CurrentContractValueNet - realized)
+	s.EstimatedGrossProfitNet = roundKurus(s.CurrentContractValueNet - committed)
 	s.RealizedMarginPercentNet = domain.MarginPercent(s.RealizedGrossProfitNet, s.CurrentContractValueNet)
 	s.EstimatedMarginPercentNet = domain.MarginPercent(s.EstimatedGrossProfitNet, s.CurrentContractValueNet)
 }
+
+func roundKurus(v float64) float64 { return math.Round(v*100) / 100 }
 
 // applyForecast: "Tahmini" bölümünün kaynağı. Her yeni projeye boş bir
 // bütçe otomatik açıldığı için HasBudget tek başına "bütçe girildi" demek
@@ -1503,16 +1548,27 @@ func applyNetFigures(s *domain.ProjectFinancialSummary) {
 // (RevisedBudget > 0) kullanılır. Eski (legacy) taşeron kayıtları Maliyet
 // Kontrolü'ne hiç girmez; EAC'ye ayrıca eklenir -- önceden mobil bütçeli
 // her projede EAC'yi kullanıyor, bu taşeron ödemelerini görmüyordu.
+//
+// KDV hariç tahmini maliyet: EAC = gerçekleşen + kalan (ETC); gerçekleşenin
+// içindeki masraf KDV'si düşülür, kalanın KDV'si bilinmediği için olduğu gibi
+// kalır. EAC yalnızca maliyet koduna bağlı masrafları içerir -- düşülen KDV
+// de yalnızca onlarınki (kodsuz masrafın KDV'si EAC'de hiç yok).
 func applyForecast(s *domain.ProjectFinancialSummary, cc *domain.CostControlSummary) {
 	if cc != nil && cc.HasBudget && cc.RevisedBudget > 0 {
 		s.ForecastBasis = domain.ForecastBasisBudget
-		s.ForecastCost = math.Round((cc.EACTotal+s.SubcontractorPaid+s.SubcontractorRemaining)*100) / 100
+		s.ForecastCost = roundKurus(cc.EACTotal + s.SubcontractorPaid + s.SubcontractorRemaining)
+		s.ForecastCostNet = roundKurus(s.ForecastCost - s.CodedExpenseVATTotal)
 	} else {
 		s.ForecastBasis = domain.ForecastBasisCommitments
 		s.ForecastCost = s.CommittedCost
+		s.ForecastCostNet = s.CommittedCostNet
 	}
-	s.ForecastProfit = math.Round((s.CurrentContractValue-s.ForecastCost)*100) / 100
-	s.ForecastProfitNet = math.Round((s.CurrentContractValueNet-s.ForecastCost)*100) / 100
+	cost := s.ForecastCostNet
+	if !s.ContractVATKnown {
+		cost = s.ForecastCost // bkz. applyNetFigures
+	}
+	s.ForecastProfit = roundKurus(s.CurrentContractValue - s.ForecastCost)
+	s.ForecastProfitNet = roundKurus(s.CurrentContractValueNet - cost)
 	s.ForecastMarginPercent = domain.MarginPercent(s.ForecastProfit, s.CurrentContractValue)
 	s.ForecastMarginPercentNet = domain.MarginPercent(s.ForecastProfitNet, s.CurrentContractValueNet)
 }

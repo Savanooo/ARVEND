@@ -83,7 +83,8 @@ class LedgerLockedNotice extends ConsumerWidget {
 /// Finans > Masraflar (web `ExpensesSection` tablosu): tarih · kategori ·
 /// açıklama · bağlı ek iş / maliyet kodu · tedarikçi · tutar; iptal
 /// edilenler soluk + üstü çizili + "İPTAL · gerekçe". Satıra dokununca
-/// ayrıntı + "İptal Et". Altında geçerli masraf toplamı ve çift sayım notu.
+/// ayrıntı (KDV dahil) + "Düzenle" / "İptal Et". Altında geçerli masraf
+/// toplamı ve çift sayım notu.
 /// Görünüm `projects.finance.read` ile açılır (proje detayı gizler);
 /// "Masraf Ekle" / "İptal Et" `projects.finance.manage` + açık proje.
 ///
@@ -196,6 +197,8 @@ class ExpensesLedgerSection extends ConsumerWidget {
                     currency: project.currency,
                     canVoid: canManage,
                     canDecide: canApprove,
+                    // Düzenleme de finance.manage + açık proje (backend aynı kapı).
+                    canEdit: canManage,
                     changeOrderLabel: changeOrderLabel(e.changeOrderId),
                     costCodeLabel: costCodeLabel(e.costCodeId),
                   ),

@@ -47,6 +47,12 @@ const (
 	ExpenseApprovalRejected = "rejected"
 )
 
+// ValidExpenseVATRate: masrafın KDV oranı (%) 0-100 arasında olmalı; nil =
+// "belirtilmedi" (migration 0065) ve her zaman geçerlidir.
+func ValidExpenseVATRate(rate *float64) bool {
+	return rate == nil || (*rate >= 0 && *rate <= 100)
+}
+
 // ExpenseDecisionNoteMaxLen, ret gerekçesinin kolon sınırıdır
 // (decision_note varchar(500)) -- aşan metin DB hatası yerine Türkçe bir
 // doğrulama hatasıyla döner.
@@ -228,6 +234,21 @@ type Expense struct {
 	DecidedBy      *string
 	DecidedAt      *time.Time
 	DecisionNote   string
+	// VATRate: KDV oranı (%), nil = belirtilmedi (migration 0065) -- Amount
+	// yine ödenen tutardır (oran verilmişse KDV dahil). VATAmount tutarın
+	// içindeki KDV'dir, DB'de oranla birlikte üretilir (oran nil ise nil).
+	VATRate   *float64
+	VATAmount *float64
+}
+
+// NetAmount: KDV hariç tutar (kuruşa yuvarlı); KDV belirtilmemişse nil --
+// bilinmeyen KDV'yi sıfır saymak "KDV hariç" diye yanlış bir rakam olurdu.
+func (e Expense) NetAmount() *float64 {
+	if e.VATAmount == nil {
+		return nil
+	}
+	v := math.Round((e.Amount-*e.VATAmount)*100) / 100
+	return &v
 }
 
 type ProjectInvoice struct {
@@ -340,18 +361,35 @@ type ProjectFinancialSummary struct {
 	RealizedMarginPercent  float64
 	EstimatedMarginPercent float64
 
-	// KDV: yukarıdaki bedel ve kârlar KDV DAHİLDİR (sözleşme bedeli teklifin
-	// KDV dahil genel toplamı; maliyetler girildiği gibi). Ürün sahibi kararı
-	// (2026-10-06): KDV hariç kâr da gösterilir. ContractVATKnown=false ise
-	// proje tekliften açılmamıştır, KDV bilinmez ve "net" alanlar KDV dahil
-	// değerlerle aynıdır.
+	// KDV: yukarıdaki bedel, maliyet ve kârlar KDV DAHİLDİR (sözleşme bedeli
+	// teklifin KDV dahil genel toplamı; maliyetler girildiği gibi). Ürün
+	// sahibi kararı (2026-10-06): KDV hariç kâr da gösterilir.
+	//
+	// Maliyetlerin KDV hariç karşılığı (2026-10-07): ExpenseVATTotal, onaylı
+	// ve iptal edilmemiş masrafların içindeki KDV'dir (KDV'si belirtilmemiş
+	// masraf tutarının tamamıyla maliyettir); *CostNet = maliyet - bu KDV.
+	// Taşeron ödemeleri KDV bilgisi taşımaz, oldukları gibi kalır.
+	//
+	// ContractVATKnown=false ise proje tekliften açılmamıştır, sözleşmenin
+	// KDV'si bilinmez: KDV hariç kâr hesaplanamaz ve kâr/marj "net" alanları
+	// KDV dahil değerlerle aynıdır (web bu durumda forecast_profit_net'i
+	// "Tahmini Kâr" diye gösterir). *CostNet alanları yine gerçek KDV hariç
+	// maliyettir.
 	ContractVATAmount         float64
 	ContractVATKnown          bool
 	CurrentContractValueNet   float64
+	ExpenseVATTotal           float64
+	RealizedCostNet           float64
+	CommittedCostNet          float64
 	RealizedGrossProfitNet    float64
 	EstimatedGrossProfitNet   float64
 	RealizedMarginPercentNet  float64
 	EstimatedMarginPercentNet float64
+	// CodedExpenseVATTotal: ExpenseVATTotal'ın maliyet koduna/bütçe kalemine
+	// bağlı masraflardan gelen kısmı -- bütçe bazlı tahminin (EAC) içindeki
+	// masraf KDV'si (EAC kodsuz masrafı hiç içermez). Yalnızca hesap için;
+	// API'de yok.
+	CodedExpenseVATTotal float64
 
 	// Forecast*: "Tahmini" bölümünün TEK kaynağı -- bütçe varsa Maliyet
 	// Kontrolü'nün EAC'si (ForecastBasis = "budget"), yoksa taahhüt bazlı
@@ -359,6 +397,7 @@ type ProjectFinancialSummary struct {
 	// sunucuda yapılır (önceden yalnızca mobil seçiyordu).
 	ForecastBasis            string
 	ForecastCost             float64
+	ForecastCostNet          float64
 	ForecastProfit           float64
 	ForecastProfitNet        float64
 	ForecastMarginPercent    float64

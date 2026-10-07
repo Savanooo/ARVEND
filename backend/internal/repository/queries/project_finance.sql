@@ -118,12 +118,13 @@ RETURNING id, amount;
 -- cost_code_id'yi o kalemden DOĞRULAR/TÜRETİR (bkz. ExpenseService notu).
 -- approval_status (migration 0060): kim girerse girsin masraf 'pending'
 -- başlar; tek istisna geçmiş veriyi aktaran araç (bkz.
--- ExpenseInput.PreApproved).
+-- ExpenseInput.PreApproved). vat_rate (migration 0065) NULL olabilir
+-- ("belirtilmedi"); vat_amount ondan üretilir.
 INSERT INTO project_expenses (
     organization_id, project_id, category, description, amount, currency,
     expense_date, supplier_name, invoice_no, notes, idempotency_key, created_by, change_order_id,
-    cost_code_id, budget_line_id, approval_status
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+    cost_code_id, budget_line_id, approval_status, vat_rate
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 RETURNING *;
 
 -- GetExpense, void durumundan BAĞIMSIZ okur (bkz. GetCollection notu).
@@ -146,9 +147,13 @@ ORDER BY expense_date DESC, created_at DESC;
 -- Düzenlenen masraf YENİDEN onay bekler (migration 0060): onaylanmış bir
 -- tutar onaysız değiştirilip toplamlarda kalamaz. Önceki karar temizlenir
 -- (izi project_events'te).
+-- PUT satırı BÜTÜNÜYLE yeniden yazar: vat_rate (migration 0065) NULL
+-- gelirse "belirtilmedi" olur, change_order_id boş gelirse bağ kalkar --
+-- istemci değiştirmediği alanları aynen geri gönderir.
 UPDATE project_expenses
 SET category = $3, description = $4, amount = $5, expense_date = $6,
     supplier_name = $7, invoice_no = $8, notes = $9, cost_code_id = $11, budget_line_id = $12,
+    vat_rate = $13, change_order_id = $14,
     approval_status = 'pending', decided_by = NULL, decided_at = NULL, decision_note = ''
 WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL AND project_id = $10
 RETURNING *;
@@ -317,7 +322,15 @@ planned AS (
 expense_total AS (
     -- Yalnızca ONAYLI masraflar (migration 0060): onay bekleyen/reddedilen
     -- kayıt gerçekleşen maliyete ve kâra girmez.
-    SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
+    -- vat_total: bu masrafların İÇİNDEKİ KDV (migration 0065; oranı
+    -- belirtilmemiş masrafta NULL -> sayılmaz, tutarın tamamı maliyettir).
+    -- coded_vat_total: yalnızca maliyet koduna/bütçe kalemine bağlı olanlar
+    -- -- Maliyet Kontrolü'nün EAC'si yalnızca onları içerir (bkz.
+    -- cost_control.sql actual_by_line/unbudgeted_actual).
+    SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total,
+        COALESCE(sum(vat_amount), 0)::numeric(18,2) AS vat_total,
+        COALESCE(sum(vat_amount) FILTER (WHERE cost_code_id IS NOT NULL OR budget_line_id IS NOT NULL), 0)::numeric(18,2)
+            AS coded_vat_total
     FROM project_expenses WHERE project_id = $1 AND voided_at IS NULL AND approval_status = 'approved'
 ),
 subpay AS (
@@ -451,6 +464,10 @@ SELECT
     coll.total    AS collected_amount,
     (current_value.total - coll.total)::numeric(18,2) AS remaining_receivable,
     expense_total.total     AS total_expenses,
+    -- Onaylı masrafların içindeki KDV; KDV hariç maliyetler Go'da bundan
+    -- türetilir (ProjectService.applyNetFigures/applyForecast).
+    expense_total.vat_total       AS expense_vat_total,
+    expense_total.coded_vat_total AS coded_expense_vat_total,
     subcommit.total    AS total_subcontractor_commitment,
     subpay.total       AS subcontractor_paid,
     subremaining.total AS subcontractor_remaining,

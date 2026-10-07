@@ -52,5 +52,41 @@ void main() {
     expect(s.forecastCost, 900000);
     expect(s.forecastProfit, 300000);
     expect(s.forecastMarginPercent, 25);
+    // Masraf KDV'si alanları yok: KDV hariç maliyet KDV dahille aynı, satır gizli.
+    expect(s.expenseVatTotal, 0);
+    expect(s.realizedCostNet, 900000);
+    expect(s.committedCostNet, 900000);
+    expect(s.forecastCostNet, 900000);
+    expect(s.realizedCostNetDiffers, isFalse);
+    expect(s.forecastCostNetDiffers, isFalse);
+  });
+
+  test('masraf KDV\'si: KDV hariç maliyetler sunucudan okunur, fark varsa satır gösterilir', () {
+    final s = FinancialSummary.fromJson({
+      ..._base(),
+      'realized_cost': 1020000,
+      'committed_cost': 1020000,
+      'contract_vat_known': true,
+      'contract_vat_amount': 200000,
+      'current_contract_value_net': 1000000,
+      'expense_vat_total': 20000,
+      'realized_cost_net': 1000000,
+      'committed_cost_net': 1000000,
+      'forecast_basis': 'commitments',
+      'forecast_cost': 1020000,
+      'forecast_cost_net': 1000000,
+    });
+    expect(s.expenseVatTotal, 20000);
+    expect(s.realizedCostNet, 1000000);
+    expect(s.committedCostNet, 1000000);
+    expect(s.forecastCostNet, 1000000);
+    expect(s.realizedCostNetDiffers, isTrue);
+    expect(s.forecastCostNetDiffers, isTrue);
+  });
+
+  test('ara sunucu (forecast_cost var, forecast_cost_net yok): KDV hariç tahmin KDV dahille aynı', () {
+    final s = FinancialSummary.fromJson({..._base(), 'forecast_basis': 'budget', 'forecast_cost': 950000});
+    expect(s.forecastCostNet, 950000);
+    expect(s.forecastCostNetDiffers, isFalse);
   });
 }

@@ -66,6 +66,13 @@ Future<void> _save(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _tapKey(WidgetTester tester, Key key) async {
+  await tester.ensureVisible(find.byKey(key));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(key));
+  await tester.pumpAndSettle();
+}
+
 Future<void> _pick(WidgetTester tester, Key field, String option) async {
   await tester.ensureVisible(find.byKey(field));
   await tester.pumpAndSettle();
@@ -77,6 +84,9 @@ Future<void> _pick(WidgetTester tester, Key field, String option) async {
 
 void main() {
   testWidgets('geçersiz tutar/boş açıklama ile masraf formu gönderilemez, istek atılmaz', (tester) async {
+    // Doğrulama mesajları + KDV seçimiyle form uzar: Kaydet ekranda kalsın.
+    await tester.binding.setSurfaceSize(const Size(400, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final adapter = FakeHttpClientAdapter(script: {});
     // Oturum açık (gerçek uygulamada sheet açılmadan önce /auth/me zaten
     // yüklenmiştir); bağlantı seçicisi izni yok -> tek istek bile atılmamalı.
@@ -183,6 +193,86 @@ void main() {
     expect(body['idempotency_key'], startsWith('exp-'));
     // Masraf onay bekleyerek doğar: form kapanınca bunu söyler.
     expect(find.text('Masraf onaya gönderildi.'), findsOneWidget);
+  });
+
+  testWidgets('masraf KDV: varsayılan Belirtilmedi; oran seçilince canlı KDV hariç/KDV önizlemesi, vat_rate gider', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(400, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final adapter = FakeHttpClientAdapter(script: {
+      '/projects/p1/expenses': [
+        (
+          status: 201,
+          body: {'id': 'e1', 'category': 'material', 'description': 'Çimento', 'amount': 1200, 'currency': 'TRY', 'expense_date': '2026-10-07', 'created_at': '2026-10-07T08:00:00Z', 'approval_status': 'pending', 'vat_rate': 20, 'vat_amount': 200, 'net_amount': 1000},
+        ),
+      ],
+    });
+    await _open(
+      tester,
+      adapter,
+      (context) => showExpenseFormSheet(context, 'p1', currency: 'TRY'),
+      user: _user({'projects.finance.manage'}),
+    );
+
+    ChoiceChip chip(String key) => tester.widget<ChoiceChip>(find.byKey(ValueKey('masraf-kdv-$key')));
+    expect(chip('belirtilmedi').selected, isTrue, reason: 'varsayılan: belirtilmedi');
+    for (final label in ['Belirtilmedi', 'KDV yok (%0)', '%1', '%10', '%20']) {
+      expect(find.widgetWithText(ChoiceChip, label), findsOneWidget, reason: label);
+    }
+    expect(find.byKey(const ValueKey('masraf-kdv-onizleme')), findsNothing);
+
+    await tester.enterText(find.widgetWithText(TextFormField, 'Açıklama'), 'Çimento');
+    await tester.enterText(find.widgetWithText(TextFormField, 'Tutar (TRY)'), '120.000');
+    await _tapKey(tester, const ValueKey('masraf-kdv-20'));
+    expect(chip('20').selected, isTrue);
+    expect(find.text('KDV hariç: 100.000,00 TL · KDV: 20.000,00 TL'), findsOneWidget);
+
+    // Önizleme tutarla birlikte canlı değişir.
+    await tester.enterText(find.widgetWithText(TextFormField, 'Tutar (TRY)'), '1.200');
+    await tester.pump();
+    expect(find.text('KDV hariç: 1.000,00 TL · KDV: 200,00 TL'), findsOneWidget);
+    await _tapKey(tester, const ValueKey('masraf-kdv-10'));
+    expect(find.text('KDV hariç: 1.090,91 TL · KDV: 109,09 TL'), findsOneWidget);
+    await _tapKey(tester, const ValueKey('masraf-kdv-0'));
+    expect(find.text('KDV hariç: 1.200,00 TL · KDV: 0,00 TL'), findsOneWidget);
+    await _tapKey(tester, const ValueKey('masraf-kdv-20'));
+    await _save(tester);
+
+    final body = adapter.requestBodies.single as Map<String, dynamic>;
+    expect(adapter.methods.single, 'POST');
+    expect(body['amount'], 1200);
+    expect(body['vat_rate'], 20);
+    expect(find.text('Masraf onaya gönderildi.'), findsOneWidget);
+  });
+
+  testWidgets('masraf KDV: Belirtilmedi ise vat_rate hiç gönderilmez (sunucu NULL yazar); KDV yok %0 gider', (
+    tester,
+  ) async {
+    Map<String, dynamic> created(String id) => {'id': id, 'category': 'material', 'description': 'Çimento', 'amount': 500, 'currency': 'TRY', 'expense_date': '2026-10-07', 'created_at': '2026-10-07T08:00:00Z', 'approval_status': 'pending'};
+    final adapter = FakeHttpClientAdapter(script: {
+      '/projects/p1/expenses': [(status: 201, body: created('e1')), (status: 201, body: created('e2'))],
+    });
+    for (final (chipKey, expected) in [('belirtilmedi', null), ('0', 0)]) {
+      await _open(
+        tester,
+        adapter,
+        (context) => showExpenseFormSheet(context, 'p1', currency: 'TRY'),
+        user: _user({'projects.finance.manage'}),
+      );
+      await tester.enterText(find.widgetWithText(TextFormField, 'Açıklama'), 'Çimento');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Tutar (TRY)'), '500');
+      // Önce bir oran seçip sonra vazgeçmek de "belirtilmedi"ye döner.
+      await _tapKey(tester, const ValueKey('masraf-kdv-20'));
+      await _tapKey(tester, ValueKey('masraf-kdv-$chipKey'));
+      await _save(tester);
+      final body = adapter.requestBodies.last as Map<String, dynamic>;
+      if (expected == null) {
+        expect(body.containsKey('vat_rate'), isFalse, reason: 'alan yok = belirtilmedi (eski sunucuyu da bozmaz)');
+      } else {
+        expect(body['vat_rate'], expected);
+      }
+    }
   });
 
   testWidgets('masraf: izin yoksa bağlantı seçicileri yüklenmez (gereksiz 403 yok)', (tester) async {

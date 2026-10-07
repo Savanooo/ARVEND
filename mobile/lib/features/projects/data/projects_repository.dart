@@ -57,6 +57,7 @@ class ProjectsRepository {
     String changeOrderId = '',
     String costCodeId = '',
     String budgetLineId = '',
+    double? vatRate,
     String? idempotencyKey,
   }) async {
     final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/expenses', data: {
@@ -74,9 +75,54 @@ class ProjectsRepository {
       // seçildiyse maliyet kodunu sunucu kalemden alır.
       'cost_code_id': costCodeId,
       'budget_line_id': budgetLineId,
+      ..._vatRateField(vatRate),
     });
     return Expense.fromJson(json);
   }
+
+  /// `PUT /projects/{id}/expenses/{expenseId}` (`projects.finance.manage`,
+  /// açık proje, iptal edilmemiş masraf). Sunucu satırı BÜTÜNÜYLE yeniden
+  /// yazar -- çağıran değiştirmediği alanları (bağlar, not, tarih…) aynen
+  /// geri gönderir. Düzenlenen masraf yeniden onay bekler (pending).
+  Future<Expense> updateExpense(
+    String projectId,
+    String expenseId, {
+    required String category,
+    required String description,
+    required double amount,
+    required String currency,
+    required String expenseDate,
+    required String supplierName,
+    required String invoiceNo,
+    required String notes,
+    required String changeOrderId,
+    required String costCodeId,
+    required String budgetLineId,
+    required double? vatRate,
+  }) async {
+    final json = await _client.put<Map<String, dynamic>>('/projects/$projectId/expenses/$expenseId', data: {
+      'category': category,
+      'description': description,
+      'amount': amount,
+      'currency': currency,
+      'expense_date': expenseDate,
+      'supplier_name': supplierName,
+      'invoice_no': invoiceNo,
+      'notes': notes,
+      'change_order_id': changeOrderId,
+      'cost_code_id': costCodeId,
+      'budget_line_id': budgetLineId,
+      ..._vatRateField(vatRate),
+    });
+    return Expense.fromJson(json);
+  }
+
+  /// KDV oranı yalnızca seçildiyse gönderilir: alan yoksa sunucu
+  /// "belirtilmedi" (NULL) yazar. Açık `null` yerine alanı hiç koymamak,
+  /// alanı tanımayan (bilinmeyen alanı reddeden) eski sunucuda KDV'siz
+  /// masraf girişini bozmaz.
+  static Map<String, Object> _vatRateField(double? vatRate) =>
+      vatRate == null ? const {} : {'vat_rate': vatRate};
 
   Future<void> voidExpense(String projectId, String expenseId, {String reason = ''}) => _client
       .post<void>('/projects/$projectId/expenses/$expenseId/void', data: {'reason': reason});

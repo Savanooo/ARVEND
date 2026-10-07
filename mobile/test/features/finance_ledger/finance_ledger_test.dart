@@ -309,6 +309,200 @@ void main() {
     });
   });
 
+  // Masraf KDV'si + düzenleme (backend migration 0065): reddedilen masraf
+  // artık düzeltilip yeniden onaya gönderilebilir; PUT satırı bütünüyle
+  // yeniden yazdığı için değişmeyen her alan aynen geri gider.
+  group('Masraf düzenleme ve KDV', () {
+    final rejectedWithVat = Expense.fromJson({
+      'id': 'e5',
+      'category': 'equipment',
+      'description': 'Kırıcı kiralama',
+      'amount': 18000,
+      'currency': 'TRY',
+      'expense_date': '2026-09-18',
+      'supplier_name': 'Kiralama A.Ş.',
+      'invoice_no': 'KR-77',
+      'notes': 'İki gün',
+      'change_order_id': 'co1',
+      'cost_code_id': 'cc1',
+      // Kullanıcının bütçe okuma izni yok: seçici görünmez ama bağ korunmalı.
+      'budget_line_id': 'bl9',
+      'vat_rate': 20,
+      'vat_amount': 3000,
+      'net_amount': 15000,
+      'approval_status': 'rejected',
+      'decided_at': '2026-09-19T08:30:00Z',
+      'decision_note': 'Fatura eksik',
+      'created_at': '2026-09-18T09:00:00Z',
+    });
+
+    Map<String, dynamic> updatedBody(String id, {double amount = 18000}) => {
+          'id': id,
+          'category': 'equipment',
+          'description': 'Kırıcı kiralama',
+          'amount': amount,
+          'currency': 'TRY',
+          'expense_date': '2026-09-18',
+          'approval_status': 'pending',
+          'created_at': '2026-09-18T09:00:00Z',
+        };
+
+    Future<void> openEdit(WidgetTester tester, String expenseId) async {
+      await tester.tap(find.byKey(ValueKey('masraf-$expenseId')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('masraf-duzenle')));
+      await tester.pumpAndSettle();
+      expect(find.text('Masrafı Düzenle'), findsOneWidget);
+    }
+
+    Future<void> tapSave(WidgetTester tester) async {
+      final save = find.widgetWithText(ElevatedButton, 'Kaydet');
+      await tester.ensureVisible(save);
+      await tester.pumpAndSettle();
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('ayrıntı KDV oranını, KDV tutarını ve KDV hariç tutarı gösterir; oran yoksa "Belirtilmedi"', (
+      tester,
+    ) async {
+      final client = await _client(FakeHttpClientAdapter(script: {}));
+      await _pump(
+        tester,
+        buildLedgerApp(
+          user: ledgerOwner,
+          client: client,
+          expenses: [rejectedWithVat, ...ledgerExpenses],
+          home: _sections(cc.sampleProject()),
+        ),
+      );
+      await tester.tap(find.byKey(const ValueKey('masraf-e5')));
+      await tester.pumpAndSettle();
+      expect(find.text('KDV (%20)'), findsOneWidget);
+      expect(find.text('3.000,00 TL'), findsOneWidget);
+      expect(find.text('KDV hariç'), findsOneWidget);
+      expect(find.text('15.000,00 TL'), findsOneWidget);
+      Navigator.of(tester.element(find.text('KDV (%20)'))).pop();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('masraf-e1')));
+      await tester.pumpAndSettle();
+      expect(find.text('Belirtilmedi'), findsOneWidget);
+      expect(find.text('KDV hariç'), findsNothing);
+    });
+
+    testWidgets('reddedilen masraf: Düzenle formu dolu açar, değişmeyen alanlar aynen PUT edilir, yeniden onaya gider', (
+      tester,
+    ) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/projects/p1/expenses/e5': [(status: 200, body: updatedBody('e5', amount: 24000))],
+      });
+      final client = await _client(adapter);
+      await _pump(
+        tester,
+        buildLedgerApp(user: ledgerOwner, client: client, expenses: [rejectedWithVat], home: _sections(cc.sampleProject())),
+      );
+      await openEdit(tester, 'e5');
+
+      // Ret gerekçesi formda: neyin düzeltileceği belli.
+      expect(find.text('Red nedeni: Fatura eksik. Düzeltip kaydedince yeniden onaya gider.'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, 'Kırıcı kiralama'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, '18000'), findsOneWidget);
+      expect(tester.widget<ChoiceChip>(find.byKey(const ValueKey('masraf-kdv-20'))).selected, isTrue);
+      expect(find.text('KDV hariç: 15.000,00 TL · KDV: 3.000,00 TL'), findsOneWidget);
+
+      await tester.enterText(find.widgetWithText(TextFormField, 'Tutar (TRY)'), '24.000');
+      await tester.pump();
+      expect(find.text('KDV hariç: 20.000,00 TL · KDV: 4.000,00 TL'), findsOneWidget);
+      await tapSave(tester);
+
+      expect(find.byType(AlertDialog), findsNothing, reason: 'reddedilen masrafta onay sorusu yok');
+      expect(adapter.calls, ['/projects/p1/expenses/e5']);
+      expect(adapter.methods, ['PUT']);
+      expect(adapter.requestBodies.single, {
+        'category': 'equipment',
+        'description': 'Kırıcı kiralama',
+        'amount': 24000,
+        'currency': 'TRY',
+        'expense_date': '2026-09-18',
+        'supplier_name': 'Kiralama A.Ş.',
+        'invoice_no': 'KR-77',
+        'notes': 'İki gün',
+        'change_order_id': 'co1',
+        'cost_code_id': 'cc1',
+        'budget_line_id': 'bl9',
+        'vat_rate': 20,
+      });
+      expect(find.text('Masraf güncellendi; yeniden onaya gönderildi.'), findsOneWidget);
+      expect(find.text('Masrafı Düzenle'), findsNothing, reason: 'form kapandı');
+      expect(find.byKey(const ValueKey('masraf-duzenle')), findsNothing, reason: 'ayrıntı da kapandı');
+    });
+
+    testWidgets('onaylı masraf: kayıttan önce yeniden onaya gideceği sorulur; Vazgeç istek atmaz', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/projects/p1/expenses/e1': [(status: 200, body: updatedBody('e1'))],
+      });
+      final client = await _client(adapter);
+      await _pump(tester, buildLedgerApp(user: ledgerOwner, client: client, home: _sections(cc.sampleProject())));
+      await openEdit(tester, 'e1');
+      expect(find.text('Kaydedince masraf yeniden onaya gider.'), findsOneWidget);
+
+      await tapSave(tester);
+      expect(find.text('Yeniden onaya gidecek'), findsOneWidget);
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Vazgeç')));
+      await tester.pumpAndSettle();
+      expect(adapter.calls, isEmpty, reason: 'vazgeçince istek yok');
+      expect(find.text('Masrafı Düzenle'), findsOneWidget, reason: 'form açık kalır');
+
+      await tapSave(tester);
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Kaydet')));
+      await tester.pumpAndSettle();
+      expect(adapter.methods, ['PUT']);
+      final body = adapter.requestBodies.single as Map<String, dynamic>;
+      expect(body['amount'], 84500);
+      expect(body['change_order_id'], 'co1');
+      expect(body['cost_code_id'], 'cc1');
+      expect(body['budget_line_id'], '');
+      expect(body['supplier_name'], 'Yapı Market');
+      expect(body['notes'], 'Zemin kat için ikinci sevkiyat');
+      expect(body.containsKey('vat_rate'), isFalse, reason: 'belirtilmemiş KDV belirtilmemiş kalır');
+      expect(find.text('Masraf güncellendi; yeniden onaya gönderildi.'), findsOneWidget);
+    });
+
+    testWidgets('Düzenle: yalnızca finance.manage + açık proje + iptal edilmemiş masrafta', (tester) async {
+      final client = await _client(FakeHttpClientAdapter(script: {}));
+      await _pump(tester, buildLedgerApp(user: ledgerOwner, client: client, home: _sections(cc.sampleProject())));
+      await tester.tap(find.byKey(const ValueKey('masraf-e2')));
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsOneWidget, reason: 'ayrıntı açıldı');
+      expect(find.byKey(const ValueKey('masraf-duzenle')), findsNothing, reason: 'iptal edilmiş masraf');
+
+      // Aynı masraf açık projede sahibe Düzenle gösterir (aşağıdaki
+      // "yok"ların boşuna geçmediğinin kanıtı).
+      for (final (user, project, visible) in [
+        (ledgerOwner, cc.sampleProject(), true),
+        (ledgerViewer, cc.sampleProject(), false),
+        (ledgerOwner, cc.sampleProject(status: 'completed'), false),
+      ]) {
+        // Önceki ağacın açık sayfası yeni ağaca taşınmasın.
+        await tester.pumpWidget(const SizedBox());
+        await _pump(
+          tester,
+          buildLedgerApp(user: user, client: client, project: project, home: _sections(project)),
+        );
+        await tester.tap(find.byKey(const ValueKey('masraf-e1')));
+        await tester.pumpAndSettle();
+        expect(find.text('Alçıpan ve profil'), findsWidgets, reason: 'ayrıntı açıldı');
+        expect(find.byType(BottomSheet), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('masraf-duzenle')),
+          visible ? findsOneWidget : findsNothing,
+          reason: '${user.id} / ${project.status}',
+        );
+      }
+    });
+  });
+
   group('Taşeron Ödemeleri (legacy)', () {
     Widget tab(Project project) => Scaffold(body: SubcontractorPaymentsTab(projectId: project.id, project: project));
 

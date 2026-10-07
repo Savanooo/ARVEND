@@ -13,6 +13,7 @@ import '../../../../core/widgets/unsaved_changes_scope.dart';
 import '../../contract_co/presentation/widgets/contract_co_ui.dart' show showReasonDialog;
 import '../../data/projects_providers.dart';
 import '../../presentation/destructive_action_button.dart';
+import '../../presentation/expense_form_sheet.dart';
 import '../../domain/project.dart';
 import '../data/finance_ledger_providers.dart';
 import '../../../../core/widgets/app_sheet.dart';
@@ -30,6 +31,11 @@ import '../domain/legacy_subcontractor.dart';
 /// karar tarihini ve ret gerekçesini gösterir. [canDecide]
 /// (`projects.expenses.approve` + açık proje) ve masraf onay bekliyorsa
 /// "Onayla" / "Reddet" (gerekçe zorunlu) görünür.
+///
+/// KDV (backend migration 0065): oran, tutarın içindeki KDV ve KDV hariç
+/// tutar (sunucunun hesabı); oran girilmemişse "Belirtilmedi". [canEdit]
+/// (`projects.finance.manage` + açık proje) ve masraf iptal edilmemişse
+/// "Düzenle" aynı formu dolu açar -- reddedilen masrafın tek düzeltme yolu.
 Future<bool?> showExpenseDetailSheet(
   BuildContext context, {
   required String projectId,
@@ -37,9 +43,11 @@ Future<bool?> showExpenseDetailSheet(
   required String currency,
   required bool canVoid,
   bool canDecide = false,
+  bool canEdit = false,
   String? changeOrderLabel,
   String? costCodeLabel,
 }) {
+  final moneyCurrency = expense.currency.isEmpty ? currency : expense.currency;
   final rows = <Widget>[
     AppDataRow(
       label: 'Durum',
@@ -57,6 +65,15 @@ Future<bool?> showExpenseDetailSheet(
     AppDataRow(label: 'Açıklama', value: expense.description.isEmpty ? '—' : expense.description, multiline: true),
     AppDataRow(label: 'Tedarikçi', value: expense.supplierName.isEmpty ? '—' : expense.supplierName),
     AppDataRow(label: 'Fatura No', value: expense.invoiceNo.isEmpty ? '—' : expense.invoiceNo),
+    if (expense.vatRate case final rate?) ...[
+      AppDataRow(
+        label: 'KDV (${Formatters.percent(rate)})',
+        value: expense.vatAmount == null ? '—' : Formatters.money(expense.vatAmount!, currency: moneyCurrency),
+      ),
+      if (expense.netAmount case final net?)
+        AppDataRow(label: 'KDV hariç', value: Formatters.money(net, currency: moneyCurrency)),
+    ] else
+      const AppDataRow(label: 'KDV', value: 'Belirtilmedi'),
     if (changeOrderLabel != null) AppDataRow(label: 'Ek İş', value: changeOrderLabel, multiline: true),
     if (costCodeLabel != null) AppDataRow(label: 'Maliyet Kodu', value: costCodeLabel, multiline: true),
     if (expense.notes.isNotEmpty) AppDataRow(label: 'Not', value: expense.notes, multiline: true),
@@ -65,7 +82,7 @@ Future<bool?> showExpenseDetailSheet(
     context,
     projectId: projectId,
     title: 'Masraf',
-    amount: Formatters.money(expense.amount, currency: expense.currency.isEmpty ? currency : expense.currency),
+    amount: Formatters.money(expense.amount, currency: moneyCurrency),
     voided: expense.isVoided,
     voidReason: expense.voidReason,
     rows: rows,
@@ -87,6 +104,16 @@ Future<bool?> showExpenseDetailSheet(
         ? (container, reason) async {
             await container.read(projectsRepositoryProvider).rejectExpense(projectId, expense.id, reason: reason);
             invalidateProjectLedger(container.invalidate, projectId);
+          }
+        : null,
+    // Form kendi mesajını verir ("Masraf güncellendi; yeniden onaya
+    // gönderildi."); onaylı masrafta kayıttan önce onay da form sorar.
+    onEdit: canEdit && !expense.isVoided
+        ? (sheetContext, container) async {
+            final updated = await showExpenseFormSheet(sheetContext, projectId, currency: currency, initial: expense);
+            if (updated == null) return false;
+            invalidateProjectLedger(container.invalidate, projectId);
+            return true;
           }
         : null,
   );
@@ -181,6 +208,7 @@ Future<bool?> _showLedgerSheet(
   required Future<void> Function(ProviderContainer container, String reason) onVoid,
   Future<void> Function(ProviderContainer container)? onApprove,
   Future<void> Function(ProviderContainer container, String reason)? onReject,
+  Future<bool> Function(BuildContext sheetContext, ProviderContainer container)? onEdit,
 }) {
   return showAppSheet<bool>(
     context: context,
@@ -200,6 +228,7 @@ Future<bool?> _showLedgerSheet(
       onVoid: onVoid,
       onApprove: onApprove,
       onReject: onReject,
+      onEdit: voided ? null : onEdit,
     ),
   );
 }
@@ -221,6 +250,7 @@ class _LedgerSheet extends ConsumerStatefulWidget {
     required this.onVoid,
     this.onApprove,
     this.onReject,
+    this.onEdit,
   });
 
   final String projectId;
@@ -241,6 +271,10 @@ class _LedgerSheet extends ConsumerStatefulWidget {
   /// Masraf onayı: yalnızca onay bekleyen masrafta ve onaylayıcıya dolu.
   final Future<void> Function(ProviderContainer container)? onApprove;
   final Future<void> Function(ProviderContainer container, String reason)? onReject;
+
+  /// Masraf düzenleme: formu bu sayfanın üstünde açar; kaydedildiyse true
+  /// döner ve bu sayfa kapanır (eski değerleri göstermeye devam etmesin).
+  final Future<bool> Function(BuildContext sheetContext, ProviderContainer container)? onEdit;
 
   @override
   ConsumerState<_LedgerSheet> createState() => _LedgerSheetState();
@@ -290,6 +324,12 @@ class _LedgerSheetState extends ConsumerState<_LedgerSheet> {
     );
     if (reason == null || !mounted) return;
     await _run(_SheetAction.rejecting, (container) => widget.onReject!(container, reason), 'Masraf reddedildi.');
+  }
+
+  Future<void> _edit() async {
+    final container = ProviderScope.containerOf(context, listen: false);
+    final saved = await widget.onEdit!(context, container);
+    if (saved && mounted) Navigator.of(context).pop(true);
   }
 
   /// İptal/onay/ret ortak akışı: başarıda sayfa kapanır ve mesaj gösterilir;
@@ -387,6 +427,15 @@ class _LedgerSheetState extends ConsumerState<_LedgerSheet> {
                       ),
                     ),
                   ],
+                ),
+              ],
+              if (widget.onEdit != null) ...[
+                const SizedBox(height: AppSpacing.lg),
+                SecondaryButton(
+                  key: const ValueKey('masraf-duzenle'),
+                  label: 'Düzenle',
+                  icon: Icons.edit_outlined,
+                  onPressed: _busy ? null : _edit,
                 ),
               ],
               if (widget.canVoid) ...[
