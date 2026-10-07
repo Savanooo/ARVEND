@@ -893,7 +893,9 @@ func TestNotifications(t *testing.T) {
 		}
 		photo(1)
 		photo(2)
-		for _, mgr := range []*domain.User{owner, pm} {
+		// Firmanın Sahip'leri Erişim listesinde olmasa da alır; "Eski Sistem"
+		// kullanıcıları yalnızca listede açıkça varsa.
+		for _, mgr := range []*domain.User{owner, pm, ownerOutside} {
 			got := list(mgr.ID, domain.NotificationPhotoUploaded)
 			if len(got) != 1 || got[0].Title != "2 yeni fotoğraf yüklendi" {
 				t.Fatalf("yönetici tek, gruplu bildirim almalı: %+v", got)
@@ -902,7 +904,7 @@ func TestNotifications(t *testing.T) {
 				t.Errorf("hedef/gövde: %+v", got[0])
 			}
 		}
-		for _, other := range []*domain.User{field, finance, worker, ownerOutside, legacyOutside} {
+		for _, other := range []*domain.User{field, finance, worker, legacyOutside} {
 			if n := len(list(other.ID, domain.NotificationPhotoUploaded)); n != 0 {
 				t.Errorf("%s yönetici değil / yükleyen: bildirim almamalı (%d)", other.Username, n)
 			}

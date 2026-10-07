@@ -179,17 +179,19 @@ func joinNonEmpty(sep string, parts ...string) string {
 }
 
 // resolveProjectAudience: operasyon bildirimlerinin (görev notu/durumu,
-// dosya/fotoğraf yükleme) "yönetici" alıcıları -- projenin Erişim
-// listesinde (project_users) AÇIKÇA bulunan, permissionCode'u tutan aktif
-// kullanıcılar.
+// dosya/fotoğraf yükleme) "yönetici" alıcıları -- permissionCode'u tutan
+// aktif kullanıcılardan:
+//   - firmanın Sahip ve Yöneticileri (her projede; ürün sahibinin isteği:
+//     "fotoğraf/dosya yüklenince yöneticilere bildirim"),
+//   - diğer herkes yalnızca projenin Erişim listesinde (project_users)
+//     AÇIKÇA varsa.
 //
-// resolveProjectApprovers'tan BİLİNÇLİ farkı: bypass rolleri (Sahip/
-// Yönetici/Eski Sistem) burada yalnızca listede açıkça varsa alıcıdır.
-// Onlar her projeyi GÖREBİLİR ama her projenin her fotoğrafını/görev
-// notunu duymak istemez -- "Eski Sistem" kullanıcıları dahil firmadaki
-// herkese yağan bu bildirimler sahada şikâyet konusuydu. Onay türü
-// bildirimler (satın alma talebi, hakediş, değişiklik emri) onay
-// verebilecek HERKESE gitmeye devam eder (resolveProjectApprovers).
+// resolveProjectApprovers'tan farkı "Eski Sistem" (legacy_user) rolü: o da
+// her projeyi görebilir ama BYZ'den taşınan firmalarda herkes bu roldeydi --
+// her projenin her fotoğrafı/görev notu firmadaki herkese yağıyordu. Onlar
+// artık yalnızca listede açıkça varsa alır. Onay türü bildirimler (satın
+// alma talebi, hakediş, değişiklik emri) onay verebilecek HERKESE gitmeye
+// devam eder (resolveProjectApprovers).
 func resolveProjectAudience(ctx context.Context, txq *sqlc.Queries, orgID, projectID pgtype.UUID, permissionCode string) ([]pgtype.UUID, error) {
 	holders, err := txq.ListUsersWithPermission(ctx, sqlc.ListUsersWithPermissionParams{OrganizationID: orgID, PermissionCode: permissionCode})
 	if err != nil {
@@ -208,7 +210,8 @@ func resolveProjectAudience(ctx context.Context, txq *sqlc.Queries, orgID, proje
 	}
 	var out []pgtype.UUID
 	for _, h := range holders {
-		if memberSet[h.ID] {
+		firmManager := h.OrganizationRoleCode == domain.OrgRoleOwner || h.OrganizationRoleCode == domain.OrgRoleAdmin
+		if firmManager || memberSet[h.ID] {
 			out = append(out, h.ID)
 		}
 	}

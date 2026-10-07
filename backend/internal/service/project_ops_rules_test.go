@@ -228,8 +228,10 @@ func TestProjectOpsRules(t *testing.T) {
 		}
 	})
 
-	t.Run("2_task_and_upload_notices_go_to_explicit_project_members_and_parties", func(t *testing.T) {
-		// Proje sahibi (owner) projeyi oluşturdu ama Erişim listesinde değil.
+	t.Run("2_task_and_upload_notices_go_to_firm_managers_explicit_members_and_parties", func(t *testing.T) {
+		// Proje sahibi (owner) projeyi oluşturdu ama Erişim listesinde değil:
+		// firmanın Sahip/Yönetici'leri yine de alır, "Eski Sistem" kullanıcısı
+		// yalnızca listede açıkça varsa.
 		p := newProject(t, owner.ID)
 		ownerOut := roleUser(t, "kural_owner_disari", domain.OrgRoleOwner)
 		legacy := roleUser(t, "kural_eski", domain.OrgRoleLegacyUser)
@@ -246,10 +248,13 @@ func TestProjectOpsRules(t *testing.T) {
 		if countOf(t, pm.ID, domain.NotificationTaskUpdated, task.ID) != 1 {
 			t.Errorf("görevi veren (Erişim'deki proje yöneticisi) not bildirimi almalı")
 		}
-		for _, u := range []*domain.User{owner, ownerOut, legacy} {
-			if n := countOf(t, u.ID, domain.NotificationTaskUpdated, task.ID); n != 0 {
-				t.Errorf("%s Erişim listesinde değil ve görevin tarafı değil: bildirim almamalı (%d)", u.Username, n)
+		for _, u := range []*domain.User{owner, ownerOut} {
+			if n := countOf(t, u.ID, domain.NotificationTaskUpdated, task.ID); n != 1 {
+				t.Errorf("%s firma Sahibi: Erişim listesinde olmasa da not bildirimi almalı (%d)", u.Username, n)
 			}
+		}
+		if n := countOf(t, legacy.ID, domain.NotificationTaskUpdated, task.ID); n != 0 {
+			t.Errorf("Eski Sistem kullanıcısı Erişim listesinde değil: bildirim almamalı (%d)", n)
 		}
 
 		png := append([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}, []byte("kural-foto")...)
@@ -261,19 +266,22 @@ func TestProjectOpsRules(t *testing.T) {
 		if countOf(t, pm.ID, domain.NotificationPhotoUploaded, "") != 1 {
 			t.Errorf("Erişim'deki yönetici yükleme bildirimi almalı")
 		}
-		for _, u := range []*domain.User{owner, ownerOut, legacy} {
-			if n := countOf(t, u.ID, domain.NotificationPhotoUploaded, ""); n != 0 {
-				t.Errorf("%s yükleme bildirimi almamalı (%d)", u.Username, n)
+		for _, u := range []*domain.User{owner, ownerOut} {
+			if n := countOf(t, u.ID, domain.NotificationPhotoUploaded, ""); n != 1 {
+				t.Errorf("%s firma Sahibi yükleme bildirimi almalı (%d)", u.Username, n)
 			}
 		}
+		if n := countOf(t, legacy.ID, domain.NotificationPhotoUploaded, ""); n != 0 {
+			t.Errorf("Eski Sistem kullanıcısı yükleme bildirimi almamalı (%d)", n)
+		}
 
-		// Sahip Erişim listesine açıkça eklenince alır.
-		grant(t, p.ID, owner.ID, owner.ID)
+		// Eski Sistem kullanıcısı Erişim listesine açıkça eklenince alır.
+		grant(t, p.ID, legacy.ID, owner.ID)
 		if _, _, err := projectSvc.AddTaskUpdate(ctx, p.ID, task.ID, org.ID, worker.ID, "Bitmek üzere", ""); err != nil {
 			t.Fatal(err)
 		}
-		if countOf(t, owner.ID, domain.NotificationTaskUpdated, task.ID) != 1 {
-			t.Errorf("Erişim listesindeki sahip görev notu bildirimi almalı")
+		if countOf(t, legacy.ID, domain.NotificationTaskUpdated, task.ID) != 1 {
+			t.Errorf("Erişim listesindeki Eski Sistem kullanıcısı görev notu bildirimi almalı")
 		}
 
 		// Aynı içerik ikinci kez: 409, hangi fotoğrafla çakıştığıyla.
