@@ -289,3 +289,27 @@ func TestComputeRecipeQuantity_FixedIgnoresArea(t *testing.T) {
 		}
 	}
 }
+
+// TestResolveCalcUnitPrice: ürün fiyatı > 0 ise o; ürün yok/0 TL ise
+// reçetenin referans fiyatı (uyarıyla); ikisi de yoksa 0 ve "fiyat yok".
+func TestResolveCalcUnitPrice(t *testing.T) {
+	cases := []struct {
+		name                  string
+		product               *decimal.Decimal
+		reference             string
+		wantPrice, wantSource string
+		wantWarning           string
+	}{
+		{"ürün fiyatı", dPtr("120"), "100", "120", domain.CalcPriceSourceProduct, ""},
+		{"ürün 0 TL, referans var", dPtr("0"), "100", "100", domain.CalcPriceSourceReference, domain.CalcPriceWarningReference},
+		{"ürün yok, referans var", nil, "75.5", "75.5", domain.CalcPriceSourceReference, domain.CalcPriceWarningReference},
+		{"ürün 0 TL, referans yok", dPtr("0"), "0", "0", domain.CalcPriceSourceNone, domain.CalcPriceWarningNone},
+		{"ürün yok, referans yok", nil, "0", "0", domain.CalcPriceSourceNone, domain.CalcPriceWarningNone},
+	}
+	for _, c := range cases {
+		price, source, warning := domain.ResolveCalcUnitPrice(c.product, d(c.reference))
+		if !price.Equal(d(c.wantPrice)) || source != c.wantSource || warning != c.wantWarning {
+			t.Errorf("%s: (%s, %q, %q), istenen (%s, %q, %q)", c.name, price, source, warning, c.wantPrice, c.wantSource, c.wantWarning)
+		}
+	}
+}

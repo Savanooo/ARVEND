@@ -451,6 +451,12 @@ type calcResultItemResponse struct {
 	Factor          string `json:"factor"`
 	WastePercent    string `json:"waste_percent"`
 	RoundingType    string `json:"rounding_type"`
+
+	// PriceSource: product | reference | none -- unit_price nereden geldi.
+	// PriceWarning: ürün fiyatı kullanılamadıysa kısa Türkçe sebep
+	// ("referans fiyat kullanıldı" / "fiyat yok"); ürün fiyatında boş.
+	PriceSource  string `json:"price_source"`
+	PriceWarning string `json:"price_warning,omitempty"`
 }
 
 type calcWarningResponse struct {
@@ -523,6 +529,7 @@ func (h *CalcHandler) Run(w http.ResponseWriter, r *http.Request) {
 			LineTotal: it.LineTotal.StringFixed(2), GroupName: it.GroupName,
 			CalculationType: it.CalculationType, Factor: it.Factor.String(),
 			WastePercent: it.WastePercent.String(), RoundingType: it.RoundingType,
+			PriceSource: it.PriceSource, PriceWarning: it.PriceWarning,
 		}
 	}
 	warnings := make([]calcWarningResponse, len(result.Warnings))

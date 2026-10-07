@@ -139,6 +139,39 @@ type CalcWarning struct {
 	Message string `json:"message"`
 }
 
+// --- birim fiyat kaynağı ---
+//
+// Yeni firmalar reçete kalemleri ürüne bağlanmadan (ya da fiyatsız ürünlerle)
+// açılıyor; eskiden bu satırların hepsi 0 TL hesaplanıyor ve reçetedeki
+// reference_unit_price hiç kullanılmıyordu -- metraj sonucu ve ondan
+// oluşturulan teklif sessizce 0 TL kalıyordu.
+const (
+	CalcPriceSourceProduct   = "product"   // bağlı ürünün fiyatı (> 0)
+	CalcPriceSourceReference = "reference" // ürün fiyatı yok/0: reçetenin referans fiyatı
+	CalcPriceSourceNone      = "none"      // ikisi de yok: 0 kabul edildi
+)
+
+// Satırdaki kısa Türkçe uyarı -- istemciler satırın yanında gösterir.
+const (
+	CalcPriceWarningReference = "referans fiyat kullanıldı"
+	CalcPriceWarningNone      = "fiyat yok"
+)
+
+// ResolveCalcUnitPrice, bir reçete satırının birim fiyatını seçer: bağlı
+// ürünün fiyatı > 0 ise o; değilse (ürün yok, bağlı değil ya da 0 TL)
+// reçetenin referans fiyatı > 0 ise o; ikisi de yoksa 0. productPrice nil =
+// satırın çözülmüş bir ürünü yok. warning, ürün fiyatı kullanılmadıysa
+// doludur.
+func ResolveCalcUnitPrice(productPrice *decimal.Decimal, referencePrice decimal.Decimal) (price decimal.Decimal, source, warning string) {
+	if productPrice != nil && productPrice.IsPositive() {
+		return *productPrice, CalcPriceSourceProduct, ""
+	}
+	if referencePrice.IsPositive() {
+		return referencePrice, CalcPriceSourceReference, CalcPriceWarningReference
+	}
+	return decimal.Zero, CalcPriceSourceNone, CalcPriceWarningNone
+}
+
 type CalcResultItem struct {
 	RecipeItemID string
 	MaterialName string
@@ -148,6 +181,12 @@ type CalcResultItem struct {
 	UnitPrice    decimal.Decimal
 	LineTotal    decimal.Decimal
 	GroupName    string
+
+	// PriceSource: CalcPriceSource* -- UnitPrice nereden geldi.
+	// PriceWarning: ürün fiyatı kullanılamadıysa kısa Türkçe sebep
+	// (CalcPriceWarning*), aksi halde "".
+	PriceSource  string
+	PriceWarning string
 
 	// CalculationType/Factor/WastePercent/RoundingType: bu kalemin
 	// hesabında GERÇEKTEN kullanılan katsayı/kural -- Teklif entegrasyonu

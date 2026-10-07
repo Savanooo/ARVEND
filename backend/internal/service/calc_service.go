@@ -539,29 +539,42 @@ func (s *CalcService) Run(ctx context.Context, organizationID string, in CalcRun
 			result.Warnings = append(result.Warnings, *warn)
 		}
 
-		var unitPrice decimal.Decimal
+		var productPrice *decimal.Decimal
 		var resolvedProductID *string
 		if item.ProductID != nil {
 			if p, ok := productsByID[*item.ProductID]; ok {
-				unitPrice = repository.NumericToDecimal(p.UnitPrice)
+				price := repository.NumericToDecimal(p.UnitPrice)
+				productPrice = &price
 				id := p.ID.String()
 				resolvedProductID = &id
-			} else {
-				result.Warnings = append(result.Warnings, domain.CalcWarning{
-					ItemID: item.ID, Code: "product_missing",
-					Message: fmt.Sprintf("%q için bağlı ürün bulunamadı (silinmiş olabilir); birim fiyat 0 kabul edildi.", item.MaterialName),
-				})
 			}
-		} else {
+		}
+		// Ürün fiyatı yok/0 ise reçetenin referans fiyatı (bkz.
+		// domain.ResolveCalcUnitPrice); uyarı kodları değişmedi, mesaj
+		// hangi fiyatın kullanıldığını söyler.
+		unitPrice, priceSource, priceWarning := domain.ResolveCalcUnitPrice(productPrice, item.ReferenceUnitPrice)
+		fallback := "birim fiyat 0 kabul edildi."
+		if priceSource == domain.CalcPriceSourceReference {
+			fallback = fmt.Sprintf("reçetedeki referans fiyat (%s) kullanıldı.", FormatTL(unitPrice.InexactFloat64()))
+		}
+		switch {
+		case item.ProductID == nil:
 			result.Warnings = append(result.Warnings, domain.CalcWarning{
 				ItemID: item.ID, Code: "product_missing",
-				Message: fmt.Sprintf("%q bir ürüne bağlı değil; birim fiyat 0 kabul edildi.", item.MaterialName),
+				Message: fmt.Sprintf("%q bir ürüne bağlı değil; %s", item.MaterialName, fallback),
 			})
-		}
-		if resolvedProductID != nil && unitPrice.IsZero() {
+		case resolvedProductID == nil:
 			result.Warnings = append(result.Warnings, domain.CalcWarning{
-				ItemID: item.ID, Code: "product_zero_price",
-				Message: fmt.Sprintf("%q için ürün fiyatı 0 TL.", item.MaterialName),
+				ItemID: item.ID, Code: "product_missing",
+				Message: fmt.Sprintf("%q için bağlı ürün bulunamadı (silinmiş olabilir); %s", item.MaterialName, fallback),
+			})
+		case priceSource != domain.CalcPriceSourceProduct:
+			msg := fmt.Sprintf("%q için ürün fiyatı 0 TL.", item.MaterialName)
+			if priceSource == domain.CalcPriceSourceReference {
+				msg = fmt.Sprintf("%q için ürün fiyatı 0 TL; %s", item.MaterialName, fallback)
+			}
+			result.Warnings = append(result.Warnings, domain.CalcWarning{
+				ItemID: item.ID, Code: "product_zero_price", Message: msg,
 			})
 		}
 
@@ -583,6 +596,7 @@ func (s *CalcService) Run(ctx context.Context, organizationID string, in CalcRun
 			Quantity: qty, ProductID: resolvedProductID, UnitPrice: unitPrice, LineTotal: lineTotal,
 			GroupName: item.GroupName, CalculationType: item.CalculationType, Factor: factor,
 			WastePercent: item.WastePercent, RoundingType: item.RoundingType,
+			PriceSource: priceSource, PriceWarning: priceWarning,
 		})
 	}
 	result.TotalCost = total.Round(2)
