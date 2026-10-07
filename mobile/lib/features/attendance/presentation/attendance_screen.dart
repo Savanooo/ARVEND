@@ -344,7 +344,9 @@ class _AttendanceFormSheetState extends ConsumerState<AttendanceFormSheet> {
   bool _bulk = false;
   String? _employeeId; // tek gün, serbest seçim
   final Set<String> _bulkIds = {}; // toplu, serbest seçim
-  late DateTime _date = widget.initialDate ?? DateTime.now();
+  // İleri bir ayın ekranından açılsa bile bugünden ileri başlamaz (ileri
+  // tarihe mesai girilemez; seçici de bugünün ötesine izin vermez).
+  late DateTime _date = clampToAttendanceDay(widget.initialDate ?? DateTime.now());
   late DateTimeRange _range = DateTimeRange(start: DateTime(_date.year, _date.month), end: _date);
   bool _skipSundays = true;
   late String _status;
@@ -364,8 +366,13 @@ class _AttendanceFormSheetState extends ConsumerState<AttendanceFormSheet> {
     _status = e?.status ?? 'geldi';
     _checkIn = (e?.checkIn.isNotEmpty ?? false) ? e!.checkIn : '08:00';
     _checkOut = (e?.checkOut.isNotEmpty ?? false) ? e!.checkOut : '17:00';
+    // Saatli bir kayıtta kayıtlı saat korunur. "Gelmedi/izinli" kaydında
+    // saat 0'dır ve anlamsızdır: "geldi"ye çevrilince 08:00–17:00
+    // gösterilirken 0 saat kaydediliyordu -- saat giriş-çıkıştan hesaplanır.
     _hoursController = TextEditingController(
-      text: e != null ? _numStr(e.workHours) : _numStr(hoursBetween(_checkIn, _checkOut) ?? 8),
+      text: e != null && statusHasHours(e.status)
+          ? _numStr(e.workHours)
+          : _numStr(hoursBetween(_checkIn, _checkOut) ?? 8),
     );
     // Düzenlemede kayıtlı saat korunur; yalnızca saatler değişince yeniden hesaplanır.
     _hoursEdited = false;
@@ -500,9 +507,9 @@ class _AttendanceFormSheetState extends ConsumerState<AttendanceFormSheet> {
                   onTap: () async {
                     final picked = await showDatePicker(
                       context: context,
-                      initialDate: _date,
+                      initialDate: clampToAttendanceDay(_date),
                       firstDate: DateTime(2020),
-                      lastDate: DateTime(2100),
+                      lastDate: attendanceLastDay(),
                     );
                     if (picked != null) setState(() => _date = picked);
                   },
@@ -517,9 +524,12 @@ class _AttendanceFormSheetState extends ConsumerState<AttendanceFormSheet> {
                   onTap: () async {
                     final picked = await showDateRangePicker(
                       context: context,
-                      initialDateRange: _range,
+                      initialDateRange: DateTimeRange(
+                        start: clampToAttendanceDay(_range.start),
+                        end: clampToAttendanceDay(_range.end),
+                      ),
                       firstDate: DateTime(2020),
-                      lastDate: DateTime(2100),
+                      lastDate: attendanceLastDay(),
                     );
                     if (picked != null) setState(() => _range = picked);
                   },
@@ -545,7 +555,17 @@ class _AttendanceFormSheetState extends ConsumerState<AttendanceFormSheet> {
                   ChoiceChip(
                     label: Text(StatusRegistry.attendance[s]!.$1),
                     selected: _status == s,
-                    onSelected: (_) => setState(() => _status = s),
+                    onSelected: (_) => setState(() {
+                      // Saatsiz bir durumdan (gelmedi/izinli) saatliye
+                      // geçerken, elle girilmemişse saat giriş-çıkıştan
+                      // yeniden hesaplanır -- 0 saat taşınmaz.
+                      final hadHours = statusHasHours(_status);
+                      _status = s;
+                      if (!hadHours && statusHasHours(s) && !_hoursEdited) {
+                        final h = hoursBetween(_checkIn, _checkOut);
+                        if (h != null) _hoursController.text = _numStr(h);
+                      }
+                    }),
                   ),
               ],
             ),
@@ -669,7 +689,12 @@ class _AttendanceFormSheetState extends ConsumerState<AttendanceFormSheet> {
       return;
     }
     final hasHours = statusHasHours(_status);
-    final workHours = hasHours ? (double.tryParse(_hoursController.text.replaceAll(',', '.')) ?? 0) : 0.0;
+    final parsedHours = hasHours ? parseWorkHours(_hoursController.text) : 0.0;
+    if (parsedHours == null) {
+      setState(() => _error = 'Çalışma saati geçersiz: 0 ile 24 arasında bir sayı gir (ör. 8 ya da 7,5).');
+      return;
+    }
+    final workHours = parsedHours;
     final checkIn = hasHours ? _checkIn : '';
     final checkOut = hasHours ? _checkOut : '';
     final note = _noteController.text.trim();
