@@ -576,6 +576,10 @@ func (h *CalcHandler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "kayıt bulunamadı")
+	case isInternalError(err):
+		// Ham veritabanı metni istemciye sızmasın (UNIQUE ihlalleri
+		// mapCalcWriteError'da zaten anlamlı mesaja çevrilir).
+		writeInternalError(w, err)
 	default:
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	}

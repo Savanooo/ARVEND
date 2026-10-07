@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/repository"
@@ -147,6 +149,39 @@ func (s *ProductService) Update(ctx context.Context, id, organizationID, name, u
 	return &p, nil
 }
 
+// ErrProductInUse, kullanımdaki bir ürün silinmek istendiğinde döner
+// (errors.Is ile; ayrıntı *ProductInUseError'da).
+var ErrProductInUse = errors.New("bu ürün kullanımda olduğu için silinemez")
+
+// ProductInUseError, ürünün nerede kullanıldığını söyler.
+type ProductInUseError struct {
+	RecipeItems      int64
+	ChangeOrderItems int64
+}
+
+func (e *ProductInUseError) Error() string {
+	var parts []string
+	if e.RecipeItems > 0 {
+		parts = append(parts, fmt.Sprintf("%d metraj reçete kaleminde", e.RecipeItems))
+	}
+	if e.ChangeOrderItems > 0 {
+		parts = append(parts, fmt.Sprintf("%d ek iş kaleminde", e.ChangeOrderItems))
+	}
+	msg := "bu ürün " + strings.Join(parts, " ve ") + " kullanılıyor; silinemez"
+	if e.RecipeItems > 0 {
+		msg += ". Önce Metraj Hesaplama reçetelerinden kaldırın ya da başka bir ürüne bağlayın"
+	}
+	return msg
+}
+
+func (e *ProductInUseError) Is(target error) bool { return target == ErrProductInUse }
+
+// Delete, ürünü kalıcı olarak siler -- ama yalnızca hiçbir metraj reçete
+// kalemi ya da ek iş kalemi ona bağlı değilse. Eskiden reçete kalemleri
+// (ON DELETE SET NULL) sessizce ürünsüz kalıyor, ek iş kalemleri ise ham bir
+// Postgres FK hatasıyla silmeyi düşürüyordu. Teklif kalemleri engel değildir:
+// ürün adı/fiyatının anlık görüntüsünü taşırlar. Kontrol ile silme arasında
+// bir kayıt bağlanırsa (yarış) ek iş FK'si yine 409'a çevrilir.
 func (s *ProductService) Delete(ctx context.Context, id, organizationID string) error {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
@@ -156,8 +191,25 @@ func (s *ProductService) Delete(ctx context.Context, id, organizationID string) 
 	if err != nil {
 		return domain.ErrNotFound
 	}
+	usage, err := s.q.GetProductUsage(ctx, sqlc.GetProductUsageParams{ID: uid, OrganizationID: orgID})
+	if err != nil {
+		return err
+	}
+	if usage.RecipeItems > 0 || usage.ChangeOrderItems > 0 {
+		if _, err := s.q.GetProductByID(ctx, sqlc.GetProductByIDParams{ID: uid, OrganizationID: orgID}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return domain.ErrNotFound
+			}
+			return err
+		}
+		return &ProductInUseError{RecipeItems: usage.RecipeItems, ChangeOrderItems: usage.ChangeOrderItems}
+	}
 	rows, err := s.q.DeleteProduct(ctx, sqlc.DeleteProductParams{ID: uid, OrganizationID: orgID})
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return ErrProductInUse
+		}
 		return err
 	}
 	if rows == 0 {
