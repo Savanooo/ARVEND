@@ -8,9 +8,15 @@ const kContractsReadPermission = 'projects.contracts.read';
 const kContractsManagePermission = 'projects.contracts.manage';
 const kContractsLifecyclePermission = 'projects.contracts.lifecycle';
 
-/// Ek işlerin KENDİ izni yok -- finans izinleri altında yaşar.
+/// Ek işler finans izinleri altında yaşar ...
 const kChangeOrdersReadPermission = 'projects.finance.read';
 const kChangeOrdersManagePermission = 'projects.finance.manage';
+
+/// ... tek istisna: müşteri kararını personelin kaydetmesi ("Müşteri
+/// onayladı/reddetti olarak işaretle", migration 0063). Sözleşme bedelini
+/// doğrudan değiştirdiği için finance.manage'den AYRI; varsayılan Sahip/
+/// Yönetici.
+const kChangeOrdersApprovePermission = 'projects.change_orders.approve';
 
 /// Tam yollar -- tümü `/projeler/:id` rotasının ALTINDA (bkz.
 /// contract_co_routes.dart).

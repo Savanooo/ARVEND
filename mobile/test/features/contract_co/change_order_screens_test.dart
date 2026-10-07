@@ -308,6 +308,114 @@ void main() {
     });
   });
 
+  // Ürün kararı 2026-10-07: müşteri telefonla/yazılı yanıt verdiyse ekip
+  // kaydeder (projects.change_orders.approve, finance.manage'den ayrı).
+  group('müşteri kararını kaydet', () {
+    const approveLabel = 'Müşteri onayladı olarak işaretle';
+    const rejectLabel = 'Müşteri reddetti olarak işaretle';
+
+    testWidgets('onay: pencere + not -> kaydedilir, kim ve not görünür', (tester) async {
+      final repo = await pump(tester, user: ownerUser, location: projectChangeOrderPath('p1', 'co4'));
+      expect(find.text('Müşteri yanıtını kaydet'), findsOneWidget);
+      await tester.tap(find.text(approveLabel));
+      await tester.pumpAndSettle();
+      expect(find.text('Müşteri Onayını Kaydet'), findsOneWidget);
+      expect(find.textContaining('EK-004 müşteri tarafından onaylandı olarak işaretlensin mi?'), findsOneWidget);
+      expect(find.textContaining('proje bedeli −30.000,00 TL değişir'), findsOneWidget);
+      await tester.enterText(find.byKey(const ValueKey('optional-note')), 'telefonla onay');
+      await confirmDialog(tester, 'Onaylandı Olarak İşaretle');
+      expect(repo.decisions.single, (id: 'co4', approved: true, note: 'telefonla onay'));
+      expect(find.text('EK-004 müşteri onayladı olarak işaretlendi.'), findsOneWidget);
+      expect(find.text('Müşteri onayladı'), findsOneWidget);
+      expect(find.text('Müşterinin yanıtını Ayşe Yönetici kaydetti.'), findsOneWidget);
+      expect(find.text('Not: telefonla onay'), findsOneWidget);
+      // Karar verildi: panel ve gönderilmiş ek iş aksiyonları kalmaz.
+      expect(find.text(approveLabel), findsNothing);
+      expect(find.text('Mail Gönder'), findsNothing);
+    });
+
+    testWidgets('red: vazgeçilirse istek yok; onaylanırsa notsuz kaydedilir', (tester) async {
+      final repo = await pump(tester, user: ownerUser, location: projectChangeOrderPath('p1', 'co4'));
+      await tester.tap(find.text(rejectLabel));
+      await tester.pumpAndSettle();
+      expect(find.text('Müşteri Reddini Kaydet'), findsOneWidget);
+      await confirmDialog(tester, 'Vazgeç');
+      expect(repo.decisions, isEmpty);
+
+      await tester.tap(find.text(rejectLabel));
+      await tester.pumpAndSettle();
+      await confirmDialog(tester, 'Reddedildi Olarak İşaretle');
+      expect(repo.decisions.single, (id: 'co4', approved: false, note: ''));
+      expect(find.text('Müşteri reddetti'), findsOneWidget);
+      expect(find.text('Revize Et'), findsOneWidget);
+    });
+
+    testWidgets('sunucu reddederse sebebi gösterilir (ör. negatif proje bedeli)', (tester) async {
+      final repo = FakeContractCoRepository();
+      await pump(tester, user: ownerUser, repo: repo, location: projectChangeOrderPath('p1', 'co4'));
+      repo.writeError = conflict('bu eksiltme onaylanırsa proje bedeli negatife düşer, onaylanamaz');
+      await tester.tap(find.text(approveLabel));
+      await tester.pumpAndSettle();
+      await confirmDialog(tester, 'Onaylandı Olarak İşaretle');
+      expect(find.text('bu eksiltme onaylanırsa proje bedeli negatife düşer, onaylanamaz'), findsOneWidget);
+      expect(find.text('Müşteri yanıtı bekleniyor'), findsOneWidget);
+    });
+
+    testWidgets('izin finance.manage değil change_orders.approve', (tester) async {
+      // Finans: ek işi yönetir ama müşteri adına karar kaydedemez.
+      await pump(tester, user: financeUser, location: projectChangeOrderPath('p1', 'co4'));
+      expect(find.text('Mail Gönder'), findsOneWidget);
+      expect(find.text(approveLabel), findsNothing);
+      expect(find.text('Müşteri yanıtını kaydet'), findsNothing);
+    });
+
+    testWidgets('yalnızca karar izni olan kişi de kaydedebilir', (tester) async {
+      final approver = buildUser(
+        id: 'approver',
+        permissions: {'projects.read', 'projects.finance.read', 'projects.change_orders.approve'},
+      );
+      await pump(tester, user: approver, location: projectChangeOrderPath('p1', 'co4'));
+      expect(find.text(approveLabel), findsOneWidget);
+      expect(find.text(rejectLabel), findsOneWidget);
+      expect(find.text('Mail Gönder'), findsNothing);
+    });
+
+    testWidgets('yalnızca gönderilmiş ek işte', (tester) async {
+      for (final id in ['co3', 'co1', 'co5']) {
+        await pump(tester, user: ownerUser, location: projectChangeOrderPath('p1', id));
+        expect(find.text(approveLabel), findsNothing, reason: id);
+      }
+    });
+
+    testWidgets('proje kapalıyken yok', (tester) async {
+      await pump(tester, user: ownerUser, location: projectChangeOrderPath('p1', 'co4'), projectStatus: 'completed');
+      expect(find.text(approveLabel), findsNothing);
+      expect(find.text(kProjectLockedText), findsOneWidget);
+    });
+
+    testWidgets('olay geçmişi ekibin kaydettiği kararı ayırt eder', (tester) async {
+      final repo = FakeContractCoRepository(
+        events: const [
+          ChangeOrderEvent(
+            id: 's1',
+            eventType: 'change_order_approved',
+            createdAt: '2026-09-06T14:20:00Z',
+            changeOrderIds: {'co1'},
+            source: ChangeOrderEvent.sourceStaff,
+            note: 'telefonla onay',
+          ),
+        ],
+      );
+      await pump(tester, user: ownerUser, repo: repo, location: projectChangeOrderPath('p1', 'co1'));
+      await tester.scrollUntilVisible(
+        find.text('Müşteri onayı ekip tarafından kaydedildi'),
+        300,
+        scrollable: find.byType(Scrollable).last,
+      );
+      expect(find.textContaining('telefonla onay'), findsOneWidget);
+    });
+  });
+
   group('form', () {
     testWidgets('oluştur: doğrulama, gönderim ve detaya geçiş', (tester) async {
       final repo = await pump(tester, user: ownerUser, location: projectChangeOrderNewPath('p1'));

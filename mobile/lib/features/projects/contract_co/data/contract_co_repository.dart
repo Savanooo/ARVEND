@@ -26,11 +26,15 @@ import '../domain/project_contract.dart';
 /// - POST /projects/{id}/change-orders/{coId}/send-email    finance.manage ({to, subject, message})
 /// - POST /projects/{id}/change-orders/{coId}/revise        finance.manage (yeni taslak döner)
 /// - POST /projects/{id}/change-orders/{coId}/cancel        finance.manage (gövdesiz -- gerekçe ALMAZ)
+/// - POST /projects/{id}/change-orders/{coId}/record-decision
+///                                         change_orders.approve ({decision: approved|rejected, note})
 ///
 /// Ek iş mutasyonlarının TÜMÜ tamamlanmış/iptal edilmiş projede 409 döner
-/// (ErrProjectLocked). Müşteri kararı (onay/red) kimlik doğrulamasız
-/// `/public/change-orders/{token}` üzerinden verilir -- uygulama bunu
-/// yalnızca durum olarak gösterir.
+/// (ErrProjectLocked). Müşteri kararı (onay/red) normalde kimlik
+/// doğrulamasız `/public/change-orders/{token}` üzerinden verilir; müşteri
+/// telefonla/yazılı yanıt verdiyse ekip `record-decision` ile kaydeder --
+/// ikisi sunucuda aynı kurallardan geçer (yalnızca gönderilmiş ek iş,
+/// eksiltme proje bedelini negatife düşüremez; ikinci karar 409).
 class ContractCoRepository {
   ContractCoRepository(this._client);
   final ApiClient _client;
@@ -123,6 +127,19 @@ class ContractCoRepository {
   Future<ProjectChangeOrder> cancelChangeOrder(String projectId, String changeOrderId) async =>
       ProjectChangeOrder.fromJson(
           await _client.post<Map<String, dynamic>>('${_changeOrders(projectId)}/$changeOrderId/cancel'));
+
+  /// "Müşteri onayladı/reddetti olarak işaretle" -- kim/ne zaman/not
+  /// sunucuda kaydedilir; güncel kayıt döner.
+  Future<ProjectChangeOrder> recordChangeOrderDecision(
+    String projectId,
+    String changeOrderId, {
+    required bool approved,
+    String note = '',
+  }) async =>
+      ProjectChangeOrder.fromJson(await _client.post<Map<String, dynamic>>(
+        '${_changeOrders(projectId)}/$changeOrderId/record-decision',
+        data: {'decision': approved ? 'approved' : 'rejected', 'note': note.trim()},
+      ));
 
   // ---------- Yardımcı okumalar ----------
 

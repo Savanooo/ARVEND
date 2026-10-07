@@ -207,6 +207,96 @@ class _ReasonDialogState extends State<_ReasonDialog> {
   }
 }
 
+/// Onay + İSTEĞE BAĞLI not tek pencerede (ek işte müşteri kararını
+/// kaydetme). Vazgeçilirse `null`, onaylanırsa (boş olabilen) not.
+Future<String?> showOptionalNoteDialog(
+  BuildContext context, {
+  required String title,
+  required String message,
+  required String confirmLabel,
+  String noteLabel = 'Not (isteğe bağlı)',
+  String? noteHint,
+  bool danger = false,
+}) {
+  return showDialog<String>(
+    context: context,
+    builder: (_) => _OptionalNoteDialog(
+      title: title,
+      message: message,
+      confirmLabel: confirmLabel,
+      noteLabel: noteLabel,
+      noteHint: noteHint,
+      danger: danger,
+    ),
+  );
+}
+
+class _OptionalNoteDialog extends StatefulWidget {
+  const _OptionalNoteDialog({
+    required this.title,
+    required this.message,
+    required this.confirmLabel,
+    required this.noteLabel,
+    required this.noteHint,
+    required this.danger,
+  });
+
+  final String title;
+  final String message;
+  final String confirmLabel;
+  final String noteLabel;
+  final String? noteHint;
+  final bool danger;
+
+  @override
+  State<_OptionalNoteDialog> createState() => _OptionalNoteDialogState();
+}
+
+class _OptionalNoteDialogState extends State<_OptionalNoteDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.message),
+            const SizedBox(height: AppSpacing.md),
+            TextField(
+              key: const ValueKey('optional-note'),
+              controller: _controller,
+              minLines: 1,
+              maxLines: 3,
+              // decision_note sütun sınırı (migration 0063).
+              maxLength: 500,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: InputDecoration(labelText: widget.noteLabel, hintText: widget.noteHint),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Vazgeç')),
+        TextButton(
+          style: widget.danger ? TextButton.styleFrom(foregroundColor: AppColors.danger) : null,
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: Text(widget.confirmLabel),
+        ),
+      ],
+    );
+  }
+}
+
 /// Detay satırı -- ortak `AppDataRow` (uzun değer kesilmez, etiketin
 /// altına tam yazılır). Boş değer soluk "—".
 class ContractCoInfoRow extends StatelessWidget {

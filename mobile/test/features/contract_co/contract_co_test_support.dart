@@ -55,8 +55,14 @@ const _allPerms = {
   'projects.contracts.lifecycle',
 };
 
-/// Sahip: kaba rol admin + tam izin.
-final ownerUser = buildUser(id: 'owner', role: UserRole.admin, roleCode: 'owner', permissions: _allPerms);
+/// Sahip: kaba rol admin + tam izin (müşteri kararını kaydetme dahil --
+/// migration 0063 varsayılanı Sahip/Yönetici).
+final ownerUser = buildUser(
+  id: 'owner',
+  role: UserRole.admin,
+  roleCode: 'owner',
+  permissions: {..._allPerms, 'projects.change_orders.approve'},
+);
 
 /// Finans: kaba rol kullanici, sözleşme + finans tam (rol matrisi §5.1).
 final financeUser = buildUser(id: 'finance', roleCode: 'finance', permissions: _allPerms);
@@ -355,6 +361,7 @@ class FakeContractCoRepository implements ContractCoRepository {
   final List<ChangeOrderInput> created = [];
   final List<(String, ChangeOrderInput)> updated = [];
   final List<ChangeOrderEmailInput> emails = [];
+  final List<({String id, bool approved, String note})> decisions = [];
 
   Object? contractError;
   Object? listError;
@@ -607,6 +614,28 @@ class FakeContractCoRepository implements ContractCoRepository {
   }
 
   @override
+  Future<ProjectChangeOrder> recordChangeOrderDecision(
+    String projectId,
+    String changeOrderId, {
+    required bool approved,
+    String note = '',
+  }) async {
+    await _write('recordChangeOrderDecision:$changeOrderId');
+    decisions.add((id: changeOrderId, approved: approved, note: note));
+    final co = store.firstWhere((c) => c.id == changeOrderId);
+    final next = _copy(co, {
+      'status': approved ? ProjectChangeOrder.statusApproved : ProjectChangeOrder.statusRejected,
+      'responded_at': '2026-09-21T09:00:00Z',
+      approved ? 'approved_at' : 'rejected_at': '2026-09-21T09:00:00Z',
+      'decision_recorded_by': 'owner',
+      'decision_recorded_by_name': 'Ayşe Yönetici',
+      'decision_note': note,
+    });
+    _replace(next);
+    return next;
+  }
+
+  @override
   Future<ContractValueSummary> contractValueSummary(String projectId) async {
     calls.add('summary');
     return summary;
@@ -645,6 +674,9 @@ Map<String, dynamic> _toJson(ProjectChangeOrder co) => {
       'cancelled_at': co.cancelledAt,
       'supersedes_change_order_id': co.supersedesChangeOrderId,
       'active_share_token': co.activeShareToken,
+      'decision_recorded_by': co.decisionRecordedBy,
+      'decision_recorded_by_name': co.decisionRecordedByName,
+      'decision_note': co.decisionNote,
       'items': [
         for (final it in co.items)
           {

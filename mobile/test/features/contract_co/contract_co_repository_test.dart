@@ -289,6 +289,59 @@ void main() {
       expect(adapter.requestBodies[3], isNull);
     });
 
+    test('müşteri kararını kaydet: yol, gövde ve kaydeden bilgisi', () async {
+      final (repo, adapter) = await build({
+        '/projects/p1/change-orders/co1/record-decision': [
+          (
+            status: 200,
+            body: {
+              ...coJson,
+              'status': 'approved',
+              'approved_at': '2026-09-16T09:00:00Z',
+              'responded_at': '2026-09-16T09:00:00Z',
+              'decision_recorded_by': 'u7',
+              'decision_recorded_by_name': 'Ayşe Yönetici',
+              'decision_note': 'telefonla onay',
+            },
+          ),
+          (status: 409, body: {'error': 'bu ek iş için onay/red işlemi yapılamaz'}),
+        ],
+      });
+      final approved = await repo.recordChangeOrderDecision('p1', 'co1', approved: true, note: '  telefonla onay ');
+      expect(adapter.requestBodies.single, {'decision': 'approved', 'note': 'telefonla onay'});
+      expect(approved.status, ProjectChangeOrder.statusApproved);
+      expect(approved.decisionRecordedByStaff, isTrue);
+      expect(approved.decisionRecordedByName, 'Ayşe Yönetici');
+      expect(approved.decisionNote, 'telefonla onay');
+      expect(approved.canRecordDecision, isFalse);
+      // Liste ucundan gelen kârlılık eklense de karar bilgisi korunur.
+      const profit = ChangeOrderProfitability(
+        revenueEffect: 0,
+        realizedCost: 0,
+        committedCost: 0,
+        realizedProfit: 0,
+        estimatedProfit: 0,
+        realizedMarginPercent: 0,
+        estimatedMarginPercent: 0,
+      );
+      expect(approved.withProfitability(profit).decisionNote, 'telefonla onay');
+
+      await expectLater(
+        repo.recordChangeOrderDecision('p1', 'co1', approved: false),
+        throwsA(isA<ApiException>()
+            .having((e) => e.kind, 'kind', ApiErrorKind.conflict)
+            .having((e) => e.message, 'message', 'bu ek iş için onay/red işlemi yapılamaz')),
+      );
+      expect(adapter.requestBodies.last, {'decision': 'rejected', 'note': ''});
+    });
+
+    test('müşteri linkinden gelen kararda kaydeden yok', () {
+      final co = ProjectChangeOrder.fromJson({...coJson, 'status': 'approved'});
+      expect(co.decisionRecordedByStaff, isFalse);
+      expect(co.decisionRecordedByName, '');
+      expect(ProjectChangeOrder.fromJson(coJson).canRecordDecision, isTrue);
+    });
+
     test('değer özeti financial-summary kırılımından', () async {
       final (repo, _) = await build({
         '/projects/p1/financial-summary': [

@@ -11,6 +11,7 @@ import '../../../../core/theme/app_typography.dart';
 import '../../../../core/utils/event_labels.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/widgets/access_notices.dart';
+import '../../../../core/widgets/app_buttons.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_lifecycle_actions.dart';
 import '../../../../core/widgets/app_list_card.dart';
@@ -32,13 +33,17 @@ import 'widgets/contract_co_ui.dart';
 ///
 /// - Taslak:      Gönder · Düzenle · İptal
 /// - Gönderildi:  Mail Gönder · Linki Kopyala · Revize Et · İptal
+///                + "Müşteri onayladı/reddetti olarak işaretle"
 /// - Reddedildi:  Revize Et
 /// - Onaylandı / İptal / Yenilendi: aksiyon yok (final)
 ///
-/// Onay/red MÜŞTERİNİNDİR (paylaşım linki) -- uygulama yalnızca durumu
-/// gösterir. Tüm aksiyonlar `projects.finance.manage` ister ve proje
-/// kapalıyken gizlenir; 409 (durum başka yerde değişti, ör. müşteri az
-/// önce onayladı) sunucu mesajıyla gösterilip ekran tazelenir.
+/// Onay/red MÜŞTERİNİNDİR: normalde paylaşım linkinden verir. Müşteri
+/// telefonla/yazılı yanıt verdiyse `projects.change_orders.approve` sahibi
+/// (varsayılan Sahip/Yönetici) kararı onay penceresi + isteğe bağlı notla
+/// kaydeder -- sunucuda linkle aynı kurallar ve aynı etki. Diğer aksiyonlar
+/// `projects.finance.manage` ister. Hepsi proje kapalıyken gizlenir; 409
+/// (durum başka yerde değişti, ör. müşteri az önce onayladı) sunucu
+/// mesajıyla gösterilip ekran tazelenir.
 class ChangeOrderDetailScreen extends ConsumerStatefulWidget {
   const ChangeOrderDetailScreen({super.key, required this.projectId, required this.changeOrderId});
 
@@ -144,6 +149,35 @@ class _ChangeOrderDetailScreenState extends ConsumerState<ChangeOrderDetailScree
     if (sent == true && mounted) showContractCoSnack(context, 'Mail gönderildi.');
   }
 
+  /// "Müşteri onayladı/reddetti olarak işaretle": onay penceresi + isteğe
+  /// bağlı not ("telefonla onay"). Sunucu reddederse (ör. eksiltme proje
+  /// bedelini negatife düşürür, müşteri az önce linkten yanıt verdi) sebebi
+  /// olduğu gibi gösterilir.
+  Future<void> _recordDecision(ProjectChangeOrder co, {required bool approved}) async {
+    final effect = Formatters.signedMoney(co.signedTotal, currency: co.currency);
+    final note = await showOptionalNoteDialog(
+      context,
+      title: approved ? 'Müşteri Onayını Kaydet' : 'Müşteri Reddini Kaydet',
+      message: approved
+          ? '${co.changeOrderNo} müşteri tarafından onaylandı olarak işaretlensin mi? Sonuç müşterinin linkten '
+              'onaylamasıyla aynıdır: ek iş kesinleşir ve proje bedeli $effect değişir. Bu işlem geri alınamaz.'
+          : '${co.changeOrderNo} müşteri tarafından reddedildi olarak işaretlensin mi? Proje bedeli değişmez; '
+              'gerekirse revize ederek yeni bir taslak açabilirsin.',
+      confirmLabel: approved ? 'Onaylandı Olarak İşaretle' : 'Reddedildi Olarak İşaretle',
+      noteHint: approved ? 'ör. telefonla onay' : 'ör. müşteri yazılı olarak reddetti',
+      danger: !approved,
+    );
+    if (note == null || !mounted) return;
+    await _run(
+      () => ref
+          .read(contractCoRepositoryProvider)
+          .recordChangeOrderDecision(widget.projectId, co.id, approved: approved, note: note),
+      success: approved
+          ? '${co.changeOrderNo} müşteri onayladı olarak işaretlendi.'
+          : '${co.changeOrderNo} müşteri reddetti olarak işaretlendi.',
+    );
+  }
+
   Future<void> _copyLink(ProjectChangeOrder co) async {
     final token = co.activeShareToken;
     if (token == null) return;
@@ -166,6 +200,7 @@ class _ChangeOrderDetailScreenState extends ConsumerState<ChangeOrderDetailScree
     final project = ref.watch(projectDetailProvider(widget.projectId)).valueOrNull;
     final locked = isProjectLocked(project);
     final canManage = user.can(kChangeOrdersManagePermission) && !locked;
+    final canRecordDecision = user.can(kChangeOrdersApprovePermission) && !locked;
 
     return AppPageScaffold(
       title: Text(detailAsync.valueOrNull?.changeOrderNo ?? 'Ek İş'),
@@ -261,6 +296,14 @@ class _ChangeOrderDetailScreenState extends ConsumerState<ChangeOrderDetailScree
                 if (actions.isNotEmpty) ...[
                   const SizedBox(height: AppSpacing.lg),
                   AppLifecycleActions(actions: actions),
+                ],
+                if (canRecordDecision && co.canRecordDecision) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  _RecordDecisionPanel(
+                    busy: _busy,
+                    onApproved: () => _recordDecision(co, approved: true),
+                    onRejected: () => _recordDecision(co, approved: false),
+                  ),
                 ],
                 // Geri alınamaz iptal çubuktan ayrı, kırmızı.
                 if (canCancel) ...[
@@ -360,6 +403,53 @@ class _HeaderCard extends StatelessWidget {
   }
 }
 
+/// Kararı müşteri linkten değil ekip kaydettiyse: kim ve hangi notla.
+List<String> _recordedLines(ProjectChangeOrder co) => [
+      if (co.decisionRecordedByStaff)
+        co.decisionRecordedByName.isEmpty
+            ? 'Müşterinin yanıtını ekip kaydetti.'
+            : 'Müşterinin yanıtını ${co.decisionRecordedByName} kaydetti.',
+      if (co.decisionNote.isNotEmpty) 'Not: ${co.decisionNote}',
+    ];
+
+/// Gönderilmiş ek işte, müşteri telefonla/yazılı yanıt verdiyse kararı
+/// kaydetme -- linkteki yanıtla aynı sonucu doğurur (sunucu aynı kod yolu).
+class _RecordDecisionPanel extends StatelessWidget {
+  const _RecordDecisionPanel({required this.busy, required this.onApproved, required this.onRejected});
+
+  final bool busy;
+  final VoidCallback onApproved;
+  final VoidCallback onRejected;
+
+  @override
+  Widget build(BuildContext context) {
+    return ContractCoCard(
+      title: 'Müşteri yanıtını kaydet',
+      children: [
+        const Text(
+          'Müşteri telefonla ya da yazılı yanıt verdiyse buradan kaydedebilirsin; sonuç müşterinin linkten '
+          'yanıt vermesiyle aynıdır.',
+          style: AppTypography.metadata,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        SecondaryButton(
+          label: 'Müşteri onayladı olarak işaretle',
+          icon: Icons.check_circle_outline,
+          loading: busy,
+          onPressed: busy ? null : onApproved,
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        SecondaryButton(
+          label: 'Müşteri reddetti olarak işaretle',
+          icon: Icons.highlight_off,
+          loading: busy,
+          onPressed: busy ? null : onRejected,
+        ),
+      ],
+    );
+  }
+}
+
 /// Müşteri kararı / belge durumu -- "ne oldu, sırada ne var" tek notta.
 class _DecisionNote extends StatelessWidget {
   const _DecisionNote({required this.changeOrder, required this.showShareUrl, this.next, this.onOpenNext});
@@ -409,6 +499,7 @@ class _DecisionNote extends StatelessWidget {
           title: 'Müşteri onayladı',
           lines: [
             if (co.approvedAt != null) 'Onay: ${formatDateTimeTr(co.approvedAt)}',
+            ..._recordedLines(co),
             'Onaylanan ek iş kesindir; etkisini geri almak için yeni bir eksiltme oluşturulur.',
           ],
         );
@@ -419,6 +510,7 @@ class _DecisionNote extends StatelessWidget {
           title: 'Müşteri reddetti',
           lines: [
             if (co.rejectedAt != null) 'Red: ${formatDateTimeTr(co.rejectedAt)}',
+            ..._recordedLines(co),
             'Revize ederek aynı içerikle yeni bir taslak açabilirsin.',
           ],
         );
@@ -569,6 +661,8 @@ class _EventsSection extends ConsumerWidget {
     if (e.eventType == 'change_order_superseded' && e.newChangeOrderId == changeOrder.id) {
       return 'Revizyon olarak oluşturuldu';
     }
+    if (e.isStaffDecision && e.eventType == 'change_order_approved') return 'Müşteri onayı ekip tarafından kaydedildi';
+    if (e.isStaffDecision && e.eventType == 'change_order_rejected') return 'Müşteri reddi ekip tarafından kaydedildi';
     if (e.eventType == 'change_order_superseded') return 'Revize edildi (yeni taslak açıldı)';
     return kProjectEventLabels[e.eventType] ?? kUnknownEventLabel;
   }
@@ -624,7 +718,7 @@ class _EventsSection extends ConsumerWidget {
                         ),
                         const SizedBox(height: 1),
                         Text(
-                          [formatDateTimeTr(e.createdAt), ?e.recipient].join(' · '),
+                          [formatDateTimeTr(e.createdAt), ?e.recipient, ?e.note].join(' · '),
                           style: AppTypography.helper,
                         ),
                       ],
