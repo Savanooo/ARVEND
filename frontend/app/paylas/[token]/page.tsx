@@ -189,6 +189,14 @@ export default async function PaylasPage({
               verilemez. Lütfen size en son gönderilen bağlantıyı kullanın.
             </p>
           )}
+          {/* Taslak revizyonun linki bir önizlemedir (personel teklifi
+              "gönderildi" yapmadan paylaşmış). Butonsuz ve açıklamasız sayfa
+              müşteriyi "onay nerede?" diye bırakıyordu. */}
+          {offer.status === "taslak" && (
+            <p className="text-center text-sm text-text-muted">
+              Bu teklif henüz onaya açılmadı. Onay için firmanın size gönderdiği bağlantıyı bekleyin.
+            </p>
+          )}
         </>
       )}
     </div>

@@ -44,6 +44,22 @@ class WhatsNewRelease {
 
 /// En yeni sürüm en üstte.
 const kWhatsNewReleases = <WhatsNewRelease>[
+  // Taslak teklifin linki müşteriye Kabul Et / Reddet göstermiyordu
+  // (backend: share-links mark_sent).
+  WhatsNewRelease(
+    build: 18,
+    version: '1.5.12',
+    items: [
+      WhatsNewItem(
+        icon: Icons.send_outlined,
+        title: 'Linkle onay',
+        body: 'Taslak teklifi linkle paylaşırken Gönderildi yapılır; müşteri linkten onaylayabilir.',
+        // "Gönder ve link oluştur" bu izinle açılır (teklif durumunu
+        // değiştirme); izni olmayan yalnızca önizleme linki oluşturur.
+        permission: 'offers.approve',
+      ),
+    ],
+  ),
   // Teklif kaleminde katalog önerileri (backend: kelime bazlı ürün araması).
   WhatsNewRelease(
     build: 17,
