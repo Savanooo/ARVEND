@@ -310,6 +310,29 @@ void main() {
       expect(find.byKey(const ValueKey('masraf-duzenle')), findsOneWidget);
     });
 
+    // Masraflarım açıkken karar bildirimine dokunuldu: ikinci ekran aynı
+    // (önbellekteki) listeyi paylaşır; o kopyada masraf hâlâ "Onay bekliyor".
+    // Bildirimin anlattığı durum (ret nedeni) görünmeliydi.
+    testWidgets('Masraflarım açıkken bildirimden gelince liste tazelenir, ayrıntı güncel durumu gösterir', (
+      tester,
+    ) async {
+      final adapter = await _pumpScreen(tester, script: {
+        '/expenses/mine': [
+          mineResponse([myExpenseRow('m2', description: 'Kalıp tahtası')]),
+          mineResponse([myExpenseRow('m2', status: 'rejected', note: 'Fiş okunmuyor', description: 'Kalıp tahtası')]),
+        ],
+      });
+      expect(find.text('Onay bekliyor'), findsWidgets);
+
+      Navigator.of(tester.element(find.byType(MyExpensesScreen))).push(
+        MaterialPageRoute<void>(builder: (_) => const MyExpensesScreen(initialExpenseId: 'm2')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(adapter.calls.where((c) => c == '/expenses/mine').length, 2);
+      expect(find.text('Red nedeni'), findsOneWidget);
+    });
+
     testWidgets('masraf girme izni yoksa açıklama, istek yok', (tester) async {
       final adapter = await _pumpScreen(
         tester,
