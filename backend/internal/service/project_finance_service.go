@@ -624,11 +624,17 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 	// Çift tıklama/ağ tekrarına karşı: tahsilat ve taşeron ödemesiyle
 	// SİMETRİK idempotency anahtarı (bkz. denetim bulgusu -- masraf
 	// eskiden bu korumaya sahip değildi).
+	// Tekrar yalnızca AYNI kişinin isteğidir (migration 0066'dan beri finans
+	// okuma izni olmayan kişi de masraf girer): başkasının anahtarı onun
+	// kaydını döndürmez, bkz. ErrExpenseIdempotencyKeyInUse.
 	key := strings.TrimSpace(in.IdempotencyKey)
 	if key != "" {
 		if existing, err := txq.GetExpenseByIdempotencyKey(ctx, sqlc.GetExpenseByIdempotencyKeyParams{
 			ProjectID: pid, IdempotencyKey: &key,
 		}); err == nil {
+			if existing.CreatedBy != actorUUID(in.UserID) {
+				return nil, ErrExpenseIdempotencyKeyInUse
+			}
 			out := repository.ToDomainExpense(existing)
 			return &out, nil
 		} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -679,6 +685,9 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 			if existing, gerr := s.q.GetExpenseByIdempotencyKey(ctx, sqlc.GetExpenseByIdempotencyKeyParams{
 				ProjectID: pid, IdempotencyKey: &key,
 			}); gerr == nil {
+				if existing.CreatedBy != actorUUID(in.UserID) {
+					return nil, ErrExpenseIdempotencyKeyInUse
+				}
 				out := repository.ToDomainExpense(existing)
 				return &out, nil
 			}
