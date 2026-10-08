@@ -32,6 +32,10 @@ class OfferDetailScreen extends ConsumerStatefulWidget {
   ConsumerState<OfferDetailScreen> createState() => _OfferDetailScreenState();
 }
 
+/// Taslak teklifte "Paylaşım Linki" sorusunun cevabı (bkz.
+/// `_askDraftShareChoice`); null = Vazgeç.
+enum _DraftShareChoice { send, preview }
+
 class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
   bool _creatingLink = false;
   bool _sendingEmail = false;
@@ -152,14 +156,79 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     }
   }
 
-  Future<void> _createShareLink() async {
+  /// Taslak teklifin linkinde müşteri teklifi görür ama Kabul Et / Reddet
+  /// göremez (yalnızca "gönderildi" bir revizyon yanıtlanabilir). Sahada
+  /// link WhatsApp'tan atılıyor, "Gönderildi Olarak İşaretle" unutuluyordu
+  /// ("teklif atıyoruz, link vb., teklif kabul etme yok") -- bu yüzden
+  /// taslakta link oluşturmadan önce sorulur. Önizleme linki bilerek
+  /// seçenek olarak kalır (müşteriye göndermeden kontrol etmek için).
+  /// Durum değiştirme yetkisi (offers.approve) olmayana yalnızca önizleme
+  /// sunulur; sunucu da mark_sent'i bu izin olmadan reddeder.
+  Future<_DraftShareChoice?> _askDraftShareChoice({required bool canMarkSent}) {
+    return showDialog<_DraftShareChoice>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Teklif taslak'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              canMarkSent
+                  ? "Müşterinin linkten Kabul Et / Reddet yapabilmesi için teklif 'Gönderildi' olmalı. "
+                      'Gönderildi olarak işaretleyip linki oluşturayım mı?'
+                  : "Müşterinin linkten Kabul Et / Reddet yapabilmesi için teklif 'Gönderildi' olmalı.",
+            ),
+            if (!canMarkSent) ...[
+              const SizedBox(height: AppSpacing.sm),
+              const Text(
+                'Teklif durumunu değiştirme yetkiniz yok; oluşturulacak link yalnızca önizlemedir.',
+                key: ValueKey('share-draft-no-permission-note'),
+                style: AppTypography.metadata,
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Vazgeç')),
+          TextButton(
+            key: const ValueKey('share-draft-preview'),
+            onPressed: () => Navigator.of(context).pop(_DraftShareChoice.preview),
+            child: const Text('Yalnızca önizleme linki'),
+          ),
+          if (canMarkSent)
+            FilledButton(
+              key: const ValueKey('share-draft-send'),
+              autofocus: true,
+              onPressed: () => Navigator.of(context).pop(_DraftShareChoice.send),
+              child: const Text('Gönder ve link oluştur'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _createShareLink(Offer offer, {required bool canMarkSent}) async {
+    var markSent = false;
+    if (offer.status == Offer.statusTaslak) {
+      final choice = await _askDraftShareChoice(canMarkSent: canMarkSent);
+      if (choice == null || !mounted) return;
+      markSent = choice == _DraftShareChoice.send;
+    }
     setState(() => _creatingLink = true);
     final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
     try {
-      final link = await ref.read(offersRepositoryProvider).createShareLink(offerId);
+      final link = await ref.read(offersRepositoryProvider).createShareLink(offerId, markSent: markSent);
       // Link oluşturma bir olay (share_link_created) üretir.
       invalidateOfferHistory(invalidate, offerId);
       invalidate(offerShareLinksProvider(offerId));
+      if (markSent) {
+        // Durum çipi, revizyon listesi ve teklif listesi "Gönderildi"yi
+        // göstersin; önceki revizyonların linkleri de sunucuda iptal edildi.
+        invalidate(offerDetailProvider(offerId));
+        invalidate(offersListProvider(''));
+        invalidate(offerRevisionsProvider(offerId));
+      }
       if (!mounted) return;
       // Ağ çağrısı bitti -- diyalog açık kaldığı sürece (kullanıcı kopyala/
       // kapat'a basana kadar) buton sonsuza dek "yükleniyor" görünmesin.
@@ -260,6 +329,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     final canReadInternal = user?.hasPermission(kPermOffersInternalPricingRead) ?? false;
     final canConvert = user?.hasPermission(kPermProjectsCreate) ?? false;
     final canUpdate = user?.hasPermission(kPermOffersUpdate) ?? false;
+    final canApprove = user?.hasPermission(kPermOffersApprove) ?? false;
     final canDelete = user?.hasPermission(kPermOffersDelete) ?? false;
     // İzni olmayan VEYA henüz "kabul edildi" durumuna gelmemiş bir teklif
     // İÇİN bu sorgu hiç atılmaz -- yalnızca kabul edilmiş teklifler
@@ -496,7 +566,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                       icon: Icons.ios_share_outlined,
                       label: 'Paylaşım Linki',
                       loading: _creatingLink,
-                      onPressed: _createShareLink,
+                      onPressed: () => _createShareLink(offer, canMarkSent: canApprove),
                     ),
                     SecondaryButton(
                       icon: Icons.mail_outline,

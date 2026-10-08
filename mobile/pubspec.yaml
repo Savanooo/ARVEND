@@ -2,7 +2,7 @@ name: arvend
 description: "ARVEND Yapı - saha ekibi için proje/teklif/metraj mobil uygulaması."
 publish_to: 'none'
 
-version: 1.5.11+17
+version: 1.5.12+18
 
 environment:
   sdk: ^3.12.2

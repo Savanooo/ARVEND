@@ -214,10 +214,16 @@ class OffersRepository {
 
   /// Güncel revizyon için yeni bir paylaşım linki oluşturur. [expiresIn]:
   /// '' (süresiz) | '7d' | '30d' -- backend sözleşmesiyle birebir.
-  Future<ShareLink> createShareLink(String offerId, {String expiresIn = ''}) async {
+  /// `markSent`: teklif taslaksa link oluşturulmadan önce "gönderildi"ye
+  /// geçirilir (offers.approve ister) -- müşteri ancak gönderilmiş bir
+  /// revizyonu linkten kabul/red edebilir. false: durum değişmez, taslakta
+  /// link bir önizlemedir. Alan yalnızca true iken gönderilir: backend
+  /// bilinmeyen alanı reddeder, `mark_sent`i tanımayan eski bir sunucuda
+  /// önizleme/gönderilmiş teklif linki bozulmasın.
+  Future<ShareLink> createShareLink(String offerId, {String expiresIn = '', bool markSent = false}) async {
     final json = await _client.post<Map<String, dynamic>>(
       '/offers/$offerId/share-links',
-      data: {'expires_in': expiresIn},
+      data: {'expires_in': expiresIn, if (markSent) 'mark_sent': true},
     );
     return ShareLink.fromJson(json);
   }

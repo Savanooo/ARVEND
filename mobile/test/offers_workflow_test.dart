@@ -153,6 +153,28 @@ void main() {
       expect(link.token, 'abc');
       final body = adapter.requestBodies.single as Map<String, dynamic>;
       expect(body['expires_in'], '');
+      // Backend bilinmeyen alanı reddeder: mark_sent'i tanımayan sunucuda
+      // varsayılan istek bozulmasın diye alan hiç gönderilmez.
+      expect(body.containsKey('mark_sent'), isFalse);
+    });
+
+    test('createShareLink(markSent: true) sends mark_sent', () async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/offers/o1/share-links': [
+          (
+            status: 201,
+            body: {
+              'id': 'l1', 'offer_id': 'o1', 'revision_id': 'r1', 'token': 'abc',
+              'created_at': '2026-09-20T10:00:00Z', 'is_active': true,
+            },
+          ),
+        ],
+      });
+      final repo = OffersRepository(await buildFakeApiClient(adapter));
+
+      await repo.createShareLink('o1', markSent: true);
+
+      expect(adapter.requestBodies.single, {'expires_in': '', 'mark_sent': true});
     });
 
     test('shareLinks() unwraps the share_links array', () async {
@@ -470,10 +492,12 @@ void main() {
   });
 
   group('OfferDetailScreen — share link + send email actions', () {
+    // Gönderilmiş teklif: soru yok, durum dokunulmaz (taslak akışı için bkz.
+    // test/features/offers/offer_share_link_draft_test.dart).
     testWidgets('creating a share link shows a copyable URL built from the token', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
         '/auth/me': [(status: 200, body: _meJson())],
-        '/offers/o1': [(status: 200, body: _offerJson(status: 'taslak'))],
+        '/offers/o1': [(status: 200, body: _offerJson(status: 'gönderildi'))],
         '/offers/o1/revisions': [(status: 200, body: {'revisions': <dynamic>[]})],
         // Sahte adaptör yolu sırayla tüketir: açılışta liste (boş), sonra
         // oluşturma, sonra oluşturmanın tetiklediği liste tazelemesi.
@@ -492,6 +516,9 @@ void main() {
 
       expect(find.descendant(of: find.byType(AlertDialog), matching: find.text('${AppConfig.apiBaseUrl}/paylas/tok-abc')),
           findsOneWidget);
+      expect(find.text('Teklif taslak'), findsNothing);
+      final post = adapter.requestBodies[adapter.methods.indexOf('POST')] as Map<String, dynamic>;
+      expect(post.containsKey('mark_sent'), isFalse);
       await tester.tap(find.text('Kapat'));
       await tester.pumpAndSettle();
       expect(find.text('Paylaşım Linkleri', skipOffstage: false), findsOneWidget, reason: 'yeni link listede');
