@@ -547,6 +547,22 @@ void main() {
         permissions: const {'attendance.manage'},
       );
       expect(quickActionsFor(onlyAttendance), isEmpty);
+      // 0066 masraf girme iznini ÖZEL roller dahil her role verdi; proje
+      // seçici (GET /dashboard/project-options) projects.read ister. Projeleri
+      // göremeyen özel rol "Masraf Gir"e basıp her seferinde hata alıyordu;
+      // kendi masraflarının listesi (Masraf Takibi) ise çalışır.
+      final salesOnly = User(
+        id: 's',
+        username: 's',
+        fullName: 'S',
+        role: UserRole.kullanici,
+        isActive: true,
+        mustChangePassword: false,
+        onboardingCompleted: true,
+        onboardingStep: 'completed',
+        permissions: const {'offers.read', 'offers.create', 'projects.expenses.create'},
+      );
+      expect(quickActionsFor(salesOnly).map((a) => a.label), ['Teklif Oluştur', 'Masraf Takibi']);
       // İzin kümesi boşsa (eski oturum) fail-open.
       expect(quickActionsFor(null), hasLength(QuickActionKey.values.length));
     });

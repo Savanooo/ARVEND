@@ -30,7 +30,9 @@ Map<String, dynamic> _offer(String status) => {
       'items': <Object>[],
     };
 
-Future<void> _pump(WidgetTester tester, FakeHttpClientAdapter adapter) async {
+const _canApprove = {'offers.read', 'offers.update', 'offers.approve'};
+
+Future<void> _pump(WidgetTester tester, FakeHttpClientAdapter adapter, {Set<String> permissions = _canApprove}) async {
   await tester.binding.setSurfaceSize(const Size(800, 2400));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   final client = await buildFakeApiClient(adapter);
@@ -45,7 +47,7 @@ Future<void> _pump(WidgetTester tester, FakeHttpClientAdapter adapter) async {
     ProviderScope(
       overrides: [
         apiClientProvider.overrideWithValue(client),
-        authControllerProvider.overrideWith(() => FakeAuth(testUser({'offers.read', 'offers.update'}))),
+        authControllerProvider.overrideWith(() => FakeAuth(testUser(permissions))),
       ],
       child: MaterialApp.router(routerConfig: router),
     ),
@@ -120,5 +122,54 @@ void main() {
     await tester.tap(find.text('Vazgeç'));
     await tester.pumpAndSettle();
     expect(adapter.calls, isNot(contains('/offers/o1/status')));
+  });
+
+  // Durum ucu (PUT /offers/{id}/status) offers.approve ister; izni olmayan
+  // düğmeye basıp ancak 403 snackbar'ıyla öğreniyordu. Paylaşım linki
+  // sorusundaki "yetkiniz yok" notuyla aynı karar: düğme hiç gösterilmez.
+  for (final status in ['taslak', 'gönderildi']) {
+    testWidgets('offers.approve yok ($status): durum düğmeleri görünmez', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/offers/o1': [(status: 200, body: _offer(status))],
+        '/offers/o1/revisions': [(status: 200, body: {'revisions': <Object>[]})],
+      });
+      await _pump(tester, adapter, permissions: {'offers.read', 'offers.update'});
+
+      for (final label in ['Gönderildi Olarak İşaretle', 'Kabul Edildi', 'Reddedildi']) {
+        expect(find.text(label), findsNothing, reason: label);
+      }
+      // Durumla ilgisi olmayan işlemler yerinde kalır.
+      expect(find.text('Paylaşım Linki'), findsOneWidget);
+    });
+  }
+
+  // Paylaşım linki, e-posta ve revizyon uçları (POST /offers/{id}/share-links,
+  // /send-email, /revise) offers.update ister; izni olmayan 403 alıyordu.
+  // PDF yalnızca okuma ister, kalır.
+  testWidgets('offers.update yok: Paylaşım Linki / E-posta Gönder / Revize Et görünmez, PDF kalır', (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/offers/o1': [(status: 200, body: _offer('gönderildi'))],
+      '/offers/o1/revisions': [(status: 200, body: {'revisions': <Object>[]})],
+    });
+    await _pump(tester, adapter, permissions: {'offers.read', 'offers.approve'});
+
+    for (final label in ['Paylaşım Linki', 'E-posta Gönder', 'Revize Et ve Düzenle']) {
+      expect(find.text(label), findsNothing, reason: label);
+    }
+    expect(find.widgetWithText(OutlinedButton, 'PDF İndir'), findsOneWidget);
+    // Durum düğmeleri offers.approve'a bağlı, bu izinden bağımsız.
+    expect(find.text('Kabul Edildi'), findsOneWidget);
+  });
+
+  testWidgets('offers.update var: üç işlem de görünür', (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/offers/o1': [(status: 200, body: _offer('gönderildi'))],
+      '/offers/o1/revisions': [(status: 200, body: {'revisions': <Object>[]})],
+    });
+    await _pump(tester, adapter, permissions: {'offers.read', 'offers.update'});
+
+    for (final label in ['Paylaşım Linki', 'E-posta Gönder', 'Revize Et ve Düzenle']) {
+      expect(find.text(label), findsOneWidget, reason: label);
+    }
   });
 }

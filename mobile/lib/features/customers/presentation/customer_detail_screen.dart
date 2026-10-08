@@ -238,20 +238,41 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
       ),
     );
     if (ok != true || !mounted) return;
+    await _sendReactivate(c);
+  }
+
+  /// Aktifleştirme de bir PUT: sunucu 409 duplicate_customer dönerse
+  /// oluştur/düzenle formundaki çakışma diyaloğu açılır (ham sunucu mesajı
+  /// yerine çakışan müşteri + "Mevcut müşteriyi aç / Yine de kaydet").
+  Future<void> _sendReactivate(Customer c, {bool allowDuplicate = false}) async {
     setState(() => _archiving = true);
+    DuplicateCustomer? dup;
     try {
-      await ref.read(customersRepositoryProvider).reactivate(c);
+      await ref.read(customersRepositoryProvider).reactivate(c, allowDuplicate: allowDuplicate);
       ref.invalidate(customerDetailProvider(c.id));
       ref.invalidate(customersListProvider);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Müşteri aktifleştirildi.')));
       }
     } on ApiException catch (e) {
-      if (mounted) {
+      dup = allowDuplicate ? null : DuplicateCustomer.fromError(e);
+      if (dup == null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
       }
     } finally {
       if (mounted) setState(() => _archiving = false);
+    }
+    if (dup == null || !mounted) return;
+    final choice = await showDuplicateCustomerDialog(context, dup);
+    if (!mounted) return;
+    switch (choice) {
+      case DuplicateCustomerChoice.saveAnyway:
+        await _sendReactivate(c, allowDuplicate: true);
+      case DuplicateCustomerChoice.open:
+        context.push('/diger/musteriler/${Uri.encodeComponent(dup.id)}');
+      case DuplicateCustomerChoice.cancel:
+      case null:
+        break;
     }
   }
 

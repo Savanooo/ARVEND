@@ -196,62 +196,70 @@ class _CustomerFormSheetState extends ConsumerState<CustomerFormSheet> {
   /// Sessizce reddetmek aynı müşterinin farklı yazımlarla tekrar açılmasını
   /// önlerken iki şubeli firmayı kaydedilemez bırakırdı.
   Future<void> _onDuplicate(DuplicateCustomer dup) async {
-    final choice = await showDialog<_DuplicateChoice>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        key: const ValueKey('customer-duplicate-dialog'),
-        title: const Text('Bu müşteri zaten kayıtlı olabilir'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              dup.field == 'tax_number'
-                  ? 'Aynı vergi numarasıyla kayıtlı bir müşteri var:'
-                  : 'Aynı telefon numarasıyla kayıtlı bir müşteri var:',
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              dup.isActive ? dup.name : '${dup.name} (arşivde)',
-              style: AppTypography.cardTitle,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              'Aynı firmanın ayrı bir kaydıysa (ör. ikinci şube) yine de kaydedebilirsin.',
-              style: AppTypography.helper,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(_DuplicateChoice.cancel),
-            child: const Text('Vazgeç'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(_DuplicateChoice.open),
-            child: const Text('Mevcut müşteriyi aç'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(_DuplicateChoice.saveAnyway),
-            child: const Text('Yine de kaydet'),
-          ),
-        ],
-      ),
-    );
+    final choice = await showDuplicateCustomerDialog(context, dup);
     if (!mounted) return;
     switch (choice) {
-      case _DuplicateChoice.saveAnyway:
+      case DuplicateCustomerChoice.saveAnyway:
         await _submit(allowDuplicate: true);
-      case _DuplicateChoice.open:
+      case DuplicateCustomerChoice.open:
         // Sheet kapanınca context gider; router önce alınır.
         final router = GoRouter.maybeOf(context);
         Navigator.of(context).pop();
         router?.push('/diger/musteriler/${Uri.encodeComponent(dup.id)}');
-      case _DuplicateChoice.cancel:
+      case DuplicateCustomerChoice.cancel:
       case null:
         break;
     }
   }
 }
 
-enum _DuplicateChoice { cancel, open, saveAnyway }
+enum DuplicateCustomerChoice { cancel, open, saveAnyway }
+
+/// 409 `duplicate_customer` diyaloğu: çakışan müşteriyi gösterir, "Vazgeç /
+/// Mevcut müşteriyi aç / Yine de kaydet" sorar. Oluştur/düzenle formu ve
+/// müşteri detayındaki "Aktifleştir" (o da bir PUT) aynı diyaloğu kullanır --
+/// aynı çakışma iki ekranda iki farklı biçimde anlatılmasın.
+Future<DuplicateCustomerChoice?> showDuplicateCustomerDialog(BuildContext context, DuplicateCustomer dup) {
+  return showDialog<DuplicateCustomerChoice>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      key: const ValueKey('customer-duplicate-dialog'),
+      title: const Text('Bu müşteri zaten kayıtlı olabilir'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            dup.field == 'tax_number'
+                ? 'Aynı vergi numarasıyla kayıtlı bir müşteri var:'
+                : 'Aynı telefon numarasıyla kayıtlı bir müşteri var:',
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            dup.isActive ? dup.name : '${dup.name} (arşivde)',
+            style: AppTypography.cardTitle,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Aynı firmanın ayrı bir kaydıysa (ör. ikinci şube) yine de kaydedebilirsin.',
+            style: AppTypography.helper,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(DuplicateCustomerChoice.cancel),
+          child: const Text('Vazgeç'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(DuplicateCustomerChoice.open),
+          child: const Text('Mevcut müşteriyi aç'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(DuplicateCustomerChoice.saveAnyway),
+          child: const Text('Yine de kaydet'),
+        ),
+      ],
+    ),
+  );
+}

@@ -180,6 +180,56 @@ void main() {
       expect(find.text('Şantiye Şefi'), findsWidgets); // e1 detayı
     });
 
+    // Kart personel sayfasına götürür; orada yapılan değişiklik (pasifleştir,
+    // ad/bağ düzenle) geri dönülünce alttaki kullanıcı detayında görünmeli.
+    testWidgets('personel sayfasında pasifleştirilip geri dönülünce kart tazelenir', (tester) async {
+      final access = FakeAccessRepository();
+      final employees = FakeEmployeesRepository();
+      await pumpAccessApp(
+        tester,
+        client: client,
+        user: ownerUser,
+        location: AccessPaths.user('u-pm'),
+        access: access,
+        employees: employees,
+      );
+      expect(find.text('Pasif'), findsNothing);
+      await tester.tap(find.text('Personel kaydını aç'));
+      await tester.pumpAndSettle();
+
+      final archiveButton = find.widgetWithText(OutlinedButton, 'Pasifleştir');
+      await tester.ensureVisible(archiveButton);
+      await tester.tap(archiveButton);
+      await tester.pumpAndSettle();
+      // Pasifleştirmeden sonra sunucu bağlı personeli pasif döndürür.
+      access.users = [
+        for (final u in access.users)
+          u.id == 'u-pm'
+              ? OrgUser(
+                  id: u.id,
+                  username: u.username,
+                  fullName: u.fullName,
+                  role: u.role,
+                  isActive: u.isActive,
+                  organizationRoleCode: u.organizationRoleCode,
+                  organizationRoleName: u.organizationRoleName,
+                  employeeId: u.employeeId,
+                  employeeFullName: u.employeeFullName,
+                  employeeIsActive: false,
+                )
+              : u,
+      ];
+      await tester.tap(find.widgetWithText(TextButton, 'Pasifleştir'));
+      await tester.pumpAndSettle();
+      expect(employees.calls, contains('archive e1'));
+
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Personel kaydını aç'), findsOneWidget);
+      expect(find.text('Pasif'), findsOneWidget);
+    });
+
     testWidgets('kaydı olmayan hesaba personel kaydı açılır', (tester) async {
       final employees = FakeEmployeesRepository();
       await pumpAccessApp(

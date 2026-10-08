@@ -85,8 +85,9 @@ class CustomersRepository {
 
   /// Pasif (arşivlenmiş) müşteriyi yeniden aktifleştirir -- web ile AYNI
   /// uç: `PUT /customers/{id}` ve `is_active: true`. PUT tüm alanları
-  /// yazdığı için mevcut bilgiler aynen geri gönderilir.
-  Future<Customer> reactivate(Customer c) => update(
+  /// yazdığı için mevcut bilgiler aynen geri gönderilir. [allowDuplicate]:
+  /// 409 duplicate_customer diyaloğunda "Yine de kaydet".
+  Future<Customer> reactivate(Customer c, {bool allowDuplicate = false}) => update(
         c.id,
         name: c.name,
         phone: c.phone,
@@ -96,5 +97,6 @@ class CustomersRepository {
         taxNumber: c.taxNumber,
         notes: c.notes,
         isActive: true,
+        allowDuplicate: allowDuplicate,
       );
 }

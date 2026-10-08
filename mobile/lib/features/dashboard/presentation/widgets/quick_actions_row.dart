@@ -8,6 +8,7 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/app_section_header.dart';
 import '../../../../core/widgets/quick_action_button.dart';
 import '../../../customers/presentation/customer_form_sheet.dart';
+import '../../../projects/finance_ledger/data/finance_ledger_providers.dart' show invalidateProjectLedger;
 import '../../../projects/presentation/collection_form_sheet.dart';
 import '../../../projects/presentation/expense_form_sheet.dart';
 import '../../../projects/presentation/note_form_sheet.dart';
@@ -139,11 +140,18 @@ Future<void> _runQuickAction(
       final label = formProjectLabel(project.projectNo, project.name);
       if (await showCollectionFormSheet(context, project.id, currency: project.currency, projectLabel: label) != null) {
         invalidate();
+        // Projenin Finans ekranı başka sekmede açık kalmış olabilir: yeni
+        // tahsilat orada da görünsün (addProjectCollection ile aynı tazeleme).
+        invalidateProjectLedger(container.invalidate, project.id);
       }
     case QuickActionKey.expense:
       final label = formProjectLabel(project.projectNo, project.name);
       if (await showExpenseFormSheet(context, project.id, currency: project.currency, projectLabel: label) != null) {
         invalidate();
+        // Masraflarım'ın "+"ı da buradan geçer: projenin Finans ekranı başka
+        // sekmede açık kalmış olabilir, yeni masraf orada da görünsün
+        // (proje ekranındaki addProjectExpense ile aynı tazeleme).
+        invalidateProjectLedger(container.invalidate, project.id);
       }
     case QuickActionKey.note:
       if (await showNoteFormSheet(context, project.id) != null) invalidate();

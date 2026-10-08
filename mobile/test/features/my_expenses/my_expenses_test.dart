@@ -10,6 +10,7 @@ import 'package:arvend/core/theme/app_theme.dart';
 import 'package:arvend/core/widgets/access_notices.dart';
 import 'package:arvend/core/widgets/app_filter_bar.dart';
 import 'package:arvend/features/auth/domain/user.dart';
+import 'package:arvend/features/projects/data/projects_providers.dart';
 import 'package:arvend/features/projects/domain/expense_actions.dart';
 import 'package:arvend/features/projects/domain/project.dart';
 import 'package:arvend/features/projects/finance_ledger/presentation/ledger_sections.dart';
@@ -308,6 +309,85 @@ void main() {
       expect(adapter.requestQueries.single, {'project_id': 'p1'});
       expect(find.text('Red nedeni'), findsOneWidget);
       expect(find.byKey(const ValueKey('masraf-duzenle')), findsOneWidget);
+    });
+
+    // Masraflarım açıkken karar bildirimine dokunuldu: ikinci ekran aynı
+    // (önbellekteki) listeyi paylaşır; o kopyada masraf hâlâ "Onay bekliyor".
+    // Bildirimin anlattığı durum (ret nedeni) görünmeliydi.
+    testWidgets('Masraflarım açıkken bildirimden gelince liste tazelenir, ayrıntı güncel durumu gösterir', (
+      tester,
+    ) async {
+      final adapter = await _pumpScreen(tester, script: {
+        '/expenses/mine': [
+          mineResponse([myExpenseRow('m2', description: 'Kalıp tahtası')]),
+          mineResponse([myExpenseRow('m2', status: 'rejected', note: 'Fiş okunmuyor', description: 'Kalıp tahtası')]),
+        ],
+      });
+      expect(find.text('Onay bekliyor'), findsWidgets);
+
+      Navigator.of(tester.element(find.byType(MyExpensesScreen))).push(
+        MaterialPageRoute<void>(builder: (_) => const MyExpensesScreen(initialExpenseId: 'm2')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(adapter.calls.where((c) => c == '/expenses/mine').length, 2);
+      expect(find.text('Red nedeni'), findsOneWidget);
+    });
+
+    // "+" (hızlı işlem yolu) masrafı bir projeye girer; o projenin Finans
+    // ekranı başka sekmede açık kalmış olabilir -- yeni masraf orada da
+    // görünmeli (proje ekranındaki "Masraf Ekle" ile aynı tazeleme).
+    testWidgets('"+" ile girilen masraf açık proje defterini de tazeler', (tester) async {
+      final adapter = await _pumpScreen(tester, script: {
+        '/expenses/mine': [mineResponse(), mineResponse()],
+        '/dashboard/project-options': [
+          (
+            status: 200,
+            body: {
+              'projects': [
+                {'id': 'p1', 'project_no': 'PRJ-1', 'name': 'Alfa Konut', 'customer_name': 'Ali', 'currency': 'TRY', 'status': 'active'},
+              ],
+            },
+          ),
+        ],
+        '/projects/p1/expenses': [
+          (status: 200, body: {'expenses': <Object>[]}),
+          (status: 201, body: myExpenseRow('n1')),
+          (status: 200, body: {'expenses': [myExpenseRow('n1')]}),
+        ],
+      });
+      // Proje defterini izleyen (başka sekmede açık) bir ekranın yerine.
+      final container = ProviderScope.containerOf(tester.element(find.byType(MyExpensesScreen)));
+      final sub = container.listen(projectExpensesProvider('p1'), (_, _) {});
+      addTearDown(sub.close);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Masraf Ekle'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextFormField, 'Açıklama'), 'Çivi');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Tutar (TRY)'), '1.250');
+      final button = find.widgetWithText(ElevatedButton, 'Kaydet');
+      await tester.ensureVisible(button);
+      await tester.pumpAndSettle();
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+
+      final ledgerGets = [
+        for (var i = 0; i < adapter.calls.length; i++)
+          if (adapter.calls[i] == '/projects/p1/expenses' && adapter.methods[i] == 'GET') i,
+      ];
+      expect(adapter.methods, contains('POST'));
+      expect(ledgerGets, hasLength(2), reason: 'kayıttan sonra proje defteri yeniden istenir');
+    });
+
+    testWidgets('projeleri göremeyen (özel rol): liste var, "+" yok (proje seçici projects.read ister)', (tester) async {
+      await _pumpScreen(
+        tester,
+        user: cc.buildUser(id: 'field', roleCode: 'satis', permissions: const {'offers.read', 'projects.expenses.create'}),
+        script: {'/expenses/mine': [mineResponse()]},
+      );
+      expect(find.byKey(const ValueKey('masrafim-m1')), findsOneWidget);
+      expect(find.byTooltip('Masraf Ekle'), findsNothing);
     });
 
     testWidgets('masraf girme izni yoksa açıklama, istek yok', (tester) async {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:arvend/core/api/api_providers.dart';
@@ -40,6 +41,51 @@ Future<void> _pump(WidgetTester tester, FakeHttpClientAdapter adapter, Set<Strin
   );
   await tester.pumpAndSettle();
 }
+
+/// Aktifleştirme de bir PUT'tur; sunucu 409 duplicate_customer dönerse
+/// oluştur/düzenle formundaki çakışma diyaloğu açılmalı (ham mesaj değil).
+const _conflict = (
+  status: 409,
+  body: {
+    'error': 'bu vergi numarasıyla kayıtlı bir müşteri zaten var: Ahmet İnşaat A.Ş.',
+    'code': 'duplicate_customer',
+    'field': 'tax_number',
+    'existing_customer': {'id': 'c9', 'name': 'Ahmet İnşaat A.Ş.', 'is_active': true},
+  },
+);
+
+/// "Mevcut müşteriyi aç" gidişi görülebilsin diye gerçek bir go_router.
+Future<void> _pumpRouted(WidgetTester tester, FakeHttpClientAdapter adapter) async {
+  final client = await buildFakeApiClient(adapter);
+  final router = GoRouter(initialLocation: '/diger/musteriler/c1', routes: [
+    GoRoute(
+      path: '/diger/musteriler/:id',
+      builder: (_, state) => state.pathParameters['id'] == 'c1'
+          ? const CustomerDetailScreen(customerId: 'c1')
+          : Scaffold(body: Text('müşteri ${state.pathParameters['id']}')),
+    ),
+  ]);
+  addTearDown(router.dispose);
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        apiClientProvider.overrideWithValue(client),
+        authControllerProvider.overrideWith(() => FakeAuth(testUser({'customers.read', 'customers.manage'}))),
+      ],
+      child: MaterialApp.router(routerConfig: router),
+    ),
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const ValueKey('customer-reactivate')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.widgetWithText(TextButton, 'Aktifleştir'));
+  await tester.pumpAndSettle();
+}
+
+List<Map<String, dynamic>> _puts(FakeHttpClientAdapter adapter) => [
+      for (var i = 0; i < adapter.calls.length; i++)
+        if (adapter.methods[i] == 'PUT') adapter.requestBodies[i] as Map<String, dynamic>,
+    ];
 
 void main() {
   setUpAll(() async => initializeDateFormatting('tr_TR'));
@@ -97,5 +143,61 @@ void main() {
     await _pump(tester, adapter, {'customers.read'});
 
     expect(find.byKey(const ValueKey('customer-reactivate')), findsNothing);
+  });
+
+  testWidgets('aktifleştirmede 409 duplicate: çakışma diyaloğu; "Yine de kaydet" allow_duplicate ile tekrar PUT eder',
+      (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/customers/c1': [
+        (status: 200, body: _customer()),
+        _conflict,
+        (status: 200, body: _customer(active: true)),
+        (status: 200, body: _customer(active: true)),
+      ],
+    });
+    await _pumpRouted(tester, adapter);
+
+    expect(find.byKey(const ValueKey('customer-duplicate-dialog')), findsOneWidget);
+    expect(find.text('Ahmet İnşaat A.Ş.'), findsOneWidget);
+    expect(find.text(_conflict.body['error'] as String), findsNothing, reason: 'ham sunucu mesajı değil');
+
+    await tester.tap(find.text('Yine de kaydet'));
+    await tester.pumpAndSettle();
+
+    final puts = _puts(adapter);
+    expect(puts, hasLength(2));
+    expect(puts.first.containsKey('allow_duplicate'), isFalse);
+    expect(puts.last['allow_duplicate'], isTrue);
+    expect(puts.last['is_active'], isTrue);
+    expect(find.text('Müşteri aktifleştirildi.'), findsOneWidget);
+    expect(find.byIcon(Icons.archive_outlined), findsOneWidget);
+  });
+
+  testWidgets('aktifleştirmede 409 duplicate: "Mevcut müşteriyi aç" çakışanın detayına gider, ikinci PUT yok',
+      (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/customers/c1': [(status: 200, body: _customer()), _conflict],
+    });
+    await _pumpRouted(tester, adapter);
+
+    await tester.tap(find.text('Mevcut müşteriyi aç'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('müşteri c9'), findsOneWidget);
+    expect(_puts(adapter), hasLength(1));
+  });
+
+  testWidgets('aktifleştirmede 409 duplicate: "Vazgeç" pasif bırakır, ikinci PUT yok', (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/customers/c1': [(status: 200, body: _customer()), _conflict],
+    });
+    await _pumpRouted(tester, adapter);
+
+    await tester.tap(find.text('Vazgeç'));
+    await tester.pumpAndSettle();
+
+    expect(_puts(adapter), hasLength(1));
+    expect(find.byKey(const ValueKey('customer-duplicate-dialog')), findsNothing);
+    expect(find.byKey(const ValueKey('customer-reactivate')), findsOneWidget);
   });
 }

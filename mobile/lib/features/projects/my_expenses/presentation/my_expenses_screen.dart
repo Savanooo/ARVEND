@@ -59,8 +59,22 @@ class _MyExpensesScreenState extends ConsumerState<MyExpensesScreen> {
     super.initState();
     final target = _nonEmpty(widget.initialExpenseId);
     if (target != null) {
-      // Liste ilk kez geldiğinde (build dışında, bir kez) ayrıntı açılır.
-      _initialSub = ref.listenManual<AsyncValue<List<MyExpense>>>(myExpensesProvider(_projectId), (_, next) {
+      final provider = myExpensesProvider(_projectId);
+      // Masraflarım zaten açıkken bildirime dokunulduysa liste önbellekte:
+      // o kopyada masraf hâlâ "Onay bekliyor", bildirimin söylediği karar
+      // (ret nedeni) yok. Önce tazelenir, ayrıntı TAZE satırla açılır.
+      // (Build sırasında başka ekranları değiştirmemek için kare sonrası.)
+      final cached = ref.exists(provider);
+      if (cached) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) ref.invalidate(provider);
+        });
+      }
+      // Liste ilk kez geldiğinde (build dışında, bir kez) ayrıntı açılır;
+      // önbellekteki kopya hemen bildirilmez, tazelenmiş liste beklenir.
+      _initialSub = ref.listenManual<AsyncValue<List<MyExpense>>>(provider, (_, next) {
+        // Tazeleme sürerken eski kopya açılmasın.
+        if (next.isLoading) return;
         final rows = next.valueOrNull;
         if (rows == null || _initialHandled) return;
         _initialHandled = true;
@@ -72,7 +86,7 @@ class _MyExpensesScreenState extends ConsumerState<MyExpensesScreen> {
             return;
           }
         }
-      }, fireImmediately: true);
+      }, fireImmediately: !cached);
     }
   }
 
@@ -124,11 +138,15 @@ class _MyExpensesScreenState extends ConsumerState<MyExpensesScreen> {
 
     return AppPageScaffold(
       title: title,
-      floatingActionButton: FloatingActionButton(
-        tooltip: 'Masraf Ekle',
-        onPressed: () => runQuickAction(context, QuickActionKey.expense),
-        child: const Icon(Icons.add),
-      ),
+      // "+" ana sayfadaki "Masraf Gir" ile aynı kapı (proje seçici
+      // projects.read ister); liste o izin olmadan da çalışır.
+      floatingActionButton: user.canAll(QuickActionKey.expense.permissions)
+          ? FloatingActionButton(
+              tooltip: 'Masraf Ekle',
+              onPressed: () => runQuickAction(context, QuickActionKey.expense),
+              child: const Icon(Icons.add),
+            )
+          : null,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
