@@ -734,7 +734,10 @@ enum QuickActionKey {
   // Herkes masraf girer, onay bekler (backend migration 0066); finans
   // izni gerekmez. "Masraf Takibi" Masraflarım ekranını açar -- kısa ad:
   // 360 dp'lik telefonda "Masraflarım" kutucukta hecesinden bölünüyordu.
-  expense('Masraf Gir', Icons.receipt_long_outlined, ['projects.expenses.create']),
+  // "Masraf Gir" ayrıca projects.read ister: 0066 masraf iznini ÖZEL roller
+  // dahil her role verdi, proje seçici (/dashboard/project-options) ise
+  // projects.read ister -- projeleri göremeyen her dokunuşta hata alıyordu.
+  expense('Masraf Gir', Icons.receipt_long_outlined, ['projects.expenses.create', 'projects.read']),
   myExpenses('Masraf Takibi', Icons.fact_check_outlined, ['projects.expenses.create'], needsProject: false),
   attendance('Mesai Gir', Icons.more_time, ['attendance.manage', 'employees.read'], needsProject: false),
   // Kısa ad: eşit genişlikli kutucukta "Satın Alma Talebi" "Satın Alma Ta…" diye kesiliyordu.

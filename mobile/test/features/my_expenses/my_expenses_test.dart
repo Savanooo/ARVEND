@@ -380,6 +380,16 @@ void main() {
       expect(ledgerGets, hasLength(2), reason: 'kayıttan sonra proje defteri yeniden istenir');
     });
 
+    testWidgets('projeleri göremeyen (özel rol): liste var, "+" yok (proje seçici projects.read ister)', (tester) async {
+      await _pumpScreen(
+        tester,
+        user: cc.buildUser(id: 'field', roleCode: 'satis', permissions: const {'offers.read', 'projects.expenses.create'}),
+        script: {'/expenses/mine': [mineResponse()]},
+      );
+      expect(find.byKey(const ValueKey('masrafim-m1')), findsOneWidget);
+      expect(find.byTooltip('Masraf Ekle'), findsNothing);
+    });
+
     testWidgets('masraf girme izni yoksa açıklama, istek yok', (tester) async {
       final adapter = await _pumpScreen(
         tester,

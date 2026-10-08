@@ -138,11 +138,15 @@ class _MyExpensesScreenState extends ConsumerState<MyExpensesScreen> {
 
     return AppPageScaffold(
       title: title,
-      floatingActionButton: FloatingActionButton(
-        tooltip: 'Masraf Ekle',
-        onPressed: () => runQuickAction(context, QuickActionKey.expense),
-        child: const Icon(Icons.add),
-      ),
+      // "+" ana sayfadaki "Masraf Gir" ile aynı kapı (proje seçici
+      // projects.read ister); liste o izin olmadan da çalışır.
+      floatingActionButton: user.canAll(QuickActionKey.expense.permissions)
+          ? FloatingActionButton(
+              tooltip: 'Masraf Ekle',
+              onPressed: () => runQuickAction(context, QuickActionKey.expense),
+              child: const Icon(Icons.add),
+            )
+          : null,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
