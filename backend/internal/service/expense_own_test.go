@@ -576,4 +576,30 @@ func TestExpenseOwnEntry(t *testing.T) {
 			t.Errorf("Sahip kendi masrafına da karar verebilir, gündeminde görmeli: önce %d, sonra %d", ownerBefore, got)
 		}
 	})
+
+	t.Run("12_idempotency_key_never_returns_someone_elses_expense", func(t *testing.T) {
+		// Aynı anahtarla tekrar, YALNIZCA aynı kişinin tekrarıdır. Başkasının
+		// anahtarını gönderen sahadaki kişi (finans okuma izni yok) o masrafı
+		// -- tutar, kime ödendi, fiş no, not -- cevap olarak almamalı.
+		p := newProject(t, orgA.ID, field, field2)
+		in := basic(field2, 4321)
+		in.IdempotencyKey = "exp-ortak-anahtar-" + p.ID[:8]
+		theirs := create(t, p, in)
+
+		again := basic(field2, 4321)
+		again.IdempotencyKey = in.IdempotencyKey
+		if e := create(t, p, again); e.ID != theirs.ID {
+			t.Fatalf("aynı kişinin tekrarı aynı kaydı dönmeli: %s != %s", e.ID, theirs.ID)
+		}
+
+		mineIn := basic(field, 10)
+		mineIn.IdempotencyKey = in.IdempotencyKey
+		e, err := projectSvc.CreateExpense(ctx, p.ID, orgA.ID, mineIn)
+		if e != nil && e.ID == theirs.ID {
+			t.Fatalf("başkasının masrafı anahtar tekrarıyla okundu: %+v", e)
+		}
+		if !errors.Is(err, service.ErrExpenseIdempotencyKeyInUse) {
+			t.Fatalf("err = %v, want ErrExpenseIdempotencyKeyInUse", err)
+		}
+	})
 }

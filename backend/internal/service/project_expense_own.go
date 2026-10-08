@@ -43,6 +43,12 @@ var (
 	// ErrExpenseApprovedLocked: kişi kendi masrafını onaylandıktan sonra
 	// değiştirmeye çalıştı.
 	ErrExpenseApprovedLocked = errors.New("onaylanmış masraf yalnızca finans yetkilisi tarafından düzenlenebilir veya iptal edilebilir")
+	// ErrExpenseIdempotencyKeyInUse: tekrar anahtarı bu projede BAŞKA bir
+	// kişinin girdiği masrafa ait. Anahtar tekrarı yalnızca aynı kişinin
+	// aynı isteği yeniden göndermesidir; başkasının kaydını "sizin
+	// masrafınız" diye dönmek, finans okuma izni olmayan sahadaki kişiye
+	// başkasının masrafını (tutar, kime ödendi, fiş no, not) gösterirdi.
+	ErrExpenseIdempotencyKeyInUse = errors.New("bu kayıt anahtarı başka bir masrafta kullanılmış; formu kapatıp yeniden açın")
 )
 
 // checkOwnExpenseLinks: kısıtlı yazar (ExpenseInput.OwnOnly) finans

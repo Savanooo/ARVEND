@@ -450,7 +450,8 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		// ErrOwnAdjustmentDecision notu: mesaj ne yapılacağını söylüyor.
 		errors.Is(err, service.ErrOwnExpenseDecision),
 		errors.Is(err, service.ErrExpenseNotOwn),
-		errors.Is(err, service.ErrExpenseApprovedLocked):
+		errors.Is(err, service.ErrExpenseApprovedLocked),
+		errors.Is(err, service.ErrExpenseIdempotencyKeyInUse):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrExpenseFinanceLinkForbidden):
 		// Gerçek bir izin eksikliği (finance.manage), kayda bağlı değil.
