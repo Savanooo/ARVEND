@@ -496,7 +496,7 @@ void main() {
     // test/features/offers/offer_share_link_draft_test.dart).
     testWidgets('creating a share link shows a copyable URL built from the token', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
-        '/auth/me': [(status: 200, body: _meJson())],
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['offers.read', 'offers.update']))],
         '/offers/o1': [(status: 200, body: _offerJson(status: 'gönderildi'))],
         '/offers/o1/revisions': [(status: 200, body: {'revisions': <dynamic>[]})],
         // Sahte adaptör yolu sırayla tüketir: açılışta liste (boş), sonra
@@ -510,7 +510,7 @@ void main() {
       await _pumpDetail(tester, adapter, 'o1');
       expect(find.text('Paylaşım Linkleri'), findsNothing, reason: 'hiç link yokken bölüm görünmez');
       await tester.scrollUntilVisible(find.text('Paylaşım Linki'), 300);
-      // İzinsiz kullanıcıda durum düğmeleri yok, sayfa kısa: düğme ilk
+      // offers.approve yok: durum düğmeleri yok, sayfa kısa; düğme ilk
       // karede önbellek bölgesinde kurulur ama ekranın altında kalır.
       await tester.ensureVisible(find.text('Paylaşım Linki'));
       await tester.pumpAndSettle();
@@ -579,7 +579,7 @@ void main() {
 
     testWidgets('send email prompts for confirmation, then posts and shows success', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
-        '/auth/me': [(status: 200, body: _meJson())],
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['offers.read', 'offers.update']))],
         '/offers/o1': [
           (status: 200, body: _offerJson(status: 'taslak')),
           (status: 200, body: _offerJson(status: 'gönderildi')),
@@ -604,7 +604,7 @@ void main() {
 
     testWidgets('cancelling the send-email confirmation sends nothing', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
-        '/auth/me': [(status: 200, body: _meJson())],
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['offers.read', 'offers.update']))],
         '/offers/o1': [(status: 200, body: _offerJson(status: 'taslak'))],
         '/offers/o1/revisions': [(status: 200, body: {'revisions': <dynamic>[]})],
       });

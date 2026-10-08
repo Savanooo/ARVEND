@@ -142,4 +142,34 @@ void main() {
       expect(find.text('Paylaşım Linki'), findsOneWidget);
     });
   }
+
+  // Paylaşım linki, e-posta ve revizyon uçları (POST /offers/{id}/share-links,
+  // /send-email, /revise) offers.update ister; izni olmayan 403 alıyordu.
+  // PDF yalnızca okuma ister, kalır.
+  testWidgets('offers.update yok: Paylaşım Linki / E-posta Gönder / Revize Et görünmez, PDF kalır', (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/offers/o1': [(status: 200, body: _offer('gönderildi'))],
+      '/offers/o1/revisions': [(status: 200, body: {'revisions': <Object>[]})],
+    });
+    await _pump(tester, adapter, permissions: {'offers.read', 'offers.approve'});
+
+    for (final label in ['Paylaşım Linki', 'E-posta Gönder', 'Revize Et ve Düzenle']) {
+      expect(find.text(label), findsNothing, reason: label);
+    }
+    expect(find.widgetWithText(OutlinedButton, 'PDF İndir'), findsOneWidget);
+    // Durum düğmeleri offers.approve'a bağlı, bu izinden bağımsız.
+    expect(find.text('Kabul Edildi'), findsOneWidget);
+  });
+
+  testWidgets('offers.update var: üç işlem de görünür', (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/offers/o1': [(status: 200, body: _offer('gönderildi'))],
+      '/offers/o1/revisions': [(status: 200, body: {'revisions': <Object>[]})],
+    });
+    await _pump(tester, adapter, permissions: {'offers.read', 'offers.update'});
+
+    for (final label in ['Paylaşım Linki', 'E-posta Gönder', 'Revize Et ve Düzenle']) {
+      expect(find.text(label), findsOneWidget, reason: label);
+    }
+  });
 }

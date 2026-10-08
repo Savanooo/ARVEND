@@ -562,9 +562,12 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                     loading: _downloadingPdf,
                     onPressed: () => _downloadPdf(offer),
                   ),
-                  if (offer.canRevise)
+                  // Revize, paylaşım linki ve e-posta uçları offers.update ister
+                  // (router.go): izni olmayana düğme gösterilip 403 ile
+                  // geri çevrilmez.
+                  if (offer.canRevise && canUpdate)
                     SecondaryButton(icon: Icons.refresh, label: 'Revize Et ve Düzenle', onPressed: _reviseAndEdit),
-                  if (!offer.isPassive) ...[
+                  if (!offer.isPassive && canUpdate) ...[
                     SecondaryButton(
                       icon: Icons.ios_share_outlined,
                       label: 'Paylaşım Linki',
