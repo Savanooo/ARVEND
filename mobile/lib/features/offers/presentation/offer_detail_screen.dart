@@ -487,7 +487,10 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
               const SizedBox(height: AppSpacing.xl),
               OfferHistorySection(offerId: offerId),
               const SizedBox(height: AppSpacing.xl),
-              if (offer.isEditable)
+              // Durum ucu (PUT /offers/{id}/status) offers.approve ister: izni
+              // olmayana düğme gösterilip 403 snackbar'ıyla geri çevrilmez.
+              // Paylaşım linki sorusu da aynı `canApprove` ile karar verir.
+              if (offer.isEditable && canApprove)
                 PrimaryButton(
                   label: 'Gönderildi Olarak İşaretle',
                   onPressed: () => _confirmAndSetStatus(
@@ -498,7 +501,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                     confirmLabel: 'İşaretle',
                   ),
                 ),
-              if (offer.status == Offer.statusGonderildi)
+              if (offer.status == Offer.statusGonderildi && canApprove)
                 Row(
                   children: [
                     Expanded(

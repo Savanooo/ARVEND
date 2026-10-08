@@ -510,6 +510,10 @@ void main() {
       await _pumpDetail(tester, adapter, 'o1');
       expect(find.text('Paylaşım Linkleri'), findsNothing, reason: 'hiç link yokken bölüm görünmez');
       await tester.scrollUntilVisible(find.text('Paylaşım Linki'), 300);
+      // İzinsiz kullanıcıda durum düğmeleri yok, sayfa kısa: düğme ilk
+      // karede önbellek bölgesinde kurulur ama ekranın altında kalır.
+      await tester.ensureVisible(find.text('Paylaşım Linki'));
+      await tester.pumpAndSettle();
 
       await tester.tap(find.text('Paylaşım Linki'));
       await tester.pumpAndSettle();
