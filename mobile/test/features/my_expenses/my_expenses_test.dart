@@ -10,6 +10,7 @@ import 'package:arvend/core/theme/app_theme.dart';
 import 'package:arvend/core/widgets/access_notices.dart';
 import 'package:arvend/core/widgets/app_filter_bar.dart';
 import 'package:arvend/features/auth/domain/user.dart';
+import 'package:arvend/features/projects/data/projects_providers.dart';
 import 'package:arvend/features/projects/domain/expense_actions.dart';
 import 'package:arvend/features/projects/domain/project.dart';
 import 'package:arvend/features/projects/finance_ledger/presentation/ledger_sections.dart';
@@ -331,6 +332,52 @@ void main() {
 
       expect(adapter.calls.where((c) => c == '/expenses/mine').length, 2);
       expect(find.text('Red nedeni'), findsOneWidget);
+    });
+
+    // "+" (hızlı işlem yolu) masrafı bir projeye girer; o projenin Finans
+    // ekranı başka sekmede açık kalmış olabilir -- yeni masraf orada da
+    // görünmeli (proje ekranındaki "Masraf Ekle" ile aynı tazeleme).
+    testWidgets('"+" ile girilen masraf açık proje defterini de tazeler', (tester) async {
+      final adapter = await _pumpScreen(tester, script: {
+        '/expenses/mine': [mineResponse(), mineResponse()],
+        '/dashboard/project-options': [
+          (
+            status: 200,
+            body: {
+              'projects': [
+                {'id': 'p1', 'project_no': 'PRJ-1', 'name': 'Alfa Konut', 'customer_name': 'Ali', 'currency': 'TRY', 'status': 'active'},
+              ],
+            },
+          ),
+        ],
+        '/projects/p1/expenses': [
+          (status: 200, body: {'expenses': <Object>[]}),
+          (status: 201, body: myExpenseRow('n1')),
+          (status: 200, body: {'expenses': [myExpenseRow('n1')]}),
+        ],
+      });
+      // Proje defterini izleyen (başka sekmede açık) bir ekranın yerine.
+      final container = ProviderScope.containerOf(tester.element(find.byType(MyExpensesScreen)));
+      final sub = container.listen(projectExpensesProvider('p1'), (_, _) {});
+      addTearDown(sub.close);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Masraf Ekle'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextFormField, 'Açıklama'), 'Çivi');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Tutar (TRY)'), '1.250');
+      final button = find.widgetWithText(ElevatedButton, 'Kaydet');
+      await tester.ensureVisible(button);
+      await tester.pumpAndSettle();
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+
+      final ledgerGets = [
+        for (var i = 0; i < adapter.calls.length; i++)
+          if (adapter.calls[i] == '/projects/p1/expenses' && adapter.methods[i] == 'GET') i,
+      ];
+      expect(adapter.methods, contains('POST'));
+      expect(ledgerGets, hasLength(2), reason: 'kayıttan sonra proje defteri yeniden istenir');
     });
 
     testWidgets('masraf girme izni yoksa açıklama, istek yok', (tester) async {
