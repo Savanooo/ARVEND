@@ -143,6 +143,18 @@ açıyor (ya da aynı adlı tek bağlantısız personele bağlıyor). Eksikler:
 - İsteğe bağlı: `GET /employees/link-suggestions` önerilerini Personel
   sayfasında "Bağla" düğmesiyle göstermek.
 
+## 11. Taslak teklifin linkini paylaşırken gönder (mobil 1.5.12)
+Şikâyet: "teklif atıyoruz, link vb., teklif kabul etme yok" — taslak teklifin
+linkinde müşteri Kabul Et / Reddet görmüyor. Kural: `mobile/API_CONTRACT.md`
+"Share links" (`mark_sent`).
+- `teklifler/[id]/ShareOfferCard.tsx`: teklif `taslak`ken link oluşturmadan önce
+  mobildeki soruyu sormalı: "Gönder ve link oluştur" (`mark_sent: true`,
+  `offers.approve` ister) / "Yalnızca önizleme linki" / "Vazgeç"; izni yoksa
+  yalnızca önizleme + kısa not. Sonra teklif ve geçmiş tazelenmeli. Şu an web
+  durumu değiştirmeyen önizleme linki oluşturuyor (eski davranış).
+- Müşteri sayfası (`paylas/[token]`) taslak linkte artık "Bu teklif henüz onaya
+  açılmadı…" notunu gösteriyor (yapıldı).
+
 ## Bilinen tutarsızlıklar (web + backend)
 - Katalog fiyatı TL; teklifin para birimi TL değilse (firma varsayılanı
   USD/EUR) katalogdan seçilen fiyat çevrilmeden yazılıyor — web ve mobil
