@@ -19,6 +19,7 @@ import 'package:arvend/features/dashboard/presentation/attention_screen.dart';
 import 'package:arvend/features/dashboard/presentation/dashboard_screen.dart';
 import 'package:arvend/features/dashboard/presentation/widgets/kpi_grid.dart';
 import 'package:arvend/features/dashboard/presentation/widgets/quick_actions_row.dart';
+import 'package:arvend/features/projects/data/projects_providers.dart';
 import 'package:arvend/features/projects/presentation/project_detail_screen.dart';
 
 import '../../test_utils/fake_api_client.dart';
@@ -732,6 +733,60 @@ void main() {
       for (final b in tester.widgetList<QuickActionButton>(find.byType(QuickActionButton))) {
         expect(b.onPressed, isNotNull, reason: b.label);
       }
+    });
+
+    // "Masraf Gir" ile aynı: projenin Finans ekranı Projeler sekmesinde açık
+    // kalmış olabilir -- yeni tahsilat orada da görünmeli (proje ekranındaki
+    // "Tahsilat Ekle" / addProjectCollection ile aynı tazeleme).
+    testWidgets('"Tahsilat Gir" ile girilen tahsilat açık proje defterini de tazeler', (tester) async {
+      final owner = fixtureJson('owner');
+      final adapter = await _pump(
+        tester,
+        user: ownerUser,
+        script: {
+          '/dashboard': [_ok(owner), _ok(owner)],
+          '/notifications/unread-count': [
+            _ok({'unread_count': 4}),
+          ],
+          '/dashboard/project-options': [
+            _ok({
+              'projects': [option('p1', 'Alfa Konut')],
+            }),
+          ],
+          '/projects/p1/collections': [
+            _ok({'collections': <Object>[]}),
+            (
+              status: 201,
+              body: {'id': 'c1', 'amount': 10, 'currency': 'TRY', 'received_date': '2026-10-08', 'created_at': '2026-10-08T08:00:00Z'},
+            ),
+            _ok({'collections': <Object>[]}),
+          ],
+        },
+      );
+      // Proje defterini izleyen (başka sekmede açık) bir ekranın yerine.
+      final container = ProviderScope.containerOf(tester.element(find.byType(DashboardScreen)));
+      final sub = container.listen(projectCollectionsProvider('p1'), (_, _) {});
+      addTearDown(sub.close);
+      await tester.pumpAndSettle();
+
+      final action = find.widgetWithText(QuickActionButton, 'Tahsilat Gir');
+      await tester.ensureVisible(action);
+      await tester.pumpAndSettle();
+      await tester.tap(action);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextFormField, 'Tutar (TRY)'), '10');
+      final save = find.widgetWithText(ElevatedButton, 'Kaydet');
+      await tester.ensureVisible(save);
+      await tester.pumpAndSettle();
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+
+      final ledgerGets = [
+        for (var i = 0; i < adapter.calls.length; i++)
+          if (adapter.calls[i] == '/projects/p1/collections' && adapter.methods[i] == 'GET') i,
+      ];
+      expect(adapter.methods, contains('POST'));
+      expect(ledgerGets, hasLength(2), reason: 'kayıttan sonra proje defteri yeniden istenir');
     });
 
     testWidgets('tek projede "Masraf Gir" formu doğrudan açılır ve HANGİ PROJEYE girildiğini gösterir', (tester) async {

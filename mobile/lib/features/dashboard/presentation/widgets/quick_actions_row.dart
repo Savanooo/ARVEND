@@ -140,6 +140,9 @@ Future<void> _runQuickAction(
       final label = formProjectLabel(project.projectNo, project.name);
       if (await showCollectionFormSheet(context, project.id, currency: project.currency, projectLabel: label) != null) {
         invalidate();
+        // Projenin Finans ekranı başka sekmede açık kalmış olabilir: yeni
+        // tahsilat orada da görünsün (addProjectCollection ile aynı tazeleme).
+        invalidateProjectLedger(container.invalidate, project.id);
       }
     case QuickActionKey.expense:
       final label = formProjectLabel(project.projectNo, project.name);
