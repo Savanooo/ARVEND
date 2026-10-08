@@ -14,6 +14,11 @@ var linkPreviewAgentMarkers = []string{
 	"bot", "crawler", "spider", "preview", "headlesschrome",
 }
 
+// humanDevicesWithBotInName: User-Agent'ında model adı olarak "bot" geçen
+// gerçek telefon markaları (küçük harf). Genel "bot" eşleşmesinden önce
+// silinir.
+var humanDevicesWithBotInName = []string{"cubot"}
+
 // IsLinkPreviewAgent, isteğin bir insan değil, bağlantı önizlemesi yapan
 // bir uygulama/bot olduğunu söyler. Yalnızca "müşteri teklifi açtı"
 // bildirimini ayıklamak için kullanılır (bkz. recordCustomerView); hiçbir
@@ -25,6 +30,11 @@ func IsLinkPreviewAgent(userAgent string) bool {
 	ua := strings.ToLower(userAgent)
 	if ua == "" {
 		return false
+	}
+	// Model adında "bot" geçen telefonlar (CUBOT) insan: genel "bot" parçası
+	// onları önizleme sayıp müşterinin gerçek açılış bildirimini yutuyordu.
+	for _, device := range humanDevicesWithBotInName {
+		ua = strings.ReplaceAll(ua, device, "")
 	}
 	for _, m := range linkPreviewAgentMarkers {
 		if strings.Contains(ua, m) {
