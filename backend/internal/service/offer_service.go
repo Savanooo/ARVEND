@@ -1016,77 +1016,9 @@ func (s *OfferService) UpdateStatus(ctx context.Context, id, organizationID, sta
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
-	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", uid.String()); err != nil {
-		return nil, err
-	}
-
-	offerRow, err := txq.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
+	offerRow, updatedRev, err := setOfferStatusTx(ctx, tx, txq, uid, orgID, status, actorID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
 		return nil, err
-	}
-	// Kabul edilmiş bir teklifin durumu (dolayısıyla revizyonu) bir daha
-	// değiştirilemez -- "kabul edilen revizyon sonradan overwrite
-	// edilmez" kuralının durum boyutu.
-	if offerRow.Status == domain.OfferStatusKabulEdildi {
-		return nil, ErrOfferLocked
-	}
-	if status == domain.OfferStatusTaslak && offerRow.Status != domain.OfferStatusTaslak {
-		return nil, ErrOfferCannotReturnToDraft
-	}
-	previousStatus := offerRow.Status
-
-	updatedRev, err := txq.UpdateOfferRevisionStatus(ctx, sqlc.UpdateOfferRevisionStatusParams{
-		ID: offerRow.CurrentRevisionID, OrganizationID: orgID, Status: status,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
-		}
-		return nil, err
-	}
-	if err := txq.SetOfferCurrentRevision(ctx, sqlc.SetOfferCurrentRevisionParams{
-		ID: offerRow.ID, CurrentRevisionID: offerRow.CurrentRevisionID, Status: status,
-	}); err != nil {
-		return nil, err
-	}
-
-	eventType := domain.EventOfferUpdated
-	justSent := status == domain.OfferStatusGonderildi && previousStatus != domain.OfferStatusGonderildi
-	if justSent && offerRevisionValidityExpired(updatedRev, time.Now()) {
-		return nil, ErrOfferSendExpired
-	}
-	if justSent {
-		eventType = domain.EventRevisionSent
-		revokedLinks, err := txq.RevokeShareLinksForOtherRevisions(ctx, sqlc.RevokeShareLinksForOtherRevisionsParams{
-			OfferID: offerRow.ID, RevisionID: offerRow.CurrentRevisionID,
-		})
-		if err != nil {
-			return nil, err
-		}
-		for _, link := range revokedLinks {
-			if err := logOfferEvent(ctx, txq, orgID, offerRow.ID, link.RevisionID, domain.EventShareLinkRevoked, actorID,
-				map[string]any{"reason": "revision_sent", "link_id": link.ID.String()}, "", ""); err != nil {
-				return nil, err
-			}
-		}
-	}
-	// from_status/to_status: iç (panelden verilen) kabul/red kararının
-	// tarihi bu olaydan okunur (ana sayfa "son 90 gün" kabul oranı, bkz.
-	// DashboardOffersByCurrency) -- offers.updated_at her düzenlemede
-	// değiştiği için karar tarihi olarak KULLANILMAZ.
-	statusMeta := map[string]any{"from_status": previousStatus, "to_status": status}
-	if err := logOfferEvent(ctx, txq, orgID, offerRow.ID, offerRow.CurrentRevisionID, eventType, actorID, statusMeta, "", ""); err != nil {
-		return nil, err
-	}
-	// Yalnızca gerçek geçişte: zaten reddedilmiş teklifi yeniden "reddedildi"
-	// kaydetmek herkese ikinci bir bildirim düşürmesin.
-	if status != previousStatus {
-		if err := notifyOfferDecision(ctx, txq, offerRow, updatedRev, status, actorID); err != nil {
-			return nil, err
-		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -1101,11 +1033,96 @@ func (s *OfferService) UpdateStatus(ctx context.Context, id, organizationID, sta
 	for i, r := range itemRows {
 		items[i] = repository.ToDomainOfferRevisionItem(r)
 	}
-	offerRow.Status = status
 	base := repository.ToDomainOfferBase(offerRow)
 	rev := repository.ToDomainOfferRevision(updatedRev)
 	offer := repository.MergeOfferRevision(base, rev, items)
 	return &offer, nil
+}
+
+// setOfferStatusTx, UpdateStatus'un transaction İÇİNDEKİ gövdesidir:
+// kilit, taze okuma, kilit/taslağa-dönüş korumaları, revizyon+teklif durumu,
+// "gönderildi"ye geçişte geçerlilik kontrolü ve önceki revizyonların
+// linklerinin iptali, olay kaydı ve karar bildirimi. Ayrı bir fonksiyon
+// olmasının tek sebebi, "Gönder ve link oluştur"un (CreateShareLinkMarkingSent)
+// durumu linkle AYNI transaction'da değiştirebilmesi -- "gönderildi"ye
+// geçişin ikinci bir kopyası yazılsaydı link iptali/olay/bildirim kuralları
+// iki yerde ayrı ayrı eskirdi. Dönen teklif satırının Status'u yeni
+// durumdur. Commit çağıranındır.
+func setOfferStatusTx(ctx context.Context, tx pgx.Tx, txq *sqlc.Queries, uid, orgID pgtype.UUID, status string, actorID pgtype.UUID) (sqlc.Offer, sqlc.OfferRevision, error) {
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", uid.String()); err != nil {
+		return sqlc.Offer{}, sqlc.OfferRevision{}, err
+	}
+
+	offerRow, err := txq.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sqlc.Offer{}, sqlc.OfferRevision{}, domain.ErrNotFound
+		}
+		return sqlc.Offer{}, sqlc.OfferRevision{}, err
+	}
+	// Kabul edilmiş bir teklifin durumu (dolayısıyla revizyonu) bir daha
+	// değiştirilemez -- "kabul edilen revizyon sonradan overwrite
+	// edilmez" kuralının durum boyutu.
+	if offerRow.Status == domain.OfferStatusKabulEdildi {
+		return sqlc.Offer{}, sqlc.OfferRevision{}, ErrOfferLocked
+	}
+	if status == domain.OfferStatusTaslak && offerRow.Status != domain.OfferStatusTaslak {
+		return sqlc.Offer{}, sqlc.OfferRevision{}, ErrOfferCannotReturnToDraft
+	}
+	previousStatus := offerRow.Status
+
+	updatedRev, err := txq.UpdateOfferRevisionStatus(ctx, sqlc.UpdateOfferRevisionStatusParams{
+		ID: offerRow.CurrentRevisionID, OrganizationID: orgID, Status: status,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sqlc.Offer{}, sqlc.OfferRevision{}, domain.ErrNotFound
+		}
+		return sqlc.Offer{}, sqlc.OfferRevision{}, err
+	}
+	if err := txq.SetOfferCurrentRevision(ctx, sqlc.SetOfferCurrentRevisionParams{
+		ID: offerRow.ID, CurrentRevisionID: offerRow.CurrentRevisionID, Status: status,
+	}); err != nil {
+		return sqlc.Offer{}, sqlc.OfferRevision{}, err
+	}
+
+	eventType := domain.EventOfferUpdated
+	justSent := status == domain.OfferStatusGonderildi && previousStatus != domain.OfferStatusGonderildi
+	if justSent && offerRevisionValidityExpired(updatedRev, time.Now()) {
+		return sqlc.Offer{}, sqlc.OfferRevision{}, ErrOfferSendExpired
+	}
+	if justSent {
+		eventType = domain.EventRevisionSent
+		revokedLinks, err := txq.RevokeShareLinksForOtherRevisions(ctx, sqlc.RevokeShareLinksForOtherRevisionsParams{
+			OfferID: offerRow.ID, RevisionID: offerRow.CurrentRevisionID,
+		})
+		if err != nil {
+			return sqlc.Offer{}, sqlc.OfferRevision{}, err
+		}
+		for _, link := range revokedLinks {
+			if err := logOfferEvent(ctx, txq, orgID, offerRow.ID, link.RevisionID, domain.EventShareLinkRevoked, actorID,
+				map[string]any{"reason": "revision_sent", "link_id": link.ID.String()}, "", ""); err != nil {
+				return sqlc.Offer{}, sqlc.OfferRevision{}, err
+			}
+		}
+	}
+	// from_status/to_status: iç (panelden verilen) kabul/red kararının
+	// tarihi bu olaydan okunur (ana sayfa "son 90 gün" kabul oranı, bkz.
+	// DashboardOffersByCurrency) -- offers.updated_at her düzenlemede
+	// değiştiği için karar tarihi olarak KULLANILMAZ.
+	statusMeta := map[string]any{"from_status": previousStatus, "to_status": status}
+	if err := logOfferEvent(ctx, txq, orgID, offerRow.ID, offerRow.CurrentRevisionID, eventType, actorID, statusMeta, "", ""); err != nil {
+		return sqlc.Offer{}, sqlc.OfferRevision{}, err
+	}
+	// Yalnızca gerçek geçişte: zaten reddedilmiş teklifi yeniden "reddedildi"
+	// kaydetmek herkese ikinci bir bildirim düşürmesin.
+	if status != previousStatus {
+		if err := notifyOfferDecision(ctx, txq, offerRow, updatedRev, status, actorID); err != nil {
+			return sqlc.Offer{}, sqlc.OfferRevision{}, err
+		}
+	}
+	offerRow.Status = status
+	return offerRow, updatedRev, nil
 }
 
 // TogglePassive, teklifi arşivler/arşivden çıkarır. Yalnızca arşive
@@ -1368,7 +1385,35 @@ var (
 // paylaşım bağlantısı oluşturur. Bir bağlantı oluşturulduğu andaki
 // revizyona sabitlenir -- teklif sonradan revize edilse bile bu bağlantı
 // hep AYNI (eski) revizyonu göstermeye devam eder (bkz. ResolveActiveShareLink).
+//
+// Durumu DEĞİŞTİRMEZ: taslak bir revizyonun linki bir önizlemedir (müşteri
+// teklifi görür ama kabul/red edemez, ilk açılış bildirimi de gitmez -- bkz.
+// GetPublicView/recordCustomerView). Müşterinin linkten karar verebilmesi
+// için bkz. CreateShareLinkMarkingSent.
 func (s *OfferService) CreateShareLink(ctx context.Context, offerID, organizationID, userID string, expiresAt *time.Time) (*domain.OfferShareLink, error) {
+	return s.createShareLink(ctx, offerID, organizationID, userID, expiresAt, false)
+}
+
+// CreateShareLinkMarkingSent, mobildeki "Gönder ve link oluştur"dur: güncel
+// revizyon hâlâ "taslak"sa önce "gönderildi"ye geçirilir, link de o
+// revizyona bağlanır. Sebep sahadan geldi ("teklif atıyoruz, link vb.,
+// teklif kabul etme yok"): personel taslak teklifin linkini WhatsApp'tan
+// atıyor, "Gönderildi Olarak İşaretle"yi unutuyordu; müşteri teklifi
+// görüyor ama Kabul Et / Reddet bulamıyordu. E-posta gönderimi taslağı
+// zaten "gönderildi"ye geçiriyor; link yolu geçirmiyordu.
+//
+// Durum değişikliği UpdateStatus'la AYNI gövdeden (setOfferStatusTx) ve
+// linkle AYNI transaction'da yapılır: önceki revizyonların linkleri iptal
+// edilir, revision_sent olayı yazılır, süresi geçmiş teklif reddedilir
+// (ErrOfferSendExpired) -- ve işaretleme başarısızsa link de oluşmaz.
+// Teklif zaten taslak değilse (gönderilmiş/karar verilmiş) durum
+// değiştirilmez, yalnızca link oluşturulur. Yetki (offers.approve, durum
+// değiştirme) handler'da kontrol edilir.
+func (s *OfferService) CreateShareLinkMarkingSent(ctx context.Context, offerID, organizationID, userID string, expiresAt *time.Time) (*domain.OfferShareLink, error) {
+	return s.createShareLink(ctx, offerID, organizationID, userID, expiresAt, true)
+}
+
+func (s *OfferService) createShareLink(ctx context.Context, offerID, organizationID, userID string, expiresAt *time.Time, markSent bool) (*domain.OfferShareLink, error) {
 	uid, err := repository.StringToUUID(offerID)
 	if err != nil {
 		return nil, domain.ErrNotFound
@@ -1385,6 +1430,16 @@ func (s *OfferService) CreateShareLink(ctx context.Context, offerID, organizatio
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	if markSent {
+		// "Taslak mı" kararı ile linkin bağlanacağı revizyon aynı kilit
+		// (UpdateStatus/Revise/Respond'un anahtarı) altında okunur: arada
+		// bir "Revize Et" girseydi link yeni taslak revizyona bağlanır,
+		// müşteri yine butonsuz bir sayfa görürdü.
+		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", uid.String()); err != nil {
+			return nil, err
+		}
+	}
+
 	offerRow, err := txq.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1397,6 +1452,13 @@ func (s *OfferService) CreateShareLink(ctx context.Context, offerID, organizatio
 	if userID != "" {
 		if u, err := repository.StringToUUID(userID); err == nil {
 			createdBy = u
+		}
+	}
+
+	if markSent && offerRow.Status == domain.OfferStatusTaslak {
+		offerRow, _, err = setOfferStatusTx(ctx, tx, txq, offerRow.ID, orgID, domain.OfferStatusGonderildi, createdBy)
+		if err != nil {
+			return nil, err
 		}
 	}
 

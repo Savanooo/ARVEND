@@ -660,6 +660,11 @@ func (h *OfferHandler) SendEmail(w http.ResponseWriter, r *http.Request) {
 type createShareLinkRequest struct {
 	// ExpiresIn: "7d" | "30d" | "" (boş = süresiz).
 	ExpiresIn string `json:"expires_in"`
+	// MarkSent: güncel revizyon taslaksa linkten önce "gönderildi"ye
+	// geçirilsin (bkz. OfferService.CreateShareLinkMarkingSent). Varsayılan
+	// false: alanı bilmeyen eski uygulama sürümleri ve web, bugünkü gibi
+	// durumu değiştirmeyen (taslakta önizleme) bir link alır.
+	MarkSent bool `json:"mark_sent"`
 }
 
 type shareLinkResponse struct {
@@ -713,9 +718,27 @@ func (h *OfferHandler) CreateShareLink(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz süre seçeneği")
 		return
 	}
+	// Uç offers.update ister (link oluşturmak "paylaşma"dır); mark_sent ise
+	// teklifin durumunu değiştirir ve PUT /offers/{id}/status ile aynı izni
+	// (offers.approve) ister -- aksi hâlde durum değiştirme yetkisi
+	// olmayan biri bu uçtan teklifi "gönderildi" yapabilirdi. Taslak olup
+	// olmamasına bakılmadan reddedilir: istemci yetkisi yoksa mark_sent
+	// göndermez, gönderdiyse sessizce önizleme linkine düşmek yanlış linkin
+	// müşteriye gitmesi demektir.
+	if req.MarkSent && !hasOfferPermission(r, domain.PermOffersApprove) {
+		httpjson.Write(w, http.StatusForbidden, map[string]string{
+			"error": "teklif durumunu değiştirme yetkiniz yok; yalnızca önizleme linki oluşturabilirsiniz",
+			"code":  "permission_denied",
+		})
+		return
+	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	link, err := h.svc.CreateShareLink(r.Context(), chi.URLParam(r, "id"), orgID, userID, expiresAt)
+	create := h.svc.CreateShareLink
+	if req.MarkSent {
+		create = h.svc.CreateShareLinkMarkingSent
+	}
+	link, err := create(r.Context(), chi.URLParam(r, "id"), orgID, userID, expiresAt)
 	if err != nil {
 		h.writeError(w, err)
 		return
