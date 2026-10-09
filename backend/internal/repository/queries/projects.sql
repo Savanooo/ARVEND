@@ -33,7 +33,10 @@ ORDER BY created_at DESC LIMIT 1;
 -- ListProjects, liste ekranının finans kolonlarını (tahsilat/masraf/
 -- taşeron/kâr) AYNI sorguda toplar. Her satır için ayrı sorgu açmak
 -- (N+1) proje sayısı büyüdüğünde listeyi kullanılamaz hale getirirdi;
--- toplamlar numeric üzerinde SQL tarafında hesaplanır.
+-- toplamlar numeric üzerinde SQL tarafında hesaplanır. Her toplam
+-- GetProjectFinancialSummary'deki karşılığıyla BİREBİR aynı kümeyi toplar
+-- (gerçekleşen maliyet/kâr ve KDV hariç karşılıkları liste ile detayda aynı
+-- çıkmalı -- bkz. domain.Project.RealizedCost, finance_vat_consistency_test.go).
 -- name: ListProjects :many
 SELECT p.*, o.offer_no, r.revision_no,
     COALESCE((SELECT sum(c.amount) FROM project_collections c
@@ -41,6 +44,10 @@ SELECT p.*, o.offer_no, r.revision_no,
     -- Yalnızca onaylı masraflar (migration 0060; GetProjectFinancialSummary ile aynı).
     COALESCE((SELECT sum(e.amount) FROM project_expenses e
               WHERE e.project_id = p.id AND e.voided_at IS NULL AND e.approval_status = 'approved'), 0)::numeric(18,2) AS total_expenses,
+    -- Aynı onaylı masrafların İÇİNDEKİ KDV (finans özetinin expense_vat_total'ı;
+    -- oranı belirtilmemiş masrafta NULL -> sayılmaz).
+    COALESCE((SELECT sum(e.vat_amount) FROM project_expenses e
+              WHERE e.project_id = p.id AND e.voided_at IS NULL AND e.approval_status = 'approved'), 0)::numeric(18,2) AS expense_vat_total,
     COALESCE((SELECT sum(sp.amount) FROM project_subcontractor_payments sp
               WHERE sp.project_id = p.id AND sp.voided_at IS NULL), 0)::numeric(18,2) AS subcontractor_paid,
     COALESCE((SELECT sum(GREATEST(s.contract_amount - COALESCE((
@@ -62,7 +69,13 @@ SELECT p.*, o.offer_no, r.revision_no,
     -- olarak TUTULMAZ, bkz. GetProjectFinancialSummary).
     COALESCE((SELECT sum(CASE WHEN co.change_type = 'addition' THEN co.grand_total ELSE -co.grand_total END)
               FROM project_change_orders co
-              WHERE co.project_id = p.id AND co.status = 'approved'), 0)::numeric(18,2) AS change_order_net
+              WHERE co.project_id = p.id AND co.status = 'approved'), 0)::numeric(18,2) AS change_order_net,
+    -- Güncel proje bedelinin içindeki KDV: kaynak revizyonun KDV'si + onaylı
+    -- ek işler - eksiltmeler (finans özetinin contract_vat_amount/_known'ı).
+    (COALESCE(r.vat_amount, 0) + COALESCE((SELECT sum(CASE WHEN co.change_type = 'addition' THEN co.vat_amount ELSE -co.vat_amount END)
+              FROM project_change_orders co
+              WHERE co.project_id = p.id AND co.status = 'approved'), 0))::numeric(18,2) AS contract_vat_amount,
+    (r.id IS NOT NULL)::boolean AS contract_vat_known
 FROM projects p
 JOIN offers o ON o.id = p.source_offer_id
 JOIN offer_revisions r ON r.id = p.source_revision_id
