@@ -909,6 +909,9 @@ type projectEventResponse struct {
 	CreatedAt string         `json:"created_at"`
 }
 
+// ListEvents: uç projects.read ile açılır. Olayların hepsi döner ama
+// metadata'daki tutarlar (domain.ProjectEventMoneyKeys) projects.finance.read
+// izni olmayana düşürülür -- "Tahsilat kaydedildi" görünür, tutarı görünmez.
 func (h *ProjectHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	rows, err := h.svc.ListProjectEvents(r.Context(), chi.URLParam(r, "id"), orgID)
@@ -916,11 +919,16 @@ func (h *ProjectHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	showMoney := canSeeProjectFinance(r)
 	out := make([]projectEventResponse, len(rows))
 	for i, e := range rows {
+		meta := e.Metadata
+		if !showMoney {
+			meta = domain.WithoutMoneyMetadata(meta)
+		}
 		out[i] = projectEventResponse{
 			ID: e.ID, EventType: e.EventType, UserID: e.UserID,
-			Metadata: e.Metadata, CreatedAt: e.CreatedAt.Format(rfc3339),
+			Metadata: meta, CreatedAt: e.CreatedAt.Format(rfc3339),
 		}
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"events": out})
