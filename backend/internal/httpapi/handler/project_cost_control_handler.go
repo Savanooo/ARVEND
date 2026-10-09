@@ -508,30 +508,40 @@ func toCostControlLineResponse(l domain.CostControlLine) costControlLineResponse
 // costControlSummaryResponse, spec'in örnek özet DTO'suyla BİREBİR
 // uyumludur (bkz. spec "Report/DTO" bölümü) -- dahili alanlar (ör.
 // bütçe/adjustment UUID'leri) SIZDIRILMAZ.
+//
+// Gelir tarafı (sözleşme bedeli) ve ondan türeyen tahmini kâr/marj
+// projects.finance.read izni olmayana null döner: uç cost_control.read ile
+// açılır ve Proje Yöneticisi bu izni maliyet rakamları için taşır, ama
+// satış bedeli ve kâr finans iznidir (mobil zaten göstermiyordu).
 type costControlSummaryResponse struct {
-	Currency              string  `json:"currency"`
-	ContractValue         float64 `json:"contract_value"`
-	OriginalBudget        float64 `json:"original_budget"`
-	ApprovedAdjustments   float64 `json:"approved_adjustments"`
-	RevisedBudget         float64 `json:"revised_budget"`
-	CommittedCost         float64 `json:"committed_cost"`
-	ActualCost            float64 `json:"actual_cost"`
-	ETC                   float64 `json:"etc"`
-	EAC                   float64 `json:"eac"`
-	Variance              float64 `json:"variance"`
-	ForecastProfit        float64 `json:"forecast_profit"`
-	ForecastMarginPercent float64 `json:"forecast_margin_percent"`
-	HasBudget             bool    `json:"has_budget"`
+	Currency              string   `json:"currency"`
+	ContractValue         *float64 `json:"contract_value"`
+	OriginalBudget        float64  `json:"original_budget"`
+	ApprovedAdjustments   float64  `json:"approved_adjustments"`
+	RevisedBudget         float64  `json:"revised_budget"`
+	CommittedCost         float64  `json:"committed_cost"`
+	ActualCost            float64  `json:"actual_cost"`
+	ETC                   float64  `json:"etc"`
+	EAC                   float64  `json:"eac"`
+	Variance              float64  `json:"variance"`
+	ForecastProfit        *float64 `json:"forecast_profit"`
+	ForecastMarginPercent *float64 `json:"forecast_margin_percent"`
+	HasBudget             bool     `json:"has_budget"`
 }
 
-func toCostControlSummaryResponse(s domain.CostControlSummary) costControlSummaryResponse {
-	return costControlSummaryResponse{
-		Currency: s.Currency, ContractValue: s.ContractValue, OriginalBudget: s.OriginalBudget,
+func toCostControlSummaryResponse(s domain.CostControlSummary, showRevenue bool) costControlSummaryResponse {
+	resp := costControlSummaryResponse{
+		Currency: s.Currency, OriginalBudget: s.OriginalBudget,
 		ApprovedAdjustments: s.ApprovedAdjustments, RevisedBudget: s.RevisedBudget,
 		CommittedCost: s.CommittedCost, ActualCost: s.ActualCost, ETC: s.ETCTotal, EAC: s.EACTotal,
-		Variance: s.Variance, ForecastProfit: s.ForecastProfit, ForecastMarginPercent: s.ForecastMarginPercent,
-		HasBudget: s.HasBudget,
+		Variance: s.Variance, HasBudget: s.HasBudget,
 	}
+	if showRevenue {
+		resp.ContractValue = &s.ContractValue
+		resp.ForecastProfit = &s.ForecastProfit
+		resp.ForecastMarginPercent = &s.ForecastMarginPercent
+	}
+	return resp
 }
 
 // CostControl, "Maliyet Kontrolü" ekranının TEK istekle ihtiyaç duyduğu
@@ -557,7 +567,7 @@ func (h *ProjectHandler) CostControl(w http.ResponseWriter, r *http.Request) {
 		lineResp[i] = toCostControlLineResponse(l)
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{
-		"summary": toCostControlSummaryResponse(*summary),
+		"summary": toCostControlSummaryResponse(*summary, canSeeProjectFinance(r)),
 		"lines":   lineResp,
 	})
 }
