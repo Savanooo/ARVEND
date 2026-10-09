@@ -65,6 +65,14 @@ type changeOrderProfitabilityResponse struct {
 	EstimatedProfit        float64 `json:"estimated_profit"`
 	RealizedMarginPercent  float64 `json:"realized_margin_percent"`
 	EstimatedMarginPercent float64 `json:"estimated_margin_percent"`
+	// KDV hariç karşılıklar (bkz. domain.ChangeOrderProfitability); yukarıdakiler KDV dahil.
+	RevenueEffectNet          float64 `json:"revenue_effect_net"`
+	RealizedCostNet           float64 `json:"realized_cost_net"`
+	CommittedCostNet          float64 `json:"committed_cost_net"`
+	RealizedProfitNet         float64 `json:"realized_profit_net"`
+	EstimatedProfitNet        float64 `json:"estimated_profit_net"`
+	RealizedMarginPercentNet  float64 `json:"realized_margin_percent_net"`
+	EstimatedMarginPercentNet float64 `json:"estimated_margin_percent_net"`
 }
 
 // changeOrderResponse, YALNIZCA kimlik doğrulamalı (dahili) uçlarda
@@ -140,6 +148,9 @@ func toChangeOrderResponse(co domain.ChangeOrder) changeOrderResponse {
 			RevenueEffect: p.RevenueEffect, RealizedCost: p.RealizedCost, CommittedCost: p.CommittedCost,
 			RealizedProfit: p.RealizedProfit, EstimatedProfit: p.EstimatedProfit,
 			RealizedMarginPercent: p.RealizedMarginPercent, EstimatedMarginPercent: p.EstimatedMarginPercent,
+			RevenueEffectNet: p.RevenueEffectNet, RealizedCostNet: p.RealizedCostNet, CommittedCostNet: p.CommittedCostNet,
+			RealizedProfitNet: p.RealizedProfitNet, EstimatedProfitNet: p.EstimatedProfitNet,
+			RealizedMarginPercentNet: p.RealizedMarginPercentNet, EstimatedMarginPercentNet: p.EstimatedMarginPercentNet,
 		}
 	}
 	return resp

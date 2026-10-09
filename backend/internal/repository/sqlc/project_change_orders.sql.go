@@ -624,6 +624,12 @@ SELECT co.id, co.organization_id, co.project_id, co.sequence_no, co.change_type,
     COALESCE((SELECT sum(e.amount) FROM project_expenses e
               WHERE e.change_order_id = co.id AND e.voided_at IS NULL AND e.approval_status = 'approved'), 0)::numeric(18,2)
         AS realized_expense_cost,
+    -- Aynı onaylı masrafların İÇİNDEKİ KDV (oranı belirtilmemişte NULL ->
+    -- sayılmaz): KDV hariç ek iş kârlılığı finans özetinin kuralıyla
+    -- (domain.VATBasis) bundan türetilir.
+    COALESCE((SELECT sum(e.vat_amount) FROM project_expenses e
+              WHERE e.change_order_id = co.id AND e.voided_at IS NULL AND e.approval_status = 'approved'), 0)::numeric(18,2)
+        AS realized_expense_vat,
     COALESCE((SELECT sum(sp.amount) FROM project_subcontractor_payments sp
               JOIN project_subcontractors s ON s.id = sp.subcontractor_id
               WHERE s.change_order_id = co.id AND sp.voided_at IS NULL), 0)::numeric(18,2)
@@ -687,6 +693,7 @@ type ListChangeOrdersRow struct {
 	DecisionRecordedBy               pgtype.UUID        `json:"decision_recorded_by"`
 	DecisionNote                     string             `json:"decision_note"`
 	RealizedExpenseCost              pgtype.Numeric     `json:"realized_expense_cost"`
+	RealizedExpenseVat               pgtype.Numeric     `json:"realized_expense_vat"`
 	RealizedSubcontractorCost        pgtype.Numeric     `json:"realized_subcontractor_cost"`
 	SubcontractorRemainingCommitment pgtype.Numeric     `json:"subcontractor_remaining_commitment"`
 	ActiveShareToken                 pgtype.UUID        `json:"active_share_token"`
@@ -735,6 +742,7 @@ func (q *Queries) ListChangeOrders(ctx context.Context, arg ListChangeOrdersPara
 			&i.DecisionRecordedBy,
 			&i.DecisionNote,
 			&i.RealizedExpenseCost,
+			&i.RealizedExpenseVat,
 			&i.RealizedSubcontractorCost,
 			&i.SubcontractorRemainingCommitment,
 			&i.ActiveShareToken,

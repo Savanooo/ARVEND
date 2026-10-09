@@ -39,6 +39,12 @@ SELECT co.*,
     COALESCE((SELECT sum(e.amount) FROM project_expenses e
               WHERE e.change_order_id = co.id AND e.voided_at IS NULL AND e.approval_status = 'approved'), 0)::numeric(18,2)
         AS realized_expense_cost,
+    -- Aynı onaylı masrafların İÇİNDEKİ KDV (oranı belirtilmemişte NULL ->
+    -- sayılmaz): KDV hariç ek iş kârlılığı finans özetinin kuralıyla
+    -- (domain.VATBasis) bundan türetilir.
+    COALESCE((SELECT sum(e.vat_amount) FROM project_expenses e
+              WHERE e.change_order_id = co.id AND e.voided_at IS NULL AND e.approval_status = 'approved'), 0)::numeric(18,2)
+        AS realized_expense_vat,
     COALESCE((SELECT sum(sp.amount) FROM project_subcontractor_payments sp
               JOIN project_subcontractors s ON s.id = sp.subcontractor_id
               WHERE s.change_order_id = co.id AND sp.voided_at IS NULL), 0)::numeric(18,2)

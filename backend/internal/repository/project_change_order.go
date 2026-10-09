@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"math"
+
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
 )
@@ -99,11 +101,32 @@ func ToDomainChangeOrderListItem(r sqlc.ListChangeOrdersRow) (domain.ChangeOrder
 		profit.RealizedMarginPercent = clampPercent(profit.RealizedProfit * 100 / denom)
 		profit.EstimatedMarginPercent = clampPercent(profit.EstimatedProfit * 100 / denom)
 	}
+	applyChangeOrderNetFigures(&profit, co, NumericToFloat64(r.RealizedExpenseVat))
 	if r.ActiveShareToken.Valid {
 		s := r.ActiveShareToken.String()
 		co.ActiveShareToken = &s
 	}
 	return co, profit
+}
+
+// applyChangeOrderNetFigures: ek iş kârlılığının KDV hariç karşılıkları --
+// finans özetinin kuralı (domain.VATBasis). Ek işin KDV'si her zaman
+// bilinir (vat_amount); maliyetten yalnızca bu ek işe bağlı onaylı
+// masrafların içindeki KDV düşülür.
+func applyChangeOrderNetFigures(p *domain.ChangeOrderProfitability, co domain.ChangeOrder, expenseVAT float64) {
+	vat := co.VatAmount
+	if co.ChangeType == domain.ChangeOrderDeduction {
+		vat = -vat
+	}
+	b := domain.VATBasis{Value: p.RevenueEffect, VAT: vat, Known: true}
+	p.RevenueEffectNet = b.Net()
+	p.RealizedCostNet = domain.CostNet(p.RealizedCost, expenseVAT)
+	p.CommittedCostNet = domain.CostNet(p.CommittedCost, expenseVAT)
+	p.RealizedProfitNet = b.ProfitNet(p.RealizedCost, p.RealizedCostNet)
+	p.EstimatedProfitNet = b.ProfitNet(p.CommittedCost, p.CommittedCostNet)
+	denom := math.Abs(p.RevenueEffectNet)
+	p.RealizedMarginPercentNet = domain.MarginPercent(p.RealizedProfitNet, denom)
+	p.EstimatedMarginPercentNet = domain.MarginPercent(p.EstimatedProfitNet, denom)
 }
 
 // clampPercent, GetProjectFinancialSummary'deki GREATEST/LEAST kelepçe
