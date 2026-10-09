@@ -17,9 +17,17 @@ export function internalApiBase(): string {
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  // Hata gövdesindeki makine-okunur kod (ör. 409 "duplicate_customer");
+  // çoğu hatada yok. body: ayrıştırılmış JSON gövdenin tamamı (ör.
+  // duplicate_customer'daki existing_customer) -- JSON değilse null.
+  code?: string;
+  body: unknown;
+  constructor(status: number, message: string, body: unknown = null) {
     super(message);
     this.status = status;
+    this.body = body ?? null;
+    const code = (body as { code?: unknown } | null)?.code;
+    if (typeof code === "string" && code) this.code = code;
   }
 }
 
@@ -41,7 +49,7 @@ async function parse<T>(res: Response): Promise<T> {
     const message =
       (body as ApiErrorBody | null | undefined)?.error ??
       (res.status >= 500 ? "Sunucuya şu an ulaşılamıyor, lütfen biraz sonra tekrar deneyin." : "Beklenmeyen bir hata oluştu");
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, body);
   }
   if (body === undefined) throw new ApiError(res.status, "Sunucudan beklenmeyen bir yanıt alındı");
   return body as T;

@@ -328,6 +328,33 @@ describe("apiClient oturum yenileme", () => {
     await assert.rejects(apiClient("/api/v1/offers"), { message: "kayıt bulunamadı" });
   });
 
+  it("hata gövdesinin kodu ve tamamı ApiError'da taşınır (409 duplicate_customer)", async (t) => {
+    const body = {
+      error: "aynı vergi numarasıyla kayıtlı müşteri var: Acme",
+      code: "duplicate_customer",
+      field: "tax_number",
+      existing_customer: { id: "c1", name: "Acme", is_active: true },
+    };
+    const { impl } = scriptedFetch({
+      "/api/v1/customers": [json(409, body), () => new Response("<html></html>", { status: 502 })],
+    });
+    t.mock.method(globalThis, "fetch", impl);
+
+    await assert.rejects(apiClient("/api/v1/customers", { method: "POST" }), (err: unknown) => {
+      assert.ok(err instanceof ApiError);
+      assert.equal(err.status, 409);
+      assert.equal(err.code, "duplicate_customer");
+      assert.deepEqual(err.body, body);
+      return true;
+    });
+    await assert.rejects(apiClient("/api/v1/customers", { method: "POST" }), (err: unknown) => {
+      assert.ok(err instanceof ApiError);
+      assert.equal(err.code, undefined);
+      assert.equal(err.body, null);
+      return true;
+    });
+  });
+
   it("2xx ama JSON olmayan gövde ApiError olur, boş gövde null döner", async (t) => {
     const { impl } = scriptedFetch({
       "/api/v1/offers": [() => new Response("<html></html>", { status: 200 }), () => new Response(null, { status: 204 })],
