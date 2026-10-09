@@ -827,12 +827,18 @@ func (q *Queries) GetProjectBudgetForUpdate(ctx context.Context, arg GetProjectB
 
 const getProjectCostControlSummary = `-- name: GetProjectCostControlSummary :one
 WITH proj AS (
-    SELECT pr.contract_amount, pr.currency FROM projects pr WHERE pr.id = $1 AND pr.organization_id = $2
+    SELECT pr.contract_amount, pr.currency, pr.source_revision_id FROM projects pr WHERE pr.id = $1 AND pr.organization_id = $2
+),
+base_vat AS (
+    SELECT COALESCE(r.vat_amount, 0)::numeric(18,2) AS total, (r.id IS NOT NULL) AS known
+    FROM proj LEFT JOIN offer_revisions r ON r.id = proj.source_revision_id
 ),
 co_effect AS (
     SELECT
         COALESCE(sum(grand_total) FILTER (WHERE change_type = 'addition' AND status = 'approved'), 0)::numeric(18,2) AS approved_additions,
-        COALESCE(sum(grand_total) FILTER (WHERE change_type = 'deduction' AND status = 'approved'), 0)::numeric(18,2) AS approved_deductions
+        COALESCE(sum(grand_total) FILTER (WHERE change_type = 'deduction' AND status = 'approved'), 0)::numeric(18,2) AS approved_deductions,
+        COALESCE(sum(vat_amount) FILTER (WHERE change_type = 'addition' AND status = 'approved'), 0)::numeric(18,2) AS approved_vat_additions,
+        COALESCE(sum(vat_amount) FILTER (WHERE change_type = 'deduction' AND status = 'approved'), 0)::numeric(18,2) AS approved_vat_deductions
     FROM project_change_orders WHERE project_id = $1 AND organization_id = $2
 ),
 current_value AS (
@@ -866,7 +872,8 @@ committed_by_line AS (
 ),
 actual_by_line AS (
     SELECT COALESCE(e.budget_line_id, slc.budget_line_id) AS budget_line_id,
-        COALESCE(sum(e.amount), 0)::numeric(18,2) AS total
+        COALESCE(sum(e.amount), 0)::numeric(18,2) AS total,
+        COALESCE(sum(e.vat_amount), 0)::numeric(18,2) AS vat
     FROM project_expenses e
     LEFT JOIN single_line_codes slc ON e.budget_line_id IS NULL AND slc.cost_code_id = e.cost_code_id
     WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.approval_status = 'approved'
@@ -885,7 +892,9 @@ budgeted AS (
         COALESCE(act.total, 0)::numeric(18,2) AS actual_cost,
         COALESCE(fc.etc_amount, GREATEST((l.original_amount + COALESCE(adj.total, 0)) - COALESCE(act.total, 0), 0))::numeric(18,2) AS etc_amount,
         (COALESCE(act.total, 0) + COALESCE(fc.etc_amount, GREATEST((l.original_amount + COALESCE(adj.total, 0)) - COALESCE(act.total, 0), 0)))::numeric(18,2) AS eac,
-        ((l.original_amount + COALESCE(adj.total, 0)) - (COALESCE(act.total, 0) + COALESCE(fc.etc_amount, GREATEST((l.original_amount + COALESCE(adj.total, 0)) - COALESCE(act.total, 0), 0))))::numeric(18,2) AS variance
+        ((l.original_amount + COALESCE(adj.total, 0)) - (COALESCE(act.total, 0) + COALESCE(fc.etc_amount, GREATEST((l.original_amount + COALESCE(adj.total, 0)) - COALESCE(act.total, 0), 0))))::numeric(18,2) AS variance,
+        (COALESCE(act.total, 0) - COALESCE(act.vat, 0))::numeric(18,2) AS actual_cost_net,
+        (COALESCE(act.total, 0) - COALESCE(act.vat, 0) + COALESCE(fc.etc_amount, GREATEST((l.original_amount + COALESCE(adj.total, 0)) - COALESCE(act.total, 0), 0)))::numeric(18,2) AS eac_net
     FROM lines l
     LEFT JOIN adjustments adj ON adj.budget_line_id = l.budget_line_id
     LEFT JOIN committed_by_line com ON com.budget_line_id = l.budget_line_id
@@ -900,7 +909,8 @@ unbudgeted_committed AS (
     GROUP BY c.cost_code_id
 ),
 unbudgeted_actual AS (
-    SELECT e.cost_code_id, COALESCE(sum(e.amount), 0)::numeric(18,2) AS total
+    SELECT e.cost_code_id, COALESCE(sum(e.amount), 0)::numeric(18,2) AS total,
+        COALESCE(sum(e.vat_amount), 0)::numeric(18,2) AS vat
     FROM project_expenses e
     WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.approval_status = 'approved' AND e.budget_line_id IS NULL AND e.cost_code_id IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM single_line_codes slc WHERE slc.cost_code_id = e.cost_code_id)
@@ -915,15 +925,17 @@ unbudgeted AS (
     SELECT
         0::numeric(18,2) AS original_amount, 0::numeric(18,2) AS approved_adjustments, 0::numeric(18,2) AS revised_budget,
         COALESCE(ucom.total, 0)::numeric(18,2) AS committed_cost, COALESCE(uact.total, 0)::numeric(18,2) AS actual_cost,
-        0::numeric(18,2) AS etc_amount, COALESCE(uact.total, 0)::numeric(18,2) AS eac, (0 - COALESCE(uact.total, 0))::numeric(18,2) AS variance
+        0::numeric(18,2) AS etc_amount, COALESCE(uact.total, 0)::numeric(18,2) AS eac, (0 - COALESCE(uact.total, 0))::numeric(18,2) AS variance,
+        (COALESCE(uact.total, 0) - COALESCE(uact.vat, 0))::numeric(18,2) AS actual_cost_net,
+        (COALESCE(uact.total, 0) - COALESCE(uact.vat, 0))::numeric(18,2) AS eac_net
     FROM unbudgeted_codes uc
     LEFT JOIN unbudgeted_committed ucom ON ucom.cost_code_id = uc.cost_code_id
     LEFT JOIN unbudgeted_actual uact ON uact.cost_code_id = uc.cost_code_id
 ),
 all_rows AS (
-    SELECT original_amount, approved_adjustments, revised_budget, committed_cost, actual_cost, etc_amount, eac, variance FROM budgeted
+    SELECT original_amount, approved_adjustments, revised_budget, committed_cost, actual_cost, etc_amount, eac, variance, actual_cost_net, eac_net FROM budgeted
     UNION ALL
-    SELECT original_amount, approved_adjustments, revised_budget, committed_cost, actual_cost, etc_amount, eac, variance FROM unbudgeted
+    SELECT original_amount, approved_adjustments, revised_budget, committed_cost, actual_cost, etc_amount, eac, variance, actual_cost_net, eac_net FROM unbudgeted
 ),
 totals AS (
     SELECT
@@ -933,7 +945,9 @@ totals AS (
         COALESCE(sum(committed_cost), 0)::numeric(18,2) AS committed_cost,
         COALESCE(sum(actual_cost), 0)::numeric(18,2) AS actual_cost,
         COALESCE(sum(etc_amount), 0)::numeric(18,2) AS etc_total,
-        COALESCE(sum(eac), 0)::numeric(18,2) AS eac_total
+        COALESCE(sum(eac), 0)::numeric(18,2) AS eac_total,
+        COALESCE(sum(actual_cost_net), 0)::numeric(18,2) AS actual_cost_net,
+        COALESCE(sum(eac_net), 0)::numeric(18,2) AS eac_net
     FROM all_rows
 )
 SELECT
@@ -953,8 +967,15 @@ SELECT
     CASE WHEN current_value.total > 0
          THEN GREATEST(-99999999.99, LEAST(99999999.99,
               round((current_value.total - totals.eac_total) * 100 / current_value.total, 2)))
-         ELSE 0 END::numeric(10,2) AS forecast_margin_percent
-FROM proj, current_value, totals
+         ELSE 0 END::numeric(10,2) AS forecast_margin_percent,
+    -- KDV hariç karşılıklar: kâr/marj "net"i Go'da domain.VATBasis ile
+    -- türetilir (ProjectService.CostControlSummary).
+    totals.actual_cost_net,
+    totals.eac_net,
+    (base_vat.total + co_effect.approved_vat_additions - co_effect.approved_vat_deductions)::numeric(18,2)
+        AS contract_vat_amount,
+    base_vat.known::boolean AS contract_vat_known
+FROM proj, base_vat, co_effect, current_value, totals
 `
 
 type GetProjectCostControlSummaryParams struct {
@@ -975,6 +996,10 @@ type GetProjectCostControlSummaryRow struct {
 	Variance              pgtype.Numeric `json:"variance"`
 	ForecastProfit        pgtype.Numeric `json:"forecast_profit"`
 	ForecastMarginPercent pgtype.Numeric `json:"forecast_margin_percent"`
+	ActualCostNet         pgtype.Numeric `json:"actual_cost_net"`
+	EacNet                pgtype.Numeric `json:"eac_net"`
+	ContractVatAmount     pgtype.Numeric `json:"contract_vat_amount"`
+	ContractVatKnown      bool           `json:"contract_vat_known"`
 }
 
 // GetProjectCostControlSummary, ListCostControlLines'ın AYNI satır
@@ -982,6 +1007,8 @@ type GetProjectCostControlSummaryRow struct {
 // (GetProjectFinancialSummary'deki co_effect İLE AYNI formül) ekleyip
 // forecast_profit/forecast_margin'i (AYNI GREATEST/LEAST clamp deseni,
 // sıfıra bölme koruması) hesaplar.
+// Sözleşme bedelinin KDV'si: GetProjectFinancialSummary base_vat ve
+// approved_vat_* İLE BİREBİR AYNI (KDV hariç kâr için; bkz. domain.VATBasis).
 // Yalnızca maliyet koduyla (bütçe kalemi SEÇİLMEDEN) girilmiş gider/
 // taahhüt, o maliyet kodunun bu projede TEK bir bütçe kalemi varsa O
 // KALEME sayılır. Önceden böyle bir kayıt, kodun bütçe kalemi olsa bile
@@ -995,6 +1022,10 @@ type GetProjectCostControlSummaryRow struct {
 // ListCostControlLines ve GetProjectCostControlSummary'de BİREBİR AYNI.
 // Gerçekleşen (actual) yalnızca ONAYLI masraflardan (migration 0060): onay
 // bekleyen/reddedilen masraf EAC'yi ve bütçe aşımını şişirmez.
+// vat: bu masrafların İÇİNDEKİ KDV (migration 0065; oranı belirtilmemiş
+// masrafta NULL -> sayılmaz). actual_cost/eac KDV DAHİL kalır;
+// actual_cost_net/eac_net bunu düşer (finans özetinin kuralı, bkz.
+// domain.VATBasis). ETC KDV dahil gerçekleşenden türer, KDV'si bilinmez.
 func (q *Queries) GetProjectCostControlSummary(ctx context.Context, arg GetProjectCostControlSummaryParams) (GetProjectCostControlSummaryRow, error) {
 	row := q.db.QueryRow(ctx, getProjectCostControlSummary, arg.ID, arg.OrganizationID)
 	var i GetProjectCostControlSummaryRow
@@ -1011,6 +1042,10 @@ func (q *Queries) GetProjectCostControlSummary(ctx context.Context, arg GetProje
 		&i.Variance,
 		&i.ForecastProfit,
 		&i.ForecastMarginPercent,
+		&i.ActualCostNet,
+		&i.EacNet,
+		&i.ContractVatAmount,
+		&i.ContractVatKnown,
 	)
 	return i, err
 }
@@ -1377,7 +1412,8 @@ committed_by_line AS (
 ),
 actual_by_line AS (
     SELECT COALESCE(e.budget_line_id, slc.budget_line_id) AS budget_line_id,
-        COALESCE(sum(e.amount), 0)::numeric(18,2) AS total
+        COALESCE(sum(e.amount), 0)::numeric(18,2) AS total,
+        COALESCE(sum(e.vat_amount), 0)::numeric(18,2) AS vat
     FROM project_expenses e
     LEFT JOIN single_line_codes slc ON e.budget_line_id IS NULL AND slc.cost_code_id = e.cost_code_id
     WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.approval_status = 'approved'
@@ -1399,7 +1435,9 @@ budgeted AS (
         COALESCE(fc.etc_amount, GREATEST((l.original_amount + COALESCE(adj.total, 0)) - COALESCE(act.total, 0), 0))::numeric(18,2) AS etc_amount,
         (COALESCE(act.total, 0) + COALESCE(fc.etc_amount, GREATEST((l.original_amount + COALESCE(adj.total, 0)) - COALESCE(act.total, 0), 0)))::numeric(18,2) AS eac,
         ((l.original_amount + COALESCE(adj.total, 0)) - (COALESCE(act.total, 0) + COALESCE(fc.etc_amount, GREATEST((l.original_amount + COALESCE(adj.total, 0)) - COALESCE(act.total, 0), 0))))::numeric(18,2) AS variance,
-        false AS is_unbudgeted
+        false AS is_unbudgeted,
+        (COALESCE(act.total, 0) - COALESCE(act.vat, 0))::numeric(18,2) AS actual_cost_net,
+        (COALESCE(act.total, 0) - COALESCE(act.vat, 0) + COALESCE(fc.etc_amount, GREATEST((l.original_amount + COALESCE(adj.total, 0)) - COALESCE(act.total, 0), 0)))::numeric(18,2) AS eac_net
     FROM lines l
     LEFT JOIN project_wbs_nodes wn ON wn.id = l.wbs_node_id
     JOIN organization_cost_codes cc ON cc.id = l.cost_code_id
@@ -1416,7 +1454,8 @@ unbudgeted_committed AS (
     GROUP BY c.cost_code_id
 ),
 unbudgeted_actual AS (
-    SELECT e.cost_code_id, COALESCE(sum(e.amount), 0)::numeric(18,2) AS total
+    SELECT e.cost_code_id, COALESCE(sum(e.amount), 0)::numeric(18,2) AS total,
+        COALESCE(sum(e.vat_amount), 0)::numeric(18,2) AS vat
     FROM project_expenses e
     WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.approval_status = 'approved' AND e.budget_line_id IS NULL AND e.cost_code_id IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM single_line_codes slc WHERE slc.cost_code_id = e.cost_code_id)
@@ -1435,15 +1474,17 @@ unbudgeted AS (
         0::numeric(18,2) AS approved_adjustments, 0::numeric(18,2) AS revised_budget,
         COALESCE(ucom.total, 0)::numeric(18,2) AS committed_cost, COALESCE(uact.total, 0)::numeric(18,2) AS actual_cost,
         0::numeric(18,2) AS etc_amount, COALESCE(uact.total, 0)::numeric(18,2) AS eac,
-        (0 - COALESCE(uact.total, 0))::numeric(18,2) AS variance, true AS is_unbudgeted
+        (0 - COALESCE(uact.total, 0))::numeric(18,2) AS variance, true AS is_unbudgeted,
+        (COALESCE(uact.total, 0) - COALESCE(uact.vat, 0))::numeric(18,2) AS actual_cost_net,
+        (COALESCE(uact.total, 0) - COALESCE(uact.vat, 0))::numeric(18,2) AS eac_net
     FROM unbudgeted_codes uc
     JOIN organization_cost_codes cc ON cc.id = uc.cost_code_id
     LEFT JOIN unbudgeted_committed ucom ON ucom.cost_code_id = uc.cost_code_id
     LEFT JOIN unbudgeted_actual uact ON uact.cost_code_id = uc.cost_code_id
 )
-SELECT budget_line_id, wbs_node_id, wbs_code, wbs_name, cost_code_id, cost_code_code, cost_code_name, description, original_amount, approved_adjustments, revised_budget, committed_cost, actual_cost, etc_amount, eac, variance, is_unbudgeted FROM budgeted
+SELECT budget_line_id, wbs_node_id, wbs_code, wbs_name, cost_code_id, cost_code_code, cost_code_name, description, original_amount, approved_adjustments, revised_budget, committed_cost, actual_cost, etc_amount, eac, variance, is_unbudgeted, actual_cost_net, eac_net FROM budgeted
 UNION ALL
-SELECT budget_line_id, wbs_node_id, wbs_code, wbs_name, cost_code_id, cost_code_code, cost_code_name, description, original_amount, approved_adjustments, revised_budget, committed_cost, actual_cost, etc_amount, eac, variance, is_unbudgeted FROM unbudgeted
+SELECT budget_line_id, wbs_node_id, wbs_code, wbs_name, cost_code_id, cost_code_code, cost_code_name, description, original_amount, approved_adjustments, revised_budget, committed_cost, actual_cost, etc_amount, eac, variance, is_unbudgeted, actual_cost_net, eac_net FROM unbudgeted
 ORDER BY is_unbudgeted ASC, wbs_code ASC NULLS LAST, cost_code_code ASC
 `
 
@@ -1470,6 +1511,8 @@ type ListCostControlLinesRow struct {
 	Eac                 pgtype.Numeric `json:"eac"`
 	Variance            pgtype.Numeric `json:"variance"`
 	IsUnbudgeted        bool           `json:"is_unbudgeted"`
+	ActualCostNet       pgtype.Numeric `json:"actual_cost_net"`
+	EacNet              pgtype.Numeric `json:"eac_net"`
 }
 
 // ============ Maliyet Kontrolü Özeti / Kırılım Tablosu ============
@@ -1493,6 +1536,10 @@ type ListCostControlLinesRow struct {
 // ListCostControlLines ve GetProjectCostControlSummary'de BİREBİR AYNI.
 // Gerçekleşen (actual) yalnızca ONAYLI masraflardan (migration 0060): onay
 // bekleyen/reddedilen masraf EAC'yi ve bütçe aşımını şişirmez.
+// vat: bu masrafların İÇİNDEKİ KDV (migration 0065; oranı belirtilmemiş
+// masrafta NULL -> sayılmaz). actual_cost/eac KDV DAHİL kalır;
+// actual_cost_net/eac_net bunu düşer (finans özetinin kuralı, bkz.
+// domain.VATBasis). ETC KDV dahil gerçekleşenden türer, KDV'si bilinmez.
 // Bütçe dışı (unbudgeted) satırlar: bir cost_code'a doğrudan (budget_line_id
 // OLMADAN) bağlanmış taahhüt/gider var ama bu cost code'un o projede bir
 // bütçe kalemi yok (ya da birden fazla var ve hangisine ait olduğu
@@ -1525,6 +1572,8 @@ func (q *Queries) ListCostControlLines(ctx context.Context, arg ListCostControlL
 			&i.Eac,
 			&i.Variance,
 			&i.IsUnbudgeted,
+			&i.ActualCostNet,
+			&i.EacNet,
 		); err != nil {
 			return nil, err
 		}

@@ -493,6 +493,10 @@ type costControlLineResponse struct {
 	EAC                 float64 `json:"eac"`
 	Variance            float64 `json:"variance"`
 	IsUnbudgeted        bool    `json:"is_unbudgeted"`
+	// KDV hariç karşılıklar (bkz. domain.CostControlLine); actual_cost/eac
+	// KDV dahil kalır.
+	ActualCostNet float64 `json:"actual_cost_net"`
+	EACNet        float64 `json:"eac_net"`
 }
 
 func toCostControlLineResponse(l domain.CostControlLine) costControlLineResponse {
@@ -502,6 +506,7 @@ func toCostControlLineResponse(l domain.CostControlLine) costControlLineResponse
 		Description: l.Description, OriginalBudget: l.OriginalAmount, ApprovedAdjustments: l.ApprovedAdjustments,
 		RevisedBudget: l.RevisedBudget, CommittedCost: l.CommittedCost, ActualCost: l.ActualCost,
 		ETC: l.ETCAmount, EAC: l.EAC, Variance: l.Variance, IsUnbudgeted: l.IsUnbudgeted,
+		ActualCostNet: l.ActualCostNet, EACNet: l.EACNet,
 	}
 }
 
@@ -522,6 +527,16 @@ type costControlSummaryResponse struct {
 	ForecastProfit        float64 `json:"forecast_profit"`
 	ForecastMarginPercent float64 `json:"forecast_margin_percent"`
 	HasBudget             bool    `json:"has_budget"`
+
+	// KDV hariç karşılıklar -- finans özetiyle AYNI kural (bkz.
+	// domain.CostControlSummary); yukarıdaki tutarlar KDV dahil kalır.
+	ActualCostNet            float64 `json:"actual_cost_net"`
+	EACNet                   float64 `json:"eac_net"`
+	ContractVATAmount        float64 `json:"contract_vat_amount"`
+	ContractVATKnown         bool    `json:"contract_vat_known"`
+	ContractValueNet         float64 `json:"contract_value_net"`
+	ForecastProfitNet        float64 `json:"forecast_profit_net"`
+	ForecastMarginPercentNet float64 `json:"forecast_margin_percent_net"`
 }
 
 func toCostControlSummaryResponse(s domain.CostControlSummary) costControlSummaryResponse {
@@ -530,7 +545,11 @@ func toCostControlSummaryResponse(s domain.CostControlSummary) costControlSummar
 		ApprovedAdjustments: s.ApprovedAdjustments, RevisedBudget: s.RevisedBudget,
 		CommittedCost: s.CommittedCost, ActualCost: s.ActualCost, ETC: s.ETCTotal, EAC: s.EACTotal,
 		Variance: s.Variance, ForecastProfit: s.ForecastProfit, ForecastMarginPercent: s.ForecastMarginPercent,
-		HasBudget: s.HasBudget,
+		HasBudget:     s.HasBudget,
+		ActualCostNet: s.ActualCostNet, EACNet: s.EACNet,
+		ContractVATAmount: s.ContractVATAmount, ContractVATKnown: s.ContractVATKnown,
+		ContractValueNet: s.ContractValueNet, ForecastProfitNet: s.ForecastProfitNet,
+		ForecastMarginPercentNet: s.ForecastMarginPercentNet,
 	}
 }
 

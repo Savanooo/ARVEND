@@ -30,7 +30,7 @@ func TestApplyForecast(t *testing.T) {
 
 	t.Run("gerçek bütçe varsa EAC + Maliyet Kontrolü'nün görmediği eski taşeron", func(t *testing.T) {
 		s := base()
-		applyForecast(&s, &domain.CostControlSummary{HasBudget: true, RevisedBudget: 800000, EACTotal: 700000})
+		applyForecast(&s, &domain.CostControlSummary{HasBudget: true, RevisedBudget: 800000, EACTotal: 700000, EACNet: 700000})
 		if s.ForecastBasis != domain.ForecastBasisBudget || s.ForecastCost != 850000 {
 			t.Fatalf("%v %v", s.ForecastBasis, s.ForecastCost)
 		}
@@ -56,13 +56,14 @@ func TestApplyForecast(t *testing.T) {
 	})
 
 	// Masraf KDV'si (migration 0065): onaylı masrafların içindeki KDV KDV
-	// hariç maliyetten düşülür; bütçe tahmininde yalnızca kodlu masrafınki.
+	// hariç maliyetten düşülür; bütçe tahmininde Maliyet Kontrolü'nün kendi
+	// KDV hariç EAC'si (yalnızca kodlu masrafların KDV'si düşülmüş) kullanılır.
 	withExpenseVAT := func(known bool) domain.ProjectFinancialSummary {
 		s := domain.ProjectFinancialSummary{
 			CurrentContractValue: 1200000, ContractVATAmount: 200000, ContractVATKnown: known,
 			RealizedCost: 500000, CommittedCost: 900000,
 			SubcontractorPaid: 100000, SubcontractorRemaining: 50000,
-			ExpenseVATTotal: 30000, CodedExpenseVATTotal: 10000,
+			ExpenseVATTotal: 30000,
 		}
 		if !known {
 			s.ContractVATAmount = 0
@@ -87,7 +88,8 @@ func TestApplyForecast(t *testing.T) {
 
 	t.Run("bütçe tahmininde yalnızca kodlu masrafın KDV'si düşülür", func(t *testing.T) {
 		s := withExpenseVAT(true)
-		applyForecast(&s, &domain.CostControlSummary{HasBudget: true, RevisedBudget: 800000, EACTotal: 700000})
+		// EAC'nin içindeki (kodlu) masraf KDV'si 10.000: eac_net = 690.000.
+		applyForecast(&s, &domain.CostControlSummary{HasBudget: true, RevisedBudget: 800000, EACTotal: 700000, EACNet: 690000})
 		if s.ForecastCost != 850000 || s.ForecastCostNet != 840000 || s.ForecastProfitNet != 160000 || s.ForecastMarginPercentNet != 16 {
 			t.Fatalf("%v %v %v %v", s.ForecastCost, s.ForecastCostNet, s.ForecastProfitNet, s.ForecastMarginPercentNet)
 		}
