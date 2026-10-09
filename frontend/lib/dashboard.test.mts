@@ -407,9 +407,10 @@ describe("webHrefFor", () => {
     purchase_request: `/projeler/${P}?tab=satinalma`,
     rfq: `/projeler/${P}?tab=satinalma`,
     purchase_order: `/projeler/${P}?tab=satinalma`,
-    subcontract: `/projeler/${P}?tab=finans`,
-    progress_claim: `/projeler/${P}?tab=finans`,
-    subcontract_change_order: `/projeler/${P}?tab=finans`,
+    subcontract: `/projeler/${P}/taseronlar/x1`,
+    // parent_id (sözleşme) yoksa taşeron sekmesi.
+    progress_claim: `/projeler/${P}?tab=taseron`,
+    subcontract_change_order: `/projeler/${P}?tab=taseron`,
     change_order: `/projeler/${P}?tab=finans`,
     budget_adjustment: `/projeler/${P}?tab=maliyet`,
     contract: `/projeler/${P}?tab=finans`,
@@ -438,6 +439,15 @@ describe("webHrefFor", () => {
     assert.equal(webHrefFor(ref("rfq", "r1", "award")), `/projeler/${P}?tab=satinalma`);
   });
 
+  it("taşeron hakediş/değişiklik emri sözleşme detayında açık gelir", () => {
+    assert.equal(webHrefFor(ref("progress_claim", "h1", "open", P, "s1")), `/projeler/${P}/taseronlar/s1?hakedis=h1`);
+    assert.equal(
+      webHrefFor(ref("subcontract_change_order", "d1", "open", P, "s1")),
+      `/projeler/${P}/taseronlar/s1?degisiklik=d1`
+    );
+    assert.equal(webHrefFor(ref("subcontract", "s1", "open", null)), null);
+  });
+
   it("bilinmeyen tür ya da projesiz kayıt düz metin (null)", () => {
     assert.equal(webHrefFor(ref("mystery")), null);
     assert.equal(webHrefFor(ref("task", "t1", "open", null)), null);
@@ -460,7 +470,13 @@ describe("webHrefForActionTarget (bildirim hedefi mobil yoldur)", () => {
     [`/projeler/${P}/satin-alma/rfqlar/r1/karsilastir`, `/projeler/${P}?tab=satinalma`],
     [`/projeler/${P}/gorevler/g1`, `/projeler/${P}?tab=operasyon`],
     [`/projeler/${P}/planlama/s1`, `/projeler/${P}?tab=operasyon`],
-    [`/projeler/${P}/taseronlar/s1/hakedisler/h1`, `/projeler/${P}?tab=finans`],
+    [`/projeler/${P}/taseronlar/s1/hakedisler/h1`, `/projeler/${P}/taseronlar/s1?hakedis=h1`],
+    [`/projeler/${P}/taseronlar/s1/degisiklik-emirleri/d1`, `/projeler/${P}/taseronlar/s1?degisiklik=d1`],
+    [`/projeler/${P}/taseronlar/s1`, `/projeler/${P}/taseronlar/s1`],
+    [`/projeler/${P}/taseronlar/s1/hakedisler/yeni`, `/projeler/${P}/taseronlar/s1`],
+    [`/projeler/${P}/taseronlar`, `/projeler/${P}?tab=taseron`],
+    [`/projeler/${P}/taseronlar/yeni`, `/projeler/${P}?tab=taseron`],
+    [`/projeler/${P}?grup=operasyon&alt=taseronlar`, `/projeler/${P}?tab=taseron`],
     [`/projeler/${P}?grup=finans&alt=maliyet`, `/projeler/${P}?tab=maliyet`],
     [`/projeler/${P}?grup=finans&alt=ek-isler`, `/projeler/${P}?tab=finans`],
     [`/projeler/${P}?grup=finans`, `/projeler/${P}?tab=finans`],
@@ -571,7 +587,10 @@ describe("Dikkat metinleri", () => {
     assert.equal(attentionMeta(plan), "en eski 21 gün");
     assert.equal(attentionGroupHref(plan), null); // 4 kayıt -> açılır liste
     const claim = owner.agenda.groups.find((x) => x.code === "progress_claim_certify")!;
-    assert.equal(attentionGroupHref(claim), "/projeler/0b000000-0000-4000-8000-000000000001?tab=finans");
+    assert.equal(
+      attentionGroupHref(claim),
+      "/projeler/0b000000-0000-4000-8000-000000000001/taseronlar/12000000-0000-4000-8000-000000000001?hakedis=11000000-0000-4000-8000-000000000004"
+    );
     assert.equal(attentionGroupHref({ count: 3, items: [], module: "attendance" }), "/mesai");
   });
 
@@ -690,6 +709,7 @@ describe("diğer yardımcılar", () => {
   it("parseProjectTab yalnızca bilinen sekmeleri kabul eder", () => {
     assert.equal(parseProjectTab("finans"), "finans");
     assert.equal(parseProjectTab(["satinalma", "x"]), "satinalma");
+    assert.equal(parseProjectTab("taseron"), "taseron");
     assert.equal(parseProjectTab("yok"), "genel");
     assert.equal(parseProjectTab(undefined), "genel");
   });

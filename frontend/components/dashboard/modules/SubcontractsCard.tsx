@@ -10,7 +10,8 @@ import { MissingModule, ModuleCard } from "../ModuleCard";
 
 // Taşeron (Sprint 5 sözleşmeleri). Hakediş bloğu yalnızca hakediş okuma
 // izniyle, ödeme oranı/ödenmemiş yalnızca ödeme okuma izniyle gelir
-// (null -> gizli). Hakediş ve değişiklik emirleri şimdilik mobilde yönetilir.
+// (null -> gizli). Hakediş ve değişiklik emirleri proje sayfasındaki
+// Taşeronlar sekmesinden (sözleşme detayı) yönetilir.
 export function SubcontractsCard({ ctx }: { ctx: CardContext }) {
   const s = ctx.data.sections.subcontracts;
   if (!s) return <MissingModule moduleKey="subcontracts" ctx={ctx} />;
@@ -65,7 +66,6 @@ export function SubcontractsCard({ ctx }: { ctx: CardContext }) {
           {rows.length > 1 && (
             <Note>{COPY.other(rows.slice(1).map((r) => formatCompactMoney(r.current_value, r.currency)).join(" · "))}</Note>
           )}
-          <Note>{COPY.subcontractWebNote}</Note>
         </>
       }
     />

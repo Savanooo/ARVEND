@@ -27,6 +27,7 @@ import {
 } from "./format.ts";
 import { canAccess } from "./permissions.ts";
 import { sourceLabels } from "./price-sources.ts";
+import { subcontractHref } from "./subcontracts.ts";
 import type { Role } from "./types";
 
 export const DASHBOARD_PATH = "/api/v1/dashboard";
@@ -1201,10 +1202,10 @@ export function upcomingDayWord(date: ISODate, today: ISODate): "Bugün" | "Yar�
 // Bağlantı eşleyicileri
 // ---------------------------------------------------------------------------
 
-export type ProjectTab = "genel" | "finans" | "maliyet" | "satinalma" | "operasyon" | "dosyalar" | "aktivite";
+export type ProjectTab = "genel" | "finans" | "maliyet" | "satinalma" | "taseron" | "operasyon" | "dosyalar" | "aktivite";
 
 // Proje detayının ?tab= değerleri (app/(app)/projeler/[id]/page.tsx doğrular).
-export const PROJECT_TABS: readonly ProjectTab[] = ["genel", "finans", "maliyet", "satinalma", "operasyon", "dosyalar", "aktivite"];
+export const PROJECT_TABS: readonly ProjectTab[] = ["genel", "finans", "maliyet", "satinalma", "taseron", "operasyon", "dosyalar", "aktivite"];
 
 export function parseProjectTab(raw: string | string[] | undefined): ProjectTab {
   const v = Array.isArray(raw) ? raw[0] : raw;
@@ -1216,16 +1217,17 @@ export function projectHref(projectId: string, tab?: ProjectTab | null): string 
   return tab && tab !== "genel" ? `${base}?tab=${tab}` : base;
 }
 
-// Proje içindeki kayıt türü -> açılacak sekme (web'de kayıt başına sayfa yok).
+// Proje içindeki kayıt türü -> açılacak sekme (web'de kayıt başına sayfa yok;
+// taşeron kayıtları istisna: sözleşme detay sayfası var, bkz. webHrefFor).
 const PROJECT_TAB_BY_KIND: Record<string, ProjectTab> = {
   task: "operasyon",
   milestone: "operasyon",
   purchase_request: "satinalma",
   rfq: "satinalma",
   purchase_order: "satinalma",
-  subcontract: "finans",
-  progress_claim: "finans",
-  subcontract_change_order: "finans",
+  subcontract: "taseron",
+  progress_claim: "taseron",
+  subcontract_change_order: "taseron",
   change_order: "finans",
   contract: "finans",
   payment_plan_item: "finans",
@@ -1234,7 +1236,7 @@ const PROJECT_TAB_BY_KIND: Record<string, ProjectTab> = {
 };
 
 /** Nötr ref -> web yolu; eşlenemeyen (bilinmeyen tür, eksik proje) null -> satır düz metin. */
-export function webHrefFor(ref: Pick<DashboardRef, "kind" | "id" | "project_id" | "action">): string | null {
+export function webHrefFor(ref: Pick<DashboardRef, "kind" | "id" | "project_id" | "action"> & { parent_id?: string | null }): string | null {
   const id = encodeURIComponent(ref.id);
   switch (ref.kind) {
     case "project":
@@ -1255,6 +1257,17 @@ export function webHrefFor(ref: Pick<DashboardRef, "kind" | "id" | "project_id" 
       return `/admin/kullanicilar/${id}`;
     case "price_source":
       return "/admin/urunler";
+    // Taşeron sözleşmesinin kendi sayfası var; hakediş/değişiklik emrinin
+    // parent_id'si sözleşmedir (backend dashRef). parent yoksa sekmeye düşer.
+    case "subcontract":
+      if (ref.project_id) return subcontractHref(ref.project_id, ref.id);
+      break;
+    case "progress_claim":
+      if (ref.project_id && ref.parent_id) return subcontractHref(ref.project_id, ref.parent_id, { claimId: ref.id });
+      break;
+    case "subcontract_change_order":
+      if (ref.project_id && ref.parent_id) return subcontractHref(ref.project_id, ref.parent_id, { changeOrderId: ref.id });
+      break;
   }
   const tab = PROJECT_TAB_BY_KIND[ref.kind];
   if (tab && ref.project_id) return projectHref(ref.project_id, tab);
@@ -1278,7 +1291,17 @@ export function webHrefForActionTarget(path: string | null | undefined): string 
     // Plan ataması bildirimi (service/project_notify.go) .../planlama/{id}
     // yazar; web'de Planlama, Operasyon sekmesindedir.
     if (seg[2] === "gorevler" || seg[2] === "planlama") return projectHref(p, "operasyon");
-    if (seg[2] === "taseronlar") return projectHref(p, "finans");
+    // Taşeron bildirimleri (service/project_subcontract_*.go):
+    // .../taseronlar/{sözleşme}[/hakedisler/{id} | /degisiklik-emirleri/{id}]
+    // -> sözleşme detay sayfası, ilgili kayıt açık.
+    if (seg[2] === "taseronlar") {
+      const sc = seg[3];
+      if (!sc || sc === "yeni") return projectHref(p, "taseron");
+      if (seg[4] === "hakedisler" && seg[5] && seg[5] !== "yeni") return subcontractHref(p, sc, { claimId: seg[5] });
+      if (seg[4] === "degisiklik-emirleri" && seg[5] && seg[5] !== "yeni")
+        return subcontractHref(p, sc, { changeOrderId: seg[5] });
+      return subcontractHref(p, sc);
+    }
     if (seg.length === 2) {
       const grup = params.get("grup");
       const alt = params.get("alt");
@@ -1287,7 +1310,7 @@ export function webHrefForActionTarget(path: string | null | undefined): string 
         // Mobilin operasyon grubundaki satın alma/taşeron alt görünümleri
         // web'de kendi sekmelerindedir.
         if (alt === "satin-alma") return projectHref(p, "satinalma");
-        if (alt === "taseronlar") return projectHref(p, "finans");
+        if (alt === "taseronlar") return projectHref(p, "taseron");
         return projectHref(p, "operasyon");
       }
       if (grup === "dokumanlar") return projectHref(p, "dosyalar");
@@ -1566,7 +1589,6 @@ export const COPY = {
     "Proje başladığında finans, ek iş, sözleşme, görev, şantiye, satın alma, taşeron ve bütçe özetleri burada görünecek.",
   firmWide: "Firma geneli",
   subcontractPaidInfo: "Hakedişe bağlanmamış avans ödemeleri 'ödenmemiş' tutarını azaltmaz.",
-  subcontractWebNote: "Taşeron hakediş ve değişiklik emirleri şimdilik mobil uygulamada yönetilir.",
 } as const;
 
 // Boş durum metinleri (§7.4). CTA'lar kartta ilgili yazma izniyle gösterilir.

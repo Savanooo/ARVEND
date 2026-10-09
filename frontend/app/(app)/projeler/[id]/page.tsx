@@ -12,6 +12,7 @@ import { parseProjectTab } from "@/lib/dashboard";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
 import { hasPermission, PAGE_PERMISSIONS } from "@/lib/permissions";
 import { PROJECT_STATUS } from "@/lib/status";
+import { subcontractPermsFrom } from "@/lib/subcontracts";
 import {
   type BudgetAdjustment,
   type BudgetLine,
@@ -53,6 +54,7 @@ import { ChangeOrdersSection } from "./ChangeOrderSections";
 import { ContractSection } from "./ContractSection";
 import { CostControlWorkspace } from "./CostControlSections";
 import { PurchasingWorkspace } from "./PurchasingSections";
+import { SubcontractsTab } from "./SubcontractsTab";
 import { FinanceSummary } from "./FinanceSummary";
 import {
   CollectionsSection,
@@ -114,7 +116,7 @@ export default async function ProjeDetayPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  // ?tab=genel|finans|maliyet|satinalma|operasyon|dosyalar|aktivite -- ana
+  // ?tab=genel|finans|maliyet|satinalma|taseron|operasyon|dosyalar|aktivite -- ana
   // sayfadaki kayıt bağlantıları ilgili sekmeyi açar; bilinmeyen değer "genel".
   searchParams: Promise<{ tab?: string | string[] }>;
 }) {
@@ -350,6 +352,7 @@ export default async function ProjeDetayPage({
             { key: "finans", label: "Finans" },
             { key: "maliyet", label: "Maliyet Kontrolü" },
             { key: "satinalma", label: "Satın Alma" },
+            { key: "taseron", label: "Taşeronlar" },
             { key: "operasyon", label: "Operasyon" },
             { key: "dosyalar", label: "Dosyalar" },
             { key: "aktivite", label: "Aktivite" },
@@ -531,7 +534,7 @@ export default async function ProjeDetayPage({
                   />
                 </Section>
 
-                <Section title="Taşeronlar">
+                <Section title="Taşeron Ödemeleri">
                   <SubcontractorsSection
                     project={project}
                     subcontractors={subcontractors.subcontractors}
@@ -592,6 +595,12 @@ export default async function ProjeDetayPage({
             ) : (
               <p className="text-sm text-text-muted">Bu bölümü görüntüleme yetkiniz yok.</p>
             )}
+          </ControlledTabPanel>
+
+          <ControlledTabPanel tab="taseron">
+            {/* Taşeron sözleşmeleri (Sprint 5): kendi verisini kendisi çeker,
+                her adımın ayrı izni lib/subcontracts.ts'te. */}
+            <SubcontractsTab project={project} perms={subcontractPermsFrom(perms)} locked={locked} />
           </ControlledTabPanel>
 
           <ControlledTabPanel tab="operasyon">
