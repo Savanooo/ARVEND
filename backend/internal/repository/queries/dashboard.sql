@@ -248,7 +248,10 @@ ORDER BY ap.name ASC, ap.id;
 -- Güncel bedel GetProjectFinancialSummary co_effect formülü; gerçekleşen
 -- maliyet = masraf + eski taşeron ödemeleri + Sprint 5 taşeron ödemeleri
 -- (iki ödeme tablosu fiziksel olarak ayrı, migration 0039 -- çift sayım
--- yok). Açık alacak proje BAŞINA sıfırın altına düşürülmez.
+-- yok). Açık alacak proje BAŞINA sıfırın altına düşürülmez. realized_cost
+-- nakittir (KDV DAHİL; tahsilatlar da KDV dahil); realized_cost_net finans
+-- özetinin realized_cost_net'iyle AYNI kural: onaylı masrafların içindeki
+-- KDV düşülür (oranı belirtilmemiş masraf tamamıyla, taşeron olduğu gibi).
 WITH ap AS (
     SELECT p.* FROM projects p
     WHERE p.organization_id = @org_id::uuid
@@ -272,16 +275,16 @@ coll AS (
     GROUP BY c.project_id
 ),
 cost AS (
-    SELECT x.project_id, sum(x.amount) AS total
+    SELECT x.project_id, sum(x.amount) AS total, sum(x.vat) AS vat
     FROM (
         -- Yalnızca onaylı masraflar (migration 0060; finans özetiyle aynı).
-        SELECT e.project_id, e.amount FROM project_expenses e
+        SELECT e.project_id, e.amount, COALESCE(e.vat_amount, 0) AS vat FROM project_expenses e
         WHERE e.organization_id = @org_id::uuid AND e.voided_at IS NULL AND e.approval_status = 'approved'
         UNION ALL
-        SELECT sp.project_id, sp.amount FROM project_subcontractor_payments sp
+        SELECT sp.project_id, sp.amount, 0 FROM project_subcontractor_payments sp
         WHERE sp.organization_id = @org_id::uuid AND sp.voided_at IS NULL
         UNION ALL
-        SELECT np.project_id, np.amount FROM subcontract_payments np
+        SELECT np.project_id, np.amount, 0 FROM subcontract_payments np
         WHERE np.organization_id = @org_id::uuid AND np.voided_at IS NULL
     ) x
     WHERE x.project_id IN (SELECT pn.id FROM pn)
@@ -315,6 +318,7 @@ per AS (
            pn.contract_amount + COALESCE(co.net, 0) AS current_value,
            COALESCE(coll.total, 0) AS collected,
            COALESCE(cost.total, 0) AS realized,
+           COALESCE(cost.vat, 0) AS realized_vat,
            COALESCE(od.cnt, 0) AS od_cnt, COALESCE(od.amount, 0) AS od_amount, od.oldest AS od_oldest,
            COALESCE(inv.cnt, 0) AS inv_cnt, COALESCE(inv.amount, 0) AS inv_amount, inv.oldest AS inv_oldest
     FROM pn
@@ -329,6 +333,7 @@ SELECT per.currency::text AS currency,
        sum(per.collected)::numeric(18,2) AS collected_total,
        sum(GREATEST(per.current_value - per.collected, 0))::numeric(18,2) AS open_receivable,
        sum(per.realized)::numeric(18,2) AS realized_cost,
+       (sum(per.realized) - sum(per.realized_vat))::numeric(18,2) AS realized_cost_net,
        (CASE WHEN sum(per.current_value) > 0
              THEN round(sum(per.collected) / sum(per.current_value) * 100, 1) END)::numeric AS collection_pct,
        sum(per.od_cnt)::int AS overdue_plan_count,

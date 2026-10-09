@@ -575,6 +575,7 @@
           "open_receivable": 5100000,
           "collection_pct": 59.2,
           "realized_cost": 5200000,
+          "realized_cost_net": 4950000,
           "cash_balance": 2200000,
           "month": {
             "collections": 950000,
@@ -637,6 +638,7 @@
           "open_receivable": 45000,
           "collection_pct": 62.5,
           "realized_cost": 30000,
+          "realized_cost_net": 30000,
           "cash_balance": 45000,
           "month": {
             "collections": 0,
