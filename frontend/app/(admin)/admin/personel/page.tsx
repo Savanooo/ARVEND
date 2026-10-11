@@ -133,7 +133,7 @@ export default async function PersonelPage({
 // listesini görebilene gelir; diğerleri yalnızca "hesabı var"ı görür.
 function LoginCell({ employee: e, canOpenUser }: { employee: Employee; canOpenUser: boolean }) {
   if (!e.user_id) return <span className="text-text-muted">—</span>;
-  if (!e.user_username) return <span className="text-text-muted">Hesabı var</span>;
+  if (!e.user_username) return <span className="text-text-muted">Giriş hesabı var</span>;
   return (
     <span className="flex items-center gap-2">
       {canOpenUser && !e.user_deleted ? (

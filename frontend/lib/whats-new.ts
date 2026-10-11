@@ -55,7 +55,8 @@ export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
       {
         icon: "subcontracts",
         title: "Taşeron sözleşmeleri",
-        body: "Projede taşeron sözleşmesi, hakediş ve ödemelerini web'den de yönetebilirsin.",
+        // Okuma izniyle de görünür: "yönetebilirsin" demiyoruz.
+        body: "Projenin Taşeronlar sekmesinde sözleşme, hakediş ve ödemeler artık web'de de var.",
         // Proje sayfasındaki Taşeron ekranı bu izinle açılır.
         permission: "projects.subcontracts.read",
       },
@@ -110,7 +111,7 @@ export interface WhatsNewViewer {
 }
 
 export interface WhatsNewNotes {
-  /** En yeni yayının anahtarı -- pencere kapanınca "görüldü" olarak yazılır. */
+  /** En yeni yayının anahtarı -- pencere açılır açılmaz "görüldü" olarak yazılır (bkz. WhatsNew.tsx). */
   key: string;
   label: string;
   items: WhatsNewItem[];
