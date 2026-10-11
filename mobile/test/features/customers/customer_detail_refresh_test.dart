@@ -236,6 +236,45 @@ void main() {
       expect(find.text('İptal edilen 1 proje özete katılmadı.'), findsOneWidget);
     });
 
+    // Sunucu sayfa başına en çok 200 proje döner; eskiden yalnızca ilk sayfa
+    // okunuyordu ve özet sessizce eksik kalıyordu.
+    testWidgets('toplam ilk sayfayı aşarsa sonraki sayfa da okunur, özet hepsini toplar', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/customers/c1': [(status: 200, body: _customer())],
+        '/offers/': [_offers([])],
+        '/projects': [
+          (status: 200, body: {'projects': [_project(id: 'a', name: 'A Blok', value: 100000, collected: 0)], 'total': 2}),
+          (status: 200, body: {'projects': [_project(id: 'b', name: 'B Blok', value: 200000, collected: 0)], 'total': 2}),
+        ],
+      });
+      await _pump(tester, adapter);
+
+      expect(_count(adapter, '/projects'), 2);
+      expect(adapter.requestQueries.where((q) => q['page'] == 2), hasLength(1));
+      expect(find.text('B Blok'), findsOneWidget);
+      final kalan = find.descendant(
+        of: find.ancestor(of: find.text('Kalan Alacak'), matching: find.byType(Row)).first,
+        matching: find.textContaining('TL'),
+      );
+      expect(tester.widget<Text>(kalan).data, contains('300.000'));
+      expect(find.textContaining('proje sayılmadı'), findsNothing);
+    });
+
+    testWidgets('projelerin hepsi okunamazsa özet eksik olduğunu söyler', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/customers/c1': [(status: 200, body: _customer())],
+        '/offers/': [_offers([])],
+        '/projects': [
+          (status: 200, body: {'projects': [_project()], 'total': 3}),
+          // Sonraki sayfa boş döndü (liste bu arada kısaldı ya da sınır).
+          (status: 200, body: {'projects': <Map<String, dynamic>>[], 'total': 3}),
+        ],
+      });
+      await _pump(tester, adapter);
+
+      expect(find.text('Özet ilk 1 projeye göre; 2 proje sayılmadı.'), findsOneWidget);
+    });
+
     testWidgets('fazla tahsilat yoksa satır çizilmez', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
         '/customers/c1': [(status: 200, body: _customer())],

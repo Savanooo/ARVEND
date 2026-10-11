@@ -457,18 +457,19 @@ class _FinancialSummarySection extends ConsumerWidget {
       data: (result) {
         final summaries = summarizeProjectReceivables(result.projects);
         final cancelled = cancelledProjectCount(result.projects);
+        // Okunamayan proje (sayfa sınırının ötesi, bkz. customerProjectsProvider).
+        final missing = result.total - result.projects.length;
+        Widget note(String text) => Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.sm),
+              child: Text(text, style: AppTypography.helper),
+            );
         // İptal edilen projeler özete katılmaz (ana sayfadaki açık alacakla
         // aynı kural) -- rakam proje listesinden farklı görünürse sebebi
-        // yazılır.
-        final cancelledNote = cancelled == 0
-            ? null
-            : Padding(
-                padding: const EdgeInsets.only(top: AppSpacing.sm),
-                child: Text(
-                  'İptal edilen $cancelled proje özete katılmadı.',
-                  style: AppTypography.helper,
-                ),
-              );
+        // yazılır. Eksik okunan özet de eksik olduğunu söyler.
+        final notes = [
+          if (cancelled > 0) note('İptal edilen $cancelled proje özete katılmadı.'),
+          if (missing > 0) note('Özet ilk ${result.projects.length} projeye göre; $missing proje sayılmadı.'),
+        ];
         if (summaries.isEmpty) {
           return AppCard(
             child: Column(
@@ -478,7 +479,7 @@ class _FinancialSummarySection extends ConsumerWidget {
                   'Gösterilecek finansal veri yok.',
                   style: AppTypography.metadata,
                 ),
-                ?cancelledNote,
+                ...notes,
               ],
             ),
           );
@@ -519,7 +520,7 @@ class _FinancialSummarySection extends ConsumerWidget {
                   ),
                 if (s != summaries.last) const Divider(height: AppSpacing.lg),
               ],
-              ?cancelledNote,
+              ...notes,
             ],
           ),
         );

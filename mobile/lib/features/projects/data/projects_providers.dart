@@ -123,9 +123,33 @@ final projectDetailProvider = FutureProvider.autoDispose.family<Project, String>
 /// Phase 1 doğrulaması: `projects.customer_id` gerçek, canlı sorgulanabilir
 /// bir FK'dır), N+1 YOKTUR. Finans alanları (contract/collected/remaining)
 /// bu liste sorgusunda ZATEN dolu gelir -- ayrı bir hesaplama İCAT EDİLMEZ.
+///
+/// Sunucu sayfa başına en çok [customerProjectsPageSize] proje döner;
+/// Finansal Özet müşterinin TÜM projelerini toplamalı. Eskiden yalnızca ilk
+/// sayfa okunuyordu: 200'den fazla projesi olan müşteride Kalan Alacak
+/// sessizce eksik kalırdı. Sonraki sayfalar ancak toplam ilk sayfayı
+/// aşarsa istenir; [customerProjectsMaxPages]'ten sonrası okunmaz
+/// (`projects.length < total` ise ekran özetin eksik olduğunu söyler).
+const customerProjectsPageSize = 200;
+const customerProjectsMaxPages = 10;
+
 final customerProjectsProvider =
     FutureProvider.autoDispose.family<({List<Project> projects, int total}), String>(
-  (ref, customerId) => ref.watch(projectsRepositoryProvider).list(customerId: customerId, limit: 200),
+  (ref, customerId) async {
+    final repo = ref.watch(projectsRepositoryProvider);
+    final first = await repo.list(customerId: customerId, limit: customerProjectsPageSize);
+    final all = [...first.projects];
+    final seen = {for (final p in all) p.id};
+    var total = first.total;
+    for (var page = 2; all.length < total && page <= customerProjectsMaxPages; page++) {
+      final next = await repo.list(customerId: customerId, page: page, limit: customerProjectsPageSize);
+      if (next.projects.isEmpty) break;
+      // Sayfalar arasında kayma olursa aynı proje iki kez sayılmaz.
+      all.addAll(next.projects.where((p) => seen.add(p.id)));
+      total = next.total;
+    }
+    return (projects: all, total: total);
+  },
 );
 
 final projectFinancialSummaryProvider = FutureProvider.autoDispose.family<FinancialSummary, String>(
