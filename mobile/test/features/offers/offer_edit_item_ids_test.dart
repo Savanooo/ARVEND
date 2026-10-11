@@ -19,7 +19,7 @@ Map<String, dynamic> _item(String id, String name, num qty, num price, {Map<Stri
   'unit_price': price,
   'line_total': qty * price,
   'unit': 'm2',
-  if (internal != null) 'internal_pricing': internal,
+  'internal_pricing': ?internal,
 };
 
 Map<String, dynamic> _draft(List<Map<String, dynamic>> items) => {
