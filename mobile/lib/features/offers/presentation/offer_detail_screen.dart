@@ -624,15 +624,16 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
               if (offer.isEditable && canApprove)
                 PrimaryButton(
                   label: 'Gönderildi Olarak İşaretle',
+                  // Süresi geçmiş taslak gönderilemez: onay yerine nedeni.
                   onPressed: expired
                       ? () => _explainExpired(offer, canUpdate: canUpdate)
                       : () => _confirmAndSetStatus(
-                    Offer.statusGonderildi,
-                    title: 'Gönderildi Olarak İşaretle',
-                    message: '${offer.offerNo} gönderildi olarak işaretlensin mi? Bu revizyon artık '
-                        'düzenlenemez; değişiklik için yeni bir revizyon gerekir.',
-                    confirmLabel: 'İşaretle',
-                  ),
+                            Offer.statusGonderildi,
+                            title: 'Gönderildi Olarak İşaretle',
+                            message: '${offer.offerNo} gönderildi olarak işaretlensin mi? Bu revizyon artık '
+                                'düzenlenemez; değişiklik için yeni bir revizyon gerekir.',
+                            confirmLabel: 'İşaretle',
+                          ),
                 ),
               if (offer.status == Offer.statusGonderildi && canApprove)
                 Row(
