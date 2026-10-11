@@ -16,7 +16,7 @@ import {
   expenseActionsFor,
   expenseIsWithdrawn,
   expenseProjectLabel,
-  expenseVatRateLabel,
+  expenseVatPercent,
   MY_EXPENSE_FILTERS,
   MY_EXPENSES_PATH,
   myExpenseMatches,
@@ -61,10 +61,18 @@ export function MyExpensesView({
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState<MyExpenseFilter>("all");
-  // ?masraf= yalnızca ilk açılışta ayrıntıyı açar.
-  const [detailId, setDetailId] = useState<string | null>(() =>
-    initialExpenseId && rows.some((r) => r.id === initialExpenseId) ? initialExpenseId : null
-  );
+  // ?masraf= ayrıntıyı bir kez açar: ilk açılışta ve Masraflarım zaten
+  // açıkken bildirimden yeniden gelindiğinde (sayfa yeniden kurulmaz, yalnızca
+  // prop değişir -- liste sunucudan taze gelir). Adresten düşünce (null)
+  // açık ayrıntıya dokunulmaz.
+  const openable = (id: string | null) => (id && rows.some((r) => r.id === id) ? id : null);
+  const [detailId, setDetailId] = useState<string | null>(() => openable(initialExpenseId));
+  const [seenInitialId, setSeenInitialId] = useState(initialExpenseId);
+  if (initialExpenseId !== seenInitialId) {
+    setSeenInitialId(initialExpenseId);
+    const target = openable(initialExpenseId);
+    if (target) setDetailId(target);
+  }
   const [editing, setEditing] = useState<MyExpense | null>(null);
   const mutations = useExpenseMutations();
 
@@ -104,14 +112,17 @@ export function MyExpensesView({
         </div>
       )}
 
-      <Tabs
-        items={MY_EXPENSE_FILTERS.map((f) => ({
-          key: f.key,
-          label: `${f.label} (${rows.filter((r) => myExpenseMatches(f.key, r)).length})`,
-          active: filter === f.key,
-          onClick: () => setFilter(f.key),
-        }))}
-      />
+      {/* Dar ekranda süzgeçler kendi içinde kayar (sayfa yatay kaymasın). */}
+      <div className="overflow-x-auto whitespace-nowrap">
+        <Tabs
+          items={MY_EXPENSE_FILTERS.map((f) => ({
+            key: f.key,
+            label: `${f.label} (${rows.filter((r) => myExpenseMatches(f.key, r)).length})`,
+            active: filter === f.key,
+            onClick: () => setFilter(f.key),
+          }))}
+        />
+      </div>
 
       {visible.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-6 text-sm text-text-muted">
@@ -147,7 +158,14 @@ export function MyExpensesView({
                     )}
                   </Td>
                   <Td>
-                    <div className="font-medium">{categoryLabel(e.category)}</div>
+                    {/* Dar ekranda sağdaki "Ayrıntı" kaydırmadan görünmeyebilir: kategori de açar. */}
+                    <button
+                      type="button"
+                      onClick={() => setDetailId(e.id)}
+                      className="text-left font-medium hover:text-gold hover:underline"
+                    >
+                      {categoryLabel(e.category)}
+                    </button>
                     {e.description && <div className="text-xs text-text-muted">{e.description}</div>}
                     {e.approval_status === "rejected" && !e.voided_at && e.decision_note && (
                       <div className="text-xs text-danger">Red nedeni: {e.decision_note}</div>
@@ -288,7 +306,7 @@ function ExpenseDetailModal({
           <DetailRow label="Fatura No">{e.invoice_no || "—"}</DetailRow>
           {e.vat_rate != null ? (
             <>
-              <DetailRow label={`KDV (${expenseVatRateLabel(e.vat_rate)})`}>
+              <DetailRow label={`KDV (${expenseVatPercent(e.vat_rate)})`}>
                 {e.vat_amount == null ? "—" : money(e.vat_amount)}
               </DetailRow>
               {e.net_amount != null && <DetailRow label="KDV hariç">{money(e.net_amount)}</DetailRow>}
