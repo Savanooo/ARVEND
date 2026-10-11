@@ -522,6 +522,7 @@ bir bağlantı ~2 dakikada kesilir.
         ├── latest.json              644  API'nin okuduğu tek kayıt
         ├── arvend-<build>.apk       644  en yeni 3'ü saklanır
         ├── imza.sha256              644  son yayının imza sertifikası (yalnızca betik okur)
+        ├── play.json                644  Play sürümünün zorunlu güncelleme tabanı (§16, elle)
         └── .yayin.kilit             betiğin kilidi (aynı anda tek yayın)
 ```
 
@@ -708,9 +709,61 @@ düşürür (eklenti manifest'lerinden geleni de), `AppConfig.isPlayBuild` ise
 `updateSupportedProvider`'ı kapatır — Play sürümü sunucuya sürüm sormaz, APK
 indirmez. `derle.sh play` derleme sonrası AAB'de iznin olmadığını doğrular.
 
-**Play sürümünde zorunlu-güncelleme yok.** `min_build` barajı uzaktan
-güncellemeyle birlikte kapanıyor; Play'deki karşılığı In-App Updates API
-(henüz eklenmedi).
+### Play'de güncelleme ve zorunlu güncelleme (In-App Updates)
+
+Play sürümü kendini Play'in uygulama içi güncelleme API'siyle günceller
+(`lib/core/update/play_update.dart`, açılışta ve 6 saatte bir öne gelişte;
+Diğer > Hakkında > "Güncellemeleri denetle" elle):
+
+- **Normal yeni sürüm:** Play'in kendi penceresi açılır (esnek güncelleme),
+  indirme arka planda sürer, inince "Yeniden başlat" çubuğu çıkar. Otomatik
+  denetimde aynı sürüm **günde en fazla bir kez** önerilir (pencere açıldığı
+  an kaydedilir); elle denetim bunu beklemez, daha yeni bir sürüm de
+  beklemez.
+- **Zorunlu güncelleme:** kurulu build sunucudaki tabanın altındaysa Play'in
+  tam ekran güncellemesi açılır. Kullanıcı vazgeçerse ya da pencere
+  açılamazsa uygulama, kapatılamayan **"Güncelleme gerekli"** ekranında
+  bekler ("Güncelle" / "Google Play'de aç"); her öne gelişte yeniden denenir.
+- **Kilitlemeyen durumlar:** Play'e ulaşılamıyorsa (uygulama Play'den
+  kurulmamış, ör. `flutter run`/sideload; Play Hizmetleri yok; ağ yok),
+  sunucuya ulaşılamıyorsa ya da Play bu telefona henüz yeni sürüm
+  sunmuyorsa (kademeli dağıtım) hiçbir şey kilitlenmez.
+
+**Taban nereden gelir:** `GET /api/v1/mobile/app-version?platform=android`
+yanıtındaki `min_build`. Sideload yayını (`latest.json`) kapalı olduğundan
+taban ayrı, küçük bir dosyadadır ve APK gerektirmez:
+
+```
+/var/lib/arvend/app-releases/android/play.json     {"min_build": 25}
+```
+
+- Yazan: szutech2 (sudo GEREKMEZ, dizin onun; API yalnızca okur). API'yi
+  yeniden başlatmak gerekmez, bir sonraki istekte görünür.
+- Dosya yoksa ya da geçersizse taban 0'dır (zorunlu güncelleme yok) — bozuk
+  bir dosya kimseyi kilitlemez; reddedilen dosya logda
+  `UYARI: Play zorunlu güncelleme ...` satırıyla görünür.
+- `latest.json` da varsa (eski sideload kanalı) iki tabandan büyüğü döner.
+
+Zorunlu yapmak (ör. eski sürümleri bozan bir API değişikliği):
+
+1. Yeni sürümü Play'de **%100'e** yayınla ve Play'de göründüğünü doğrula
+   (taban, Play'in sunduğu sürümden büyük olamaz; olursa kimse kilitlenmez
+   ama zorunluluk da işlemez).
+2. Tabanı o sürümün build numarası yap (pubspec'teki `+N`):
+
+```bash
+ssh szutech2@192.168.77.77 'cd /var/lib/arvend/app-releases/android && \
+  printf "{\"min_build\": 25}\n" > play.json.tmp && mv play.json.tmp play.json'
+curl -s 'https://app.arvendyapi.com.tr/api/v1/mobile/app-version?platform=android'
+# -> {"platform":"android","build":0,"min_build":25}
+```
+
+Kaldırmak: `rm /var/lib/arvend/app-releases/android/play.json` (ya da
+`{"min_build": 0}`). Yeni bir uygulama sürümü gerekmez: In-App Updates'li her
+Play sürümü (1.5.8+14 ve sonrası) tabanı okur ve Play'in tam ekran
+güncellemesini açar. Vazgeçilince çıkan kapatılamayan ekran ise bu
+değişikliği içeren sürümden itibaren var; daha eskilerde güncelleme her öne
+gelişte yeniden açılır.
 
 ### Play App Signing — KARAR (2026-10-04): Google yeni anahtar üretir
 

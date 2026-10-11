@@ -18,6 +18,12 @@ package service
 //  3. Android güncellemeyi yalnızca kurulu uygulamayla AYNI anahtarla
 //     imzalanmışsa kurar.
 //
+// Google Play sürümünün zorunlu güncelleme tabanı ayrı bir dosyadadır:
+// APP_RELEASES_DIR/<platform>/play.json -> {"min_build": N} (bkz.
+// PlayMinBuild). Sideload kanalı 2026-10-09'da kapandı (latest.json yok);
+// Play'den kurulan uygulama APK'yı bizden indirmez, yalnızca "kurulu build
+// N'den küçükse Play'in tam ekran güncellemesini aç" bilgisini ister.
+//
 // Bu yüzden burada latest.json'daki her alan doğrulanır: dosya adı sabit bir
 // desene uyar (yol geçişi yok), sembolik bağ kabul edilmez, boyut VE SHA-256
 // diskteki gerçek dosyayla birebir tutar. Herhangi bir eksik/tutarsızlık
@@ -54,6 +60,9 @@ var (
 
 const (
 	appReleaseManifestName = "latest.json"
+	// play.json birkaç bayttır ({"min_build": 25}).
+	appPlayPolicyName     = "play.json"
+	maxAppPlayPolicyBytes = 4 << 10
 	// latest.json birkaç yüz bayttır; sınır bozuk/dev bir dosyanın belleğe
 	// okunmasını engeller.
 	maxAppReleaseManifestBytes = 64 << 10
@@ -116,6 +125,15 @@ type AppReleaseService struct {
 
 	mu    sync.Mutex
 	state map[string]*appReleaseState
+	play  map[string]*appPlayPolicyState
+}
+
+// appPlayPolicyState: play.json'ın son okunan hali -- dosya değişmedikçe
+// (inode + boyut + mtime) yeniden okunmaz, uyarı da değişiklik başına bir
+// kez loglanır.
+type appPlayPolicyState struct {
+	file     os.FileInfo // nil: yok
+	minBuild int
 }
 
 type appReleaseState struct {
@@ -128,7 +146,10 @@ type appReleaseState struct {
 }
 
 func NewAppReleaseService(dir string) *AppReleaseService {
-	return &AppReleaseService{dir: dir, logf: log.Printf, state: map[string]*appReleaseState{}}
+	return &AppReleaseService{
+		dir: dir, logf: log.Printf,
+		state: map[string]*appReleaseState{}, play: map[string]*appPlayPolicyState{},
+	}
 }
 
 // Latest, platformun geçerli yayınını döner. Geçerli yayın yoksa
@@ -144,6 +165,62 @@ func (s *AppReleaseService) Latest(platform string) (AppRelease, error) {
 		return AppRelease{}, ErrAppReleaseNotFound
 	}
 	return *rel, nil
+}
+
+// PlayMinBuild, Google Play sürümünün zorunlu güncelleme tabanı:
+// APP_RELEASES_DIR/<platform>/play.json içindeki min_build. Kurulu build
+// bundan küçükse uygulama Play'in kapatılamayan güncellemesini açar (bkz.
+// mobile/lib/core/update/play_update.dart). Sideload yayınından (latest.json
+// + APK) BAĞIMSIZDIR; APK gerektirmez.
+//
+// Dosya yoksa, okunamazsa ya da geçersizse 0 (zorunlu güncelleme yok) --
+// bozuk bir dosya hiçbir cihazı kilitlemez. Değeri değiştirmek için API'yi
+// yeniden başlatmak gerekmez.
+func (s *AppReleaseService) PlayMinBuild(platform string) int {
+	if !appReleasePlatforms[platform] {
+		return 0
+	}
+	path := filepath.Join(s.dir, platform, appPlayPolicyName)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	info := lstatOrNil(path)
+	if prev := s.play[platform]; prev != nil && sameAppReleaseFile(prev.file, info) {
+		return prev.minBuild
+	}
+	n := s.loadPlayMinBuild(platform, path, info)
+	s.play[platform] = &appPlayPolicyState{file: info, minBuild: n}
+	return n
+}
+
+func (s *AppReleaseService) loadPlayMinBuild(platform, path string, info os.FileInfo) int {
+	if info == nil {
+		// Dosyanın olmaması normal durumdur (zorunlu güncelleme yok).
+		return 0
+	}
+	f, _, err := openRegularFile(path)
+	if err != nil {
+		s.logf("UYARI: Play zorunlu güncelleme (%s): %s okunamadı: %v -- taban 0 sayıldı", platform, path, err)
+		return 0
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, maxAppPlayPolicyBytes+1))
+	f.Close()
+	if err != nil || len(raw) > maxAppPlayPolicyBytes {
+		s.logf("UYARI: Play zorunlu güncelleme (%s): %s okunamadı ya da çok büyük -- taban 0 sayıldı", platform, path)
+		return 0
+	}
+	var policy struct {
+		MinBuild *int `json:"min_build"`
+	}
+	if err := json.Unmarshal(raw, &policy); err != nil {
+		s.logf("UYARI: Play zorunlu güncelleme (%s): %s bozuk JSON: %v -- taban 0 sayıldı", platform, path, err)
+		return 0
+	}
+	if policy.MinBuild == nil || *policy.MinBuild < 0 || *policy.MinBuild > maxAppReleaseBuild {
+		s.logf("UYARI: Play zorunlu güncelleme (%s): %s min_build eksik ya da geçersiz -- taban 0 sayıldı", platform, path)
+		return 0
+	}
+	s.logf("Play zorunlu güncelleme (%s): build %d altındaki kurulumlar güncellemeden açılmaz", platform, *policy.MinBuild)
+	return *policy.MinBuild
 }
 
 // Open, geçerli yayının APK'sını okumak üzere açar; kapatmak çağıranın

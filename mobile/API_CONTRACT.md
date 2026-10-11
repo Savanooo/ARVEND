@@ -124,8 +124,12 @@ Server: `backend/internal/service/app_release_service.go`; client:
   `{"platform":"android","build":3,"version":"1.2.0","sha256":"<64 lowercase hex>","size":62418702,"notes":"…","min_build":0,"published_at":"<RFC3339>"}`.
   No valid release (nothing published, or the release on disk is
   missing/corrupt/inconsistent) → exactly `{"platform":"android","build":0}`
-  — never an error. Missing/unknown `platform` (only `android` exists) →
-  400 `{"error"}`.
+  — never an error — plus `"min_build":N` when the Play floor
+  (`app-releases/android/play.json`, `{"min_build":N}`, RELEASE.md §16) is
+  set. With a valid release `min_build` is the larger of the two floors.
+  The sideload channel is closed (2026-10-09), so in practice this endpoint
+  now only carries the Play build's mandatory-update floor.
+  Missing/unknown `platform` (only `android` exists) → 400 `{"error"}`.
 - `GET /mobile/app-download?platform=android` — `requireAuth` +
   `requireTenant` (any tenant user; NO permission, NO onboarding gate).
   Streams the current release APK: 200, `Content-Type:
@@ -144,8 +148,12 @@ Server: `backend/internal/service/app_release_service.go`; client:
   timeout: it moves to now + 2 min after each chunk the client accepts,
   capped at 1 h in total. A slow link that keeps reading finishes; a
   client that stops reading is dropped after about 2 min.
-- Client rules: update available when `build > PackageInfo.buildNumber`;
-  mandatory when `PackageInfo.buildNumber < min_build`. Before opening the
+- Client rules (sideload): update available when `build > PackageInfo.buildNumber`;
+  mandatory when `PackageInfo.buildNumber < min_build`. Play build
+  (`lib/core/update/play_update.dart`): asks Google Play whether an update
+  exists and reads only `min_build` here; below it the update is mandatory
+  (Play's immediate update, then a blocking "Güncelleme gerekli" screen if
+  declined). Unreachable Play/server never blocks the app. Before opening the
   installer, the SHA-256 of the downloaded file MUST equal `sha256` from
   `app-version` (refuse on mismatch). Android itself only installs an update
   signed with the same key as the installed app.

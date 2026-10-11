@@ -6,21 +6,35 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:in_app_update/in_app_update.dart' as iau;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../config/app_config.dart';
 import '../push/push_watcher.dart' show rootScaffoldMessengerKey;
+import '../theme/app_colors.dart';
+import '../theme/app_radius.dart';
+import '../theme/app_spacing.dart';
+import '../theme/app_status_colors.dart';
+import '../theme/app_typography.dart';
+import '../widgets/app_buttons.dart';
 import 'update_controller.dart';
+import 'update_prompt_dialog.dart' show UpdateNotice;
 
 /// Google Play sürümünde güncelleme: Play'in kendi uygulama içi güncelleme
 /// API'si (In-App Updates). Sideload yapısındaki kendi güncelleyicimizin
 /// (update_controller.dart) Play'deki karşılığı -- Play, uygulamanın kendini
 /// Play dışından güncellemesini yasaklıyor ama bu API'ye izin veriyor.
 ///
-/// - Normal yeni sürüm: Play'in kendi onay penceresi açılır, indirme arka
-///   planda sürer; inince "Yeniden başlat" çubuğu çıkar.
-/// - Zorunlu: kurulu build sunucudaki `min_build`'in altındaysa (sideload ile
-///   AYNI ayar, aynı versionCode dizisi) tam ekran güncelleme açılır ve
-///   kullanıcı vazgeçse de uygulama her öne gelişinde yeniden açılır.
+/// - Normal yeni sürüm: Play'in kendi onay penceresi açılır (otomatik
+///   denetimde aynı sürüm için günde en fazla bir kez), indirme arka planda
+///   sürer; inince "Yeniden başlat" çubuğu çıkar.
+/// - Zorunlu: kurulu build sunucudaki `min_build`'in altındaysa (backend
+///   `play.json`; sideload'un `latest.json`'ı da aynı versionCode dizisini
+///   kullanır) Play'in tam ekran güncellemesi açılır. Kullanıcı vazgeçerse
+///   ya da pencere açılamazsa uygulama kapatılamayan "Güncelleme gerekli"
+///   ekranında bekler (Güncelle / Google Play'de aç) ve her öne gelişinde
+///   yeniden dener.
+/// - Play'e ya da sunucuya ulaşılamazsa (uygulama Play'den kurulmamış,
+///   derleme Play'e bağlı değil, ağ yok) hiçbir şey kilitlenmez.
 ///
 /// Sideload yapısında ve iOS/web'de modülün tamamı no-op'tur.
 final playUpdateSupportedProvider =
@@ -127,7 +141,7 @@ enum PlayUpdateStatus {
 
   upToDate,
 
-  /// Kullanıcı bu sürümü son 24 saatte reddetmiş -- otomatik denetimde sorulmaz.
+  /// Bu sürüm son 24 saatte zaten önerildi -- otomatik denetimde sorulmaz.
   postponed,
 
   /// Arka planda indirme sürüyor.
@@ -158,6 +172,12 @@ class PlayUpdateController {
 
   /// Son denetimde güncelleme zorunluydu -- her öne gelişte yeniden denenir.
   bool mandatoryPending = false;
+
+  /// Güncelleme zorunlu, Play onu sunuyor ama başlatılamadı (kullanıcı Play'in
+  /// penceresinden vazgeçti ya da pencere açılamadı): uygulama kapatılamayan
+  /// "Güncelleme gerekli" ekranında bekler (PlayUpdateWatcher). Play'e ya da
+  /// sunucuya ulaşılamayan her durumda false -- kimse kilitlenmez.
+  bool updateRequired = false;
 
   /// İlk denetimde güncellemenin zorunlu olup olmadığı belli oldu
   /// ([mandatoryPending] artık doğru). Yenilikler sayfası zorunlu
@@ -205,7 +225,10 @@ class PlayUpdateController {
     try {
       info = await client.check();
     } catch (e) {
+      // Uygulama Play'den kurulmamış (ör. geliştirici yapısı), Play Hizmetleri
+      // yok ya da ağ yok: sessizce geçilir, uygulama kilitlenmez.
       debugPrint('Play güncelleme denetimi başarısız: $e');
+      updateRequired = false;
       return PlayUpdateStatus.failed;
     }
     _lastCheckedAt = _ref.read(updateClockProvider)();
@@ -219,7 +242,10 @@ class PlayUpdateController {
       return PlayUpdateStatus.downloading;
     }
     if (!info.available && !info.inProgress) {
+      // Sunucu zorunlu dese bile Play'de kurulacak sürüm yoksa (ör. kademeli
+      // dağıtım bu telefona henüz ulaşmadı) kilitlenmez.
       mandatoryPending = false;
+      updateRequired = false;
       return PlayUpdateStatus.upToDate;
     }
 
@@ -227,19 +253,32 @@ class PlayUpdateController {
     mandatoryPending = mandatory;
     onChecked?.call();
 
-    if (mandatory && (info.inProgress || info.immediateAllowed)) return _immediate(client);
+    if (mandatory) {
+      final status = await _runMandatory(client, info);
+      updateRequired = status != PlayUpdateStatus.started;
+      return status;
+    }
+    updateRequired = false;
     if (info.inProgress) return PlayUpdateStatus.downloading;
 
+    // Öneri, otomatik denetimde aynı sürüm için günde en fazla bir kez:
+    // pencere açılmadan kaydedilir -- kullanıcı indirmeyi yarıda bıraksa ya
+    // da pencere hata verse de aynı gün yeniden sorulmaz. Elle denetim
+    // ("Güncellemeleri denetle") ertelemeye bakmaz; daha yeni bir sürüm
+    // erteleme beklemeden sorulur.
     final versionCode = info.versionCode ?? 0;
     final store = _ref.read(updatePostponeStoreProvider);
-    if (!manual && !mandatory && await store.isPostponed(versionCode)) return PlayUpdateStatus.postponed;
+    if (!manual) {
+      if (await store.isPostponed(versionCode)) return PlayUpdateStatus.postponed;
+      await store.postpone(versionCode);
+    }
 
     if (info.flexibleAllowed) {
       switch (await client.startFlexible()) {
         case PlayUpdateOutcome.completed:
           return PlayUpdateStatus.readyToInstall;
         case PlayUpdateOutcome.denied:
-          if (!mandatory) await store.postpone(versionCode);
+          await store.postpone(versionCode);
           return PlayUpdateStatus.denied;
         case PlayUpdateOutcome.failed:
           return PlayUpdateStatus.failed;
@@ -250,6 +289,23 @@ class PlayUpdateController {
     return PlayUpdateStatus.failed;
   }
 
+  /// Zorunlu güncelleme: Play'in tam ekran güncellemesi (yarım kaldıysa
+  /// sürdürülür). Play buna izin vermiyorsa arka planda indirilip hemen
+  /// kurulur. Erteleme hiç dinlenmez.
+  Future<PlayUpdateStatus> _runMandatory(PlayUpdateClient client, PlayUpdateInfo info) async {
+    if (info.inProgress || info.immediateAllowed) return _immediate(client);
+    if (!info.flexibleAllowed) return PlayUpdateStatus.failed;
+    switch (await client.startFlexible()) {
+      case PlayUpdateOutcome.completed:
+        await completeUpdate();
+        return PlayUpdateStatus.started;
+      case PlayUpdateOutcome.denied:
+        return PlayUpdateStatus.denied;
+      case PlayUpdateOutcome.failed:
+        return PlayUpdateStatus.failed;
+    }
+  }
+
   Future<PlayUpdateStatus> _immediate(PlayUpdateClient client) async {
     return switch (await client.performImmediate()) {
       PlayUpdateOutcome.completed => PlayUpdateStatus.started,
@@ -258,8 +314,9 @@ class PlayUpdateController {
     };
   }
 
-  /// Sideload ile aynı ayar: kurulu build sunucudaki `min_build`'in altında.
-  /// Sunucuya ulaşılamazsa zorunlu SAYILMAZ (kullanıcı kilitlenmez).
+  /// Kurulu build sunucudaki `min_build`'in altında (backend `play.json`;
+  /// sideload yayını olmasa da döner). Sunucuya ulaşılamazsa zorunlu
+  /// SAYILMAZ (kullanıcı kilitlenmez).
   Future<bool> _isMandatory() async {
     try {
       final installed = await _ref.read(installedVersionProvider.future);
@@ -282,10 +339,30 @@ class PlayUpdateController {
 
 final playUpdateControllerProvider = Provider<PlayUpdateController>(PlayUpdateController.new);
 
+/// Uygulamanın Play sayfasını açar; açılamazsa false. Testler sahtesini verir.
+typedef PlayStoreOpener = Future<bool> Function();
+
+final playStoreOpenerProvider = Provider<PlayStoreOpener>(
+  (ref) => () async {
+    try {
+      return await launchUrl(Uri.parse(AppConfig.playStoreUrl), mode: LaunchMode.externalApplication);
+    } catch (e) {
+      debugPrint('Google Play açılamadı: $e');
+      return false;
+    }
+  },
+);
+
 const kPlayUpdateReadyMessage = 'Yeni sürüm indi.';
 const kPlayUpdateRestartLabel = 'Yeniden başlat';
 const kPlayUpdateDownloadingMessage = 'Yeni sürüm indiriliyor; bitince haber vereceğim.';
 const kPlayUpdateCheckFailedMessage = "Google Play'e ulaşılamadı. Bağlantını kontrol edip tekrar dene.";
+const kPlayUpdateRequiredTitle = 'Güncelleme gerekli';
+const kPlayUpdateRequiredMessage =
+    "Kullandığın sürüm artık desteklenmiyor. Devam etmek için uygulamayı Google Play'den güncelle.";
+const kPlayUpdateRequiredUpdateLabel = 'Güncelle';
+const kPlayUpdateRequiredStoreLabel = "Google Play'de aç";
+const kPlayStoreOpenFailedMessage = "Google Play açılamadı. Play Store'da ARVEND'i arayıp güncelle.";
 
 /// İnen güncellemeyi kurmak için çubuk. Kalıcı DEĞİLDİR (bildirim çubuklarını
 /// arkasında bekletmesin); kurulana kadar her öne gelişte yeniden gösterilir.
@@ -306,6 +383,11 @@ void showPlayRestartPrompt(PlayUpdateController controller) {
 
 /// Açılışta ve öne gelişte Play'e sorar (zorunlu güncelleme bekliyorsa her
 /// öne gelişte, değilse 6 saatte bir). AppUpdateWatcher'ın Play karşılığı.
+///
+/// Zorunlu güncelleme başlatılamadıysa ([PlayUpdateController.updateRequired])
+/// uygulamanın yerine kapatılamayan "Güncelleme gerekli" ekranı çıkar.
+/// Uygulama ağacı arkada (görünmez) yaşamaya devam eder; geri tuşu ekranı
+/// kapatmaz, uygulamayı arka plana alır.
 class PlayUpdateWatcher extends ConsumerStatefulWidget {
   const PlayUpdateWatcher({super.key, required this.child});
 
@@ -318,6 +400,7 @@ class PlayUpdateWatcher extends ConsumerStatefulWidget {
 class _PlayUpdateWatcherState extends ConsumerState<PlayUpdateWatcher> with WidgetsBindingObserver {
   late final bool _supported = ref.read(playUpdateSupportedProvider);
   bool _readyToInstall = false;
+  bool _required = false;
 
   PlayUpdateController get _controller => ref.read(playUpdateControllerProvider);
 
@@ -341,14 +424,161 @@ class _PlayUpdateWatcherState extends ConsumerState<PlayUpdateWatcher> with Widg
     if (_readyToInstall || _controller.mandatoryPending || _controller.isStale) _check();
   }
 
-  Future<void> _check() async {
+  /// Geri tuşu: zorunlu güncelleme ekranı kapanmaz (arkadaki uygulamanın
+  /// sayfaları da görünmeden geri gitmez), uygulama arka plana alınır. Bu
+  /// gözcü router'ın geri tuşu dinleyicisinden ÖNCE kaydolur (router onun
+  /// altında kurulur), bu yüzden geri tuşunu ilk o görür.
+  @override
+  Future<bool> didPopRoute() async {
+    if (!_required) return false;
+    await SystemNavigator.pop();
+    return true;
+  }
+
+  Future<void> _check({bool manual = false}) async {
     if (!mounted) return;
-    final status = await _controller.run(manual: false);
+    final status = await _controller.run(manual: manual);
     if (!mounted) return;
     _readyToInstall = status == PlayUpdateStatus.readyToInstall;
+    if (_required != _controller.updateRequired) setState(() => _required = _controller.updateRequired);
     if (_readyToInstall) showPlayRestartPrompt(_controller);
   }
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) {
+    if (!_supported) return widget.child;
+    // Uygulama ağacı her durumda AYNI yerde kalır (durumu kaybolmasın);
+    // zorunlu güncellemede görünmez, dokunulamaz, odak alamaz.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Offstage(
+          offstage: _required,
+          child: TickerMode(enabled: !_required, child: ExcludeFocus(excluding: _required, child: widget.child)),
+        ),
+        if (_required)
+          // Kendi Navigator'ı: ekran router'ın Navigator'ının ÜSTÜNDE durur
+          // (Overlay/Tooltip için). MaterialApp'in HeroController'ı router'ın
+          // Navigator'ına ait -- ikisi paylaşamaz.
+          HeroControllerScope.none(
+            child: Navigator(
+              onGenerateRoute: (_) => MaterialPageRoute<void>(
+                builder: (_) => PlayUpdateRequiredScreen(onUpdate: () => _check(manual: true)),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Zorunlu güncelleme başlatılamadığında uygulamanın yerine çıkan,
+/// kapatılamayan ekran. "Güncelle" Play'in tam ekran güncellemesini yeniden
+/// açar; o da olmazsa "Google Play'de aç" uygulamanın Play sayfasını açar.
+class PlayUpdateRequiredScreen extends ConsumerStatefulWidget {
+  const PlayUpdateRequiredScreen({super.key, required this.onUpdate});
+
+  final Future<void> Function() onUpdate;
+
+  @override
+  ConsumerState<PlayUpdateRequiredScreen> createState() => _PlayUpdateRequiredScreenState();
+}
+
+class _PlayUpdateRequiredScreenState extends ConsumerState<PlayUpdateRequiredScreen> {
+  bool _busy = false;
+
+  Future<void> _update() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.onUpdate();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openStore() async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (await ref.read(playStoreOpenerProvider)()) return;
+    messenger
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(content: Text(kPlayStoreOpenFailedMessage)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final installed = ref.watch(installedVersionProvider).valueOrNull;
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(AppSpacing.xl),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 64,
+                        height: 64,
+                        decoration: BoxDecoration(
+                          color: AppColors.navDark,
+                          borderRadius: BorderRadius.circular(AppRadius.card),
+                        ),
+                        alignment: Alignment.center,
+                        child: const Icon(Icons.system_update_outlined, color: AppColors.gold, size: 34),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      kPlayUpdateRequiredTitle,
+                      textAlign: TextAlign.center,
+                      style: AppTypography.pageTitle.copyWith(fontSize: 20),
+                    ),
+                    if (installed != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Kurulu sürüm: ${installed.label}',
+                        textAlign: TextAlign.center,
+                        style: AppTypography.metadata,
+                      ),
+                    ],
+                    const SizedBox(height: AppSpacing.lg),
+                    const UpdateNotice(
+                      icon: Icons.error_outline,
+                      color: AppStatusColors.warning,
+                      text: kPlayUpdateRequiredMessage,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    const Text(
+                      'Bilgilerin sunucuda duruyor; güncellemeden sonra kaldığın yerden devam edersin.',
+                      style: AppTypography.helper,
+                    ),
+                    const SizedBox(height: AppSpacing.xl),
+                    PrimaryButton(
+                      label: kPlayUpdateRequiredUpdateLabel,
+                      icon: Icons.download_rounded,
+                      loading: _busy,
+                      onPressed: _update,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    SecondaryButton(
+                      label: kPlayUpdateRequiredStoreLabel,
+                      icon: Icons.open_in_new,
+                      onPressed: _openStore,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

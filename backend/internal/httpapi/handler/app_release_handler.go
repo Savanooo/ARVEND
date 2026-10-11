@@ -15,7 +15,8 @@ import (
 // AppReleaseHandler, uzaktan güncellemenin (Store öncesi Android) iki ucu:
 //
 //	GET /mobile/app-version?platform=android  -- PUBLIC, giriş ekranından
-//	    da sorulur. Yalnızca sürüm/build/özet/boyut/notlar döner; diskteki
+//	    da sorulur. Yalnızca sürüm/build/özet/boyut/notlar ve zorunlu
+//	    güncelleme tabanı (min_build; Play sürümü de okur) döner; diskteki
 //	    başka hiçbir alan (yol, dosya adı) istemciye taşınmaz.
 //	GET /mobile/app-download?platform=android -- requireAuth+requireTenant:
 //	    APK binary'si yalnızca oturum açmış bir firma kullanıcısına iner
@@ -177,11 +178,15 @@ type appVersionResponse struct {
 	PublishedAt string `json:"published_at"`
 }
 
-// noAppVersionResponse: geçerli yayın yokken yalnızca build=0 -- istemci
-// hiçbir zaman güncelleme önermez.
+// noAppVersionResponse: geçerli (sideload) yayın yokken build=0 -- istemci
+// APK önermez. MinBuild, Play sürümünün zorunlu güncelleme tabanıdır
+// (play.json, bkz. AppReleaseService.PlayMinBuild); 0 ise alan hiç yazılmaz.
+// Sideload istemcisi build=0 iken min_build'e bakmaz (kurulacak bir APK
+// yok); Play istemcisi bakar ve Play'in kendi güncellemesini açar.
 type noAppVersionResponse struct {
 	Platform string `json:"platform"`
 	Build    int    `json:"build"`
+	MinBuild int    `json:"min_build,omitempty"`
 }
 
 func (h *AppReleaseHandler) Version(w http.ResponseWriter, r *http.Request) {
@@ -195,17 +200,21 @@ func (h *AppReleaseHandler) Version(w http.ResponseWriter, r *http.Request) {
 		httpjson.Error(w, http.StatusBadRequest, "bilinmeyen platform")
 		return
 	case err != nil:
-		httpjson.Write(w, http.StatusOK, noAppVersionResponse{Platform: platform, Build: 0})
+		httpjson.Write(w, http.StatusOK, noAppVersionResponse{
+			Platform: platform, Build: 0, MinBuild: h.svc.PlayMinBuild(platform),
+		})
 		return
 	}
 	httpjson.Write(w, http.StatusOK, appVersionResponse{
-		Platform:    rel.Platform,
-		Build:       rel.Build,
-		Version:     rel.Version,
-		SHA256:      rel.SHA256,
-		Size:        rel.Size,
-		Notes:       rel.Notes,
-		MinBuild:    rel.MinBuild,
+		Platform: rel.Platform,
+		Build:    rel.Build,
+		Version:  rel.Version,
+		SHA256:   rel.SHA256,
+		Size:     rel.Size,
+		Notes:    rel.Notes,
+		// Sideload ve Play aynı versionCode dizisini kullanır: iki tabandan
+		// büyüğü geçerlidir.
+		MinBuild:    max(rel.MinBuild, h.svc.PlayMinBuild(platform)),
 		PublishedAt: rel.PublishedAt.Format(time.RFC3339),
 	})
 }
