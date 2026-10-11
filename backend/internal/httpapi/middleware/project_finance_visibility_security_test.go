@@ -357,25 +357,28 @@ func TestProjectFinanceVisibilityMatrix(t *testing.T) {
 		}
 	})
 
+	// sentChangeOrder: Sahip'in oluşturup müşteriye gönderdiği (karar
+	// bekleyen) tek kalemli bir ek iş.
+	coBase := "/api/v1/projects/" + p.ID + "/change-orders"
+	sentChangeOrder := func(t *testing.T, unitPrice string) string {
+		t.Helper()
+		rec, body := rbacDo(t, d.router, http.MethodPost, coBase, ownerToken,
+			`{"change_type":"addition","title":"Finans görünürlüğü ek işi","vat_rate":0,"items":[{"description":"Kalem","quantity":1,"unit":"adet","unit_price":`+unitPrice+`}]}`)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("ek iş oluşturulamadı: %d %v", rec.Code, body)
+		}
+		id, _ := body["id"].(string)
+		if rec, body := rbacDo(t, d.router, http.MethodPost, coBase+"/"+id+"/send", ownerToken, ""); rec.Code != http.StatusOK {
+			t.Fatalf("ek iş gönderilemedi: %d %v", rec.Code, body)
+		}
+		return id
+	}
+
 	t.Run("change_order_record_decision_response", func(t *testing.T) {
 		// record-decision projects.change_orders.approve ile açılır (Sahip +
 		// Yönetici); finans okuması kaldırılmış Yönetici kararı kaydedebilir
 		// ama yanıtta ek işin tutarını, kalem fiyatlarını ya da müşteri
 		// paylaşım token'ını görmez.
-		base := "/api/v1/projects/" + p.ID + "/change-orders"
-		sentCO := func(t *testing.T) string {
-			t.Helper()
-			rec, body := rbacDo(t, d.router, http.MethodPost, base, ownerToken,
-				`{"change_type":"addition","title":"Finans görünürlüğü ek işi","vat_rate":0,"items":[{"description":"Kalem","quantity":1,"unit":"adet","unit_price":2345.5}]}`)
-			if rec.Code != http.StatusCreated {
-				t.Fatalf("ek iş oluşturulamadı: %d %v", rec.Code, body)
-			}
-			id, _ := body["id"].(string)
-			if rec, body := rbacDo(t, d.router, http.MethodPost, base+"/"+id+"/send", ownerToken, ""); rec.Code != http.StatusOK {
-				t.Fatalf("ek iş gönderilemedi: %d %v", rec.Code, body)
-			}
-			return id
-		}
 		receiptKeys := map[string]bool{
 			"id": true, "project_id": true, "sequence_no": true, "change_order_no": true,
 			"change_type": true, "title": true, "status": true, "updated_at": true,
@@ -388,8 +391,8 @@ func TestProjectFinanceVisibilityMatrix(t *testing.T) {
 			seesMoney bool
 		}{{"owner", ownerToken, true}, {"admin_with_finance_revoked", revokedToken, false}} {
 			t.Run(v.name, func(t *testing.T) {
-				coID := sentCO(t)
-				rec, body := rbacDo(t, d.router, http.MethodPost, base+"/"+coID+"/record-decision", v.token,
+				coID := sentChangeOrder(t, "2345.5")
+				rec, body := rbacDo(t, d.router, http.MethodPost, coBase+"/"+coID+"/record-decision", v.token,
 					`{"decision":"approved","note":"telefonla onay"}`)
 				if rec.Code != http.StatusOK {
 					t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
@@ -412,6 +415,56 @@ func TestProjectFinanceVisibilityMatrix(t *testing.T) {
 					t.Errorf("ek iş tutarı karar yanıtında sızıyor: %s", rec.Body.String())
 				}
 			})
+		}
+	})
+
+	t.Run("change_order_notice_after_finance_revoked", func(t *testing.T) {
+		// Ek iş kararı bildirimi gövdesine tutar yazar ve yalnızca finans
+		// okuyana gider; gövde oluşturulduğunda saklanır. Alıcının finans
+		// okuması SONRADAN kaldırılırsa eski bildirim (liste ve ana sayfa)
+		// tutarı göstermemeli -- bildirim kendisi kalır.
+		lateUser, lateToken := mustCreateRoleUser(t, ctx, d, orgID, "pfv_admin_later_revoked", domain.OrgRoleAdmin)
+		coID := sentChangeOrder(t, "3456")
+		if rec, body := rbacDo(t, d.router, http.MethodPost, coBase+"/"+coID+"/record-decision", ownerToken,
+			`{"decision":"approved"}`); rec.Code != http.StatusOK {
+			t.Fatalf("karar kaydedilemedi: %d %v", rec.Code, body)
+		}
+		const amount = "3.456 TL"
+		noticeBody := func(t *testing.T) string {
+			t.Helper()
+			rec, body := rbacDo(t, d.router, http.MethodGet, "/api/v1/notifications?limit=50", lateToken, "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("bildirimler alınamadı: %d %v", rec.Code, body)
+			}
+			list, _ := body["notifications"].([]any)
+			for _, item := range list {
+				n, _ := item.(map[string]any)
+				if n["type"] == domain.NotificationChangeOrderApproved && n["entity_id"] == coID {
+					s, _ := n["body"].(string)
+					return s
+				}
+			}
+			t.Fatalf("ek iş kararı bildirimi listede yok: %v", list)
+			return ""
+		}
+		if b := noticeBody(t); !strings.Contains(b, amount) {
+			t.Fatalf("finans okuyan Yönetici tutarı görmeli: %q", b)
+		}
+
+		setPerms(lateUser.ID, nil, domain.PermProjectsFinanceRead, domain.PermProjectsFinanceManage)
+		b := noticeBody(t)
+		if strings.Contains(b, "3.456") || !strings.Contains(b, "EK-") {
+			t.Errorf("izni kaldırılınca bildirim tutarsız kalmalı: %q", b)
+		}
+		rec, _ := rbacDo(t, d.router, http.MethodGet, "/api/v1/dashboard", lateToken, "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("ana sayfa alınamadı: %d %s", rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), coID) {
+			t.Errorf("ana sayfa bildirim bölümünde ek iş bildirimi olmalı: %s", rec.Body.String())
+		}
+		if strings.Contains(rec.Body.String(), "3.456") {
+			t.Errorf("ana sayfa bildirim bölümünde tutar sızıyor: %s", rec.Body.String())
 		}
 	})
 }

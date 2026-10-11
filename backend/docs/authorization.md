@@ -249,6 +249,8 @@ rol koduna ya da kaba `users.role`'e BAKILMAZ. Karar
 | `GET /projects/{id}`, `PUT /projects/{id}`, `POST /projects/from-offer/{offerId}`, `GET /offers/{id}/project` | `projects.read` / `projects.update` / `projects.create` / `offers.read` + proje erişimi | `contract_amount: null` (tekil yanıtlarda aggregate zaten yok) |
 | `GET /projects/{id}/events` | `projects.read` | Olay listede kalır; `metadata`'dan `domain.ProjectEventMoneyKeys` (`amount`, `planned_amount`, `contract_amount`, `grand_total`, `total`, `net_payable`, `etc_amount`) düşürülür |
 | `GET /projects/{id}/cost-control` | `projects.cost_control.read` | `summary.contract_value`, `forecast_profit`, `forecast_margin_percent` null; maliyet rakamları (bütçe, taahhüt, gerçekleşen, ETC, EAC, varyans) aynen döner |
+| `POST /projects/{id}/change-orders/{coId}/record-decision` | `projects.change_orders.approve` | Karar kaydedilir; yanıt tutarsız özettir (`changeOrderDecisionReceiptResponse`: kimlik, no, tip, başlık, durum, karar zamanları/kaydeden/not) — toplamlar, kalemler, kârlılık, iç notlar ve müşteri paylaşım token'ı yok |
+| `GET /notifications`, ana sayfa bildirim bölümü | `notifications.read` | Ek iş kararı bildiriminin (`change_order_approved/rejected`) gövdesindeki işaretli tutar ("+1.250.000 TL") okuma anında düşer (`domain.NotificationBodyForViewer`) — bildirim finans okuyana gönderilmiştir ama izin SONRADAN kaldırılmış olabilir |
 
 Kurallar:
 - `contract_amount` anahtarı her zaman yanıttadır; `null` "sıfır" değil
@@ -278,4 +280,5 @@ Test: `internal/httpapi/middleware/project_finance_visibility_security_test.go`
 (Sahip, Finans, kişiye özel finance.read verilmiş Saha görür; Proje
 Yöneticisi, Saha ve finance.read'i kişiye özel kaldırılmış Yönetici
 görmez — liste, detay, güncelleme, tekliften oluşturma, teklif→proje,
-olaylar, maliyet kontrolü).
+olaylar, maliyet kontrolü, ek iş kararı kaydı, izin sonradan kaldırılınca
+ek iş bildirimi).

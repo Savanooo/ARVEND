@@ -1579,8 +1579,10 @@ func buildDashNotifications(ctx context.Context, r *dashRun) (*sectionPayload, e
 		if ts := dashTimestamp(n.CreatedAt); ts != nil {
 			created = *ts
 		}
+		// Tutar okuyanın güncel finans iznine göre (GET /notifications ile aynı).
+		body := domain.NotificationBodyForViewer(n.Type, n.Body, r.can(domain.PermProjectsFinanceRead))
 		sec.Latest = append(sec.Latest, domain.DashNotificationEntry{
-			ID: n.ID.String(), Type: n.Type, Title: n.Title, Body: n.Body,
+			ID: n.ID.String(), Type: n.Type, Title: n.Title, Body: body,
 			ActionTarget: dashStr(n.ActionTarget), CreatedAt: created, ReadAt: dashTimestamp(n.ReadAt),
 		})
 	}
