@@ -178,27 +178,58 @@ type createProjectRequest struct {
 	Description string  `json:"description"`
 }
 
-func (h *ProjectHandler) CreateFromOffer(w http.ResponseWriter, r *http.Request) {
-	var req createProjectRequest
-	if err := httpjson.Decode(r, &req); err != nil {
-		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
-		return
+// errOfferAlreadyConvertedNoAccess: teklif zaten bir projeye dönüştürülmüş
+// ama çağıran o projeyi göremiyor (projects.read yok ya da üyesi değil).
+const errOfferAlreadyConvertedNoAccess = "Bu teklif zaten bir projeye dönüştürülmüş; o projeyi görme yetkin yok."
+
+// CreateFromOffer: POST /projects/from-offer/{offerId} (projects.create).
+// Yeni proje 201 ile döner. Teklif zaten dönüştürülmüşse (idempotent dönüş)
+// mevcut proje 200 ile ve YALNIZCA GET /offers/{id}/project ile aynı kapıdan
+// geçen kişiye döner: projects.read VE proje erişimi. Eskiden projects.create
+// izni olan herkes, üyesi olmadığı projenin iç notlarını ve (finans izniyle)
+// sözleşme bedelini bu uçtan okuyabiliyordu. Erişimi olmayana 409
+// `offer_already_converted` döner -- proje bilgisi olmadan.
+func (h *ProjectHandler) CreateFromOffer(authzSvc *service.AuthorizationService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req createProjectRequest
+		if err := httpjson.Decode(r, &req); err != nil {
+			httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+			return
+		}
+		orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+		userID, _ := middleware.UserIDFromContext(r.Context())
+		p, created, err := h.svc.CreateOrGetFromOffer(r.Context(), chi.URLParam(r, "offerId"), orgID, service.CreateProjectInput{
+			Name:        req.Name,
+			ProjectType: req.ProjectType,
+			StartDate:   parseDateParam(req.StartDate),
+			EndDate:     parseDateParam(req.EndDate),
+			Description: req.Description,
+			UserID:      userID,
+		})
+		if err != nil {
+			h.writeError(w, err)
+			return
+		}
+		if created {
+			httpjson.Write(w, http.StatusCreated, toProjectResponse(*p, canSeeProjectFinance(r)))
+			return
+		}
+		authz, ok := middleware.AuthzContextFromRequest(r.Context())
+		canAccess := false
+		if ok && authz.HasPermission(domain.PermProjectsRead) {
+			if canAccess, err = authzSvc.CanAccessProject(r.Context(), authz, p.ID); err != nil {
+				h.writeError(w, err)
+				return
+			}
+		}
+		if !canAccess {
+			httpjson.Write(w, http.StatusConflict, map[string]string{
+				"error": errOfferAlreadyConvertedNoAccess, "code": "offer_already_converted",
+			})
+			return
+		}
+		httpjson.Write(w, http.StatusOK, toProjectResponse(*p, canSeeProjectFinance(r)))
 	}
-	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	userID, _ := middleware.UserIDFromContext(r.Context())
-	p, err := h.svc.CreateFromOffer(r.Context(), chi.URLParam(r, "offerId"), orgID, service.CreateProjectInput{
-		Name:        req.Name,
-		ProjectType: req.ProjectType,
-		StartDate:   parseDateParam(req.StartDate),
-		EndDate:     parseDateParam(req.EndDate),
-		Description: req.Description,
-		UserID:      userID,
-	})
-	if err != nil {
-		h.writeError(w, err)
-		return
-	}
-	httpjson.Write(w, http.StatusCreated, toProjectResponse(*p, canSeeProjectFinance(r)))
 }
 
 func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {

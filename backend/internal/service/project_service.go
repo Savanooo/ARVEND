@@ -65,18 +65,28 @@ type CreateProjectInput struct {
 // son güvencedir -- kilit bir şekilde atlansa bile ikinci INSERT veritabanı
 // tarafından reddedilir ve yine mevcut proje döndürülür.
 func (s *ProjectService) CreateFromOffer(ctx context.Context, offerID, organizationID string, in CreateProjectInput) (*domain.Project, error) {
+	p, _, err := s.CreateOrGetFromOffer(ctx, offerID, organizationID, in)
+	return p, err
+}
+
+// CreateOrGetFromOffer, CreateFromOffer'ın kendisidir; ikinci dönüş değeri
+// projenin bu çağrıda AÇILIP açılmadığıdır (false = teklif zaten
+// dönüştürülmüştü, mevcut proje döndü). HTTP ucu mevcut projeyi döndürmeden
+// önce çağıranın o projeye erişimini denetlemek için buna bakar (yeni proje
+// zaten çağıranındır).
+func (s *ProjectService) CreateOrGetFromOffer(ctx context.Context, offerID, organizationID string, in CreateProjectInput) (*domain.Project, bool, error) {
 	offerUUID, err := repository.StringToUUID(offerID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, false, domain.ErrNotFound
 	}
 	orgID, err := repository.StringToUUID(organizationID)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, false, domain.ErrNotFound
 	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
@@ -85,15 +95,15 @@ func (s *ProjectService) CreateFromOffer(ctx context.Context, offerID, organizat
 	// (kanonik offer UUID'si) -- böylece proje oluşturma, eşzamanlı bir
 	// "Revize Et" ya da müşteri kararıyla araya girmez.
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", offerUUID.String()); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	offerRow, err := txq.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: offerUUID, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
+			return nil, false, domain.ErrNotFound
 		}
-		return nil, err
+		return nil, false, err
 	}
 
 	revRow, err := txq.GetOfferRevisionByID(ctx, sqlc.GetOfferRevisionByIDParams{
@@ -101,12 +111,12 @@ func (s *ProjectService) CreateFromOffer(ctx context.Context, offerID, organizat
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
+			return nil, false, domain.ErrNotFound
 		}
-		return nil, err
+		return nil, false, err
 	}
 	if revRow.Status != domain.OfferStatusKabulEdildi {
-		return nil, ErrOfferNotAccepted
+		return nil, false, ErrOfferNotAccepted
 	}
 
 	// Zaten dönüştürülmüş mü? (idempotentlik -- kilit altında okunur)
@@ -116,14 +126,14 @@ func (s *ProjectService) CreateFromOffer(ctx context.Context, offerID, organizat
 		p := repository.ToDomainProject(existing)
 		p.SourceOfferNo = offerRow.OfferNo
 		p.SourceRevisionNo = int(revRow.RevisionNo)
-		return &p, nil
+		return &p, false, nil
 	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return nil, err
+		return nil, false, err
 	}
 
 	projectNo, err := s.generateProjectNo(ctx, txq, orgID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	name := strings.TrimSpace(in.Name)
@@ -131,10 +141,10 @@ func (s *ProjectService) CreateFromOffer(ctx context.Context, offerID, organizat
 		// Varsayılan ad (müşteri adı 200'e kadar olabilir) sütuna sığsın.
 		name = truncateRunes(fmt.Sprintf("%s - %s", revRow.CustomerName, offerRow.OfferNo), maxProjectNameRunes)
 	} else if err := checkFieldLen(name, "Proje adı", maxProjectNameRunes); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := checkFieldLen(strings.TrimSpace(in.ProjectType), "Proje tipi", maxProjectTypeRunes); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	var createdBy pgtype.UUID
@@ -176,10 +186,10 @@ func (s *ProjectService) CreateFromOffer(ctx context.Context, offerID, organizat
 				p := repository.ToDomainProject(existing)
 				p.SourceOfferNo = offerRow.OfferNo
 				p.SourceRevisionNo = int(revRow.RevisionNo)
-				return &p, nil
+				return &p, false, nil
 			}
 		}
-		return nil, err
+		return nil, false, err
 	}
 
 	// Cost Control (Sprint 2): denetim, offers/calc zincirinde HİÇBİR
@@ -193,7 +203,7 @@ func (s *ProjectService) CreateFromOffer(ctx context.Context, offerID, organizat
 	if _, err := txq.CreateProjectBudget(ctx, sqlc.CreateProjectBudgetParams{
 		OrganizationID: orgID, ProjectID: projectRow.ID, Currency: projectRow.Currency, CreatedBy: createdBy,
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// Sözleşme (Sprint 3): BİLİNÇLİ OLARAK burada otomatik oluşturulmaz
@@ -210,7 +220,7 @@ func (s *ProjectService) CreateFromOffer(ctx context.Context, offerID, organizat
 			"project_no":         projectRow.ProjectNo,
 			"source_revision_id": revRow.ID.String(),
 		}, "", ""); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	// Aynı olay projenin KENDİ zaman çizelgesine de yazılır: teklif
 	// timeline'ı "bu teklif projeye dönüştü", proje timeline'ı ise "bu
@@ -223,17 +233,17 @@ func (s *ProjectService) CreateFromOffer(ctx context.Context, offerID, organizat
 			"source_revision_id": revRow.ID.String(),
 			"contract_amount":    repository.NumericToFloat64(revRow.GrandTotal),
 		}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	p := repository.ToDomainProject(projectRow)
 	p.SourceOfferNo = offerRow.OfferNo
 	p.SourceRevisionNo = int(revRow.RevisionNo)
-	return &p, nil
+	return &p, true, nil
 }
 
 // isUniqueViolation, PostgreSQL'in 23505 (unique_violation) hatasını
