@@ -41,8 +41,22 @@ const kProjectPhotoCacheDirectory = 'proje-fotograflari';
 /// FileProvider'ı yalnızca buradan verir; bir sonraki paylaşıma kadar kalır).
 const kSharePlusDirectory = 'share_plus';
 
+/// file_picker'ın seçilen dosyayı yüklemeden önce kopyaladığı dizin.
+const kFilePickerDirectory = 'file_picker';
+
+/// image_picker'ın kopyaları geçici dizinin KÖKÜNDE durur: kamerayla
+/// çekilen `<uuid><sayı>.jpg`, galeriden seçilen `<uuid>/<ad>` ve
+/// küçültülen `scaled_<ad>` (image_picker_android ImagePickerDelegate,
+/// FileUtils, ImageResizer). Yalnızca bu adlar silinir, kökteki başka bir
+/// şeye dokunulmaz.
+final _imagePickerCopy = RegExp(
+  r'^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|scaled_)',
+  caseSensitive: false,
+);
+
 /// Çıkışta telefonda kullanıcıya ait dosya bırakmamak için (mobil-genel-i4):
-/// indirilen belgeler, fotoğraf önbelleği ve paylaşım kopyaları -- hepsi
+/// indirilen belgeler, fotoğraf önbelleği, paylaşım kopyaları ve seçicilerin
+/// kopyaları (kamerayla çekilen şantiye fotoğrafı, yüklenen dosya) -- hepsi
 /// uygulamanın geçici dizininde. Ortak şantiye telefonunda sonraki kişi
 /// öncekinin maaş dökümünü, teklifini, fotoğrafını bulmasın. Oturum
 /// çerezleri ayrıca silinir (ApiClient.clearSession) ve Android yedeğine
@@ -50,7 +64,12 @@ const kSharePlusDirectory = 'share_plus';
 class LocalUserFiles {
   LocalUserFiles({Future<Directory> Function()? baseDirectory}) : _base = baseDirectory ?? getTemporaryDirectory;
 
-  static const directories = [LocalDocuments.directoryName, kProjectPhotoCacheDirectory, kSharePlusDirectory];
+  static const directories = [
+    LocalDocuments.directoryName,
+    kProjectPhotoCacheDirectory,
+    kSharePlusDirectory,
+    kFilePickerDirectory,
+  ];
 
   final Future<Directory> Function() _base;
 
@@ -64,12 +83,23 @@ class LocalUserFiles {
       return;
     }
     for (final name in directories) {
-      try {
-        final dir = Directory('${base.path}/$name');
-        if (await dir.exists()) await dir.delete(recursive: true);
-      } catch (_) {
-        // Açık bir dosya vb.: işletim sistemi geçici dizini zaten zamanla boşaltır.
+      await _delete(Directory('${base.path}/$name'));
+    }
+    try {
+      await for (final entry in base.list(followLinks: false)) {
+        final name = entry.uri.pathSegments.lastWhere((s) => s.isNotEmpty, orElse: () => '');
+        if (_imagePickerCopy.hasMatch(name)) await _delete(entry);
       }
+    } catch (_) {
+      // Dizin okunamadı: işletim sistemi geçici dizini zaten zamanla boşaltır.
+    }
+  }
+
+  static Future<void> _delete(FileSystemEntity entry) async {
+    try {
+      if (await entry.exists()) await entry.delete(recursive: true);
+    } catch (_) {
+      // Açık bir dosya vb.: işletim sistemi geçici dizini zaten zamanla boşaltır.
     }
   }
 }

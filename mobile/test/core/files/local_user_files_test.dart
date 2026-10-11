@@ -36,7 +36,32 @@ void main() {
     expect(exists(LocalDocuments.directoryName), isFalse);
     expect(exists(kProjectPhotoCacheDirectory), isFalse);
     expect(exists(kSharePlusDirectory), isFalse);
+    expect(exists(kFilePickerDirectory), isFalse);
     expect(exists('baska-uygulama-verisi'), isTrue);
+  });
+
+  test('kamerayla çekilen / galeriden ve dosya seçiciden seçilen kopyalar da silinir', () async {
+    // image_picker_android'in adları: kamera `<uuid><sayı>.jpg`, galeri
+    // `<uuid>/<ad>`, küçültme `scaled_<ad>` -- hepsi geçici dizinin kökünde.
+    final camera = File('${base.path}/0b4f7b9e-2c1a-4f0e-9d3b-1a2b3c4d5e6f4512398712.jpg')..writeAsBytesSync([1]);
+    final scaled = File('${base.path}/scaled_0b4f7b9e-2c1a-4f0e-9d3b-1a2b3c4d5e6f4512398712.jpg')
+      ..writeAsBytesSync([1]);
+    final galleryDir = Directory('${base.path}/7C9E6679-7425-40DE-944B-E07FC1F90AE7')..createSync();
+    File('${galleryDir.path}/IMG_20261011.jpg').writeAsBytesSync([1]);
+    final picked = File('${base.path}/$kFilePickerDirectory/1760190000000/Ahmet Yılmaz sözleşme.pdf')
+      ..createSync(recursive: true);
+    // Kökteki başka şeylere (başka eklentilerin önbelleği) dokunulmaz.
+    final other = File('${base.path}/libCachedImageData.json')..writeAsBytesSync([1]);
+    final notUuid = Directory('${base.path}/0b4f7b9e-yarim')..createSync();
+
+    await LocalUserFiles(baseDirectory: () async => base).clear();
+
+    expect(camera.existsSync(), isFalse);
+    expect(scaled.existsSync(), isFalse);
+    expect(galleryDir.existsSync(), isFalse);
+    expect(picked.existsSync(), isFalse);
+    expect(other.existsSync(), isTrue);
+    expect(notUuid.existsSync(), isTrue);
   });
 
   test('geçici dizin alınamazsa hata fırlatmaz', () async {

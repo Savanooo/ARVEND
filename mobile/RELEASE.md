@@ -370,8 +370,10 @@ Crashlytics'li ilk sürüm Play'e yüklenmeden ÖNCE formda şunlar işaretlenme
   DÜŞMEZ: istek "oturum bitti" yerine o geçici hatayla döner.
 - **Çıkışta yerel veri**: oturum çerezleri silinir (`clearSession`), son
   kullanıcı kaydı silinir, indirilen belgeler (`belgeler/`: teklif PDF'i,
-  proje dosyası, maaş dökümü), şantiye fotoğrafı önbelleği ve paylaşım
-  kopyaları (`share_plus/`) silinir (`LocalUserFiles`, oturum süresi
+  proje dosyası, maaş dökümü), şantiye fotoğrafı önbelleği, paylaşım
+  kopyaları (`share_plus/`) ve seçicilerin kopyaları (kamerayla çekilen /
+  galeriden seçilen fotoğraf: image_picker'ın `<uuid>…`, `scaled_…` adları;
+  yüklenen dosya: `file_picker/`) silinir (`LocalUserFiles`, oturum süresi
   dolduğunda da). Ortak telefonda sonraki kişi öncekinin dosyalarını bulmaz.
 - **Android yedeği kapalı**: `android:allowBackup="false"` (Android ≤ 11) ve
   `res/xml/data_extraction_rules.xml` (Android 12+, Google yedeği ve
