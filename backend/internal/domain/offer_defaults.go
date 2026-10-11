@@ -13,13 +13,6 @@ const (
 	DefaultOfferCurrency = "TRY"
 )
 
-// OfferQuantityScale: teklif kalemi miktarının ondalık hanesi
-// (offer_revision_items.quantity numeric(12,2)). Metraj motoru da paket/
-// ceil dışındaki miktarları bu haneyle döndürür (bkz.
-// ComputeRecipeQuantity) -- metrajda görülen miktar ve tutar teklife
-// aynen geçer.
-const OfferQuantityScale = 2
-
 // OfferDefaults, yeni bir teklifin firma ayarlarından (onboarding "Teklif"
 // adımı) gelen başlangıç değerleridir. Teklif formları bunları önceden
 // doldurur; istekte gönderilmeyen KDV/para birimi/geçerlilik de sunucuda

@@ -14,7 +14,8 @@ import (
 // recipe_factor, pitch_deg; mobil: effective_area / factor, recipe_item_id,
 // pitch_deg yok). Artık her kayıtta VE her okumada NormalizeCalcSnapshot
 // ile bu şemaya getirilir. Tüm değerler metindir (sayılar /calculations/run
-// yanıtındaki gibi string), bilinmeyen değer null'dır:
+// yanıtındaki gibi string) ya da null (ör. çevre girilmedi, eğim yok);
+// min_quantity/package_size yalnızca reçetede tanımlıysa bulunur:
 //
 //	area             etkin alan, m² (eğim uygulanmışsa eğim sonrası)
 //	footprint_area   taban alan, m² (eğim öncesi)

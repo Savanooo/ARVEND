@@ -29,6 +29,13 @@ const (
 	DiscountFixed   = "fixed"
 )
 
+// OfferQuantityScale: teklif kalemi miktarının ondalık hanesi
+// (offer_revision_items.quantity numeric(12,2)). Metraj motoru da paket/
+// ceil dışındaki miktarları bu haneyle döndürür (bkz.
+// ComputeRecipeQuantity) -- metrajda görülen miktar ve tutar teklife
+// aynen geçer.
+const OfferQuantityScale = 2
+
 type OfferItem struct {
 	ID            string
 	ProductID     *string
