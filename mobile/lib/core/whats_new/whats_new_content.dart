@@ -44,6 +44,44 @@ class WhatsNewRelease {
 
 /// En yeni sürüm en üstte.
 const kWhatsNewReleases = <WhatsNewRelease>[
+  // Mobil düzeltme sürümü: paylaşım menüsü, teklif geçerlilik tarihi,
+  // metraj ve müşteri kartı düzeltmeleri, anlık yetki tazeleme.
+  WhatsNewRelease(
+    build: 20,
+    version: '1.5.14',
+    items: [
+      WhatsNewItem(
+        icon: Icons.share_outlined,
+        title: 'WhatsApp ile paylaş',
+        body: 'Teklif PDF\'ini, linki, proje dosyalarını ve fotoğrafları tek dokunuşla gönderebilirsin.',
+      ),
+      WhatsNewItem(
+        icon: Icons.event_outlined,
+        title: 'Teklifte geçerlilik tarihi',
+        body: 'Teklif formunda tarihi seçebilir ya da süresiz yapabilirsin; süresi geçmiş taslaklar artık kaydediliyor.',
+        // Teklif formu bu izinle açılır.
+        permission: 'offers.create',
+      ),
+      WhatsNewItem(
+        icon: Icons.calculate_outlined,
+        title: 'Metraj doğru hesaplar',
+        body: 'Çatı eğimi başka hesaplara taşınmıyor; metrajdaki tutar teklife aynen geçiyor.',
+        // Metraj ekranı teklif formundan açılır.
+        permission: 'offers.create',
+      ),
+      WhatsNewItem(
+        icon: Icons.person_outline,
+        title: 'Müşteri kartı güncel',
+        body: 'Yeni teklif ve tahsilat karta hemen yansıyor; iptal edilen projeler alacağa sayılmıyor.',
+        permission: 'customers.read',
+      ),
+      WhatsNewItem(
+        icon: Icons.verified_user_outlined,
+        title: 'Yetkiler hemen geçerli',
+        body: 'Yöneticinin verdiği ya da kaldırdığı yetkiler uygulamayı kapatıp açmadan görünür.',
+      ),
+    ],
+  ),
   // Taslak teklifin linki müşteriye Kabul Et / Reddet göstermiyordu
   // (backend: share-links mark_sent).
   WhatsNewRelease(
