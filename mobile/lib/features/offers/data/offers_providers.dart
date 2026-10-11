@@ -126,8 +126,16 @@ final offerDetailProvider = FutureProvider.autoDispose.family<Offer, String>(
 /// filtresini kullanır. `offer_revisions.customer_id` yalnızca teklif bir
 /// müşteri kartından oluşturulduysa dolu olur (serbest metinle girilmiş
 /// eski/manuel teklifler bu listede görünmez -- bkz. backend doğrulaması).
+///
+/// Teklif listesinin tazeleme sinyalini ([offersListProvider]) izler:
+/// teklif yazan her akış (oluşturma, düzenleme, durum, revizyon, e-posta,
+/// silme) onu tazeler. Eskiden hiçbir akış bu listeyi tazelemiyordu; müşteri
+/// kartından açılan "Yeni Teklif" kaydedilince kartta görünmüyordu.
 final customerOffersProvider = FutureProvider.autoDispose.family<({List<Offer> offers, int total}), String>(
-  (ref, customerId) => ref.watch(offersRepositoryProvider).list(customerId: customerId, limit: 200),
+  (ref, customerId) {
+    ref.watch(offersListProvider(''));
+    return ref.watch(offersRepositoryProvider).list(customerId: customerId, limit: 200);
+  },
 );
 
 final offerRevisionsProvider = FutureProvider.autoDispose.family<List<OfferRevision>, String>(
