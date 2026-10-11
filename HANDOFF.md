@@ -545,9 +545,11 @@ modüllerinde tek kilit cümlesi ve kırmızı, ayrı iptal düğmesi.
 - **Bilinen veri sızıntıları (ayrı iş olarak işaretlendi, düzeltilmedi):**
   `GET /projects` finans izni olmayana (Saha, Proje Yöneticisi) proje
   tutarlarını döndürüyor; `GET /projects/{id}/events` tahsilat/masraf
-  olaylarının tutarlarını döndürüyor; proje listesindeki gerçekleşen maliyet
-  proje özetindeki formülden eksik hesaplanıyor. Ana sayfa bunları
-  KULLANMAZ (bkz. `docs/dashboard/SPEC.md` §9 madde 8).
+  olaylarının tutarlarını döndürüyor. Ana sayfa bunları
+  KULLANMAZ (bkz. `docs/dashboard/SPEC.md` §9 madde 8). (Proje listesinin
+  gerçekleşen maliyet/kârı artık finans özetiyle kuruşu kuruşuna aynı:
+  taşeron modülü ödemeleri `2dea4e4`'te eklendi, float farkı ve KDV hariç
+  alanlar 2026-10-09'da; `finance_vat_consistency_test.go` sabitler.)
 - **Arvend Yapı'nın (canlı firma) kataloğu** hâlâ 2026-09-12'deki tek
   seferlik BYZ aktarımından; Ulaş/Demir Profil'den hiç senkronlanmadı, gece
   otomatiği kapalı — açmak firma sahibinin kararı.
