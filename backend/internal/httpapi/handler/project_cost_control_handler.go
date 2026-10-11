@@ -530,27 +530,43 @@ type costControlSummaryResponse struct {
 
 	// KDV hariç karşılıklar -- finans özetiyle AYNI kural (bkz.
 	// domain.CostControlSummary); yukarıdaki tutarlar KDV dahil kalır.
-	ActualCostNet            float64 `json:"actual_cost_net"`
-	EACNet                   float64 `json:"eac_net"`
-	ContractVATAmount        float64 `json:"contract_vat_amount"`
-	ContractVATKnown         bool    `json:"contract_vat_known"`
-	ContractValueNet         float64 `json:"contract_value_net"`
-	ForecastProfitNet        float64 `json:"forecast_profit_net"`
-	ForecastMarginPercentNet float64 `json:"forecast_margin_percent_net"`
+	// Maliyet tarafı (actual_cost_net/eac_net) actual_cost/eac ile aynı
+	// görünürlükte.
+	ActualCostNet float64 `json:"actual_cost_net"`
+	EACNet        float64 `json:"eac_net"`
+	// Gelir tarafı (sözleşme bedelinin KDV'si, KDV hariç bedel) ve ondan
+	// türeyen KDV hariç kâr/marj: contract_value/forecast_profit hangi
+	// koşulda yazılıyorsa YALNIZCA o koşulda yazılır (bkz.
+	// setCostControlRevenueNets) -- pointer, yazılmadığında null döner.
+	ContractVATAmount        *float64 `json:"contract_vat_amount"`
+	ContractVATKnown         *bool    `json:"contract_vat_known"`
+	ContractValueNet         *float64 `json:"contract_value_net"`
+	ForecastProfitNet        *float64 `json:"forecast_profit_net"`
+	ForecastMarginPercentNet *float64 `json:"forecast_margin_percent_net"`
 }
 
 func toCostControlSummaryResponse(s domain.CostControlSummary) costControlSummaryResponse {
-	return costControlSummaryResponse{
+	resp := costControlSummaryResponse{
 		Currency: s.Currency, ContractValue: s.ContractValue, OriginalBudget: s.OriginalBudget,
 		ApprovedAdjustments: s.ApprovedAdjustments, RevisedBudget: s.RevisedBudget,
 		CommittedCost: s.CommittedCost, ActualCost: s.ActualCost, ETC: s.ETCTotal, EAC: s.EACTotal,
 		Variance: s.Variance, ForecastProfit: s.ForecastProfit, ForecastMarginPercent: s.ForecastMarginPercent,
 		HasBudget:     s.HasBudget,
 		ActualCostNet: s.ActualCostNet, EACNet: s.EACNet,
-		ContractVATAmount: s.ContractVATAmount, ContractVATKnown: s.ContractVATKnown,
-		ContractValueNet: s.ContractValueNet, ForecastProfitNet: s.ForecastProfitNet,
-		ForecastMarginPercentNet: s.ForecastMarginPercentNet,
 	}
+	setCostControlRevenueNets(&resp, s)
+	return resp
+}
+
+// setCostControlRevenueNets: gelir tarafından türeyen KDV hariç alanlar.
+// Satış bedeli ve kâr finans bilgisidir: contract_value/forecast_profit
+// bir izinle gizlenirse bu çağrı da AYNI koşula bağlanmalıdır.
+func setCostControlRevenueNets(resp *costControlSummaryResponse, s domain.CostControlSummary) {
+	resp.ContractVATAmount = &s.ContractVATAmount
+	resp.ContractVATKnown = &s.ContractVATKnown
+	resp.ContractValueNet = &s.ContractValueNet
+	resp.ForecastProfitNet = &s.ForecastProfitNet
+	resp.ForecastMarginPercentNet = &s.ForecastMarginPercentNet
 }
 
 // CostControl, "Maliyet Kontrolü" ekranının TEK istekle ihtiyaç duyduğu
