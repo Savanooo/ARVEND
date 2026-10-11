@@ -138,6 +138,9 @@ export function ExpenseForm({
       onDone(saved);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
+      // 404/409: masraf bu arada onaylanmış/iptal edilmiş ya da proje
+      // kapanmış olabilir -- arkadaki liste tazelensin (form açık kalır).
+      if (err instanceof ApiError && (err.status === 404 || err.status === 409)) router.refresh();
     } finally {
       setBusy(false);
     }
@@ -145,164 +148,169 @@ export function ExpenseForm({
 
   const categoryKnown = form.category in EXPENSE_CATEGORY_LABELS;
 
+  // Onay penceresi formun DIŞINDA: ConfirmDialog düğmeleri type'sız
+  // (varsayılan submit) ve <dialog> DOM'da yerinde durur -- form içinde
+  // "Kaydet"/"Vazgeç" formu yeniden gönderip pencereyi tekrar açardı.
   return (
-    <form onSubmit={submit} className="flex flex-col gap-3">
+    <>
       {dialog}
-      {initial && (
-        <p className="text-xs text-text-muted">
-          {initial.approval_status === "rejected" && initial.decision_note
-            ? `Red nedeni: ${initial.decision_note}. Düzeltip kaydedince yeniden onaya gider.`
-            : "Kaydedince masraf yeniden onaya gider."}
-        </p>
-      )}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Select
-          label="Kategori"
-          id={id("category")}
-          name="expense_category"
-          value={form.category}
-          onChange={(e) => setForm({ ...form, category: e.target.value })}
-        >
-          {Object.entries(EXPENSE_CATEGORY_LABELS).map(([k, label]) => (
-            <option key={k} value={k}>
-              {label}
-            </option>
-          ))}
-          {/* Bilinmeyen (yeni sunucu) kategori düzenlemede aynen kalır. */}
-          {!categoryKnown && <option value={form.category}>{form.category}</option>}
-        </Select>
-        <Input
-          label={`Tutar (${formCurrency})`}
-          id={id("amount")}
-          name="expense_amount"
-          type="number"
-          step="0.01"
-          min="0.01"
-          required
-          value={form.amount}
-          onChange={(e) => setForm({ ...form, amount: e.target.value })}
-        />
-        <DateInput
-          label="Tarih"
-          id={id("date")}
-          name="expense_date"
-          required
-          value={form.expense_date}
-          onChange={(e) => setForm({ ...form, expense_date: e.target.value })}
-        />
-        {/* Sahada "Tedarikçi" usta/işçi ödemesinde anlamsız kaçıyordu (mobil
-            ile aynı ad); backend alanı aynı (supplier_name, serbest metin). */}
-        <Input
-          label="Kime ödendi (opsiyonel)"
-          id={id("supplier")}
-          name="expense_supplier"
-          placeholder="Tedarikçi, usta ya da kişi adı"
-          value={form.supplier_name}
-          onChange={(e) => setForm({ ...form, supplier_name: e.target.value })}
-        />
-        <div className="col-span-2 md:col-span-4">
-          <VatRateField
-            idPrefix={idPrefix}
-            rate={form.vat_rate}
-            amount={form.amount}
-            currency={formCurrency}
-            onChange={(vat_rate) => setForm({ ...form, vat_rate })}
-          />
-        </div>
-        <Input
-          label="Fatura No (opsiyonel)"
-          id={id("invoice_no")}
-          name="expense_invoice_no"
-          value={form.invoice_no}
-          onChange={(e) => setForm({ ...form, invoice_no: e.target.value })}
-        />
-        {linkableChangeOrders.length > 0 && (
+      <form onSubmit={submit} className="flex flex-col gap-3">
+        {initial && (
+          <p className="text-xs text-text-muted">
+            {initial.approval_status === "rejected" && initial.decision_note
+              ? `Red nedeni: ${initial.decision_note}. Düzeltip kaydedince yeniden onaya gider.`
+              : "Kaydedince masraf yeniden onaya gider."}
+          </p>
+        )}
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Select
-            label="Ek İş (opsiyonel)"
-            id={id("change_order")}
-            name="expense_change_order"
-            value={form.change_order_id}
-            onChange={(e) => setForm({ ...form, change_order_id: e.target.value })}
+            label="Kategori"
+            id={id("category")}
+            name="expense_category"
+            value={form.category}
+            onChange={(e) => setForm({ ...form, category: e.target.value })}
           >
-            <option value="">Bağlı değil</option>
-            {linkableChangeOrders.map((co) => (
-              <option key={co.id} value={co.id}>
-                {co.change_order_no} · {co.title}
+            {Object.entries(EXPENSE_CATEGORY_LABELS).map(([k, label]) => (
+              <option key={k} value={k}>
+                {label}
               </option>
             ))}
+            {/* Bilinmeyen (yeni sunucu) kategori düzenlemede aynen kalır. */}
+            {!categoryKnown && <option value={form.category}>{form.category}</option>}
           </Select>
-        )}
-        {linkableBudgetLines.length > 0 && (
-          <Select
-            label="Bütçe Kalemi (opsiyonel)"
-            id={id("budget_line")}
-            name="expense_budget_line"
-            value={form.budget_line_id}
-            onChange={(e) => {
-              const line = linkableBudgetLines.find((l) => l.id === e.target.value);
-              setForm({
-                ...form,
-                budget_line_id: e.target.value,
-                // Maliyet kodu seçilen bütçe kaleminden OTOMATİK gelir --
-                // backend aynı kuralı otoriter olarak uygular, bu yalnızca UX.
-                cost_code_id: line ? line.cost_code_id : form.cost_code_id,
-              });
-            }}
-          >
-            <option value="">Bağlı değil (bütçe dışı)</option>
-            {linkableBudgetLines.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.cost_code_code ? `${l.description} (${l.cost_code_code})` : l.description}
-              </option>
-            ))}
-          </Select>
-        )}
-        {linkableCostCodes.length > 0 && (
-          <Select
-            label="Maliyet Kodu (opsiyonel)"
-            id={id("cost_code")}
-            name="expense_cost_code"
-            value={form.cost_code_id}
-            disabled={!!form.budget_line_id}
-            onChange={(e) => setForm({ ...form, cost_code_id: e.target.value })}
-          >
-            <option value="">Yok</option>
-            {linkableCostCodes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.code} — {c.name}
-              </option>
-            ))}
-          </Select>
-        )}
-        <div className="col-span-2">
           <Input
-            label="Açıklama"
-            id={id("description")}
-            name="expense_description"
+            label={`Tutar (${formCurrency})`}
+            id={id("amount")}
+            name="expense_amount"
+            type="number"
+            step="0.01"
+            min="0.01"
             required
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            value={form.amount}
+            onChange={(e) => setForm({ ...form, amount: e.target.value })}
           />
+          <DateInput
+            label="Tarih"
+            id={id("date")}
+            name="expense_date"
+            required
+            value={form.expense_date}
+            onChange={(e) => setForm({ ...form, expense_date: e.target.value })}
+          />
+          {/* Sahada "Tedarikçi" usta/işçi ödemesinde anlamsız kaçıyordu (mobil
+              ile aynı ad); backend alanı aynı (supplier_name, serbest metin). */}
+          <Input
+            label="Kime ödendi (opsiyonel)"
+            id={id("supplier")}
+            name="expense_supplier"
+            placeholder="Tedarikçi, usta ya da kişi adı"
+            value={form.supplier_name}
+            onChange={(e) => setForm({ ...form, supplier_name: e.target.value })}
+          />
+          <div className="col-span-2 md:col-span-4">
+            <VatRateField
+              idPrefix={idPrefix}
+              rate={form.vat_rate}
+              amount={form.amount}
+              currency={formCurrency}
+              onChange={(vat_rate) => setForm({ ...form, vat_rate })}
+            />
+          </div>
+          <Input
+            label="Fatura No (opsiyonel)"
+            id={id("invoice_no")}
+            name="expense_invoice_no"
+            value={form.invoice_no}
+            onChange={(e) => setForm({ ...form, invoice_no: e.target.value })}
+          />
+          {linkableChangeOrders.length > 0 && (
+            <Select
+              label="Ek İş (opsiyonel)"
+              id={id("change_order")}
+              name="expense_change_order"
+              value={form.change_order_id}
+              onChange={(e) => setForm({ ...form, change_order_id: e.target.value })}
+            >
+              <option value="">Bağlı değil</option>
+              {linkableChangeOrders.map((co) => (
+                <option key={co.id} value={co.id}>
+                  {co.change_order_no} · {co.title}
+                </option>
+              ))}
+            </Select>
+          )}
+          {linkableBudgetLines.length > 0 && (
+            <Select
+              label="Bütçe Kalemi (opsiyonel)"
+              id={id("budget_line")}
+              name="expense_budget_line"
+              value={form.budget_line_id}
+              onChange={(e) => {
+                const line = linkableBudgetLines.find((l) => l.id === e.target.value);
+                setForm({
+                  ...form,
+                  budget_line_id: e.target.value,
+                  // Maliyet kodu seçilen bütçe kaleminden OTOMATİK gelir --
+                  // backend aynı kuralı otoriter olarak uygular, bu yalnızca UX.
+                  cost_code_id: line ? line.cost_code_id : form.cost_code_id,
+                });
+              }}
+            >
+              <option value="">Bağlı değil (bütçe dışı)</option>
+              {linkableBudgetLines.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.cost_code_code ? `${l.description} (${l.cost_code_code})` : l.description}
+                </option>
+              ))}
+            </Select>
+          )}
+          {linkableCostCodes.length > 0 && (
+            <Select
+              label="Maliyet Kodu (opsiyonel)"
+              id={id("cost_code")}
+              name="expense_cost_code"
+              value={form.cost_code_id}
+              disabled={!!form.budget_line_id}
+              onChange={(e) => setForm({ ...form, cost_code_id: e.target.value })}
+            >
+              <option value="">Yok</option>
+              {linkableCostCodes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.code} — {c.name}
+                </option>
+              ))}
+            </Select>
+          )}
+          <div className="col-span-2">
+            <Input
+              label="Açıklama"
+              id={id("description")}
+              name="expense_description"
+              required
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+            />
+          </div>
         </div>
-      </div>
-      <Textarea
-        label="Not"
-        id={id("notes")}
-        name="expense_notes"
-        className="min-h-16"
-        value={form.notes}
-        onChange={(e) => setForm({ ...form, notes: e.target.value })}
-      />
-      {error && <p className="text-xs text-danger">{error}</p>}
-      <div className="flex gap-2">
-        <Button type="submit" loading={busy}>
-          Kaydet
-        </Button>
-        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
-          Vazgeç
-        </Button>
-      </div>
-    </form>
+        <Textarea
+          label="Not"
+          id={id("notes")}
+          name="expense_notes"
+          className="min-h-16"
+          value={form.notes}
+          onChange={(e) => setForm({ ...form, notes: e.target.value })}
+        />
+        {error && <p className="text-xs text-danger">{error}</p>}
+        <div className="flex gap-2">
+          <Button type="submit" loading={busy}>
+            Kaydet
+          </Button>
+          <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+            Vazgeç
+          </Button>
+        </div>
+      </form>
+    </>
   );
 }
 
