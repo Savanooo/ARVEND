@@ -1,3 +1,4 @@
+import { orgRoleIsAdmin } from "@/lib/permissions";
 import { userRoleLabel, type User } from "@/lib/types";
 
 import { LogoutButton } from "./LogoutButton";
@@ -5,6 +6,7 @@ import { Logo } from "./Logo";
 import { NavLinks, type NavItem } from "./NavLinks";
 import { SidebarCollapseToggle } from "./SidebarCollapseToggle";
 import { Skyline } from "./Skyline";
+import { WhatsNew } from "./WhatsNew";
 
 export interface SidebarBrand {
   title: string;
@@ -46,6 +48,17 @@ export function Sidebar({
       <div
         className={`sidebar-section relative z-10 flex flex-col gap-3 border-t border-sidebar-border p-5 ${collapsed ? "items-center px-3" : ""}`}
       >
+        {/* Yenilikler firma kullanıcısınındır (web'e gelen özellikler);
+            Süper Admin'in platform kabuğunda yok. */}
+        {user.role !== "super_admin" && (
+          <WhatsNew
+            userId={user.id}
+            role={user.role}
+            permissions={user.permissions}
+            trialOwnerAdmin={user.organization_status === "trial" && orgRoleIsAdmin(user.organization_role_code ?? "")}
+            collapsed={collapsed}
+          />
+        )}
         <div className={`sidebar-user-row flex items-center justify-between gap-2 ${collapsed ? "flex-col" : "w-full"}`}>
           {!collapsed && (
             <div className="sidebar-label min-w-0">
