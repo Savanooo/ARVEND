@@ -5,10 +5,12 @@ import { ToastProvider } from "@/components/ui/Toast";
 import { getNavItems } from "@/lib/nav";
 import { PLATFORM_HOME } from "@/lib/route-policy";
 import { SIDEBAR_COLLAPSED_COOKIE } from "@/lib/sidebar";
+import { trialNoticeFor } from "@/lib/trial";
 import type { User } from "@/lib/types";
 
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { TrialNotice } from "./TrialNotice";
 
 // TENANT (organizasyon) kabuğu -- (app)/(admin)/(panel) layout'larının
 // ortak sidebar+içerik sarmalayıcısı. Auth/rol kontrolü ilgili layout
@@ -19,6 +21,9 @@ export async function AppShell({ user, children }: { user: User; children: React
 
   const cookieStore = await cookies();
   const collapsed = cookieStore.get(SIDEBAR_COLLAPSED_COOKIE)?.value === "1";
+  // Deneme süresi uyarısı: yalnızca Sahip/Yönetici, bitişe 7 gün ya da
+  // daha az kaldığında / süre dolduğunda (bkz. lib/trial.ts).
+  const trialNotice = trialNoticeFor(user);
 
   return (
     <ToastProvider>
@@ -26,6 +31,9 @@ export async function AppShell({ user, children }: { user: User; children: React
         <Sidebar user={user} items={getNavItems(user.role, user.permissions)} collapsed={collapsed} />
         <div className="flex min-w-0 flex-1 flex-col">
           <Topbar user={user} />
+          {trialNotice && user.organization_id && (
+            <TrialNotice notice={trialNotice} organizationId={user.organization_id} userId={user.id} />
+          )}
           <main className="flex-1">{children}</main>
         </div>
       </div>
