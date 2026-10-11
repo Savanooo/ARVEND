@@ -39,6 +39,8 @@ const ADMIN_ITEMS: GatedNavItem[] = [
   { href: "/admin", label: "Ana Sayfa" },
   { href: "/teklifler", label: "Teklifler", permission: PAGE_PERMISSIONS.offers },
   { href: "/projeler", label: "Projeler", permission: PAGE_PERMISSIONS.projects },
+  // Kişinin kendi girdiği masraflar (backend 0066; mobil Diğer > Masraflarım).
+  { href: "/masraflarim", label: "Masraflarım", permission: PAGE_PERMISSIONS.myExpenses },
   { href: "/mesai", label: "Mesai & Maaş", permission: PAGE_PERMISSIONS.attendance },
   { href: "/musteriler", label: "Müşteriler", permission: PAGE_PERMISSIONS.customers },
   { href: "/admin/urunler", label: "Ürünler", permission: PAGE_PERMISSIONS.products },
@@ -64,6 +66,7 @@ const PANEL_ITEMS: GatedNavItem[] = [
   { href: "/panel", label: "Ana Sayfa" },
   { href: "/teklifler", label: "Teklifler", permission: PAGE_PERMISSIONS.offers },
   { href: "/projeler", label: "Projeler", permission: PAGE_PERMISSIONS.projects },
+  { href: "/masraflarim", label: "Masraflarım", permission: PAGE_PERMISSIONS.myExpenses },
   { href: "/mesai", label: "Mesai & Maaş", permission: PAGE_PERMISSIONS.attendance },
   { href: "/musteriler", label: "Müşteriler", permission: PAGE_PERMISSIONS.customers },
   { href: "/admin/urunler", label: "Ürünler", permission: PAGE_PERMISSIONS.products },

@@ -57,6 +57,16 @@ describe("getNavItems — Roller & Yetkiler izin süzmesi", () => {
     assert.deepEqual(hrefs, ["/panel", "/projeler", "/mesai", "/panel/profil"]);
   });
 
+  it("Masraflarım masraf girme izniyle (backend 0066) her iki kabukta, Projeler'in ardından görünür", () => {
+    const panel = getNavItems("kullanici", [PAGE_PERMISSIONS.projects, PAGE_PERMISSIONS.myExpenses]).map((i) => i.href);
+    assert.deepEqual(panel, ["/panel", "/projeler", "/masraflarim", "/panel/profil"]);
+    const onlyExpenses = getNavItems("kullanici", [PAGE_PERMISSIONS.myExpenses]).map((i) => i.href);
+    assert.deepEqual(onlyExpenses, ["/panel", "/masraflarim", "/panel/profil"]);
+    assert.ok(getNavItems("admin", ALL_PAGE_PERMISSIONS).some((i) => i.href === "/masraflarim"));
+    assert.equal(resolveRoleRedirect("/masraflarim", "kullanici"), null);
+    assert.equal(resolveRoleRedirect("/masraflarim", "admin"), null);
+  });
+
   it("Ana Sayfa ve Profilim izinden bağımsız HER ZAMAN görünür", () => {
     const hrefs = getNavItems("kullanici", []).map((i) => i.href);
     assert.deepEqual(hrefs, ["/panel", "/panel/profil"]);

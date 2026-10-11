@@ -129,6 +129,7 @@ export const config = {
     "/projeler/:path*",
     "/musteriler/:path*",
     "/mesai/:path*",
+    "/masraflarim/:path*",
     "/kurulum/:path*",
     "/sifre-belirle/:path*",
   ],

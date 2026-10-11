@@ -24,6 +24,8 @@ export const TENANT_ROUTE_PREFIXES = [
   "/projeler",
   "/musteriler",
   "/mesai",
+  // Masraflarım (backend 0066): her iki kabuğa açık, izne bağlı sayfa.
+  "/masraflarim",
   "/kurulum",
   "/sifre-belirle",
 ] as const;

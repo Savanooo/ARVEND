@@ -36,6 +36,7 @@ const TENANT_PATHS = [
   "/projeler/p1/finans",
   "/musteriler",
   "/mesai",
+  "/masraflarim",
   "/admin",
   "/admin/urunler",
   "/panel",

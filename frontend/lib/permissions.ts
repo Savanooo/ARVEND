@@ -21,6 +21,9 @@ export const PAGE_PERMISSIONS = {
   costCodes: "organization.cost_codes.read",
   suppliers: "organization.suppliers.read",
   smtpSettings: "organization.settings.read",
+  // Masraflarım (GET /expenses/mine): okuma izni değil masraf girme izni --
+  // backend 0066'da yalnızca kişinin kendi masraflarını döndürür.
+  myExpenses: "projects.expenses.create",
 } as const;
 
 export type PagePermission = (typeof PAGE_PERMISSIONS)[keyof typeof PAGE_PERMISSIONS];

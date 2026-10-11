@@ -25,6 +25,7 @@ import {
   MONTHS_SHORT,
   shiftDay,
 } from "./format.ts";
+import { MY_EXPENSES_PATH, myExpensesHref } from "./expenses.ts";
 import { canAccess } from "./permissions.ts";
 import { sourceLabels } from "./price-sources.ts";
 import type { Role } from "./types";
@@ -1298,6 +1299,11 @@ export function webHrefForActionTarget(path: string | null | undefined): string 
     if (seg[1] === "musteriler" && seg[2] && seg.length === 3) return `/musteriler/${seg[2]}`;
     if (seg[1] === "mesai" && seg.length === 2) return "/mesai";
     if (seg[1] === "metraj" && seg.length === 2) return "/admin/metraj-hesaplama";
+    // Finansı göremeyen kişinin masraf kararı bildirimi
+    // (/diger/masraflarim?masraf={id}): Masraflarım o masrafı açar.
+    if (seg[1] === "masraflarim" && seg.length === 2) {
+      return myExpensesHref({ projectId: params.get("proje"), expenseId: params.get("masraf") });
+    }
   }
   return null;
 }
@@ -1310,6 +1316,7 @@ export type QuickActionKey =
   | "offer"
   | "collection"
   | "expense"
+  | "my_expenses"
   | "attendance"
   | "purchase_request"
   | "task"
@@ -1343,7 +1350,12 @@ const QUICK_ACTIONS: readonly (QuickAction & { allOf: readonly string[] })[] = [
     href: null,
     pickerTab: "finans",
   },
-  { key: "expense", label: "Masraf Gir", allOf: ["projects.read", "projects.finance.manage"], href: null, pickerTab: "finans" },
+  // Herkes masraf girer, onay bekler (backend migration 0066): finans izni
+  // değil projects.expenses.create (mobil QuickActionKey ile aynı sıra).
+  // Finansı göremeyen kişi için seçici Genel sekmesini açar (oradaki ayrı
+  // giriş, bkz. quickActionsFor). "Masraf Takibi" Masraflarım'ı açar.
+  { key: "expense", label: "Masraf Gir", allOf: ["projects.read", "projects.expenses.create"], href: null, pickerTab: "finans" },
+  { key: "my_expenses", label: "Masraf Takibi", allOf: ["projects.expenses.create"], href: MY_EXPENSES_PATH, pickerTab: null },
   {
     key: "attendance",
     label: "Mesai Gir",
@@ -1395,8 +1407,14 @@ export function quickActionsFor(user: DashboardUser): QuickAction[] {
     key,
     label,
     href,
-    pickerTab,
+    pickerTab: key === "expense" ? expensePickerTab(user) : pickerTab,
   }));
+}
+
+// "Masraf Gir": Finans sekmesi projects.finance.read ister; onu göremeyen
+// kişi (Saha vb.) Genel sekmesindeki ayrı masraf girişine gider.
+function expensePickerTab(user: DashboardUser): ProjectTab {
+  return canAccess(user, "projects.finance.read") ? "finans" : "genel";
 }
 
 /** Tek bir hızlı işlemin tanımı (boş durum CTA'ları aynı hedefleri kullanır); izin yoksa null. */

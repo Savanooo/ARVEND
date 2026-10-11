@@ -27,6 +27,7 @@ import {
   pickKpis,
   predictKpiCount,
   predictSections,
+  quickActionFor,
   quickActionGate,
   quickActionsFor,
   REF_KINDS,
@@ -78,6 +79,7 @@ const PERMS_FINANCE = [
   "projects.subcontract_claims.manage", "projects.subcontract_claims.read",
   "projects.subcontract_payments.manage", "projects.subcontract_payments.read",
   "projects.subcontracts.approve", "projects.subcontracts.manage", "projects.subcontracts.read",
+  "projects.expenses.create",
 ];
 const PERMS_PM = [
   "calculations.read", "customers.read", "notifications.read", "organization.cost_codes.read",
@@ -104,7 +106,7 @@ const PERMS_ALL = [
   "projects.procurement.manage", "projects.procurement.approve", "projects.subcontracts.read",
   "projects.subcontracts.manage", "projects.subcontracts.approve", "projects.subcontract_claims.read",
   "projects.subcontract_claims.manage", "projects.subcontract_claims.certify", "projects.subcontract_payments.read",
-  "projects.subcontract_payments.manage", "notifications.read",
+  "projects.subcontract_payments.manage", "notifications.read", "projects.expenses.create", "projects.expenses.approve",
 ];
 
 const ownerUser: DashboardUser = { role: "admin", permissions: PERMS_ALL };
@@ -472,6 +474,11 @@ describe("webHrefForActionTarget (bildirim hedefi mobil yoldur)", () => {
     ["/diger/musteriler/c1", "/musteriler/c1"],
     ["/diger/mesai", "/mesai"],
     ["/diger/metraj", "/admin/metraj-hesaplama"],
+    // Finansı göremeyen kişinin masraf kararı bildirimi (backend 0066).
+    ["/diger/masraflarim?masraf=e1", "/masraflarim?masraf=e1"],
+    ["/diger/masraflarim?proje=p1&masraf=e1", "/masraflarim?proje=p1&masraf=e1"],
+    ["/diger/masraflarim", "/masraflarim"],
+    ["/diger/masraflarim/x", null],
     ["/diger/bildirimler", null],
     ["/gorevler", null],
     ["https://evil.example/x", null],
@@ -610,15 +617,39 @@ describe("quickActionsFor (spec §3.5, §8)", () => {
     assert.deepEqual(
       quickActionsFor(ownerUser).map((a) => a.label),
       [
-        "Yeni Teklif", "Tahsilat Gir", "Masraf Gir", "Mesai Gir", "Satın Alma Talebi", "Görev Ekle",
+        "Yeni Teklif", "Tahsilat Gir", "Masraf Gir", "Masraf Takibi", "Mesai Gir", "Satın Alma Talebi", "Görev Ekle",
         "Müşteri Ekle", "Metraj Hesapla", "Ürün Ekle", "Personel Ekle", "Kullanıcı Ekle",
       ]
     );
   });
 
-  it("finans: Tahsilat, Masraf, Satın Alma Talebi; saha: hiçbiri", () => {
-    assert.deepEqual(quickActionsFor(financeUser).map((a) => a.key), ["collection", "expense", "purchase_request"]);
+  it("finans: Tahsilat, Masraf, Masraf Takibi, Satın Alma Talebi; saha: hiçbiri", () => {
+    assert.deepEqual(quickActionsFor(financeUser).map((a) => a.key), ["collection", "expense", "my_expenses", "purchase_request"]);
     assert.deepEqual(quickActionsFor(fieldUser), []);
+  });
+
+  // Masrafı herkes girer (backend 0066, mobil QuickActionKey): finans izni
+  // değil projects.expenses.create; "Masraf Takibi" hemen ardından.
+  it("masraf girme izniyle Masraf Gir + Masraf Takibi; finansı göremeyen Genel sekmesine gider", () => {
+    const sahaWithExpenses: DashboardUser = { role: "kullanici", permissions: [...PERMS_FIELD, "projects.expenses.create"] };
+    const actions = quickActionsFor(sahaWithExpenses);
+    assert.deepEqual(actions.map((a) => a.key), ["expense", "my_expenses"]);
+    assert.equal(actions[0].pickerTab, "genel");
+    assert.equal(actions[1].href, "/masraflarim");
+    assert.equal(quickActionFor(ownerUser, "expense")?.pickerTab, "finans");
+    assert.equal(quickActionFor(financeUser, "expense")?.pickerTab, "finans");
+  });
+
+  it("finance.manage tek başına Masraf Gir açmaz; projects.read yoksa yalnızca Masraf Takibi", () => {
+    const manageOnly: DashboardUser = {
+      role: "kullanici",
+      permissions: PERMS_FINANCE.filter((p) => p !== "projects.expenses.create"),
+    };
+    assert.equal(quickActionsFor(manageOnly).some((a) => a.key === "expense" || a.key === "my_expenses"), false);
+    assert.deepEqual(
+      quickActionsFor({ role: "kullanici", permissions: ["projects.expenses.create"] }).map((a) => a.key),
+      ["my_expenses"]
+    );
   });
 
   it("Mesai Gir iki izin (+ sayfanın attendance.read'i) ister; Kullanıcı Ekle kaba admin ister", () => {
@@ -644,6 +675,7 @@ describe("quickActionsFor (spec §3.5, §8)", () => {
     "/admin/urunler/yeni": ["products.read", "products.manage"],
     "/admin/personel/yeni": ["employees.read", "employees.manage"],
     "/admin/kullanicilar/yeni": ["organization.users.read", "organization.users.manage", "organization.roles.read"],
+    "/masraflarim": ["projects.expenses.create"],
     picker: ["projects.read"],
   };
   const covers = (allOf: readonly string[], target: string) => {
