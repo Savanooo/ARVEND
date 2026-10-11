@@ -327,7 +327,7 @@ kaynak olarak kullanılabilir.
 | Proje ekibi ve proje erişimi (personel adı/görevi, kullanıcı adı, proje rolü) | Proje > Operasyon > Ekip / Erişim (1.4.0+5) | Kullanıcı seçici (`/users`) yalnızca `projects.access.manage` ile, "Erişim Ver" açılınca çekilir. Maaş/yevmiye bu ekranlarda hiç yoktur. |
 | Ek İş / teklif mail alıcıları (müşteri e-postası) | Ek İş detayı "Mail Gönder", teklif "Mail Geçmişi" (1.4.0+5) | Alıcı adresi müşteri kaydından önerilir; cihazda saklanmaz. |
 | Uygulama içi bildirimler | Bildirim modülü | Zil listesi; telefona bildirim (FCM kayıt anahtarı) için bkz. §6. |
-| Çökme ve hata raporları (Firebase Crashlytics) | Uygulama geneli, YALNIZCA release yapısı (debug/profile kapalı) | Yakalanmamış hata ya da çökme anında: hatanın türü ve mesajı, yığın izi, uygulama sürümü/derleme no, dağıtım kanalı (`dagitim`: play/sideload), cihaz üreticisi/modeli, Android sürümü, ekran yönü, boş bellek/disk, olay zamanı, Crashlytics kurulum kimliği (Firebase kurulum kimliği). Kullanıcı tanımlayıcısı olarak YALNIZCA iç kullanıcı kimliği (UUID, `setUserIdentifier`) ve firma kimliği (UUID, `firma_id`); ad, kullanıcı adı, e-posta, telefon GÖNDERİLMEZ, çıkışta ikisi de boşaltılır. Sunucunun hata metinleri (müşteri adı vb. içerebilir) ve isteklerdeki arama metni gönderilmeden çıkarılır (`redactForCrashReport`). Kodu: `lib/core/crash/`. Google, Firebase hizmet sağlayıcısı olarak işler; Firebase belgesine göre çökme kayıtları 90 gün saklanır (Play formunu doldururken güncel belgeyle teyit et). |
+| Çökme ve hata raporları (Firebase Crashlytics) | Uygulama geneli, YALNIZCA release yapısı (debug/profile kapalı) | Yakalanmamış hata ya da çökme anında: hatanın türü ve mesajı, yığın izi, uygulama sürümü/derleme no, dağıtım kanalı (`dagitim`: play/sideload), cihaz üreticisi/modeli, Android sürümü, ekran yönü, boş bellek/disk, olay zamanı, Crashlytics kurulum kimliği (Firebase kurulum kimliği). Kullanıcı tanımlayıcısı olarak YALNIZCA iç kullanıcı kimliği (UUID, `setUserIdentifier`) ve firma kimliği (UUID, `firma_id`); ad, kullanıcı adı, e-posta, telefon GÖNDERİLMEZ, çıkışta ikisi de boşaltılır. Sunucunun hata metinleri (müşteri adı vb. içerebilir), isteklerdeki arama metni ve dosya hatalarındaki dosya yolu/adı ("Ahmet Yılmaz sözleşme.pdf" gibi) gönderilmeden çıkarılır (`redactForCrashReport`). Kodu: `lib/core/crash/`. Google, Firebase hizmet sağlayıcısı olarak işler; Firebase belgesine göre çökme kayıtları 90 gün saklanır (Play formunu doldururken güncel belgeyle teyit et). |
 
 ### Mobil uygulamanın TOPLAMADIĞI veriler (doğrulandı, tahmin değil)
 - **Hassas/arka plan konum** — `geolocator`/`location` gibi hiçbir paket
@@ -431,7 +431,8 @@ Crashlytics'li ilk sürüm Play'e yüklenmeden ÖNCE formda şunlar işaretlenme
   yapısında toplama kapalı: Dart tarafı `setCrashlyticsCollectionEnabled(false)`,
   `src/debug` ve `src/profile` manifest'leri açılış anını da kapatır.
 - **Kim:** iç kullanıcı kimliği (UUID) ve `firma_id` (UUID); ad/kullanıcı
-  adı/e-posta/telefon asla. Sunucu hata metni ve arama metni çıkarılır.
+  adı/e-posta/telefon asla. Sunucu hata metni, arama metni ve dosya
+  yolu/adı çıkarılır.
   Envanter ve Play formu: §10.
 - **Gradle eklentisi YOK** (google-services eklentisi gibi; AGP 9 düzenine
   dokunulmadı). Eklenti yalnızca R8 eşleme dosyalarını yükler: native

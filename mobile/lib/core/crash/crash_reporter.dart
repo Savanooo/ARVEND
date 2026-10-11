@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io' show FileSystemException;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/auth/domain/user.dart';
@@ -60,6 +62,10 @@ class RedactedError {
 /// - [ApiException]'ın mesajı sunucudan gelir ("'Ahmet Yılmaz' zaten kayıtlı"
 ///   gibi) -- yalnızca türü, durum kodu ve makine kodu kalır.
 /// - [DioException]'ın adresindeki sorgu (arama metni vb.) atılır.
+/// - [FileSystemException]'ın yolu (dosya adı: "Ahmet Yılmaz sözleşme.pdf")
+///   atılır; işlem ve işletim sistemi hata kodu kalır.
+/// - [PlatformException]'ın (seçici/eklenti) mesajı ve ayrıntısı dosya yolu
+///   taşıyabilir -- yalnızca kodu kalır.
 /// Diğer hatalar olduğu gibi döner.
 Object redactForCrashReport(Object error) => switch (error) {
       ApiException e => RedactedError(
@@ -69,6 +75,13 @@ Object redactForCrashReport(Object error) => switch (error) {
           'DioException(${e.type.name}, ${e.response?.statusCode ?? '-'}, '
           '${e.requestOptions.method} ${e.requestOptions.path.split('?').first})',
         ),
+      FileSystemException e => RedactedError(
+          '${e.runtimeType}(${[
+            e.message,
+            if (e.osError case final os?) 'errno ${os.errorCode} ${os.message}'.trim(),
+          ].join(', ')})',
+        ),
+      PlatformException e => RedactedError('PlatformException(${e.code})'),
       _ => error,
     };
 

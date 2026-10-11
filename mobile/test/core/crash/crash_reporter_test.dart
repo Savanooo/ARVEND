@@ -1,6 +1,9 @@
 
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -81,6 +84,23 @@ void main() {
         type: DioExceptionType.connectionError,
       ));
       expect(redacted.toString(), 'DioException(connectionError, -, GET /customers)');
+    });
+
+    test('dosya yolu (müşteri adı taşıyabilen dosya adı) rapora girmez', () {
+      const path = '/data/user/0/com.arvendyapi.arvend/cache/file_picker/1/Ahmet Yılmaz sözleşme.pdf';
+      final noSpace = redactForCrashReport(
+        const FileSystemException('Cannot write file', path, OSError('No space left on device', 28)),
+      );
+      expect(noSpace.toString(), 'FileSystemException(Cannot write file, errno 28 No space left on device)');
+
+      final missing = redactForCrashReport(const PathNotFoundException(path, OSError('No such file', 2)));
+      expect(missing.toString(), startsWith('PathNotFoundException('));
+      expect(missing.toString(), isNot(contains('Ahmet')));
+
+      final picker = redactForCrashReport(
+        PlatformException(code: 'unknown_path', message: 'Failed to read $path', details: path),
+      );
+      expect(picker.toString(), 'PlatformException(unknown_path)');
     });
 
     test('diğer hatalar olduğu gibi kalır', () {
