@@ -7,6 +7,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ControlledTabPanel, ControlledTabs } from "@/components/ui/Tabs";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer, ApiError } from "@/lib/api";
+import { isOrgOwner } from "@/lib/approvals";
 import { getCurrentUser } from "@/lib/auth";
 import { parseProjectTab } from "@/lib/dashboard";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
@@ -546,7 +547,13 @@ export default async function ProjeDetayPage({
             </Section>
 
                 <Section title="Ek İşler" defaultOpen>
-                  <ChangeOrdersSection project={project} changeOrders={changeOrders.change_orders} locked={locked} />
+                  <ChangeOrdersSection
+                    project={project}
+                    changeOrders={changeOrders.change_orders}
+                    locked={locked}
+                    canManage={canManageFinance}
+                    canRecordDecision={hasPermission(perms, "projects.change_orders.approve")}
+                  />
                 </Section>
               </>
             ) : (
@@ -568,6 +575,9 @@ export default async function ProjeDetayPage({
                 forecasts={forecasts?.forecasts ?? []}
                 expenses={expenses?.expenses ?? []}
                 locked={locked}
+                canApproveAdjustments={hasPermission(perms, "projects.budget.approve")}
+                currentUserId={user?.id ?? null}
+                isOwner={isOrgOwner(user)}
               />
             ) : (
               <p className="text-sm text-text-muted">Bu bölümü görüntüleme yetkiniz yok.</p>

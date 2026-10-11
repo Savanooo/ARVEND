@@ -189,6 +189,15 @@ export function formatHm(ts: string): string {
   return istanbulParts(t).hm;
 }
 
+/** Zaman damgası, İstanbul saatiyle tarih + saat: "07.10.2026 14:05"; okunamazsa "". */
+export function formatDateTimeTR(ts: string | null | undefined): string {
+  if (!ts) return "";
+  const t = new Date(ts);
+  if (Number.isNaN(t.getTime())) return "";
+  const p = istanbulParts(t);
+  return `${p.dd}.${p.mm}.${p.yyyy} ${p.hm}`;
+}
+
 /**
  * Göreli zaman (nowIso'ya göre; ana sayfada sunucunun generated_at'i --
  * cihaz saati kullanılmaz): "az önce", "12 dk önce", "3 sa önce" (aynı

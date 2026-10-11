@@ -6,13 +6,21 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useReasonDialog } from "@/components/ui/ReasonDialog";
 import { Select } from "@/components/ui/Select";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { Textarea } from "@/components/ui/Textarea";
 import { useToast } from "@/components/ui/Toast";
 import { apiClient, ApiError } from "@/lib/api";
-import { formatMoney, formatSignedMoney } from "@/lib/format";
+import {
+  CHANGE_ORDER_DECISION_NOTE_MAX,
+  canRecordChangeOrderDecision,
+  changeOrderDecisionLines,
+  recordDecisionDialog,
+  type ChangeOrderDecision,
+} from "@/lib/approvals";
+import { formatDateTimeTR, formatMoney, formatSignedMoney } from "@/lib/format";
 import { CHANGE_ORDER_STATUS } from "@/lib/status";
 import {
   CHANGE_ORDER_TYPE_LABELS,
@@ -45,6 +53,9 @@ function useChangeOrderAction(locked: boolean) {
       return true;
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
+      // 409: durum başka yerde değişti (ör. müşteri az önce linkten yanıt
+      // verdi) -- mesaj kalır, güncel durum yüklenir.
+      if (err instanceof ApiError && err.status === 409) router.refresh();
       return false;
     } finally {
       setBusy(false);
@@ -122,14 +133,24 @@ function ChangeOrderCard({
   project,
   co,
   locked,
+  canManage,
+  canRecordDecision,
 }: {
   project: Project;
   co: ChangeOrder;
   locked: boolean;
+  // projects.finance.manage: taslak/gönderim/iptal/revize/mail/link
+  // (mobil ile aynı kapı -- izinsiz kişiye düğme gösterip 403 döndürmek
+  // yerine gizlenir).
+  canManage: boolean;
+  // projects.change_orders.approve: müşterinin telefonla/yazılı kararını
+  // kaydetme (record-decision).
+  canRecordDecision: boolean;
 }) {
   const { busy, error, run } = useChangeOrderAction(locked);
   const toast = useToast();
   const { confirm, dialog } = useConfirmDialog();
+  const { askReason, dialog: reasonDialog } = useReasonDialog();
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
@@ -195,6 +216,10 @@ function ChangeOrderCard({
   const isDraft = co.status === "draft";
   const isSent = co.status === "sent";
   const canRevise = co.status === "sent" || co.status === "rejected";
+  const signedTotal = co.change_type === "deduction" ? -co.grand_total : co.grand_total;
+  const showRecordDecision = canRecordChangeOrderDecision(co, { canRecord: canRecordDecision, locked });
+  const decisionLines = changeOrderDecisionLines(co);
+  const decidedAt = formatDateTimeTR(co.status === "approved" ? co.approved_at : co.rejected_at);
 
   async function saveDraft(e: FormEvent) {
     e.preventDefault();
@@ -230,6 +255,32 @@ function ChangeOrderCard({
     if (!ok) return;
     const done = await run(() => apiClient(`/api/v1/projects/${project.id}/change-orders/${co.id}/cancel`, { method: "POST" }));
     if (done) toast.success(`${co.change_order_no} iptal edildi.`);
+  }
+
+  // "Müşteri onayladı / reddetti olarak işaretle": onay penceresi + isteğe
+  // bağlı not ("telefonla onay"). Sunucu linkle aynı kuralları uygular;
+  // reddederse (ör. müşteri az önce linkten yanıt verdi, eksiltme proje
+  // bedelini negatife düşürür -- 409) mesajı olduğu gibi gösterilir ve
+  // liste tazelenir.
+  async function recordDecision(decision: ChangeOrderDecision) {
+    const text = recordDecisionDialog(co, decision, formatSignedMoney(signedTotal, c));
+    const note = await askReason({
+      title: text.title,
+      message: text.message,
+      label: "Not",
+      placeholder: text.placeholder,
+      confirmLabel: text.confirmLabel,
+      danger: text.danger,
+      maxLength: CHANGE_ORDER_DECISION_NOTE_MAX,
+    });
+    if (note === null) return;
+    const ok = await run(() =>
+      apiClient(`/api/v1/projects/${project.id}/change-orders/${co.id}/record-decision`, {
+        method: "POST",
+        body: JSON.stringify({ decision, note }),
+      })
+    );
+    if (ok) toast.success(text.success);
   }
 
   async function revise() {
@@ -374,6 +425,19 @@ function ChangeOrderCard({
               </div>
               {co.customer_notes && <p className="text-xs text-text-muted">Müşteri notu: {co.customer_notes}</p>}
               {co.internal_notes && <p className="text-xs text-text-muted">Dahili not: {co.internal_notes}</p>}
+              {(co.status === "approved" || co.status === "rejected") && (
+                <div className="rounded-md border border-border px-3 py-2 text-xs">
+                  <div className={`font-medium ${co.status === "approved" ? "text-success" : "text-danger"}`}>
+                    {co.status === "approved" ? "Müşteri onayladı" : "Müşteri reddetti"}
+                    {decidedAt && ` · ${decidedAt}`}
+                  </div>
+                  {decisionLines.map((line) => (
+                    <p key={line} className="mt-0.5 whitespace-pre-wrap text-text-muted">
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              )}
               {co.profitability && (
                 <div className="rounded-md bg-surface-hover p-2 text-xs">
                   <div className="mb-1 font-medium uppercase tracking-widest text-text-muted">Kârlılık (dahili)</div>
@@ -388,7 +452,7 @@ function ChangeOrderCard({
             </>
           )}
 
-          {!editing && (
+          {!editing && canManage && !locked && (
             <div className="flex flex-wrap items-center gap-2">
               {isDraft && (
                 <>
@@ -442,7 +506,25 @@ function ChangeOrderCard({
             </div>
           )}
 
-          {showEmailForm && isSent && (
+          {!editing && showRecordDecision && (
+            <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+              <div className="text-xs font-semibold uppercase tracking-widest text-text-muted">Müşteri yanıtını kaydet</div>
+              <p className="text-xs text-text-muted">
+                Müşteri telefonla ya da yazılı yanıt verdiyse buradan kaydedebilirsin; sonuç müşterinin linkten yanıt
+                vermesiyle aynıdır.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="secondary" disabled={busy} onClick={() => recordDecision("approved")}>
+                  Müşteri onayladı olarak işaretle
+                </Button>
+                <Button type="button" variant="secondary" disabled={busy} onClick={() => recordDecision("rejected")}>
+                  Müşteri reddetti olarak işaretle
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {showEmailForm && isSent && canManage && (
             <form onSubmit={sendEmail} className="flex flex-col gap-2 border-t border-border pt-2" key={emailKey}>
               <input
                 className={inputClass}
@@ -471,6 +553,7 @@ function ChangeOrderCard({
         </div>
       )}
       {dialog}
+      {reasonDialog}
     </div>
   );
 }
@@ -479,10 +562,14 @@ export function ChangeOrdersSection({
   project,
   changeOrders,
   locked,
+  canManage,
+  canRecordDecision,
 }: {
   project: Project;
   changeOrders: ChangeOrder[];
   locked: boolean;
+  canManage: boolean;
+  canRecordDecision: boolean;
 }) {
   const { busy, error, run } = useChangeOrderAction(locked);
   const [open, setOpen] = useState(false);
@@ -519,7 +606,14 @@ export function ChangeOrdersSection({
       ) : (
         <div className="flex flex-col gap-2">
           {changeOrders.map((co) => (
-            <ChangeOrderCard key={co.id} project={project} co={co} locked={locked} />
+            <ChangeOrderCard
+              key={co.id}
+              project={project}
+              co={co}
+              locked={locked}
+              canManage={canManage}
+              canRecordDecision={canRecordDecision}
+            />
           ))}
         </div>
       )}
@@ -560,11 +654,11 @@ export function ChangeOrdersSection({
           </div>
           {error && <p className="text-xs text-danger">{error}</p>}
         </form>
-      ) : (
+      ) : canManage ? (
         <Button type="button" variant="secondary" onClick={() => setOpen(true)} disabled={locked}>
           + Ek İş Oluştur
         </Button>
-      )}
+      ) : null}
     </div>
   );
 }

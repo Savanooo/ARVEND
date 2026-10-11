@@ -1033,6 +1033,12 @@ export interface ChangeOrder {
   active_share_token?: string | null;
   items?: ChangeOrderItem[];
   profitability?: ChangeOrderProfitability;
+  // Müşteri kararını personel kaydettiyse (record-decision, migration 0063)
+  // kim ve hangi notla; müşteri kendi linkinden yanıt verdiyse null/boş.
+  // Not dahilidir, müşteri paylaşım sayfası görmez.
+  decision_recorded_by?: string | null;
+  decision_recorded_by_name?: string;
+  decision_note?: string;
 }
 
 // PublicChangeOrder, müşteri paylaşım sayfasının aldığı TEK şekildir --
@@ -1338,6 +1344,10 @@ export interface BudgetAdjustment {
   status: AdjustmentStatus;
   approved_at?: string | null;
   created_at: string;
+  // Oluşturan (kendi revizyonunda onay/red gizlenir, Sahip hariç) ve kararı
+  // (onay ya da red) veren kullanıcı -- migration 0062.
+  created_by?: string | null;
+  approved_by?: string | null;
 }
 
 export type CommitmentStatus = "active" | "voided";

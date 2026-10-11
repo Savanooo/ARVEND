@@ -1279,6 +1279,12 @@ export function webHrefForActionTarget(path: string | null | undefined): string 
     // yazar; web'de Planlama, Operasyon sekmesindedir.
     if (seg[2] === "gorevler" || seg[2] === "planlama") return projectHref(p, "operasyon");
     if (seg[2] === "taseronlar") return projectHref(p, "finans");
+    // Bütçe revizyonu bildirimi .../maliyet/revizyonlar yazar: Maliyet
+    // Kontrolü > Bütçe alt sekmesindeki "Bütçe Revizyonları" (alt= ve çapa
+    // CostControlSections.tsx'te, bkz. lib/approvals.ts). Ek iş kararı
+    // bildirimi .../ek-isler/{id}: Finans sekmesindeki "Ek İşler".
+    if (seg[2] === "maliyet") return `${projectHref(p, "maliyet")}&alt=butce#butce-revizyonlari`;
+    if (seg[2] === "ek-isler") return projectHref(p, "finans");
     if (seg.length === 2) {
       const grup = params.get("grup");
       const alt = params.get("alt");

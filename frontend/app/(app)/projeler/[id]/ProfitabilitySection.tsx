@@ -1,4 +1,4 @@
-import { PROJECT_EVENT_LABELS } from "@/lib/events";
+import { projectEventLabel } from "@/lib/events";
 import { formatDateTR, formatHm, formatMoney, istanbulDate } from "@/lib/format";
 import {
   INVOICE_STATUS_LABELS,
@@ -89,7 +89,8 @@ export function ProfitabilitySection({ summary }: { summary: FinancialSummary })
 }
 
 // Olay etiketleri lib/events.ts'e taşındı (ana sayfa "Son Hareketler" de
-// aynı haritayı kullanır).
+// aynı haritayı kullanır). projectEventLabel metadata'ya da bakar: ek iş
+// kararını personel kaydettiyse (source "staff") ayrı etiket.
 
 // Olay metadata'sındaki durum kodları (planned, in_progress, paid...) ham
 // gösterilmez: olay tipine göre ilgili etiket sözlüğünden Türkçesi alınır.
@@ -123,6 +124,8 @@ function detail(e: ProjectEvent, currency: string): string {
     parts.push(`${statusLabel(e.event_type, m.from)} → ${statusLabel(e.event_type, m.to)}`);
   if (typeof m.status === "string") parts.push(statusLabel(e.event_type, m.status));
   if (typeof m.reason === "string" && m.reason) parts.push(String(m.reason));
+  // Ek iş kararını personel kaydettiyse yazdığı dahili not (record-decision).
+  if (typeof m.note === "string" && m.note) parts.push(`Not: ${m.note}`);
   return parts.join(" · ");
 }
 
@@ -151,7 +154,7 @@ export function ProjectActivitySection({
             <span className="w-32 shrink-0 tabular-nums text-text-muted">{stamp}</span>
             <span className="text-text-muted">—</span>
             <span>
-              {PROJECT_EVENT_LABELS[e.event_type] ?? e.event_type}
+              {projectEventLabel(e)}
               {extra && <span className="text-text-muted"> · {extra}</span>}
             </span>
           </li>

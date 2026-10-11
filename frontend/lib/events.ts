@@ -151,3 +151,32 @@ export function eventLabel(source: EventSource | string, type: string): string {
   const map = source === "offer" ? OFFER_EVENT_LABELS : PROJECT_EVENT_LABELS;
   return map[type] ?? UNKNOWN_EVENT_LABEL;
 }
+
+// Ek işte müşteri kararını PERSONEL kaydettiyse (record-decision, telefonla/
+// yazılı yanıt) olay aynı tipte yazılır ama metadata.source = "staff" taşır
+// (backend domain.ChangeOrderDecisionSourceStaff). Aktivite akışında
+// müşterinin kendi linkinden verdiği karardan ayrı okunur -- mobil
+// change_order_detail_screen.dart _EventsSection ile aynı metin.
+export const STAFF_DECISION_SOURCE = "staff";
+
+export const STAFF_DECISION_EVENT_LABELS: Record<string, string> = {
+  change_order_approved: "Müşteri onayı ekip tarafından kaydedildi",
+  change_order_rejected: "Müşteri reddi ekip tarafından kaydedildi",
+};
+
+/** Kararı personel mi kaydetti (metadata.source = "staff"). */
+export function isStaffDecisionEvent(e: { metadata?: Record<string, unknown> | null }): boolean {
+  return e.metadata?.source === STAFF_DECISION_SOURCE;
+}
+
+/**
+ * Proje olayının etiketi, metadata'ya bakarak: personelin kaydettiği ek iş
+ * kararı ayrı etiketlenir; diğerleri eventLabel("project", ...) ile aynı.
+ */
+export function projectEventLabel(e: { event_type: string; metadata?: Record<string, unknown> | null }): string {
+  if (isStaffDecisionEvent(e)) {
+    const staff = STAFF_DECISION_EVENT_LABELS[e.event_type];
+    if (staff) return staff;
+  }
+  return eventLabel("project", e.event_type);
+}

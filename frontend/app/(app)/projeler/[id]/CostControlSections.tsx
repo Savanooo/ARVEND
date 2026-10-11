@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -15,9 +15,18 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { ControlledTabPanel, ControlledTabs } from "@/components/ui/Tabs";
 import { Textarea } from "@/components/ui/Textarea";
+import { useToast } from "@/components/ui/Toast";
 import { apiClient, ApiError } from "@/lib/api";
+import {
+  ADJUSTMENT_APPROVE_MISSING_TEXT,
+  adjustmentCounts,
+  adjustmentDecisionUI,
+  BUDGET_ADJUSTMENTS_ANCHOR,
+  OWN_ADJUSTMENT_TEXT,
+  parseCostTab,
+} from "@/lib/approvals";
 import { expenseCounts, summarizeExpenses } from "@/lib/expenses";
-import { formatMoney, formatSignedMoney } from "@/lib/format";
+import { formatDateTR, formatMoney, formatSignedMoney, istanbulDate } from "@/lib/format";
 import { ADJUSTMENT_STATUS, BUDGET_STATUS, COMMITMENT_STATUS } from "@/lib/status";
 import type {
   BudgetAdjustment,
@@ -60,6 +69,10 @@ function useCostControlAction(locked: boolean) {
       return true;
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
+      // 409: kayıt bu arada başka yerde değişti (ör. revizyona başka biri
+      // karar verdi) -- sunucunun mesajı olduğu gibi kalır, güncel durum
+      // yüklenir (mobil de listeyi tazeler).
+      if (err instanceof ApiError && err.status === 409) router.refresh();
       return false;
     } finally {
       setBusy(false);
@@ -737,19 +750,59 @@ function AdjustmentModal({
   );
 }
 
+// Zaman damgasının İstanbul takvim günü ("07.10.2026"); okunamazsa boş.
+function dayOf(ts: string | null | undefined): string {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? "" : formatDateTR(istanbulDate(d));
+}
+
+// Karar (onay/red) projects.budget.approve ister -- revizyon önermek
+// (budget.manage) AYRI izin; öneren kişi kendi revizyonuna karar veremez
+// (Sahip hariç, sunucu 409 ile reddeder). Mobil BudgetAdjustmentsScreen
+// ile aynı kurallar ve metinler (bkz. lib/approvals.ts).
 export function AdjustmentsSection({
   project,
   adjustments,
   budgetLines,
   locked,
+  canApprove,
+  currentUserId,
+  isOwner,
 }: {
   project: Project;
   adjustments: BudgetAdjustment[];
   budgetLines: BudgetLine[];
   locked: boolean;
+  canApprove: boolean;
+  currentUserId: string | null;
+  isOwner: boolean;
 }) {
   const { busy, error, run } = useCostControlAction(locked);
+  const { confirm, dialog } = useConfirmDialog();
+  const toast = useToast();
   const lineById = new Map(budgetLines.map((l) => [l.id, l]));
+  const { total, pending } = adjustmentCounts(adjustments);
+
+  async function decide(a: BudgetAdjustment, approve: boolean) {
+    const lineLabel = lineById.get(a.budget_line_id)?.description ?? "—";
+    const amount = formatSignedMoney(a.amount, project.currency);
+    const ok = await confirm({
+      title: approve ? "Revizyonu Onayla" : "Revizyonu Reddet",
+      message: approve
+        ? `"${lineLabel}" kalemi için ${amount} revizyon onaylansın mı? Onaylanan tutar kalemin revize bütçesine yansır.`
+        : `"${lineLabel}" kalemi için ${amount} revizyon reddedilsin mi? Reddedilen revizyon bütçeyi etkilemez.`,
+      confirmLabel: approve ? "Onayla" : "Reddet",
+      danger: !approve,
+    });
+    if (!ok) return;
+    const done = await run(() =>
+      apiClient(`/api/v1/projects/${project.id}/budget/adjustments/${a.id}/${approve ? "approve" : "reject"}`, {
+        method: "POST",
+      })
+    );
+    if (done) toast.success(approve ? "Revizyon onaylandı." : "Revizyon reddedildi.");
+  }
 
   if (adjustments.length === 0) {
     return <p className="text-sm text-text-muted">Henüz bir bütçe revizyonu oluşturulmadı.</p>;
@@ -757,6 +810,10 @@ export function AdjustmentsSection({
 
   return (
     <div className="flex flex-col gap-3">
+      <p className="text-xs text-text-muted">
+        {pending > 0 ? `${total} revizyon · ${pending} onay bekliyor` : `${total} revizyon`}
+      </p>
+      {!locked && !canApprove && pending > 0 && <p className="text-xs text-text-muted">{ADJUSTMENT_APPROVE_MISSING_TEXT}</p>}
       <Table>
         <thead>
           <tr>
@@ -764,55 +821,58 @@ export function AdjustmentsSection({
             <Th className="text-right">Tutar</Th>
             <Th>Gerekçe</Th>
             <Th>Durum</Th>
-            <Th className="w-32" />
+            <Th className="w-40" />
           </tr>
         </thead>
         <tbody>
-          {adjustments.map((a) => (
-            <Tr key={a.id}>
-              <Td>{lineById.get(a.budget_line_id)?.description ?? "—"}</Td>
-              <Td className={`text-right ${a.amount < 0 ? "text-danger" : "text-success"}`}>
-                {formatSignedMoney(a.amount, project.currency)}
-              </Td>
-              <Td className="text-text-muted">{a.reason}</Td>
-              <Td>
-                <StatusBadge status={a.status} registry={ADJUSTMENT_STATUS} />
-              </Td>
-              <Td className="text-right">
-                {a.status === "draft" && !locked && (
-                  <div className="flex justify-end gap-3 text-xs">
-                    <button
-                      type="button"
-                      className="text-success hover:underline"
-                      disabled={busy}
-                      onClick={() =>
-                        run(() =>
-                          apiClient(`/api/v1/projects/${project.id}/budget/adjustments/${a.id}/approve`, { method: "POST" })
-                        )
-                      }
-                    >
-                      Onayla
-                    </button>
-                    <button
-                      type="button"
-                      className="text-danger hover:underline"
-                      disabled={busy}
-                      onClick={() =>
-                        run(() =>
-                          apiClient(`/api/v1/projects/${project.id}/budget/adjustments/${a.id}/reject`, { method: "POST" })
-                        )
-                      }
-                    >
-                      Reddet
-                    </button>
-                  </div>
-                )}
-              </Td>
-            </Tr>
-          ))}
+          {adjustments.map((a) => {
+            const ui = adjustmentDecisionUI(a, { canApprove, locked, userId: currentUserId, isOwner });
+            const created = dayOf(a.created_at);
+            const decided = dayOf(a.approved_at);
+            const dates = [created && `Oluşturulma: ${created}`, decided && `Karar: ${decided}`].filter(Boolean);
+            return (
+              <Tr key={a.id}>
+                <Td>{lineById.get(a.budget_line_id)?.description ?? "—"}</Td>
+                <Td className={`text-right ${a.amount < 0 ? "text-danger" : "text-success"}`}>
+                  {formatSignedMoney(a.amount, project.currency)}
+                </Td>
+                <Td className="text-text-muted">
+                  {a.reason}
+                  {dates.length > 0 && <div className="mt-0.5 text-xs">{dates.join(" · ")}</div>}
+                </Td>
+                <Td>
+                  <StatusBadge status={a.status} registry={ADJUSTMENT_STATUS} />
+                </Td>
+                <Td className="text-right">
+                  {ui === "decide" && (
+                    <div className="flex justify-end gap-3 text-xs">
+                      <button
+                        type="button"
+                        className="text-success hover:underline"
+                        disabled={busy}
+                        onClick={() => decide(a, true)}
+                      >
+                        Onayla
+                      </button>
+                      <button
+                        type="button"
+                        className="text-danger hover:underline"
+                        disabled={busy}
+                        onClick={() => decide(a, false)}
+                      >
+                        Reddet
+                      </button>
+                    </div>
+                  )}
+                  {ui === "own" && <p className="text-left text-xs text-text-muted">{OWN_ADJUSTMENT_TEXT}</p>}
+                </Td>
+              </Tr>
+            );
+          })}
         </tbody>
       </Table>
       {error && <p className="text-xs text-danger">{error}</p>}
+      {dialog}
     </div>
   );
 }
@@ -1224,6 +1284,9 @@ export function CostControlWorkspace({
   forecasts,
   expenses,
   locked,
+  canApproveAdjustments = false,
+  currentUserId = null,
+  isOwner = false,
 }: {
   project: Project;
   data: CostControlData;
@@ -1236,10 +1299,20 @@ export function CostControlWorkspace({
   forecasts: CostForecast[];
   expenses: Expense[];
   locked: boolean;
+  // projects.budget.approve ve oturumdaki kişi (kendi revizyonuna karar
+  // veremez, Sahip hariç) -- bkz. AdjustmentsSection.
+  canApproveAdjustments?: boolean;
+  currentUserId?: string | null;
+  isOwner?: boolean;
 }) {
+  // ?alt=butce: bütçe revizyonu bildirimi doğrudan Bütçe alt sekmesini
+  // açar (bkz. webHrefForActionTarget); key, aynı sayfadayken alt=
+  // değişirse sekme durumunu yeni değerle baştan kurar.
+  const costTab = parseCostTab(useSearchParams().get("alt"));
   return (
     <ControlledTabs
-      defaultTab="ozet"
+      key={costTab}
+      defaultTab={costTab}
       items={[
         { key: "ozet", label: "Özet" },
         { key: "butce", label: "Bütçe" },
@@ -1265,9 +1338,17 @@ export function CostControlWorkspace({
             />
           </div>
           {budget && budget.status === "baselined" && (
-            <div className="border-t border-border pt-4">
+            <div id={BUDGET_ADJUSTMENTS_ANCHOR} className="scroll-mt-4 border-t border-border pt-4">
               <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-text-muted">Bütçe Revizyonları</h3>
-              <AdjustmentsSection project={project} adjustments={adjustments} budgetLines={budgetLines} locked={locked} />
+              <AdjustmentsSection
+                project={project}
+                adjustments={adjustments}
+                budgetLines={budgetLines}
+                locked={locked}
+                canApprove={canApproveAdjustments}
+                currentUserId={currentUserId}
+                isOwner={isOwner}
+              />
             </div>
           )}
         </div>

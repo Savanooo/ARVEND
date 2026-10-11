@@ -17,6 +17,9 @@ interface ReasonOptions {
   // Backend gerekçesiz reddediyorsa (sözleşme iptal/fesih, talep red/iptal,
   // sipariş iptali) onay düğmesi metin girilene kadar kapalı kalır.
   required?: boolean;
+  // Sunucudaki sütun sınırı (ör. ek iş karar notu 500) -- aşan metin hiç
+  // yazılamaz, gönderip 400 almak yerine.
+  maxLength?: number;
 }
 
 // useConfirmDialog'un gerekçe alanlı kardeşi; window.prompt()'un yerini
@@ -83,6 +86,7 @@ function ReasonModal({ options, onDone }: { options: ReasonOptions; onDone: (val
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           className="min-h-20"
+          maxLength={options.maxLength}
           autoFocus
         />
       </form>
