@@ -8,6 +8,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { apiClient, ApiError } from "@/lib/api";
+import { calcPriceSummary, hasPriceWarning, nonPriceWarnings, priceWarningLabel } from "@/lib/calc";
 import { formatTL } from "@/lib/format";
 import type { CalcGroupWithCategories, CalcRunResult, CalcSnapshot } from "@/lib/types";
 
@@ -112,6 +113,10 @@ export function MetrajHesaplaPanel({
   // pitch_deg'i hangi kategori olursa olsun kabul eder, burada yalnızca
   // alanı gereksiz yere göstermemek için bir ön izleme sezgiselidir.
   const showPitch = (selectedGroup?.name ?? "").toLocaleLowerCase("tr-TR").includes("çatı");
+  // Satırlarda işaretlenen fiyat uyarıları (ürün yok / 0 TL) üst listeden
+  // düşer, yerine tek özet not gelir (bkz. lib/calc.ts, mobil ile aynı).
+  const otherWarnings = result ? nonPriceWarnings(result) : [];
+  const priceSummary = result ? calcPriceSummary(result.items) : null;
 
   function handleGroupChange(id: string) {
     setGroupId(id);
@@ -185,6 +190,10 @@ export function MetrajHesaplaPanel({
           price_at_calc: it.unit_price,
           category_name: result.category.name,
           group_name: selectedGroup?.name,
+          // Fiyat üründen mi, reçete referansından mı geldi / hiç yok mu --
+          // kalemde sonradan "bu fiyat nereden?" görülebilsin (mobil gibi).
+          // Alanı göndermeyen eski sunucuda yazılmaz.
+          ...(it.price_source ? { price_source: it.price_source } : {}),
         },
       }));
     if (items.length === 0) return;
@@ -330,9 +339,13 @@ export function MetrajHesaplaPanel({
               </span>
             </div>
 
-            {result.warnings.length > 0 && (
+            {/* Fiyat uyarıları TEK notta özetlenir, satırlar ayrıca işaretlenir
+                (yeni firmada her satır için ayrı "ürün yok / 0 TL" uyarısı
+                listeyi boğuyordu); diğer uyarılar (çevre eksik vb.) kalır. */}
+            {(priceSummary || otherWarnings.length > 0) && (
               <div className="flex flex-col gap-1 rounded-md border border-gold/40 bg-gold-soft/30 p-3 text-xs text-text">
-                {result.warnings.map((w, i) => (
+                {priceSummary && <p>⚠ {priceSummary}</p>}
+                {otherWarnings.map((w, i) => (
                   <p key={i}>⚠ {w.message}</p>
                 ))}
               </div>
@@ -350,12 +363,22 @@ export function MetrajHesaplaPanel({
               </thead>
               <tbody>
                 {result.items.map((it) => {
-                  const hasWarning = result.warnings.some((w) => w.item_id === it.recipe_item_id);
+                  const hasWarning = otherWarnings.some((w) => w.item_id === it.recipe_item_id);
                   return (
                     <Tr key={it.recipe_item_id}>
                       <Td className="font-medium">
                         {it.material_name}
                         {hasWarning && <span className="ml-1.5 text-gold">⚠</span>}
+                        {hasPriceWarning(it) && (
+                          // Referans fiyat: uyarı rengi; hiç fiyat yok (satır 0 TL): tehlike rengi.
+                          <span
+                            className={`mt-0.5 block text-xs font-semibold ${
+                              it.price_source === "none" ? "text-danger" : "text-gold"
+                            }`}
+                          >
+                            ⚠ {priceWarningLabel(it)}
+                          </span>
+                        )}
                       </Td>
                       <Td className="text-right">{it.quantity}</Td>
                       <Td className="text-text-muted">{it.unit}</Td>
