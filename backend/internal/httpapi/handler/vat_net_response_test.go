@@ -51,14 +51,41 @@ func TestProjectResponseVATNetFields(t *testing.T) {
 	}
 }
 
+// costControlRevenueKeys: Maliyet Kontrolü özetinin gelir tarafı (satış
+// bedeli ve ondan türeyen kâr) -- KDV dahil ve KDV hariç hepsi AYNI
+// görünürlükte olmalı: biri null ise hepsi null (bkz. setCostControlRevenue).
+// Bir izinle gizleme eklenirse bu liste o testte de kullanılmalı.
+var costControlRevenueKeys = []string{
+	"contract_value", "forecast_profit", "forecast_margin_percent",
+	"contract_vat_amount", "contract_vat_known", "contract_value_net",
+	"forecast_profit_net", "forecast_margin_percent_net",
+}
+
+func assertCostControlRevenueTogether(t *testing.T, summary map[string]any) {
+	t.Helper()
+	hidden := summary["contract_value"] == nil
+	for _, k := range costControlRevenueKeys {
+		val, present := summary[k]
+		if !present {
+			t.Errorf("%s yanıtta olmalı (gizliyse null): %v", k, summary)
+			continue
+		}
+		if (val == nil) != hidden {
+			t.Errorf("%s = %v; contract_value gizli=%v -- gelir tarafı birlikte açılıp kapanmalı", k, val, hidden)
+		}
+	}
+}
+
 func TestCostControlAndChangeOrderVATNetFields(t *testing.T) {
 	cc := jsonMap(t, toCostControlSummaryResponse(domain.CostControlSummary{
 		ContractValue: 1248000, EACTotal: 500000, ActualCostNet: 50000, EACNet: 490000,
+		ForecastProfit: 748000, ForecastMarginPercent: 59.94,
 		ContractVATAmount: 208000, ContractVATKnown: true, ContractValueNet: 1040000,
 		ForecastProfitNet: 550000, ForecastMarginPercentNet: 52.88,
 	}))
 	for k, v := range map[string]any{
-		"actual_cost_net": 50000.0, "eac_net": 490000.0, "contract_vat_amount": 208000.0,
+		"contract_value": 1248000.0, "forecast_profit": 748000.0, "forecast_margin_percent": 59.94,
+		"eac": 500000.0, "actual_cost_net": 50000.0, "eac_net": 490000.0, "contract_vat_amount": 208000.0,
 		"contract_vat_known": true, "contract_value_net": 1040000.0,
 		"forecast_profit_net": 550000.0, "forecast_margin_percent_net": 52.88,
 	} {
@@ -66,6 +93,7 @@ func TestCostControlAndChangeOrderVATNetFields(t *testing.T) {
 			t.Errorf("maliyet kontrolü %s = %v, beklenen %v", k, cc[k], v)
 		}
 	}
+	assertCostControlRevenueTogether(t, cc)
 	line := jsonMap(t, toCostControlLineResponse(domain.CostControlLine{ActualCost: 60000, ActualCostNet: 50000, EACNet: 490000}))
 	if line["actual_cost_net"] != 50000.0 || line["eac_net"] != 490000.0 {
 		t.Errorf("satır: %v %v", line["actual_cost_net"], line["eac_net"])

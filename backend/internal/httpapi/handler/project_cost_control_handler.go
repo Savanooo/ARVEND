@@ -535,9 +535,9 @@ type costControlSummaryResponse struct {
 	ActualCostNet float64 `json:"actual_cost_net"`
 	EACNet        float64 `json:"eac_net"`
 	// Gelir tarafı (sözleşme bedelinin KDV'si, KDV hariç bedel) ve ondan
-	// türeyen KDV hariç kâr/marj: contract_value/forecast_profit hangi
-	// koşulda yazılıyorsa YALNIZCA o koşulda yazılır (bkz.
-	// setCostControlRevenueNets) -- pointer, yazılmadığında null döner.
+	// türeyen KDV hariç kâr/marj: contract_value/forecast_profit ile AYNI
+	// yerde, aynı koşulda yazılır (bkz. setCostControlRevenue) -- pointer,
+	// yazılmadığında null döner.
 	ContractVATAmount        *float64 `json:"contract_vat_amount"`
 	ContractVATKnown         *bool    `json:"contract_vat_known"`
 	ContractValueNet         *float64 `json:"contract_value_net"`
@@ -547,21 +547,26 @@ type costControlSummaryResponse struct {
 
 func toCostControlSummaryResponse(s domain.CostControlSummary) costControlSummaryResponse {
 	resp := costControlSummaryResponse{
-		Currency: s.Currency, ContractValue: s.ContractValue, OriginalBudget: s.OriginalBudget,
+		Currency: s.Currency, OriginalBudget: s.OriginalBudget,
 		ApprovedAdjustments: s.ApprovedAdjustments, RevisedBudget: s.RevisedBudget,
 		CommittedCost: s.CommittedCost, ActualCost: s.ActualCost, ETC: s.ETCTotal, EAC: s.EACTotal,
-		Variance: s.Variance, ForecastProfit: s.ForecastProfit, ForecastMarginPercent: s.ForecastMarginPercent,
+		Variance:      s.Variance,
 		HasBudget:     s.HasBudget,
 		ActualCostNet: s.ActualCostNet, EACNet: s.EACNet,
 	}
-	setCostControlRevenueNets(&resp, s)
+	setCostControlRevenue(&resp, s)
 	return resp
 }
 
-// setCostControlRevenueNets: gelir tarafından türeyen KDV hariç alanlar.
-// Satış bedeli ve kâr finans bilgisidir: contract_value/forecast_profit
-// bir izinle gizlenirse bu çağrı da AYNI koşula bağlanmalıdır.
-func setCostControlRevenueNets(resp *costControlSummaryResponse, s domain.CostControlSummary) {
+// setCostControlRevenue: gelir tarafı -- sözleşme bedeli, tahmini kâr/marj
+// (KDV dahil) ve bunların KDV hariç karşılıkları TEK yerde. Satış bedeli ve
+// kâr finans bilgisidir: bu alanlar bir izinle gizlenecekse çağrının tamamı
+// o koşula bağlanır; KDV hariç alanlar KDV dahil olanlardan ayrı açık
+// kalmamalı (bkz. vat_net_response_test.go costControlRevenueKeys).
+func setCostControlRevenue(resp *costControlSummaryResponse, s domain.CostControlSummary) {
+	resp.ContractValue = s.ContractValue
+	resp.ForecastProfit = s.ForecastProfit
+	resp.ForecastMarginPercent = s.ForecastMarginPercent
 	resp.ContractVATAmount = &s.ContractVATAmount
 	resp.ContractVATKnown = &s.ContractVATKnown
 	resp.ContractValueNet = &s.ContractValueNet
