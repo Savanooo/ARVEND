@@ -542,12 +542,16 @@ modüllerinde tek kilit cümlesi ve kırmızı, ayrı iptal düğmesi.
   kilit dosyasını reddeder: `npx -y npm@11.6.2 ci`. Migration'lar YALNIZCA
   API durdurulmuşken çalıştırılır (eski ikili yeni sütunlarda `SELECT *`
   taramasında hata verir).
-- **Bilinen veri sızıntıları (ayrı iş olarak işaretlendi, düzeltilmedi):**
-  `GET /projects` finans izni olmayana (Saha, Proje Yöneticisi) proje
-  tutarlarını döndürüyor; `GET /projects/{id}/events` tahsilat/masraf
-  olaylarının tutarlarını döndürüyor; proje listesindeki gerçekleşen maliyet
-  proje özetindeki formülden eksik hesaplanıyor. Ana sayfa bunları
-  KULLANMAZ (bkz. `docs/dashboard/SPEC.md` §9 madde 8).
+- **Proje para sızıntıları kapatıldı (2026-10, `feat/finans-sizinti`):**
+  `GET /projects`, tekil proje yanıtları, `GET /projects/{id}/events` ve
+  maliyet kontrolündeki gelir/kâr artık yalnızca efektif
+  `projects.finance.read` sahibine tutar döner (bkz.
+  `backend/docs/authorization.md` §11). Eski mobil sürümler null
+  `contract_amount`'ta proje listesini açamaz — null-tolerant mobil
+  sürüm backend'den önce/birlikte yayınlanmalı. Hâlâ açık: proje
+  listesindeki gerçekleşen maliyet proje özetindeki formülden eksik
+  hesaplanıyor. Ana sayfa bunları KULLANMAZ (bkz. `docs/dashboard/SPEC.md`
+  §9 madde 8).
 - **Arvend Yapı'nın (canlı firma) kataloğu** hâlâ 2026-09-12'deki tek
   seferlik BYZ aktarımından; Ulaş/Demir Profil'den hiç senkronlanmadı, gece
   otomatiği kapalı — açmak firma sahibinin kararı.

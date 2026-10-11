@@ -144,17 +144,14 @@ each one; none needs a mobile change once fixed server-side.
   budget" and "project not found".
 - **Permissions text:** `projects.cost_control.manage`'s description names
   WBS, but router.go gates WBS writes with `projects.budget.manage`.
-- **Money leak (already in HANDOFF §8):** `GET /projects/{id}/events`
-  returns `amount`/`planned_amount`/`contract_amount`/`grand_total` to users
-  without `projects.finance.read`; the app hides them client-side.
-- **Revenue in cost control:** `GET /projects/{id}/cost-control` returns
-  `contract_value`, `forecast_profit` and `forecast_margin_percent` to
-  anyone with `projects.cost_control.read` (the default Proje Yöneticisi
-  role has it, but not `projects.finance.read`). The app shows cost figures
-  (budget, EAC, commitments, actuals, variance) under cost-control/budget
-  permissions and hides the three revenue/profit fields without
-  finance.read (2026-09-29 review fix). Server-side fix: null them without
-  finance.read, like the dashboard does.
+- **Money leak — RESOLVED (2026-10):** `GET /projects/{id}/events` drops the
+  money keys from `metadata`, project responses (`GET /projects`, single
+  reads, update, create-from-offer, offer->project lookup) return
+  `contract_amount: null` and no list aggregates, and
+  `GET /projects/{id}/cost-control` returns `contract_value`,
+  `forecast_profit`, `forecast_margin_percent` as null — all for users
+  without `projects.finance.read` (API_CONTRACT.md "Finance visibility").
+  The app keeps its own finance.read checks and is null-tolerant.
 - **Change-order share token:** the list/detail response carries
   `active_share_token` under `projects.finance.read`. That token lets whoever
   opens `/ek-is/{token}` approve or reject the change order as the customer.
