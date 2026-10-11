@@ -88,4 +88,35 @@ void main() {
     expect(find.text('Kaydet'), findsNothing);
     expect(find.byType(TextFormField), findsNothing);
   });
+
+  testWidgets('yeni teklif rotası offers.create olmadan form açmaz', (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/offers/defaults': [(status: 403, body: {'error': 'bu işlem için yetkiniz yok', 'code': 'permission_denied'})],
+    });
+    await pumpRoutedForm(
+      tester,
+      adapter,
+      form: const OfferCreateScreen(),
+      user: testUser({'offers.read', 'offers.update'}),
+    );
+
+    expect(find.text(kOfferCreateNoAccessText), findsOneWidget);
+    expect(find.text('Teklifi Oluştur'), findsNothing);
+    expect(find.byType(TextFormField), findsNothing);
+  });
+
+  testWidgets('yeni teklif rotası offers.create ile form açar', (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/offers/defaults': [(status: 200, body: {'vat_rate': 20, 'currency': 'TRY'})],
+    });
+    await pumpRoutedForm(
+      tester,
+      adapter,
+      form: const OfferCreateScreen(),
+      user: testUser({'offers.read', 'offers.create'}),
+    );
+
+    expect(find.text(kOfferCreateNoAccessText), findsNothing);
+    expect(find.text('Teklifi Oluştur'), findsOneWidget);
+  });
 }

@@ -61,6 +61,9 @@ double _round2(double v) => (v * 100).roundToDouble() / 100;
 const kOfferEditNoAccessText = 'Teklifi düzenleme yetkin yok. Yöneticinden rolüne "Teklif düzenleme/revize '
     'etme/paylaşma" iznini eklemesini isteyebilirsin.';
 
+const kOfferCreateNoAccessText = 'Yeni teklif oluşturma yetkin yok. Yöneticinden rolüne "Teklif oluşturma" '
+    'iznini eklemesini isteyebilirsin.';
+
 class _DraftItem {
   _DraftItem();
 
@@ -539,13 +542,20 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
   Widget build(BuildContext context) {
     // Düzenleme rotası (/teklifler/:id/duzenle) doğrudan da açılabilir:
     // offers.update yoksa form hiç gösterilmez (kayıt 403 alırdı). Yeni
-    // teklifin girişleri (liste, metraj, müşteri) offers.create'i zaten
-    // kendileri denetliyor.
+    // teklif rotası da (/teklifler/yeni) offers.create ister; girişleriyle
+    // (liste, metraj, müşteri, ana sayfa) aynı kural: izin kümesi boş eski
+    // oturumda form açılır, karar sunucunundur.
     final auth = ref.watch(authControllerProvider);
     if (widget.isEdit && !auth.isLoading && !auth.valueOrNull.canAccess(kPermOffersUpdate)) {
       return const AppPageScaffold(
         title: Text('Teklifi Düzenle'),
         body: NoAccessView(message: kOfferEditNoAccessText),
+      );
+    }
+    if (!widget.isEdit && !auth.isLoading && !auth.valueOrNull.can(kPermOffersCreate)) {
+      return const AppPageScaffold(
+        title: Text('Yeni Teklif'),
+        body: NoAccessView(message: kOfferCreateNoAccessText),
       );
     }
     final canManageInternal = _canManageInternal;
