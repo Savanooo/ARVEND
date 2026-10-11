@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../../core/files/local_documents.dart' show kProjectPhotoCacheDirectory;
+
 /// Şantiye fotoğraflarının cihaz önbelleği (geçici dizin). Bir fotoğrafın
 /// içeriği kimliğine bağlı ve değişmez (yeni yükleme = yeni kimlik; silme
 /// yumuşak), bu yüzden bir kez indirilen bayt dosyaya yazılır ve Dökümanlar
@@ -13,7 +15,8 @@ import 'package:path_provider/path_provider.dart';
 /// Bellekte değil diskte tutulur: fotoğraf başına birkaç MB'lık bayt
 /// yalnızca kutucuk ekrandayken bellekte kalır. Geçici dizini işletim sistemi
 /// gerektiğinde boşaltabilir; o zaman yeniden indirilir. Dizin alınamazsa
-/// (ör. test ortamı) önbellek sessizce devre dışıdır.
+/// (ör. test ortamı) önbellek sessizce devre dışıdır. Çıkışta silinir (bkz.
+/// LocalUserFiles).
 class ProjectPhotoCache {
   ProjectPhotoCache({Future<Directory?> Function()? directory}) : _directory = directory ?? _defaultDirectory;
 
@@ -23,7 +26,7 @@ class ProjectPhotoCache {
   static Future<Directory?> _defaultDirectory() async {
     try {
       final tmp = await getTemporaryDirectory();
-      return Directory('${tmp.path}/proje-fotograflari');
+      return Directory('${tmp.path}/$kProjectPhotoCacheDirectory');
     } catch (_) {
       return null;
     }

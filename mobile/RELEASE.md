@@ -211,7 +211,12 @@ Gelecek sürümler için kural:
   fcm-service-account.json). Anahtar yoksa telefona gönderim kapalıdır,
   bildirimler zilde durur.
 - Telefon kaydı oturum açınca yapılır, çıkışta silinir
-  (`POST /push/devices[/unregister]`).
+  (`POST /push/devices[/unregister]`). Çıkışta telefonun kayıt anahtarı
+  (FCM token) sunucu kaydı silinemese de (zaman aşımı, 5xx) HER durumda
+  silinir; geçersizleşen anahtarın sunucu kaydını sunucu ilk gönderimde
+  kendisi siler. Anahtar silinemezse (ağ yok) bu kaydedilir ve oturum
+  yokken bir sonraki açılışta/öne gelişte yeniden denenir; bu arada biri
+  giriş yaptıysa anahtar onun adına kaydedilir, silinmez.
 - Android kanal: `arvend_bildirimler` (MainActivity) -- backend fcm.Send
   ile aynı ad.
 - Duyuru: firma yöneticisi (Diğer > Duyuru Gönder) ve Süper Admin (web
@@ -360,7 +365,18 @@ Crashlytics'li ilk sürüm Play'e yüklenmeden ÖNCE formda şunlar işaretlenme
   çıkarılmaz, yalnızca çerez header'ı olarak taşınır.
 - **Refresh**: tek-uçuş (single-flight) 401→refresh→retry akışı,
   backend'in tek-kullanımlık rotasyonlu refresh token'ıyla uyumlu
-  (`lib/core/api/api_client.dart`).
+  (`lib/core/api/api_client.dart`). Refresh ağ hatası ya da 5xx (ör. 503
+  `temporarily_unavailable`, veritabanı o an okunamadı) ile düşerse oturum
+  DÜŞMEZ: istek "oturum bitti" yerine o geçici hatayla döner.
+- **Çıkışta yerel veri**: oturum çerezleri silinir (`clearSession`), son
+  kullanıcı kaydı silinir, indirilen belgeler (`belgeler/`: teklif PDF'i,
+  proje dosyası, maaş dökümü), şantiye fotoğrafı önbelleği ve paylaşım
+  kopyaları (`share_plus/`) silinir (`LocalUserFiles`, oturum süresi
+  dolduğunda da). Ortak telefonda sonraki kişi öncekinin dosyalarını bulmaz.
+- **Android yedeği kapalı**: `android:allowBackup="false"` (Android ≤ 11) ve
+  `res/xml/data_extraction_rules.xml` (Android 12+, Google yedeği ve
+  cihazdan cihaza aktarım): çerezler, tercih kayıtları ve belgeler başka bir
+  telefonda geri gelmez. Bütün iş verisi sunucuda.
 - **Oturum sona erme**: sınıflandırılamayan bir 401/403 refresh
   başarısızlığında `onSessionExpired` çağrılır, `AuthController` oturumu
   temizler, router `/giris`'e yönlendirir. AYRICA (FINAL entegrasyon fazı,

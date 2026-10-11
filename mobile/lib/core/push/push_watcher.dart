@@ -83,7 +83,12 @@ class _PushWatcherState extends ConsumerState<PushWatcher> {
   }
 
   void _onResume() {
-    if (!mounted || !_loggedIn) return;
+    if (!mounted) return;
+    if (!_loggedIn) {
+      // Çıkışta silinemeyen bildirim anahtarı (ağ yoktu): yeniden dene.
+      unawaited(ref.read(authControllerProvider.notifier).retryPendingPushCleanup());
+      return;
+    }
     ref.invalidate(unreadNotificationCountProvider);
     ref.invalidate(notificationsListProvider);
   }
@@ -95,6 +100,7 @@ class _PushWatcherState extends ConsumerState<PushWatcher> {
     final user = auth.valueOrNull;
     if (user == null) {
       _registeredFor = null;
+      if (_restoreSettled) unawaited(ref.read(authControllerProvider.notifier).retryPendingPushCleanup());
       // Oturum geri gelmedi: bekleyen bildirim artık yalnızca sahibine.
       final pending = _pending;
       if (pending != null && pending.awaitingRestore && _restoreSettled) {
@@ -153,6 +159,8 @@ class _PushWatcherState extends ConsumerState<PushWatcher> {
     } catch (_) {}
     try {
       await ref.read(pushRepositoryProvider).register(token, appVersion: version);
+      // Anahtar artık bu kullanıcının: çıkıştan kalan bekleyen silme unutulur.
+      await ref.read(pushCleanupStoreProvider).clear();
     } catch (e) {
       // Bildirim kaydı başarısız diye uygulama durmaz; bir sonraki açılışta
       // yeniden denenir.

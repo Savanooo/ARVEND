@@ -34,6 +34,48 @@ class LocalDocuments {
 
 final localDocumentsProvider = Provider<LocalDocuments>((ref) => LocalDocuments());
 
+/// Şantiye fotoğrafı önbelleğinin dizini (bkz. ProjectPhotoCache).
+const kProjectPhotoCacheDirectory = 'proje-fotograflari';
+
+/// share_plus'ın paylaşmadan önce dosyayı kopyaladığı dizin (eklentinin
+/// FileProvider'ı yalnızca buradan verir; bir sonraki paylaşıma kadar kalır).
+const kSharePlusDirectory = 'share_plus';
+
+/// Çıkışta telefonda kullanıcıya ait dosya bırakmamak için (mobil-genel-i4):
+/// indirilen belgeler, fotoğraf önbelleği ve paylaşım kopyaları -- hepsi
+/// uygulamanın geçici dizininde. Ortak şantiye telefonunda sonraki kişi
+/// öncekinin maaş dökümünü, teklifini, fotoğrafını bulmasın. Oturum
+/// çerezleri ayrıca silinir (ApiClient.clearSession) ve Android yedeğine
+/// hiç girmez (res/xml/data_extraction_rules.xml).
+class LocalUserFiles {
+  LocalUserFiles({Future<Directory> Function()? baseDirectory}) : _base = baseDirectory ?? getTemporaryDirectory;
+
+  static const directories = [LocalDocuments.directoryName, kProjectPhotoCacheDirectory, kSharePlusDirectory];
+
+  final Future<Directory> Function() _base;
+
+  /// Hata FIRLATMAZ: silinemeyen dizin (ör. test ortamında geçici dizin yok)
+  /// çıkışı engellemez.
+  Future<void> clear() async {
+    final Directory base;
+    try {
+      base = await _base();
+    } catch (_) {
+      return;
+    }
+    for (final name in directories) {
+      try {
+        final dir = Directory('${base.path}/$name');
+        if (await dir.exists()) await dir.delete(recursive: true);
+      } catch (_) {
+        // Açık bir dosya vb.: işletim sistemi geçici dizini zaten zamanla boşaltır.
+      }
+    }
+  }
+}
+
+final localUserFilesProvider = Provider<LocalUserFiles>((ref) => LocalUserFiles());
+
 /// Sunucudan gelen dosya adını tek bir yol parçasına çevirir: dizin
 /// ayraçları ve kontrol karakterleri atılır, baştaki noktalar (".." ile
 /// yukarı çıkma, gizli dosya) kalkar, çok uzun ad uzantısı korunarak
