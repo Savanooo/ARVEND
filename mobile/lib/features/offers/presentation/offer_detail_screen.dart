@@ -11,6 +11,7 @@ import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/access_notices.dart';
 import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_page_scaffold.dart';
@@ -140,17 +141,24 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
   /// dönüştürülüyordu.
   Future<void> _convert(Offer offer) async {
     final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
-    final result = await showAppSheet<Map<String, dynamic>>(
+    final result = await showAppSheet<_ConvertResult>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => _ConvertToProjectSheet(offer: offer),
     );
     if (result == null) return;
-    invalidate(offerLinkedProjectIdProvider(offerId));
+    invalidate(offerProjectLinkProvider(offerId));
     invalidateOfferHistory(invalidate, offerId);
     if (!mounted) return;
-    final projectId = result['id'] as String?;
+    final message = result.alreadyConvertedMessage;
+    if (message != null) {
+      // Teklif bu arada (başka biri tarafından) erişimin olmayan bir projeye
+      // dönüştürülmüş: proje açılmadı, düğmeler tazelenen bilgiye göre değişir.
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      return;
+    }
+    final projectId = result.project?['id'] as String?;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Proje oluşturuldu')));
     if (projectId != null) {
       context.go('/projeler/$projectId');
@@ -376,12 +384,15 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     final today = ref.watch(offersTodayProvider);
     final loaded = offerAsync.valueOrNull;
     final expired = loaded != null && !loaded.isPassive && loaded.validityExpiredOn(today);
-    // İzni olmayan VEYA henüz "kabul edildi" durumuna gelmemiş bir teklif
-    // İÇİN bu sorgu hiç atılmaz -- yalnızca kabul edilmiş teklifler
-    // dönüştürülebilir, gereksiz bir /offers/{id}/project isteği YOK.
-    final canHaveProject = canConvert && offerAsync.valueOrNull?.status == Offer.statusKabulEdildi;
-    final linkedProjectIdAsync =
-        canHaveProject ? ref.watch(offerLinkedProjectIdProvider(offerId)) : const AsyncValue<String?>.data(null);
+    // Yalnızca kabul edilmiş teklif dönüştürülebilir; /offers/{id}/project
+    // de projects.read ister. Bu ikisi yoksa sorgu hiç atılmaz. projects.read
+    // olmadan proje açabilen (özel rol) için karar sunucudadır: dönüştürülmüş
+    // teklifte "Projeye Dönüştür" 409 ile nedenini söyler.
+    final canReadProjects = user?.hasPermission(kPermProjectsRead) ?? false;
+    final accepted = offerAsync.valueOrNull?.status == Offer.statusKabulEdildi;
+    final projectLinkAsync = accepted && canReadProjects
+        ? ref.watch(offerProjectLinkProvider(offerId))
+        : const AsyncValue<OfferProjectLink>.data(OfferProjectLink.none);
 
     return AppPageScaffold(
       title: offerAsync.maybeWhen(data: (o) => Text(o.offerNo), orElse: () => const Text('Teklif')),
@@ -441,7 +452,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
           onRefresh: () async {
             ref.invalidate(offerDetailProvider(offerId));
             ref.invalidate(offerRevisionsProvider(offerId));
-            ref.invalidate(offerLinkedProjectIdProvider(offerId));
+            ref.invalidate(offerProjectLinkProvider(offerId));
             invalidateOfferHistory(ref.invalidate, offerId);
           },
           child: ListView(
@@ -589,21 +600,49 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                     ),
                   ],
                 ),
-              if (offer.status == Offer.statusKabulEdildi && canConvert) ...[
+              if (offer.status == Offer.statusKabulEdildi && (canConvert || canReadProjects)) ...[
                 const SizedBox(height: AppSpacing.sm),
-                linkedProjectIdAsync.maybeWhen(
-                  data: (projectId) => projectId != null
-                      ? SecondaryButton(
-                          icon: Icons.business_center_outlined,
-                          label: 'Projeyi Görüntüle',
-                          onPressed: () => context.push('/projeler/$projectId'),
-                        )
-                      : PrimaryButton(
-                          icon: Icons.business_center_outlined,
-                          label: 'Projeye Dönüştür',
-                          onPressed: () => _convert(offer),
+                projectLinkAsync.when(
+                  data: (link) {
+                    final projectId = link.projectId;
+                    if (projectId != null) {
+                      return SecondaryButton(
+                        icon: Icons.business_center_outlined,
+                        label: 'Projeyi Görüntüle',
+                        onPressed: () => context.push('/projeler/$projectId'),
+                      );
+                    }
+                    if (link.noAccess) {
+                      return const ReadOnlyNotice(
+                        'Bu teklif bir projeye dönüştürülmüş; o projenin üyesi olmadığın için projeyi göremezsin.',
+                        key: ValueKey('offer-project-no-access'),
+                      );
+                    }
+                    if (!canConvert) return const SizedBox.shrink();
+                    return PrimaryButton(
+                      icon: Icons.business_center_outlined,
+                      label: 'Projeye Dönüştür',
+                      onPressed: () => _convert(offer),
+                    );
+                  },
+                  loading: () => const SizedBox.shrink(),
+                  // Eskiden her hata "dönüştürülmemiş" sayılıp "Projeye
+                  // Dönüştür" gösteriliyordu; tahmin yerine hata + tekrar dene.
+                  error: (_, _) => Row(
+                    key: const ValueKey('offer-project-link-error'),
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Teklifin projeye dönüştürülüp dönüştürülmediği okunamadı.',
+                          style: AppTypography.metadata,
                         ),
-                  orElse: () => const SizedBox.shrink(),
+                      ),
+                      TextButton(
+                        onPressed: () => ref.invalidate(offerProjectLinkProvider(offerId)),
+                        child: const Text('Tekrar Dene'),
+                      ),
+                    ],
+                  ),
                 ),
               ],
               // PDF her teklifte (pasif dahil) indirilebilir -- yalnızca okuma ister.
@@ -843,6 +882,17 @@ class _ShareLinksSectionState extends ConsumerState<_ShareLinksSection> {
   }
 }
 
+/// Projeye dönüştürme formunun sonucu: açılan (ya da teklif zaten
+/// dönüştürülmüşse görme yetkisi olan kişiye dönen mevcut) proje, veya teklif
+/// erişimin olmayan bir projeye dönüştürülmüşse sunucunun açıklaması.
+class _ConvertResult {
+  const _ConvertResult.project(Map<String, dynamic> this.project) : alreadyConvertedMessage = null;
+  const _ConvertResult.alreadyConverted(String this.alreadyConvertedMessage) : project = null;
+
+  final Map<String, dynamic>? project;
+  final String? alreadyConvertedMessage;
+}
+
 class _ConvertToProjectSheet extends ConsumerStatefulWidget {
   const _ConvertToProjectSheet({required this.offer});
   final Offer offer;
@@ -910,8 +960,14 @@ class _ConvertToProjectSheetState extends ConsumerState<_ConvertToProjectSheet> 
             endDate: _end == null ? null : _iso(_end!),
             description: _description.text.trim(),
           );
-      if (mounted) Navigator.of(context).pop(result);
+      if (mounted) Navigator.of(context).pop(_ConvertResult.project(result));
     } on ApiException catch (e) {
+      if (e.code == 'offer_already_converted') {
+        // Form açıkken teklif erişimin olmayan bir projeye dönüştürüldü:
+        // formda bekletmek yerine kapatılır, detay tazelenir.
+        if (mounted) Navigator.of(context).pop(_ConvertResult.alreadyConverted(e.message));
+        return;
+      }
       setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _saving = false);

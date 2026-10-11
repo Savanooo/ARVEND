@@ -258,29 +258,50 @@ void main() {
     });
   });
 
-  group('OffersRepository — linkedProjectId', () {
+  group('OffersRepository — linkedProject', () {
+    Future<OffersRepository> repoWith(ScriptedResponse response) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/offers/o1/project': [response],
+      });
+      return OffersRepository(await buildFakeApiClient(adapter));
+    }
+
     test('200 returns the linked project id', () async {
-      final adapter = FakeHttpClientAdapter(script: {
-        '/offers/o1/project': [(status: 200, body: {'id': 'p1', 'project_no': 'PRJ-1'})],
-      });
-      final client = await buildFakeApiClient(adapter);
-      final repo = OffersRepository(client);
-
-      expect(await repo.linkedProjectId('o1'), 'p1');
+      final repo = await repoWith((status: 200, body: {'id': 'p1', 'project_no': 'PRJ-1'}));
+      final link = await repo.linkedProject('o1');
+      expect(link.projectId, 'p1');
+      expect(link.noAccess, isFalse);
     });
 
-    test('404 (not yet converted) returns null, not an error', () async {
-      final adapter = FakeHttpClientAdapter(script: {
-        '/offers/o1/project': [(status: 404, body: {'error': 'kayıt bulunamadı'})],
-      });
-      final client = await buildFakeApiClient(adapter);
-      final repo = OffersRepository(client);
-
-      expect(await repo.linkedProjectId('o1'), isNull);
+    test('404 (not yet converted) is "not converted", not an error', () async {
+      final repo = await repoWith((status: 404, body: {'error': 'kayıt bulunamadı'}));
+      final link = await repo.linkedProject('o1');
+      expect(link.projectId, isNull);
+      expect(link.noAccess, isFalse);
     });
+
+    test('403 project_access_denied: converted, but the user cannot see the project', () async {
+      final repo = await repoWith(
+        (status: 403, body: {'error': 'bu projeye erişim yetkiniz yok', 'code': 'project_access_denied'}),
+      );
+      final link = await repo.linkedProject('o1');
+      expect(link.projectId, isNull);
+      expect(link.noAccess, isTrue);
+    });
+
+    // Eskiden her hata "dönüştürülmemiş" (null) sayılıyordu.
+    for (final (name, response) in [
+      ('500', (status: 500, body: {'error': 'sunucu hatası'})),
+      ('403 permission_denied', (status: 403, body: {'error': 'yetkiniz yok', 'code': 'permission_denied'})),
+    ]) {
+      test('$name is surfaced as an error, not "not converted"', () async {
+        final repo = await repoWith(response);
+        await expectLater(repo.linkedProject('o1'), throwsA(isA<ApiException>()));
+      });
+    }
   });
 
-  group('offerLinkedProjectIdProvider', () {
+  group('offerProjectLinkProvider', () {
     test('fetches through the repository and reflects invalidation after conversion', () async {
       final adapter = FakeHttpClientAdapter(script: {
         '/offers/o1/project': [
@@ -292,10 +313,10 @@ void main() {
       final container = ProviderContainer(overrides: [apiClientProvider.overrideWithValue(client)]);
       addTearDown(container.dispose);
 
-      expect(await container.read(offerLinkedProjectIdProvider('o1').future), isNull);
+      expect((await container.read(offerProjectLinkProvider('o1').future)).projectId, isNull);
 
-      container.invalidate(offerLinkedProjectIdProvider('o1'));
-      expect(await container.read(offerLinkedProjectIdProvider('o1').future), 'p1');
+      container.invalidate(offerProjectLinkProvider('o1'));
+      expect((await container.read(offerProjectLinkProvider('o1').future)).projectId, 'p1');
     });
   });
 
@@ -422,7 +443,7 @@ void main() {
     testWidgets('has permission, not yet converted -> shows Projeye Dönüştür, tap navigates to the new project',
         (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
-        '/auth/me': [(status: 200, body: _meJson(permissions: ['projects.create']))],
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['projects.create', 'projects.read']))],
         '/offers/o1': [(status: 200, body: _offerJson(status: 'kabul edildi'))],
         '/offers/o1/revisions': [(status: 200, body: {'revisions': <dynamic>[]})],
         '/offers/o1/project': [
@@ -458,7 +479,7 @@ void main() {
     testWidgets('has permission, already converted -> shows Projeyi Görüntüle, tap navigates straight there',
         (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
-        '/auth/me': [(status: 200, body: _meJson(permissions: ['projects.create']))],
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['projects.create', 'projects.read']))],
         '/offers/o1': [(status: 200, body: _offerJson(status: 'kabul edildi'))],
         '/offers/o1/revisions': [(status: 200, body: {'revisions': <dynamic>[]})],
         '/offers/o1/project': [(status: 200, body: {'id': 'p1', 'project_no': 'PRJ-1'})],
@@ -488,6 +509,94 @@ void main() {
 
       expect(find.text('Projeye Dönüştür'), findsNothing);
       expect(find.text('Projeyi Görüntüle'), findsNothing);
+    });
+
+    testWidgets('converted into a project the user cannot see (403) -> neither button, a note explains',
+        (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['projects.create', 'projects.read']))],
+        '/offers/o1': [(status: 200, body: _offerJson(status: 'kabul edildi'))],
+        '/offers/o1/revisions': [(status: 200, body: {'revisions': <dynamic>[]})],
+        '/offers/o1/project': [
+          (status: 403, body: {'error': 'bu projeye erişim yetkiniz yok', 'code': 'project_access_denied'}),
+        ],
+      });
+      await _pumpDetail(tester, adapter, 'o1');
+      await tester.scrollUntilVisible(find.byKey(const ValueKey('offer-project-no-access')), 300);
+
+      expect(find.text('Projeye Dönüştür'), findsNothing);
+      expect(find.text('Projeyi Görüntüle'), findsNothing);
+    });
+
+    testWidgets('lookup fails (network/server) -> error with retry instead of a wrong "Projeye Dönüştür"',
+        (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['projects.create', 'projects.read']))],
+        '/offers/o1': [(status: 200, body: _offerJson(status: 'kabul edildi'))],
+        '/offers/o1/revisions': [(status: 200, body: {'revisions': <dynamic>[]})],
+        '/offers/o1/project': [
+          (status: 500, body: {'error': 'sunucu hatası'}),
+          (status: 200, body: {'id': 'p1'}),
+        ],
+      });
+      await _pumpDetail(tester, adapter, 'o1');
+      await tester.scrollUntilVisible(find.byKey(const ValueKey('offer-project-link-error')), 300);
+      expect(find.text('Projeye Dönüştür'), findsNothing);
+
+      await tester.tap(find.descendant(
+        of: find.byKey(const ValueKey('offer-project-link-error')),
+        matching: find.text('Tekrar Dene'),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Projeyi Görüntüle'), findsOneWidget);
+    });
+
+    testWidgets('projects.read without projects.create, already converted -> Projeyi Görüntüle', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['projects.read']))],
+        '/offers/o1': [(status: 200, body: _offerJson(status: 'kabul edildi'))],
+        '/offers/o1/revisions': [(status: 200, body: {'revisions': <dynamic>[]})],
+        '/offers/o1/project': [
+          (status: 200, body: {'id': 'p1'}),
+        ],
+      });
+      await _pumpDetail(tester, adapter, 'o1');
+      await tester.scrollUntilVisible(find.text('Projeyi Görüntüle'), 300);
+      expect(find.text('Projeye Dönüştür'), findsNothing);
+    });
+
+    testWidgets('converted meanwhile into a project the user cannot see -> sheet closes with the server message',
+        (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['projects.create', 'projects.read']))],
+        '/offers/o1': [(status: 200, body: _offerJson(status: 'kabul edildi'))],
+        '/offers/o1/revisions': [(status: 200, body: {'revisions': <dynamic>[]})],
+        '/offers/o1/project': [
+          (status: 404, body: {'error': 'kayıt bulunamadı'}),
+          (status: 403, body: {'error': 'bu projeye erişim yetkiniz yok', 'code': 'project_access_denied'}),
+        ],
+        '/projects/from-offer/o1': [
+          (
+            status: 409,
+            body: {
+              'error': 'Bu teklif zaten bir projeye dönüştürülmüş; o projeyi görme yetkin yok.',
+              'code': 'offer_already_converted',
+            },
+          ),
+        ],
+      });
+      await _pumpDetail(tester, adapter, 'o1');
+      await tester.scrollUntilVisible(find.text('Projeye Dönüştür'), 300);
+      await tester.tap(find.text('Projeye Dönüştür'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Projeyi Oluştur'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Projeyi Oluştur'), findsNothing, reason: 'form kapandı');
+      expect(find.text('Bu teklif zaten bir projeye dönüştürülmüş; o projeyi görme yetkin yok.'), findsOneWidget);
+      expect(find.text('Proje oluşturuldu'), findsNothing);
+      expect(find.text('Projeye Dönüştür'), findsNothing);
+      expect(find.byKey(const ValueKey('offer-project-no-access')), findsOneWidget);
     });
   });
 

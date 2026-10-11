@@ -334,6 +334,25 @@ const kPermOffersDelete = 'offers.delete';
 /// bu izni ister (offers.* eksenine değil, projects.create'e bağlı).
 const kPermProjectsCreate = 'projects.create';
 
+/// `GET /offers/{id}/project` yanıtı projenin kendisidir: projects.read (ve
+/// proje erişimi) ister.
+const kPermProjectsRead = 'projects.read';
+
+/// `GET /offers/{id}/project` sonucu: teklifin dönüştüğü proje.
+class OfferProjectLink {
+  const OfferProjectLink({this.projectId, this.noAccess = false});
+
+  /// Henüz dönüştürülmemiş (404).
+  static const none = OfferProjectLink();
+
+  /// Dönüştürülmüş ve kişi projeyi görebiliyor: "Projeyi Görüntüle" buna gider.
+  final String? projectId;
+
+  /// Dönüştürülmüş ama kişi o projenin üyesi değil (403
+  /// `project_access_denied`): ne "Projeyi Görüntüle" ne "Projeye Dönüştür".
+  final bool noAccess;
+}
+
 const kOfferStatuses = ['taslak', 'gönderildi', 'kabul edildi', 'reddedildi'];
 
 /// backend `shareLinkResponse` — müşteri sayfasına (`/paylas/{token}`)

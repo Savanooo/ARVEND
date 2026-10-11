@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../../core/api/api_client.dart';
+import '../../../core/errors/api_exception.dart';
 import '../domain/offer.dart';
 
 /// `GET /offers/` sayfası: bu sayfanın satırları + filtrenin gerçek toplamı
@@ -184,21 +185,30 @@ class OffersRepository {
 
   Future<void> delete(String id) => _client.delete<void>('/offers/$id');
 
-  /// Bir teklif zaten projeye dönüştürülmüş mü? 404 => dönüştürülmemiş (null).
-  /// Var olan projenin id'sini döner ki "Projeyi Görüntüle" doğrudan ona
-  /// gidebilsin -- yalnızca bool dönmek (eski `hasProject`) hedefi kaybettirirdi.
-  Future<String?> linkedProjectId(String offerId) async {
+  /// Bir teklif zaten projeye dönüştürülmüş mü? 200 => projenin id'si
+  /// ("Projeyi Görüntüle" doğrudan ona gider), 404 => dönüştürülmemiş,
+  /// 403 `project_access_denied` => dönüştürülmüş ama kişi o projeyi
+  /// göremez. Diğer her hata (ağ, sunucu, izin) FIRLATILIR: eskiden hepsi
+  /// "dönüştürülmemiş" sayılıyordu -- bağlantı kopunca ya da proje erişimi
+  /// olmayan kişide zaten dönüştürülmüş teklifte "Projeye Dönüştür" çıkıyordu.
+  Future<OfferProjectLink> linkedProject(String offerId) async {
     try {
       final json = await _client.get<Map<String, dynamic>>('/offers/$offerId/project');
-      return json['id'] as String?;
-    } on Object {
-      return null;
+      return OfferProjectLink(projectId: json['id'] as String?);
+    } on ApiException catch (e) {
+      if (e.kind == ApiErrorKind.notFound) return OfferProjectLink.none;
+      if (e.kind == ApiErrorKind.forbidden && e.code == 'project_access_denied') {
+        return const OfferProjectLink(noAccess: true);
+      }
+      rethrow;
     }
   }
 
   /// Web'deki "Projeye Dönüştür" formuyla aynı alanlar. Boş ad/tip
   /// gönderilirse backend varsayılanı kullanır ("Müşteri - TeklifNo");
-  /// tarihler 'YYYY-MM-DD' ya da null.
+  /// tarihler 'YYYY-MM-DD' ya da null. Teklif zaten dönüştürülmüşse sunucu
+  /// yeni proje açmaz: mevcut projeyi görebilene onu döner, göremeyene 409
+  /// `offer_already_converted`.
   Future<Map<String, dynamic>> convertToProject(
     String offerId, {
     String name = '',
