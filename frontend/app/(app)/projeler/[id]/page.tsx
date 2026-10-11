@@ -2,6 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 
+import { ProjectExpenseEntry } from "@/components/expenses/ProjectExpenseEntry";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ControlledTabPanel, ControlledTabs } from "@/components/ui/Tabs";
@@ -9,6 +10,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer, ApiError } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
 import { parseProjectTab } from "@/lib/dashboard";
+import { expenseActorFor } from "@/lib/expenses";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
 import { hasPermission, PAGE_PERMISSIONS } from "@/lib/permissions";
 import { PROJECT_STATUS } from "@/lib/status";
@@ -137,7 +139,11 @@ export default async function ProjeDetayPage({
   const canManageContract = hasPermission(perms, "projects.contracts.manage");
   const canContractLifecycle = hasPermission(perms, "projects.contracts.lifecycle");
   const canManageFinance = hasPermission(perms, "projects.finance.manage");
-  const canApproveExpenses = hasPermission(perms, "projects.expenses.approve");
+  // Masraf (backend 0066): giriş projects.expenses.create, onay
+  // projects.expenses.approve, bağlar/her masraf finance.manage; kendi
+  // masrafı created_by ile (lib/expenses expenseActionsFor).
+  const expenseActor = expenseActorFor(user);
+  const canReadFinance = hasPermission(perms, "projects.finance.read");
   const canManageProcurement = hasPermission(perms, "projects.procurement.manage");
   const canApproveProcurement = hasPermission(perms, "projects.procurement.approve");
   // Operasyon düğmeleri izne göre: Saha'da tasks.create yok (Görev Ekle
@@ -356,6 +362,10 @@ export default async function ProjeDetayPage({
           ]}
         >
           <ControlledTabPanel tab="genel">
+            {/* Finans sekmesini göremeyen ama masraf girebilen kişinin girişi
+                (mobil proje Özeti'ndeki "Masraf Ekle" / "Masraf Takibi"). */}
+            {!canReadFinance && expenseActor.canCreate && <ProjectExpenseEntry project={project} locked={locked} />}
+
             <Section title="Genel / Fiyat" defaultOpen>
               <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
                 <Row label="Proje No" value={project.project_no} />
@@ -518,8 +528,7 @@ export default async function ProjeDetayPage({
                   costCodes={costCodes?.cost_codes ?? []}
                   budgetLines={budgetLines?.budget_lines ?? []}
                   locked={locked}
-                  canManage={canManageFinance}
-                  canApprove={canApproveExpenses}
+                  actor={expenseActor}
                 />
 
                 <Section title="Fatura Bilgileri">

@@ -3,6 +3,9 @@
 import { useRouter } from "next/navigation";
 import { FormEvent, useRef, useState } from "react";
 
+import { ExpenseForm } from "@/components/expenses/ExpenseForm";
+import { ExpenseEditModal, ExpenseStatusBadge, ExpenseVatCell } from "@/components/expenses/ExpenseParts";
+import { useExpenseMutations } from "@/components/expenses/useExpenseMutations";
 import { Section } from "@/components/ui/Accordion";
 import { Button } from "@/components/ui/Button";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -12,12 +15,17 @@ import { useReasonDialog } from "@/components/ui/ReasonDialog";
 import { Select } from "@/components/ui/Select";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
-import { Textarea } from "@/components/ui/Textarea";
-import { useToast } from "@/components/ui/Toast";
 import { apiClient, ApiError } from "@/lib/api";
-import { expenseIsPending, summarizeExpenses } from "@/lib/expenses";
+import {
+  EXPENSE_OWN_DECISION_TEXT,
+  expenseActionsFor,
+  expenseIsPending,
+  expenseIsWithdrawn,
+  summarizeExpenses,
+  type ExpenseActor,
+} from "@/lib/expenses";
 import { formatMoney, istanbulDate } from "@/lib/format";
-import { EXPENSE_APPROVAL_STATUS, INVOICE_STATUS, PLAN_ITEM_STATUS, SUBCONTRACTOR_STATUS } from "@/lib/status";
+import { INVOICE_STATUS, PLAN_ITEM_STATUS, SUBCONTRACTOR_STATUS } from "@/lib/status";
 import {
   EXPENSE_CATEGORY_LABELS,
   INVOICE_STATUS_LABELS,
@@ -26,7 +34,6 @@ import {
   type ChangeOrder,
   type Collection,
   type Expense,
-  type ExpenseCategory,
   type OrganizationCostCode,
   type PaymentPlanItem,
   type Project,
@@ -451,31 +458,23 @@ export function CollectionsSection({
 
 // ---------- Masraflar ----------
 
-const emptyExpenseForm = () => ({
-  category: "material" as ExpenseCategory,
-  description: "",
-  amount: "",
-  expense_date: istanbulDate(new Date()),
-  supplier_name: "",
-  invoice_no: "",
-  notes: "",
-  change_order_id: "",
-  // Maliyet Kontrolü (Sprint 2) eşlemesi -- ikisi de opsiyonel.
-  cost_code_id: "",
-  budget_line_id: "",
-});
-
 // Masraflar bölümü kendi <Section> sarmalayıcısını render eder: başlıktaki
 // "+ Masraf Ekle" aksiyonu hem bölümü açmak hem formu göstermek zorunda
 // olduğundan, bölümün açık/kapalı durumu ile form durumu AYNI bileşende
-// yaşamalıdır. Form alanları, backend'in expenseRequest'inde ZATEN kabul
-// ettiği alanların tamamıdır (bkz. handler/project_finance_handler.go) --
-// yeni bir backend yeteneği eklenmedi. Para birimi kullanıcıya sorulmaz,
-// projeninkinden gelir.
+// yaşamalıdır. Form (components/expenses/ExpenseForm) proje sayfasındaki
+// ayrı giriş ve Masraflarım ile ortaktır; para birimi projeninkidir.
 //
 // Masraf onayı (backend migration 0060): her masraf "Onay bekliyor" başlar
-// ve yalnızca onaylanınca toplamlara girer. Onayla/Reddet yalnızca
-// projects.expenses.approve sahibine (canApprove) ve açık projede görünür.
+// ve yalnızca onaylanınca toplamlara girer.
+//
+// Masrafı herkes girer (backend migration 0066): "+ Masraf Ekle"
+// projects.expenses.create ister (finance.manage DEĞİL); formdaki Ek İş /
+// Bütçe Kalemi / Maliyet Kodu yalnızca finance.manage ile. Satır işlemleri
+// expenseActionsFor'dan (mobil ile aynı): Düzenle (finans yöneticisi her
+// masrafta, diğerleri kendi bekleyen/reddedilen masrafında), İptal Et (finans
+// yöneticisi), Geri Çek (kendi masrafı, finans yöneticisi değil), Onayla/
+// Reddet (projects.expenses.approve; kimse kendi masrafına karar vermez,
+// Sahip hariç -- onun yerine kısa not).
 export function ExpensesSection({
   project,
   expenses,
@@ -483,8 +482,7 @@ export function ExpensesSection({
   costCodes = [],
   budgetLines = [],
   locked,
-  canManage,
-  canApprove,
+  actor,
 }: {
   project: Project;
   expenses: Expense[];
@@ -496,86 +494,23 @@ export function ExpensesSection({
   costCodes?: OrganizationCostCode[];
   budgetLines?: BudgetLine[];
   locked: boolean;
-  // projects.finance.manage yoksa (salt okuma) yazma kontrolleri gizlenir.
-  canManage: boolean;
-  // projects.expenses.approve: Onayla/Reddet.
-  canApprove: boolean;
+  // Oturumdaki kişinin masraf yetkileri (lib/expenses expenseActorFor).
+  actor: ExpenseActor;
 }) {
-  const { busy, error, run } = useFinanceAction(locked);
-  const toast = useToast();
-  const editable = !locked && canManage;
-  const deciding = !locked && canApprove;
-  const { askReason, dialog } = useReasonDialog();
+  const { busy, error, approve, reject, voidExpense, withdraw, dialogs } = useExpenseMutations();
+  const canAdd = !locked && actor.canCreate;
   const summary = summarizeExpenses(expenses);
   // Onaylayıcı bildirimden (Finans sekmesi) geldiğinde bekleyenler açık dursun.
-  const [sectionOpen, setSectionOpen] = useState(() => canApprove && summary.pendingCount > 0);
+  const [sectionOpen, setSectionOpen] = useState(() => actor.canApprove && summary.pendingCount > 0);
   const [formOpen, setFormOpen] = useState(false);
-  const [form, setForm] = useState(emptyExpenseForm);
-  // Tahsilat/taşeron ödemesiyle SİMETRİK: anahtar form örneği başına
-  // sabittir, yalnızca ONAYLANMIŞ bir gönderimden SONRA yenilenir --
-  // aksi halde çift-tıkla/ağ-tekrarı koruması etkisiz kalırdı.
-  const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey);
+  const [editing, setEditing] = useState<Expense | null>(null);
 
-  // Ek iş bağlantısı için iptal/superseded olmayan ek işler sunulur --
-  // backend aynı projeye ait her ek işi kabul eder, bu yalnızca anlamlı
-  // seçenekleri gösteren bir UI daraltmasıdır.
-  const linkableChangeOrders = changeOrders.filter(
-    (co) => co.status !== "cancelled" && co.status !== "superseded"
-  );
   const changeOrderNoById = new Map(changeOrders.map((co) => [co.id, co.change_order_no]));
-  const activeCostCodes = costCodes.filter((c) => c.is_active);
   const costCodeById = new Map(costCodes.map((c) => [c.id, c]));
 
   function openForm() {
     setSectionOpen(true);
     setFormOpen(true);
-  }
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    const ok = await run(() =>
-      apiClient(`/api/v1/projects/${project.id}/expenses`, {
-        method: "POST",
-        body: JSON.stringify({
-          ...form,
-          amount: Number(form.amount),
-          currency: project.currency,
-          idempotency_key: idempotencyKey,
-        }),
-      })
-    );
-    if (ok) {
-      setIdempotencyKey(newIdempotencyKey());
-      setForm(emptyExpenseForm());
-      setFormOpen(false);
-      toast.success("Masraf kaydedildi, onay bekliyor. Onaylanınca toplamlara girer.");
-    }
-  }
-
-  async function approve(e: Expense) {
-    const ok = await run(() =>
-      apiClient(`/api/v1/projects/${project.id}/expenses/${e.id}/approve`, { method: "POST" })
-    );
-    if (ok) toast.success("Masraf onaylandı.");
-  }
-
-  async function reject(e: Expense) {
-    const reason = await askReason({
-      title: "Masrafı Reddet",
-      message: `${formatMoney(e.amount, e.currency)} tutarındaki masraf reddedilecek; toplamlara girmez, masrafı giren gerekçeyi görür.`,
-      label: "Red nedeni",
-      confirmLabel: "Reddet",
-      danger: true,
-      required: true,
-    });
-    if (reason === null) return;
-    const ok = await run(() =>
-      apiClient(`/api/v1/projects/${project.id}/expenses/${e.id}/reject`, {
-        method: "POST",
-        body: JSON.stringify({ reason }),
-      })
-    );
-    if (ok) toast.success("Masraf reddedildi.");
   }
 
   return (
@@ -584,7 +519,7 @@ export function ExpensesSection({
       open={sectionOpen}
       onOpenChange={setSectionOpen}
       action={
-        editable && (
+        canAdd && (
           <Button type="button" onClick={openForm} disabled={busy}>
             + Masraf Ekle
           </Button>
@@ -592,7 +527,18 @@ export function ExpensesSection({
       }
     >
       <div className="flex flex-col gap-3">
-        {dialog}
+        {dialogs}
+        {editing && (
+          <ExpenseEditModal
+            projectId={project.id}
+            expense={editing}
+            canLink={actor.canManageFinance}
+            changeOrders={changeOrders}
+            budgetLines={budgetLines}
+            costCodes={costCodes}
+            onClose={() => setEditing(null)}
+          />
+        )}
         {summary.pendingCount > 0 && (
           <p className="rounded-md border border-info/30 bg-info-soft px-3 py-2 text-xs text-info">
             {summary.pendingCount} masraf onay bekliyor (toplam {formatMoney(summary.pendingTotal, project.currency)}).
@@ -611,101 +557,122 @@ export function ExpensesSection({
                 <Th>Tedarikçi</Th>
                 <Th>Fatura No</Th>
                 <Th>Durum</Th>
+                <Th>KDV</Th>
                 <Th className="text-right">Tutar</Th>
-                <Th className={deciding ? "w-36" : "w-16"} />
+                <Th className="w-40" />
               </tr>
             </thead>
             <tbody>
-              {expenses.map((e) => (
-                <Tr key={e.id} className={e.voided_at ? "opacity-50" : ""}>
-                  <Td className="text-text-muted">
-                    {new Date(e.expense_date).toLocaleDateString("tr-TR")}
-                  </Td>
-                  <Td>{EXPENSE_CATEGORY_LABELS[e.category]}</Td>
-                  <Td>
-                    {e.description}
-                    {e.change_order_id && (
-                      <span className="ml-2 text-xs text-text-muted">
-                        · {changeOrderNoById.get(e.change_order_id) ?? "Ek iş"}
-                      </span>
-                    )}
-                    {e.cost_code_id && (
-                      <span className="ml-2 text-xs text-text-muted">
-                        · {costCodeById.get(e.cost_code_id)?.code ?? "Maliyet kodu"}
-                      </span>
-                    )}
-                    {e.voided_at && (
-                      <span className="ml-2 text-xs text-danger">
-                        İPTAL{e.void_reason && ` · ${e.void_reason}`}
-                      </span>
-                    )}
-                    {e.notes && <div className="text-xs text-text-muted">{e.notes}</div>}
-                    {e.approval_status === "rejected" && e.decision_note && (
-                      <div className="text-xs text-danger">Red nedeni: {e.decision_note}</div>
-                    )}
-                  </Td>
-                  <Td className="text-text-muted">{e.supplier_name || "—"}</Td>
-                  <Td className="text-text-muted">{e.invoice_no || "—"}</Td>
-                  <Td className="whitespace-nowrap">
-                    <span title={e.approval_status === "rejected" && e.decision_note ? `Red nedeni: ${e.decision_note}` : undefined}>
-                      <StatusBadge status={e.approval_status} registry={EXPENSE_APPROVAL_STATUS} />
-                    </span>
-                  </Td>
-                  <Td
-                    className={`whitespace-nowrap text-right ${e.voided_at ? "line-through" : e.approval_status === "approved" ? "font-medium" : "text-text-muted"}`}
-                  >
-                    {formatMoney(e.amount, e.currency)}
-                  </Td>
-                  <Td className="whitespace-nowrap text-right">
-                    {expenseIsPending(e) && deciding && (
-                      <div className="flex justify-end gap-3 text-xs">
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => approve(e)}
-                          className="text-success hover:underline"
-                        >
-                          Onayla
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => reject(e)}
-                          className="text-danger hover:underline"
-                        >
-                          Reddet
-                        </button>
-                      </div>
-                    )}
-                    {!e.voided_at && editable && (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={async () => {
-                          const reason = await askReason({
-                            title: "Masrafı İptal Et",
-                            message: `${formatMoney(e.amount, e.currency)} tutarındaki masraf iptal edilecek; kayıt silinmez, İPTAL olarak işaretlenir.`,
-                            label: "İptal nedeni",
-                            confirmLabel: "İptal Et",
-                            cancelLabel: "Vazgeç",
-                            danger: true,
-                          });
-                          if (reason === null) return;
-                          run(() =>
-                            apiClient(`/api/v1/projects/${project.id}/expenses/${e.id}/void`, {
-                              method: "POST",
-                              body: JSON.stringify({ reason }),
-                            })
-                          );
-                        }}
-                        className="text-xs text-danger hover:underline"
+              {expenses.map((e) => {
+                const a = expenseActionsFor(actor, e, !locked);
+                return (
+                  <Tr key={e.id} className={e.voided_at ? "opacity-50" : ""}>
+                    <Td className="text-text-muted">
+                      {new Date(e.expense_date).toLocaleDateString("tr-TR")}
+                    </Td>
+                    <Td>{EXPENSE_CATEGORY_LABELS[e.category] ?? e.category}</Td>
+                    <Td>
+                      {e.description}
+                      {e.change_order_id && (
+                        <span className="ml-2 text-xs text-text-muted">
+                          · {changeOrderNoById.get(e.change_order_id) ?? "Ek iş"}
+                        </span>
+                      )}
+                      {e.cost_code_id && (
+                        <span className="ml-2 text-xs text-text-muted">
+                          · {costCodeById.get(e.cost_code_id)?.code ?? "Maliyet kodu"}
+                        </span>
+                      )}
+                      {e.voided_at && (
+                        <span className="ml-2 text-xs text-danger">
+                          {expenseIsWithdrawn(e) ? "GERİ ÇEKİLDİ" : "İPTAL"}
+                          {e.void_reason && ` · ${e.void_reason}`}
+                        </span>
+                      )}
+                      {e.notes && <div className="text-xs text-text-muted">{e.notes}</div>}
+                      {e.approval_status === "rejected" && !e.voided_at && e.decision_note && (
+                        <div className="text-xs text-danger">Red nedeni: {e.decision_note}</div>
+                      )}
+                      {a.ownDecisionBlocked && (
+                        <div className="text-xs text-text-muted">{EXPENSE_OWN_DECISION_TEXT}</div>
+                      )}
+                    </Td>
+                    <Td className="text-text-muted">{e.supplier_name || "—"}</Td>
+                    <Td className="text-text-muted">{e.invoice_no || "—"}</Td>
+                    <Td className="whitespace-nowrap">
+                      <span
+                        title={
+                          e.approval_status === "rejected" && e.decision_note ? `Red nedeni: ${e.decision_note}` : undefined
+                        }
                       >
-                        İptal Et
-                      </button>
-                    )}
-                  </Td>
-                </Tr>
-              ))}
+                        <ExpenseStatusBadge expense={e} />
+                      </span>
+                    </Td>
+                    <Td className="whitespace-nowrap">
+                      <ExpenseVatCell expense={e} />
+                    </Td>
+                    <Td
+                      className={`whitespace-nowrap text-right ${e.voided_at ? "line-through" : e.approval_status === "approved" ? "font-medium" : "text-text-muted"}`}
+                    >
+                      {formatMoney(e.amount, e.currency)}
+                    </Td>
+                    <Td className="text-right">
+                      <div className="flex flex-wrap justify-end gap-x-3 gap-y-1 text-xs">
+                        {a.canDecide && expenseIsPending(e) && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => approve(project.id, e)}
+                              className="text-success hover:underline"
+                            >
+                              Onayla
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => reject(project.id, e)}
+                              className="text-danger hover:underline"
+                            >
+                              Reddet
+                            </button>
+                          </>
+                        )}
+                        {a.canEdit && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => setEditing(e)}
+                            className="text-text-muted hover:text-text hover:underline"
+                          >
+                            Düzenle
+                          </button>
+                        )}
+                        {a.canWithdraw && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => withdraw(project.id, e)}
+                            className="text-danger hover:underline"
+                          >
+                            Geri Çek
+                          </button>
+                        )}
+                        {a.canVoid && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => voidExpense(project.id, e)}
+                            className="text-danger hover:underline"
+                          >
+                            İptal Et
+                          </button>
+                        )}
+                      </div>
+                    </Td>
+                  </Tr>
+                );
+              })}
             </tbody>
           </Table>
         )}
@@ -722,133 +689,21 @@ export function ExpensesSection({
         {locked ? (
           <LockedNote project={project} />
         ) : (
-          formOpen && (
-            <form onSubmit={submit} className="flex flex-col gap-3 border-t border-border pt-3">
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                <Select
-                  label="Kategori"
-                  name="expense_category"
-                  value={form.category}
-                  onChange={(e) => setForm({ ...form, category: e.target.value as ExpenseCategory })}
-                >
-                  {Object.entries(EXPENSE_CATEGORY_LABELS).map(([k, label]) => (
-                    <option key={k} value={k}>
-                      {label}
-                    </option>
-                  ))}
-                </Select>
-                <Input
-                  label={`Tutar (${project.currency})`}
-                  name="expense_amount"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  required
-                  value={form.amount}
-                  onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                />
-                <DateInput
-                  label="Tarih"
-                  name="expense_date"
-                  required
-                  value={form.expense_date}
-                  onChange={(e) => setForm({ ...form, expense_date: e.target.value })}
-                />
-                <Input
-                  label="Tedarikçi"
-                  name="expense_supplier"
-                  value={form.supplier_name}
-                  onChange={(e) => setForm({ ...form, supplier_name: e.target.value })}
-                />
-                <Input
-                  label="Fatura No"
-                  name="expense_invoice_no"
-                  value={form.invoice_no}
-                  onChange={(e) => setForm({ ...form, invoice_no: e.target.value })}
-                />
-                {linkableChangeOrders.length > 0 && (
-                  <Select
-                    label="Ek İş (opsiyonel)"
-                    name="expense_change_order"
-                    value={form.change_order_id}
-                    onChange={(e) => setForm({ ...form, change_order_id: e.target.value })}
-                  >
-                    <option value="">Bağlı değil</option>
-                    {linkableChangeOrders.map((co) => (
-                      <option key={co.id} value={co.id}>
-                        {co.change_order_no} · {co.title}
-                      </option>
-                    ))}
-                  </Select>
-                )}
-                {budgetLines.length > 0 && (
-                  <Select
-                    label="Bütçe Kalemi (opsiyonel)"
-                    name="expense_budget_line"
-                    value={form.budget_line_id}
-                    onChange={(e) => {
-                      const line = budgetLines.find((l) => l.id === e.target.value);
-                      setForm({
-                        ...form,
-                        budget_line_id: e.target.value,
-                        // Maliyet kodu, seçilen bütçe kaleminden OTOMATİK
-                        // doldurulur (spec: "budget-line seçilince cost code
-                        // otomatik doldurulmalı") -- backend zaten aynı
-                        // kuralı otoriter olarak uygular, bu yalnızca UX.
-                        cost_code_id: line ? line.cost_code_id : form.cost_code_id,
-                      });
-                    }}
-                  >
-                    <option value="">Bağlı değil (bütçe dışı)</option>
-                    {budgetLines.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.description} ({l.cost_code_code})
-                      </option>
-                    ))}
-                  </Select>
-                )}
-                {activeCostCodes.length > 0 && (
-                  <Select
-                    label="Maliyet Kodu (opsiyonel)"
-                    name="expense_cost_code"
-                    value={form.cost_code_id}
-                    disabled={!!form.budget_line_id}
-                    onChange={(e) => setForm({ ...form, cost_code_id: e.target.value })}
-                  >
-                    <option value="">Yok</option>
-                    {activeCostCodes.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.code} — {c.name}
-                      </option>
-                    ))}
-                  </Select>
-                )}
-                <div className="col-span-2">
-                  <Input
-                    label="Açıklama"
-                    name="expense_description"
-                    required
-                    value={form.description}
-                    onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  />
-                </div>
-              </div>
-              <Textarea
-                label="Not"
-                name="expense_notes"
-                className="min-h-16"
-                value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+          formOpen &&
+          canAdd && (
+            <div className="border-t border-border pt-3">
+              <ExpenseForm
+                projectId={project.id}
+                currency={project.currency}
+                canLink={actor.canManageFinance}
+                changeOrders={changeOrders}
+                budgetLines={budgetLines}
+                costCodes={costCodes}
+                idPrefix="expense_new"
+                onDone={() => setFormOpen(false)}
+                onCancel={() => setFormOpen(false)}
               />
-              <div className="flex gap-2">
-                <Button type="submit" loading={busy}>
-                  Kaydet
-                </Button>
-                <Button type="button" variant="ghost" onClick={() => setFormOpen(false)}>
-                  Vazgeç
-                </Button>
-              </div>
-            </form>
+            </div>
           )
         )}
         {error && <p className="text-xs text-danger">{error}</p>}

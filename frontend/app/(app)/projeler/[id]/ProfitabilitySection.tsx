@@ -1,4 +1,5 @@
 import { PROJECT_EVENT_LABELS } from "@/lib/events";
+import { costNetDiffers } from "@/lib/expenses";
 import { formatDateTR, formatHm, formatMoney, istanbulDate } from "@/lib/format";
 import {
   INVOICE_STATUS_LABELS,
@@ -39,6 +40,10 @@ export function ProfitabilitySection({ summary }: { summary: FinancialSummary })
         <Line label="Taşerona ödenen" value={`- ${formatMoney(sub.paid, c)}`} />
         <div className="my-1 border-t border-border" />
         <Line label="Gerçekleşen maliyet" value={formatMoney(summary.realized_cost, c)} />
+        {/* Masraflara girilen KDV düşülmüş maliyet; yalnızca brütten farklıysa. */}
+        {costNetDiffers(summary.realized_cost, summary.realized_cost_net) && (
+          <Line label="Maliyet (KDV hariç)" value={formatMoney(summary.realized_cost_net, c)} />
+        )}
         <Line
           label={`Gerçekleşen kâr, KDV dahil (%${summary.realized_margin_percent})`}
           value={formatMoney(summary.realized_gross_profit, c)}
@@ -52,8 +57,8 @@ export function ProfitabilitySection({ summary }: { summary: FinancialSummary })
         )}
         {summary.contract_vat_known && (
           <div className="text-xs text-text-muted">
-            KDV hariç kâr = KDV hariç proje bedeli ({formatMoney(summary.current_contract_value_net, c)}) − maliyet.
-            Masraflar girildiği gibi alınır.
+            KDV hariç kâr = KDV hariç proje bedeli ({formatMoney(summary.current_contract_value_net, c)}) − KDV
+            hariç maliyet. Masrafa girilen KDV düşülür; KDV&apos;si belirtilmemiş masraf tutarının tamamıyla sayılır.
           </div>
         )}
       </div>
@@ -72,6 +77,9 @@ export function ProfitabilitySection({ summary }: { summary: FinancialSummary })
         )}
         <div className="my-1 border-t border-border" />
         <Line label="Tahmini maliyet" value={formatMoney(summary.forecast_cost, c)} />
+        {costNetDiffers(summary.forecast_cost, summary.forecast_cost_net) && (
+          <Line label="Maliyet (KDV hariç)" value={formatMoney(summary.forecast_cost_net, c)} />
+        )}
         <Line
           label={`Tahmini kâr, KDV dahil (%${summary.forecast_margin_percent})`}
           value={formatMoney(summary.forecast_profit, c)}

@@ -1,3 +1,4 @@
+import { costNetDiffers } from "@/lib/expenses";
 import { formatMoney, formatSignedMoney } from "@/lib/format";
 import type { FinancialSummary } from "@/lib/types";
 
@@ -24,11 +25,14 @@ function Card({
   label,
   value,
   hint,
+  extra,
   tone,
 }: {
   label: string;
   value: string;
   hint?: string;
+  // İkinci ipucu satırı (ör. "Maliyet (KDV hariç)").
+  extra?: string;
   tone?: "success" | "danger" | "gold";
 }) {
   const toneClass =
@@ -38,6 +42,7 @@ function Card({
       <div className="text-xs uppercase tracking-widest text-text-muted">{label}</div>
       <div className={`mt-1 text-base font-semibold ${toneClass}`}>{value}</div>
       {hint && <div className="mt-0.5 text-xs text-text-muted">{hint}</div>}
+      {extra && <div className="mt-0.5 text-xs text-text-muted">{extra}</div>}
     </div>
   );
 }
@@ -80,10 +85,17 @@ export function FinanceSummary({ summary }: { summary: FinancialSummary }) {
           tone={over ? "gold" : undefined}
           hint={over ? "Güncel proje bedelinin üzerinde" : undefined}
         />
+        {/* Masraflara girilen KDV düşülmüş maliyet (sunucunun rakamı); KDV
+            girilmemişse brütle aynıdır ve gösterilmez (mobil ile aynı). */}
         <Card
           label="Gerçekleşen Maliyet"
           value={formatMoney(summary.realized_cost, c)}
           hint={`Masraf ${formatMoney(summary.total_expenses, c)} + taşeron ${formatMoney(sub.paid, c)}`}
+          extra={
+            costNetDiffers(summary.realized_cost, summary.realized_cost_net)
+              ? `Maliyet (KDV hariç) ${formatMoney(summary.realized_cost_net, c)}`
+              : undefined
+          }
         />
         <Card
           label="Tahmini Maliyet"
@@ -92,6 +104,11 @@ export function FinanceSummary({ summary }: { summary: FinancialSummary }) {
             summary.forecast_basis === "budget"
               ? "Bütçeye göre (EAC)"
               : `Taahhüt bazlı · taşeron kalan ${formatMoney(sub.remaining, c)}`
+          }
+          extra={
+            costNetDiffers(summary.forecast_cost, summary.forecast_cost_net)
+              ? `Maliyet (KDV hariç) ${formatMoney(summary.forecast_cost_net, c)}`
+              : undefined
           }
         />
         {/* Kâr hem KDV hariç hem KDV dahil (ürün sahibi kararı); rakamlar
