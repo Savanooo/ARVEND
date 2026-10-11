@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
+import { NotificationIcon } from "@/components/layout/NotificationIcon";
 import { FOCUS_RING, LABEL } from "@/components/ui/styles";
 import { apiClient } from "@/lib/api";
 import {
@@ -73,6 +74,7 @@ export function NotificationsPanel({ notifications, nowIso }: { notifications: N
                   aria-hidden
                   className={`mt-1.5 size-2 shrink-0 rounded-full ${unread ? "bg-gold" : "bg-transparent"}`}
                 />
+                <NotificationIcon notification={n} />
                 <span className="min-w-0 flex-1">
                   <span className={`block text-sm text-text ${unread ? "font-semibold" : ""}`}>
                     {n.title}

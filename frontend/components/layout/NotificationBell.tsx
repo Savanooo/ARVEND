@@ -16,8 +16,13 @@ import {
 } from "@/lib/dashboard";
 import { formatRelativeTime } from "@/lib/format";
 
+import { NotificationIcon } from "./NotificationIcon";
+
 interface NotificationItem {
   id: string;
+  // Simge için (bkz. lib/notifications.ts): entity_type asıl kaynak.
+  type?: string;
+  entity_type?: string;
   title: string;
   body: string;
   action_target: string;
@@ -172,6 +177,7 @@ export function NotificationBell() {
                           aria-hidden
                           className={`mt-1.5 size-2 shrink-0 rounded-full ${isUnread ? "bg-gold" : "bg-transparent"}`}
                         />
+                        <NotificationIcon notification={n} />
                         <span className="min-w-0 flex-1">
                           <span className={`block text-sm text-text ${isUnread ? "font-semibold" : ""}`}>
                             {n.title}
