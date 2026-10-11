@@ -333,6 +333,50 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     if (edit == true && mounted) context.push('/teklifler/$offerId/duzenle');
   }
 
+  /// Arşive alma / arşivden çıkarma (offers.approve). Arşivdeki teklif
+  /// "Pasif" listesine düşer, düzenlenemez, gönderilemez ve müşteri paylaşım
+  /// linkinden açamaz; arşivden çıkınca linkler yeniden çalışır. Eskiden bu
+  /// uç hiçbir arayüze bağlı değildi: vazgeçilen teklifi geri çekmenin tek
+  /// yolu silmekti (geçmişiyle birlikte).
+  Future<void> _setPassive(Offer offer, {required bool passive}) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(passive ? 'Teklifi Arşivle' : 'Arşivden Çıkar'),
+        content: Text(
+          passive
+              ? '${offer.offerNo} arşive alınsın mı? Teklif "Pasif" listesine taşınır; düzenlenemez, '
+                  'gönderilemez ve müşteri paylaşım linkinden açamaz. İstediğin zaman arşivden çıkarabilirsin.'
+              : '${offer.offerNo} arşivden çıkarılsın mı? Teklif yeniden aktif listede görünür; iptal '
+                  'edilmemiş paylaşım linkleri yeniden açılır.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
+          TextButton(
+            key: const ValueKey('offer-passive-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(passive ? 'Arşivle' : 'Arşivden Çıkar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
+    try {
+      await ref.read(offersRepositoryProvider).setPassive(offerId, passive: passive);
+      invalidate(offerDetailProvider(offerId));
+      invalidate(offersListProvider(''));
+      invalidate(offersListProvider('pasif'));
+      invalidateOfferHistory(invalidate, offerId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(passive ? '${offer.offerNo} arşivlendi' : '${offer.offerNo} arşivden çıkarıldı')),
+      );
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   Future<void> _sendEmail() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -420,30 +464,44 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
               : const SizedBox.shrink(),
           orElse: () => const SizedBox.shrink(),
         ),
-        // Kabul edilmiş teklif silinemez (backend ErrOfferAccepted) -- seçenek
-        // hiç sunulmaz; web'deki "Sil" düğmesinin karşılığı.
-        if (canDelete)
-          offerAsync.maybeWhen(
-            data: (o) => o.status == Offer.statusKabulEdildi
-                ? const SizedBox.shrink()
-                : PopupMenuButton<String>(
-                    tooltip: 'Diğer işlemler',
-                    onSelected: (v) {
-                      if (v == 'sil') _delete(o);
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(
-                        value: 'sil',
-                        child: ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(Icons.delete_outline, color: AppColors.danger),
-                          title: Text('Teklifi Sil', style: TextStyle(color: AppColors.danger)),
-                        ),
-                      ),
-                    ],
+        offerAsync.maybeWhen(
+          data: (o) {
+            // Kabul edilmiş teklif silinemez (backend ErrOfferAccepted) --
+            // seçenek hiç sunulmaz; web'deki "Sil" düğmesinin karşılığı.
+            final showDelete = canDelete && o.status != Offer.statusKabulEdildi;
+            // Arşivleme (toggle-passive) durum değiştirmektir: offers.approve.
+            final showArchive = canApprove;
+            if (!showDelete && !showArchive) return const SizedBox.shrink();
+            return PopupMenuButton<String>(
+              tooltip: 'Diğer işlemler',
+              onSelected: (v) {
+                if (v == 'arsiv') _setPassive(o, passive: !o.isPassive);
+                if (v == 'sil') _delete(o);
+              },
+              itemBuilder: (_) => [
+                if (showArchive)
+                  PopupMenuItem(
+                    value: 'arsiv',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(o.isPassive ? Icons.unarchive_outlined : Icons.archive_outlined),
+                      title: Text(o.isPassive ? 'Arşivden Çıkar' : 'Arşivle'),
+                    ),
                   ),
-            orElse: () => const SizedBox.shrink(),
-          ),
+                if (showDelete)
+                  const PopupMenuItem(
+                    value: 'sil',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.delete_outline, color: AppColors.danger),
+                      title: Text('Teklifi Sil', style: TextStyle(color: AppColors.danger)),
+                    ),
+                  ),
+              ],
+            );
+          },
+          orElse: () => const SizedBox.shrink(),
+        ),
       ],
       body: AsyncStateView<Offer>(
         value: offerAsync,
@@ -467,6 +525,14 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
               ),
               const SizedBox(height: AppSpacing.sm),
               Text('Revizyon #${offer.revisionNo}', style: AppTypography.metadata),
+              if (offer.isPassive) ...[
+                const SizedBox(height: AppSpacing.md),
+                ReadOnlyNotice(
+                  'Bu teklif arşivde (Pasif): düzenlenemez, gönderilemez ve müşteri paylaşım linkinden açamaz.'
+                  '${canApprove ? ' Geri almak için sağ üstteki menüden "Arşivden Çıkar"ı kullan.' : ''}',
+                  key: const ValueKey('offer-passive-notice'),
+                ),
+              ],
               if (expired && (offer.status == Offer.statusTaslak || offer.status == Offer.statusGonderildi)) ...[
                 const SizedBox(height: AppSpacing.md),
                 _ExpiredValidityNotice(

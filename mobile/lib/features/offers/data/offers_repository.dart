@@ -185,6 +185,13 @@ class OffersRepository {
 
   Future<void> delete(String id) => _client.delete<void>('/offers/$id');
 
+  /// Teklifi arşive alır ([passive] true) ya da arşivden çıkarır
+  /// (offers.approve). Hedef durum açıkça gönderilir: ekrandaki durum bayatsa
+  /// (başka biri arşivlemişse) tersine çevirmek istenenin tersini yapardı;
+  /// teklif zaten o durumdaysa sunucu bir şey değiştirmez.
+  Future<void> setPassive(String id, {required bool passive}) =>
+      _client.post<void>('/offers/$id/toggle-passive', data: {'is_passive': passive});
+
   /// Bir teklif zaten projeye dönüştürülmüş mü? 200 => projenin id'si
   /// ("Projeyi Görüntüle" doğrudan ona gider), 404 => dönüştürülmemiş,
   /// 403 `project_access_denied` => dönüştürülmüş ama kişi o projeyi
