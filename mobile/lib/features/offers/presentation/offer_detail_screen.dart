@@ -388,8 +388,10 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
           ),
           orElse: () => const SizedBox.shrink(),
         ),
+        // Düzenleme ucu (PUT /offers/{id}) offers.update ister: izni olmayan
+        // formu doldurup kaydederken 403 alıyordu.
         offerAsync.maybeWhen(
-          data: (o) => o.isEditable
+          data: (o) => o.isEditable && canUpdate
               ? IconButton(
                   tooltip: 'Düzenle',
                   icon: const Icon(Icons.edit_outlined),

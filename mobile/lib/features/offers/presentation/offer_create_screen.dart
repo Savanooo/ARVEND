@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/auth_controller.dart';
+import '../../../core/auth/permissions.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/utils/form_exit.dart';
 import '../../../core/theme/app_colors.dart';
@@ -13,6 +14,7 @@ import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_page_scaffold.dart';
+import '../../../core/widgets/access_notices.dart';
 import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/money_text.dart';
@@ -55,6 +57,9 @@ String? _numError(
 }
 
 double _round2(double v) => (v * 100).roundToDouble() / 100;
+
+const kOfferEditNoAccessText = 'Teklifi düzenleme yetkin yok. Yöneticinden rolüne "Teklif düzenleme/revize '
+    'etme/paylaşma" iznini eklemesini isteyebilirsin.';
 
 class _DraftItem {
   _DraftItem();
@@ -528,6 +533,17 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Düzenleme rotası (/teklifler/:id/duzenle) doğrudan da açılabilir:
+    // offers.update yoksa form hiç gösterilmez (kayıt 403 alırdı). Yeni
+    // teklifin girişleri (liste, metraj, müşteri) offers.create'i zaten
+    // kendileri denetliyor.
+    final auth = ref.watch(authControllerProvider);
+    if (widget.isEdit && !auth.isLoading && !auth.valueOrNull.canAccess(kPermOffersUpdate)) {
+      return const AppPageScaffold(
+        title: Text('Teklifi Düzenle'),
+        body: NoAccessView(message: kOfferEditNoAccessText),
+      );
+    }
     final canManageInternal = _canManageInternal;
     final canPickProducts = _canPickProducts;
     final linked = _customerId != null;
