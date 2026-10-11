@@ -430,6 +430,7 @@ export type OfferEventType =
   | "email_sent"
   | "email_failed"
   | "offer_cancelled"
+  | "offer_reactivated"
   | "project_created";
 
 export interface OfferEvent {

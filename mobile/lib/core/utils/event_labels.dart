@@ -139,6 +139,7 @@ const kOfferEventLabels = <String, String>{
   'email_sent': 'E-posta gönderildi',
   'email_failed': 'E-posta gönderilemedi',
   'offer_cancelled': 'Teklif arşivlendi / iptal edildi',
+  'offer_reactivated': 'Teklif arşivden çıkarıldı',
   'project_created': 'Teklif projeye dönüştürüldü',
 };
 

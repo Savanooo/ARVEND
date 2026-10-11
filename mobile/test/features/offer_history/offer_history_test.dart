@@ -41,6 +41,8 @@ void main() {
       expect(offerEventLabel(ev('customer_viewed'), null), 'Müşteri teklifi görüntüledi');
       expect(offerEventLabel(ev('offer_created'), 4), 'Teklif oluşturuldu');
       expect(offerEventLabel(ev('offer_cancelled'), null), 'Teklif arşivlendi / iptal edildi');
+      // Arşivden çıkarma 2026-10-11'den beri loglanıyor.
+      expect(offerEventLabel(ev('offer_reactivated'), 2), 'Teklif arşivden çıkarıldı');
     });
 
     test('paylaşım linki iptali nedeni', () {
