@@ -12,7 +12,7 @@ import type { Expense } from "@/lib/types";
 
 // Masraf satırı işlemleri -- Finans > Masraflar ve Masraflarım AYNI akışı
 // kullanır (mobil ledger_entry_sheet.dart ile aynı metinler):
-//   Onayla / Reddet (gerekçe zorunlu)        projects.expenses.approve
+//   Onayla (onay sorulur) / Reddet (gerekçe zorunlu)   projects.expenses.approve
 //   İptal Et (gerekçeli)                      projects.finance.manage
 //   Geri Çek (gerekçesiz, kendi masrafı)      projects.expenses.create
 // Hepsi POST .../expenses/{id}/{approve|reject|void}. Görünürlük çağıranda
@@ -48,7 +48,14 @@ export function useExpenseMutations() {
   const path = (projectId: string, e: Expense, action: string) =>
     `/api/v1/projects/${projectId}/expenses/${e.id}/${action}`;
 
+  // Onay gerçekleşen maliyeti ve kârı değiştirir: mobil gibi önce sorulur.
   async function approve(projectId: string, e: Expense): Promise<boolean> {
+    const ok = await confirm({
+      title: "Masrafı Onayla",
+      message: `${formatMoney(e.amount, e.currency)} tutarındaki masraf onaylanır ve gerçekleşen maliyete, kâra girer.`,
+      confirmLabel: "Onayla",
+    });
+    if (!ok) return false;
     return run(() => apiClient(path(projectId, e, "approve"), { method: "POST" }), "Masraf onaylandı.");
   }
 

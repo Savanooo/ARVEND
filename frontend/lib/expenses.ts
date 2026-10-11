@@ -5,6 +5,7 @@
 // Ayrıca KDV (0065), form gövdesi ve "masrafı herkes girer" (0066) kuralları
 // -- Finans tablosu, proje sayfasındaki ayrı giriş ve Masraflarım AYNI
 // kararları kullanır (mobil expense_actions.dart ile aynı).
+import { parseAmountTR } from "./format.ts";
 import type { Expense } from "./types";
 
 type ExpenseLike = Pick<Expense, "amount" | "voided_at" | "approval_status">;
@@ -49,9 +50,14 @@ export function summarizeExpenses(expenses: ExpenseLike[]): ExpenseApprovalSumma
 /** Formdaki KDV seçenekleri (mobil kExpenseVatRates ile aynı); null = Belirtilmedi. */
 export const EXPENSE_VAT_RATES: readonly number[] = [0, 1, 10, 20];
 
+/** Oranın kendisi: 0 -> "%0", 20 -> "%20", 18.5 -> "%18,5" (ayrıntıdaki "KDV (%20)" satırı). */
+export function expenseVatPercent(rate: number): string {
+  return `%${rate.toLocaleString("tr-TR", { useGrouping: false, maximumFractionDigits: 2 })}`;
+}
+
 /** Seçenek etiketi: 0 -> "KDV yok (%0)", 20 -> "%20", 18.5 -> "%18,5". */
 export function expenseVatRateLabel(rate: number): string {
-  const pct = `%${rate.toLocaleString("tr-TR", { useGrouping: false, maximumFractionDigits: 2 })}`;
+  const pct = expenseVatPercent(rate);
   return rate === 0 ? `KDV yok (${pct})` : pct;
 }
 
@@ -96,6 +102,8 @@ export interface ExpenseFormValues {
   // Bilinmeyen (yeni sunucu) kategori düzenlemede aynen kalır.
   category: string;
   description: string;
+  // Kullanıcının yazdığı tutar: Türkçe yazım ("64.000" = 64 000,
+  // "1.250,50") parseAmountTR ile okunur (mobil parseAmountInput ile aynı).
   amount: string;
   expense_date: string;
   supplier_name: string;
@@ -125,12 +133,23 @@ export function emptyExpenseForm(today: string): ExpenseFormValues {
   };
 }
 
+/** Ön doldurulan tutar parseAmountTR'nin okuduğu Türkçe yazımla: 1250.5 -> "1.250,5". */
+export function expenseAmountInput(amount: number): string {
+  return amount.toLocaleString("tr-TR", { maximumFractionDigits: 2 });
+}
+
+/** Formdaki tutar; geçersiz ya da sıfır/eksiyse null ("Geçerli bir tutar girin"). */
+export function parseExpenseAmount(raw: string): number | null {
+  const amount = parseAmountTR(raw);
+  return Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
 /** Düzenleme: form okunan masrafın TÜM alanlarıyla dolar (bağlar ve KDV dahil). */
 export function expenseFormFrom(e: Expense): ExpenseFormValues {
   return {
     category: e.category,
     description: e.description,
-    amount: String(e.amount),
+    amount: expenseAmountInput(e.amount),
     expense_date: e.expense_date.slice(0, 10),
     supplier_name: e.supplier_name,
     invoice_no: e.invoice_no,
@@ -160,7 +179,7 @@ export function expenseRequestBody(
   return {
     category: v.category,
     description: v.description.trim(),
-    amount: Number(v.amount),
+    amount: parseAmountTR(v.amount),
     currency: opts.currency,
     expense_date: v.expense_date,
     supplier_name: v.supplier_name.trim(),

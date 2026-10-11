@@ -26,6 +26,8 @@ export function ExpenseStatusBadge({ expense }: { expense: Expense }) {
  */
 export function ExpenseVatCell({ expense }: { expense: Expense }) {
   if (expense.vat_rate == null) return <span className="text-xs text-text-muted">Belirtilmedi</span>;
+  // %0: KDV 0, KDV hariç = tutar -- aynı rakamı tekrarlamaya gerek yok.
+  if (expense.vat_rate === 0) return <span className="text-xs text-text">{expenseVatRateLabel(0)}</span>;
   return (
     <div className="flex flex-col text-xs">
       <span className="text-text">

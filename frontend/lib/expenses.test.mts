@@ -7,17 +7,20 @@ import {
   EXPENSE_OWN_DECISION_TEXT,
   expenseActionsFor,
   expenseActorFor,
+  expenseAmountInput,
   expenseCounts,
   expenseFormFrom,
   expenseIsPending,
   expenseIsWithdrawn,
   expenseProjectLabel,
   expenseRequestBody,
+  expenseVatPercent,
   expenseVatRateLabel,
   expenseVatRateOptions,
   expenseVatSplit,
   myExpenseMatches,
   myExpensesHref,
+  parseExpenseAmount,
   projectLedgerOpen,
   summarizeExpenses,
   type ExpenseActor,
@@ -108,6 +111,10 @@ describe("KDV (backend 0065)", () => {
     assert.equal(expenseVatRateLabel(1), "%1");
     assert.equal(expenseVatRateLabel(20), "%20");
     assert.equal(expenseVatRateLabel(18.5), "%18,5");
+    // Ayrıntı satırı "KDV (%0)" -- "KDV (KDV yok (%0))" değil.
+    assert.equal(expenseVatPercent(0), "%0");
+    assert.equal(expenseVatPercent(20), "%20");
+    assert.equal(expenseVatPercent(18.5), "%18,5");
   });
 
   it("önizleme sunucu formülüyle: KDV = round(tutar × oran / (100 + oran), 2)", () => {
@@ -175,6 +182,30 @@ describe("form gövdesi (POST / PUT)", () => {
     assert.equal(body.cost_code_id, "");
     assert.equal(body.budget_line_id, "");
     assert.equal(body.vat_rate, 20);
+  });
+
+  it("tutar Türkçe yazımla okunur (mobil parseAmountInput ile aynı)", () => {
+    assert.equal(parseExpenseAmount("64.000"), 64000);
+    assert.equal(parseExpenseAmount("1.250,50"), 1250.5);
+    assert.equal(parseExpenseAmount("1250.50"), 1250.5);
+    assert.equal(parseExpenseAmount(" 750 "), 750);
+    for (const bad of ["", "0", "0,00", "-5", "abc", "1,2,3"]) {
+      assert.equal(parseExpenseAmount(bad), null, `"${bad}" geçersiz olmalıydı`);
+    }
+    const body = expenseRequestBody(
+      { ...emptyExpenseForm("2026-10-09"), description: "Kum", amount: "64.000" },
+      { currency: "TRY", canLink: false }
+    );
+    assert.equal(body.amount, 64000);
+  });
+
+  it("düzenlemede tutar Türkçe yazımla dolar ve aynen geri okunur", () => {
+    assert.equal(expenseAmountInput(1250.5), "1.250,5");
+    assert.equal(expenseAmountInput(64000), "64.000");
+    assert.equal(expenseAmountInput(99.99), "99,99");
+    for (const amount of [0.01, 99.99, 1250.5, 64000, 1234567.89]) {
+      assert.equal(parseExpenseAmount(expenseAmountInput(amount)), amount);
+    }
   });
 
   it("tarih gün kısmına indirgenir; bilinmeyen kategori aynen kalır", () => {

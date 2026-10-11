@@ -18,6 +18,7 @@ import {
   expenseVatRateLabel,
   expenseVatRateOptions,
   expenseVatSplit,
+  parseExpenseAmount,
   type ExpenseFormValues,
 } from "@/lib/expenses";
 import { formatMoney, istanbulDate } from "@/lib/format";
@@ -44,6 +45,8 @@ import {
 //   (Masraflarım) alanlar görünmez ama düzenlemede okunan bağ aynen geri gider.
 //
 // Para birimi sorulmaz: yeni masrafta projeninki, düzenlemede masrafınki.
+// Tutar Türkçe yazımla okunur ("64.000" = 64 000, "1.250,50"; mobil ile
+// aynı) -- sayı alanı "64.000"ı 64 diye okurdu.
 // Hata mesajı (403/409 dahil) sunucudan geldiği gibi gösterilir.
 export function ExpenseForm({
   projectId,
@@ -99,6 +102,10 @@ export function ExpenseForm({
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (busy) return;
+    if (parseExpenseAmount(form.amount) === null) {
+      setError("Geçerli bir tutar girin.");
+      return;
+    }
     if (
       initial?.approval_status === "approved" &&
       !(await confirm({
@@ -182,9 +189,9 @@ export function ExpenseForm({
             label={`Tutar (${formCurrency})`}
             id={id("amount")}
             name="expense_amount"
-            type="number"
-            step="0.01"
-            min="0.01"
+            inputMode="decimal"
+            autoComplete="off"
+            placeholder="0,00"
             required
             value={form.amount}
             onChange={(e) => setForm({ ...form, amount: e.target.value })}
@@ -331,7 +338,8 @@ function VatRateField({
   onChange: (rate: number | null) => void;
 }) {
   const labelId = `${idPrefix}_vat_label`;
-  const split = rate == null ? null : expenseVatSplit(Number(amount), rate);
+  const paid = parseExpenseAmount(amount);
+  const split = rate == null || paid === null ? null : expenseVatSplit(paid, rate);
   const chip = (selected: boolean) =>
     `rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
       selected ? "border-gold bg-gold-soft text-text" : "border-border text-text-muted hover:bg-surface-hover hover:text-text"
