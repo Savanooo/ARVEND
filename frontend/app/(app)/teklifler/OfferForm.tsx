@@ -39,8 +39,10 @@ import { OfferProductNameField } from "./OfferProductNameField";
 // ürünün adıyla aynıyken gönderilir -- katalogdan KİMLİKLE seçilir, ad sonra
 // değişirse bağ düşer (bkz. lib/offers.ts renameCatalogItem).
 interface ItemRow extends CatalogLink {
-  // Satırın istemci tarafı anahtarı (React key): ortadaki bir satır
-  // silinince öneri alanının durumu bir alttaki satıra kaymasın. Gönderilmez.
+  // Satırın istemci tarafı anahtarı (yalnızca React key): ortadaki bir satır
+  // silinince öneri alanının durumu bir alttaki satıra kaymasın. Gönderilmez;
+  // sunucu ve tarayıcı sayaçları farklı olabileceğinden DOM'a da yazılmaz
+  // (hydration uyuşmazlığı olurdu).
   key: string;
   // Düzenlenen taslakta satırın karşılık geldiği mevcut kalemin id'si (yeni
   // satırlarda null). Backend, iç fiyatlama yetkisi olmayan düzenleyicinin
@@ -600,7 +602,7 @@ export function OfferForm({
                           <label className="flex items-center gap-1.5">
                             <input
                               type="radio"
-                              name={`pricing-mode-${row.key}`}
+                              name={`pricing-mode-${i}`}
                               checked={row.pricing_mode === "markup"}
                               onChange={() => updateItem(i, { pricing_mode: "markup" })}
                             />
@@ -609,7 +611,7 @@ export function OfferForm({
                           <label className="flex items-center gap-1.5">
                             <input
                               type="radio"
-                              name={`pricing-mode-${row.key}`}
+                              name={`pricing-mode-${i}`}
                               checked={row.pricing_mode === "manual"}
                               onChange={() => updateItem(i, { pricing_mode: "manual" })}
                             />
