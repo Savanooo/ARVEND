@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronDown, ChevronRight, MessageSquare, Pencil } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
@@ -8,10 +9,24 @@ import { Button } from "@/components/ui/Button";
 import { DateInput } from "@/components/ui/DateInput";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
+import { SessionImage } from "@/components/ui/SessionImage";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Textarea } from "@/components/ui/Textarea";
-import { API_BASE, apiClient, ApiError, fetchWithSession } from "@/lib/api";
+import { useToast } from "@/components/ui/Toast";
+import { apiClient, ApiError, fetchWithSession } from "@/lib/api";
+import { formatDateTimeTR } from "@/lib/format";
 import { SCHEDULE_STATUS, TASK_STATUS } from "@/lib/status";
+import {
+  TASK_UPDATE_EMPTY_MESSAGE,
+  TASK_UPDATE_MAX_LENGTH,
+  taskEditDraft,
+  taskEditRequest,
+  taskUpdateRequest,
+  taskUpdateStatusChoices,
+  taskUpdateStatusLine,
+  type TaskEditDraft,
+  type TaskUpdate,
+} from "@/lib/tasks";
 import {
   FILE_CATEGORY_LABELS,
   PHOTO_STAGE_LABELS,
@@ -28,6 +43,7 @@ import {
   type ProjectTask,
   type ScheduleItem,
   type TaskPriority,
+  type TaskStatus,
 } from "@/lib/types";
 
 /**
@@ -442,6 +458,369 @@ export function ScheduleSection({
 
 // ---------- Görevler ----------
 
+// Görev satırı: başlığa tıklayınca açılır -- açıklama, bağlam, notlar
+// ("Bilgi Ver" akışı) ve düzenleme. Mobil task_detail_screen.dart'ın web
+// karşılığı (web'de görev başına ayrı sayfa yok). Yazma düğmeleri
+// projects.tasks.update ister ve kapalı projede gizlenir; notlar herkese
+// (projects.tasks.read) açıktır.
+function TaskRow({
+  project,
+  task: t,
+  scheduleItems,
+  activeMembers,
+  byId,
+  canUpdate,
+  locked,
+}: {
+  project: Project;
+  task: ProjectTask;
+  scheduleItems: ScheduleItem[];
+  activeMembers: ProjectMember[];
+  byId: Map<string, ProjectAssignee>;
+  canUpdate: boolean;
+  locked: boolean;
+}) {
+  const { busy, error, run, setError } = useAction(locked);
+  const toast = useToast();
+  const [expanded, setExpanded] = useState(false);
+  const [mode, setMode] = useState<"view" | "note" | "edit">("view");
+  const [updates, setUpdates] = useState<TaskUpdate[] | null>(null);
+  const [updatesError, setUpdatesError] = useState<string | null>(null);
+  const [noteBody, setNoteBody] = useState("");
+  const [noteStatus, setNoteStatus] = useState<TaskStatus | null>(null);
+  const [draft, setDraft] = useState<TaskEditDraft>(() => taskEditDraft(t));
+  const writable = canUpdate && !locked;
+  const base = `/api/v1/projects/${project.id}/tasks/${t.id}`;
+  const scheduleName = scheduleItems.find((s) => s.id === t.schedule_item_id)?.name;
+
+  async function loadUpdates() {
+    setUpdatesError(null);
+    try {
+      const res = await apiClient<{ updates: TaskUpdate[] }>(`${base}/updates`);
+      setUpdates(res.updates ?? []);
+    } catch (err) {
+      setUpdatesError(err instanceof ApiError ? err.message : "Bağlantı hatası");
+    }
+  }
+
+  function toggle() {
+    const next = !expanded;
+    setExpanded(next);
+    // Notlar ilk açılışta çekilir (N+1'i yalnızca açılan görev öder).
+    if (next && updates === null) void loadUpdates();
+  }
+
+  function updateStatus(status: string) {
+    if (status === "completed") {
+      return run(() => apiClient(`${base}/complete`, { method: "POST" }));
+    }
+    return run(() =>
+      apiClient(base, {
+        method: "PUT",
+        body: JSON.stringify(taskEditRequest({ ...taskEditDraft(t), status: status as TaskStatus })),
+      })
+    );
+  }
+
+  function openMode(next: "note" | "edit") {
+    setError(null);
+    if (next === "edit") setDraft(taskEditDraft(t));
+    if (next === "note") {
+      setNoteBody("");
+      setNoteStatus(null);
+    }
+    setMode(next);
+  }
+
+  // "Bilgi Ver": not (isteğe bağlı durum değişikliğiyle). Görevi veren ve
+  // proje yöneticisi bildirim alır (sunucu).
+  async function sendNote(e: FormEvent) {
+    e.preventDefault();
+    const req = taskUpdateRequest(noteBody, noteStatus, t.status);
+    if (!req) {
+      setError(TASK_UPDATE_EMPTY_MESSAGE);
+      return;
+    }
+    const sent: { update?: TaskUpdate } = {};
+    const ok = await run(async () => {
+      const res = await apiClient<{ update: TaskUpdate; task: ProjectTask }>(`${base}/updates`, {
+        method: "POST",
+        body: JSON.stringify(req),
+      });
+      sent.update = res.update;
+    });
+    if (!ok) return;
+    const created = sent.update;
+    if (created) setUpdates((prev) => [...(prev ?? []), created]);
+    setMode("view");
+    toast.success("Bilgi gönderildi.");
+  }
+
+  // Düzenleme: PUT satırı bütünüyle yeniden yazar (bkz. taskEditRequest).
+  // Projeyi göremeyen kişiye atama 400 ile reddedilir -- mesaj olduğu gibi.
+  async function saveEdit(e: FormEvent) {
+    e.preventDefault();
+    const ok = await run(() => apiClient(base, { method: "PUT", body: JSON.stringify(taskEditRequest(draft)) }));
+    if (!ok) return;
+    setMode("view");
+    toast.success("Görev güncellendi.");
+  }
+
+  return (
+    <li className="rounded-md border border-border px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={expanded}
+          className="flex min-w-0 items-center gap-1 text-left"
+        >
+          {expanded ? (
+            <ChevronDown size={14} strokeWidth={1.75} className="shrink-0 text-text-muted" />
+          ) : (
+            <ChevronRight size={14} strokeWidth={1.75} className="shrink-0 text-text-muted" />
+          )}
+          <span className={t.status === "completed" ? "text-text-muted line-through" : "font-medium"}>{t.title}</span>
+          {t.priority !== "normal" && (
+            <span
+              className={`ml-1 text-xs ${t.priority === "urgent" || t.priority === "high" ? "text-danger" : "text-text-muted"}`}
+            >
+              {TASK_PRIORITY_LABELS[t.priority]}
+            </span>
+          )}
+          {t.assigned_name && <span className="ml-1 text-text-muted">· {t.assigned_name}</span>}
+        </button>
+        <div className="flex items-center gap-2">
+          {t.due_date && (
+            <span className={`text-xs ${t.is_overdue ? "text-danger" : "text-text-muted"}`}>
+              {new Date(t.due_date).toLocaleDateString("tr-TR")}
+              {t.is_overdue && " · gecikti"}
+            </span>
+          )}
+          {writable ? (
+            <Select
+              value={t.status}
+              disabled={busy}
+              onChange={(e) => updateStatus(e.target.value)}
+              aria-label="Görev durumu"
+              className="py-1 text-xs"
+            >
+              {Object.entries(TASK_STATUS_LABELS).map(([k, label]) => (
+                <option key={k} value={k}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <StatusBadge status={t.status} registry={TASK_STATUS} />
+          )}
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="mt-2 flex flex-col gap-3 border-t border-border pt-2 text-sm">
+          {mode === "edit" ? (
+            <form onSubmit={saveEdit} className="flex flex-col gap-2">
+              <Input
+                label="Başlık"
+                required
+                maxLength={200}
+                value={draft.title}
+                onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+              />
+              <Textarea
+                label="Açıklama (opsiyonel)"
+                className="min-h-16"
+                value={draft.description}
+                onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+              />
+              <div className="flex flex-wrap items-end gap-2">
+                <Select
+                  value={draft.schedule_item_id}
+                  onChange={(e) => setDraft({ ...draft, schedule_item_id: e.target.value })}
+                  aria-label="Aşama"
+                  className="w-44"
+                >
+                  <option value="">Aşama (yok)</option>
+                  {scheduleItems.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </Select>
+                <Select
+                  value={draft.assigned_employee_id}
+                  onChange={(e) => setDraft({ ...draft, assigned_employee_id: e.target.value })}
+                  aria-label="Atanan"
+                  className="w-44"
+                >
+                  <option value="">Atanmadı</option>
+                  {assigneeOptions(activeMembers, byId, { id: t.assigned_employee_id, name: t.assigned_name })}
+                </Select>
+                <Select
+                  value={draft.priority}
+                  onChange={(e) => setDraft({ ...draft, priority: e.target.value as TaskPriority })}
+                  aria-label="Öncelik"
+                  className="w-32"
+                >
+                  {Object.entries(TASK_PRIORITY_LABELS).map(([k, label]) => (
+                    <option key={k} value={k}>
+                      {label}
+                    </option>
+                  ))}
+                </Select>
+                <Select
+                  value={draft.status}
+                  onChange={(e) => setDraft({ ...draft, status: e.target.value as TaskStatus })}
+                  aria-label="Durum"
+                  className="w-36"
+                >
+                  {Object.entries(TASK_STATUS_LABELS).map(([k, label]) => (
+                    <option key={k} value={k}>
+                      {label}
+                    </option>
+                  ))}
+                </Select>
+                <DateInput
+                  value={draft.due_date}
+                  onChange={(e) => setDraft({ ...draft, due_date: e.target.value })}
+                  aria-label="Termin"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button type="submit" loading={busy}>
+                  Kaydet
+                </Button>
+                <Button type="button" variant="ghost" disabled={busy} onClick={() => setMode("view")}>
+                  Vazgeç
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <>
+              {t.description && <p className="whitespace-pre-wrap">{t.description}</p>}
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
+                <span>Atanan: {t.assigned_name || "Atanmadı"}</span>
+                {scheduleName && <span>Aşama: {scheduleName}</span>}
+                <span>Termin: {t.due_date ? new Date(t.due_date).toLocaleDateString("tr-TR") : "—"}</span>
+                {t.completed_at && <span>Tamamlanma: {formatDateTimeTR(t.completed_at)}</span>}
+              </div>
+              {writable && mode === "view" && (
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" disabled={busy} onClick={() => openMode("note")}>
+                    <MessageSquare size={14} strokeWidth={1.75} />
+                    Bilgi Ver
+                  </Button>
+                  <Button type="button" variant="secondary" disabled={busy} onClick={() => openMode("edit")}>
+                    <Pencil size={14} strokeWidth={1.75} />
+                    Düzenle
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+
+          {mode === "note" && writable && (
+            <form onSubmit={sendNote} className="flex flex-col gap-2 rounded-md border border-border p-3">
+              <div className="text-xs font-semibold uppercase tracking-widest text-text-muted">Bilgi Ver</div>
+              <Textarea
+                aria-label="Not"
+                placeholder="Ne yapıldı, ne kaldı, ne lazım?"
+                className="min-h-20"
+                maxLength={TASK_UPDATE_MAX_LENGTH}
+                value={noteBody}
+                onChange={(e) => setNoteBody(e.target.value)}
+                autoFocus
+              />
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-text-muted">Durum:</span>
+                <ChoiceChip selected={noteStatus === null} onClick={() => setNoteStatus(null)}>
+                  Değişmesin ({TASK_STATUS_LABELS[t.status]})
+                </ChoiceChip>
+                {taskUpdateStatusChoices(t.status).map((s) => (
+                  <ChoiceChip key={s} selected={noteStatus === s} onClick={() => setNoteStatus(s)}>
+                    {TASK_STATUS_LABELS[s]}
+                  </ChoiceChip>
+                ))}
+              </div>
+              <p className="text-xs text-text-muted">Görevi veren ve proje yöneticisi bildirim alır.</p>
+              <div className="flex gap-2">
+                <Button type="submit" loading={busy}>
+                  Gönder
+                </Button>
+                <Button type="button" variant="ghost" disabled={busy} onClick={() => setMode("view")}>
+                  Vazgeç
+                </Button>
+              </div>
+            </form>
+          )}
+
+          {error && <p className="text-xs text-danger">{error}</p>}
+
+          <div className="flex flex-col gap-1.5">
+            <div className="text-xs font-semibold uppercase tracking-widest text-text-muted">Notlar</div>
+            {updatesError ? (
+              <p className="text-xs text-danger">
+                {updatesError}{" "}
+                <button type="button" className="text-text-muted underline hover:text-text" onClick={loadUpdates}>
+                  Tekrar dene
+                </button>
+              </p>
+            ) : updates === null ? (
+              <p className="text-xs text-text-muted">Yükleniyor…</p>
+            ) : updates.length === 0 ? (
+              <p className="text-xs text-text-muted">
+                Henüz not yok. Görevi alan kişi &quot;Bilgi Ver&quot; ile ne yaptığını yazar.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-1.5">
+                {updates.map((u) => {
+                  const statusLine = taskUpdateStatusLine(u);
+                  return (
+                    <li key={u.id} className="rounded-md bg-surface-hover px-3 py-2">
+                      <div className="flex flex-wrap justify-between gap-2 text-xs">
+                        <span className="font-medium text-text">{u.author_name || "Kullanıcı"}</span>
+                        <span className="text-text-muted">{formatDateTimeTR(u.created_at)}</span>
+                      </div>
+                      {statusLine && <div className="mt-0.5 text-xs font-medium text-text-muted">{statusLine}</div>}
+                      {u.body && <p className="mt-0.5 whitespace-pre-wrap">{u.body}</p>}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+      {/* Kapalı satırdaki durum seçicisinin hatası (açıkken yukarıda). */}
+      {error && !expanded && <p className="mt-1 text-xs text-danger">{error}</p>}
+    </li>
+  );
+}
+
+function ChoiceChip({
+  selected,
+  onClick,
+  children,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onClick}
+      className={`rounded-full border px-2.5 py-1 ${
+        selected ? "border-gold bg-gold-soft/40 text-text" : "border-border text-text-muted hover:text-text"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function TasksSection({
   project,
   tasks,
@@ -449,6 +828,7 @@ export function TasksSection({
   members,
   assignees = [],
   canCreate,
+  canUpdate = false,
   locked,
 }: {
   project: Project;
@@ -462,6 +842,8 @@ export function TasksSection({
   // sonra 403 almak yerine hiç gösterilmez (durum değiştirme tasks.update
   // ile ayrı; Saha'da var).
   canCreate: boolean;
+  // projects.tasks.update: durum, "Bilgi Ver" ve Düzenle (mobil ile aynı).
+  canUpdate?: boolean;
   locked: boolean;
 }) {
   const { busy, error, run } = useAction(locked);
@@ -493,28 +875,6 @@ export function TasksSection({
     if (ok) setForm({ ...form, title: "", due_date: "" });
   }
 
-  function updateStatus(t: ProjectTask, status: string) {
-    if (status === "completed") {
-      return run(() =>
-        apiClient(`/api/v1/projects/${project.id}/tasks/${t.id}/complete`, { method: "POST" })
-      );
-    }
-    return run(() =>
-      apiClient(`/api/v1/projects/${project.id}/tasks/${t.id}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          title: t.title,
-          description: t.description,
-          schedule_item_id: t.schedule_item_id,
-          assigned_employee_id: t.assigned_employee_id,
-          priority: t.priority,
-          status,
-          due_date: t.due_date,
-        }),
-      })
-    );
-  }
-
   return (
     <div className="flex flex-col gap-3">
       {tasks.length === 0 ? (
@@ -522,48 +882,16 @@ export function TasksSection({
       ) : (
         <ul className="flex flex-col gap-2">
           {tasks.map((t) => (
-            <li key={t.id} className="rounded-md border border-border px-3 py-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span>
-                  <span className={t.status === "completed" ? "text-text-muted line-through" : "font-medium"}>
-                    {t.title}
-                  </span>
-                  {t.priority !== "normal" && (
-                    <span
-                      className={`ml-2 text-xs ${t.priority === "urgent" || t.priority === "high" ? "text-danger" : "text-text-muted"}`}
-                    >
-                      {TASK_PRIORITY_LABELS[t.priority]}
-                    </span>
-                  )}
-                  {t.assigned_name && <span className="ml-2 text-text-muted">· {t.assigned_name}</span>}
-                </span>
-                <div className="flex items-center gap-2">
-                  {t.due_date && (
-                    <span className={`text-xs ${t.is_overdue ? "text-danger" : "text-text-muted"}`}>
-                      {new Date(t.due_date).toLocaleDateString("tr-TR")}
-                      {t.is_overdue && " · gecikti"}
-                    </span>
-                  )}
-                  {locked ? (
-                    <StatusBadge status={t.status} registry={TASK_STATUS} />
-                  ) : (
-                    <Select
-                      value={t.status}
-                      disabled={busy}
-                      onChange={(e) => updateStatus(t, e.target.value)}
-                      aria-label="Görev durumu"
-                      className="py-1 text-xs"
-                    >
-                      {Object.entries(TASK_STATUS_LABELS).map(([k, label]) => (
-                        <option key={k} value={k}>
-                          {label}
-                        </option>
-                      ))}
-                    </Select>
-                  )}
-                </div>
-              </div>
-            </li>
+            <TaskRow
+              key={t.id}
+              project={project}
+              task={t}
+              scheduleItems={scheduleItems}
+              activeMembers={activeMembers}
+              byId={byId}
+              canUpdate={canUpdate}
+              locked={locked}
+            />
           ))}
         </ul>
       )}
@@ -881,18 +1209,13 @@ export function PhotosSection({
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
                 {group.map((p) => (
                   <figure key={p.id} className="overflow-hidden rounded-md border border-border">
-                    <a
-                      href={`${API_BASE}/api/v1/projects/${project.id}/photos/${p.id}/content`}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={`${API_BASE}/api/v1/projects/${project.id}/photos/${p.id}/content`}
-                        alt={p.description || p.original_name}
-                        className="h-32 w-full object-cover"
-                      />
-                    </a>
+                    {/* Doğrudan <img src={API}> 15 dk'lık erişim çerezi dolunca
+                        kırılıyordu; SessionImage oturumu yenileyerek yükler. */}
+                    <SessionImage
+                      path={`/api/v1/projects/${project.id}/photos/${p.id}/content`}
+                      alt={p.description || p.original_name}
+                      className="h-32 w-full"
+                    />
                     <figcaption className="flex items-center justify-between gap-1 px-2 py-1 text-xs text-text-muted">
                       <span className="truncate">{p.description || p.original_name}</span>
                       {!locked && (

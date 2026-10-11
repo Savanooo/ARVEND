@@ -641,6 +641,7 @@ export default async function ProjeDetayPage({
                   members={members.members}
                   assignees={assignees ?? []}
                   canCreate={canCreateTasks}
+                  canUpdate={hasPermission(perms, "projects.tasks.update")}
                   locked={locked}
                 />
               </Section>
