@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -614,10 +615,32 @@ func (h *OfferHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 	httpjson.Write(w, http.StatusOK, toOfferResponse(*o))
 }
 
+// togglePassiveRequest: `is_passive` verilirse teklif o duruma getirilir
+// (zaten öyleyse bir şey değişmez); gövdesiz istek eski davranıştır --
+// durumu tersine çevirir.
+type togglePassiveRequest struct {
+	IsPassive *bool `json:"is_passive"`
+}
+
+// TogglePassive: POST /offers/{id}/toggle-passive (offers.approve) --
+// arşivle / arşivden çıkar. Mobil `{"is_passive": true|false}` gönderir:
+// ekrandaki durum bayatsa tersine çevirmek istenenin tersini yapardı.
 func (h *OfferHandler) TogglePassive(w http.ResponseWriter, r *http.Request) {
+	var req togglePassiveRequest
+	if err := httpjson.Decode(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	if err := h.svc.TogglePassive(r.Context(), chi.URLParam(r, "id"), orgID, userID); err != nil {
+	id := chi.URLParam(r, "id")
+	var err error
+	if req.IsPassive != nil {
+		err = h.svc.SetPassive(r.Context(), id, orgID, userID, *req.IsPassive)
+	} else {
+		err = h.svc.TogglePassive(r.Context(), id, orgID, userID)
+	}
+	if err != nil {
 		h.writeError(w, err)
 		return
 	}

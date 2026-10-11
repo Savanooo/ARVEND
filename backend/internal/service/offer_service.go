@@ -1125,11 +1125,28 @@ func setOfferStatusTx(ctx context.Context, tx pgx.Tx, txq *sqlc.Queries, uid, or
 	return offerRow, updatedRev, nil
 }
 
-// TogglePassive, teklifi arşivler/arşivden çıkarır. Yalnızca arşive
-// GİRİŞ (is_passive false -> true) bir "offer_cancelled" olayı üretir --
-// arşivden çıkarmanın gerekli kabul edilen 12 olay tipi arasında bir
-// karşılığı yok, bu yüzden loglanmaz.
+// TogglePassive, teklifi arşivler/arşivden çıkarır (durumu tersine çevirir).
+// Yalnızca arşive GİRİŞ (is_passive false -> true) bir "offer_cancelled"
+// olayı üretir -- arşivden çıkarmanın gerekli kabul edilen 12 olay tipi
+// arasında bir karşılığı yok, bu yüzden loglanmaz.
 func (s *OfferService) TogglePassive(ctx context.Context, id, organizationID, userID string) error {
+	return s.setPassive(ctx, id, organizationID, userID, nil)
+}
+
+// SetPassive, teklifi açıkça arşive alır (true) ya da arşivden çıkarır
+// (false); teklif zaten istenen durumdaysa hiçbir şey yazmaz. Uygulamaların
+// "Arşivle"/"Arşivden Çıkar" düğmesi bunu kullanır: ekrandaki durum bayatsa
+// (başka biri arşivlemişse) tersine çevirmek kullanıcının istediğinin tam
+// tersini yapardı.
+func (s *OfferService) SetPassive(ctx context.Context, id, organizationID, userID string, passive bool) error {
+	return s.setPassive(ctx, id, organizationID, userID, &passive)
+}
+
+// setPassive: target nil = tersine çevir. Okuma ve yazma, teklifin diğer
+// durum yazarlarıyla (UpdateStatus/Revise/Respond) aynı advisory lock
+// altında yapılır: eşzamanlı iki istek aynı eski durumu okuyup birbirini
+// geri almasın.
+func (s *OfferService) setPassive(ctx context.Context, id, organizationID, userID string, target *bool) error {
 	uid, err := repository.StringToUUID(id)
 	if err != nil {
 		return domain.ErrNotFound
@@ -1138,14 +1155,6 @@ func (s *OfferService) TogglePassive(ctx context.Context, id, organizationID, us
 	if err != nil {
 		return domain.ErrNotFound
 	}
-	row, err := s.q.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.ErrNotFound
-		}
-		return err
-	}
-	newPassive := !row.IsPassive
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -1153,6 +1162,24 @@ func (s *OfferService) TogglePassive(ctx context.Context, id, organizationID, us
 	}
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
+
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", uid.String()); err != nil {
+		return err
+	}
+	row, err := txq.GetOfferByID(ctx, sqlc.GetOfferByIDParams{ID: uid, OrganizationID: orgID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		return err
+	}
+	newPassive := !row.IsPassive
+	if target != nil {
+		if *target == row.IsPassive {
+			return nil
+		}
+		newPassive = *target
+	}
 
 	if err := txq.SetOfferPassive(ctx, sqlc.SetOfferPassiveParams{ID: uid, OrganizationID: orgID, IsPassive: newPassive}); err != nil {
 		return err
