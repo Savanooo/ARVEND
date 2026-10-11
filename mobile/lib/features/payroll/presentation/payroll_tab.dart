@@ -7,6 +7,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_buttons.dart';
+import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_list_card.dart';
 import '../../../core/widgets/money_text.dart';
 import '../../../core/widgets/status_badge.dart';
@@ -99,6 +100,43 @@ Future<void> confirmDeletePayment(
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
+  }
+}
+
+/// Maaş bilgisi alınamadı (bağlantı yok, sunucu hatası): eskiden hata
+/// sessizce yutuluyordu -- maaş kartı ve Öde düğmeleri kayboluyor, ödemeler
+/// "Bu aya ait ödeme yok" diyordu; ödeme yapılmış kişi ödenmemiş sanılırdı.
+class PayrollLoadError extends StatelessWidget {
+  const PayrollLoadError({super.key, required this.error, required this.onRetry});
+
+  final Object error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final err = error;
+    return AppCard(
+      key: const ValueKey('maas-hata'),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline, color: AppColors.danger),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Maaş bilgisi alınamadı.', style: AppTypography.body.copyWith(fontWeight: FontWeight.w700)),
+                Text(
+                  err is ApiException ? err.message : 'Bağlantını kontrol edip tekrar dene.',
+                  style: AppTypography.metadata,
+                ),
+              ],
+            ),
+          ),
+          TextButton(onPressed: onRetry, child: const Text('Tekrar Dene')),
+        ],
+      ),
+    );
   }
 }
 

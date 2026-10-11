@@ -24,6 +24,7 @@ import '../../payroll/data/payroll_providers.dart';
 import '../../payroll/domain/payroll.dart';
 import '../../payroll/presentation/payroll_tab.dart';
 import '../data/attendance_providers.dart';
+import '../domain/attendance.dart';
 import '../domain/attendance_people.dart';
 import 'attendance_screen.dart';
 
@@ -95,15 +96,138 @@ class _PersonMonthScreenState extends ConsumerState<PersonMonthScreen> {
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authControllerProvider).valueOrNull;
-    final canManage = user == null || user.permissions.isEmpty || user.hasPermission('attendance.manage');
     final canSeePayroll = user.canAccess('payroll.read');
     final canPay = canSeePayroll && user.canAccess('payroll.manage');
+    // Yalnızca maaş izni olan (attendance.read'siz) kişi: mesai bölümü yok,
+    // /attendance çağrılmaz (bkz. AttendanceScreen).
+    final canSeeAttendance = user.can('attendance.read') || !canSeePayroll;
+    final canManage =
+        canSeeAttendance && (user == null || user.permissions.isEmpty || user.hasPermission('attendance.manage'));
 
-    final recordsAsync = ref.watch(attendanceListProvider(_key));
+    final recordsAsync = canSeeAttendance ? ref.watch(attendanceListProvider(_key)) : null;
     final payrollAsync = canSeePayroll ? ref.watch(payrollMonthProvider(_key)) : null;
     final payroll = payrollAsync?.valueOrNull;
     final row = payroll?.summary.where((r) => r.employeeId == widget.employeeId).firstOrNull;
     final payments = payroll?.payments.where((p) => p.employeeId == widget.employeeId).toList() ?? const [];
+
+    // Maaş bölümü: veri, yükleniyor ya da HATA. Eskiden hata null'a
+    // dönüşüyordu: kart ve Öde/Avans kayboluyor, ödemeler "Bu aya ait ödeme
+    // yok" diyordu.
+    final payrollSection = <Widget>[
+      if (canSeePayroll && row != null) ...[
+        _PayrollSummaryCard(row: row),
+        if (canPay) ...[
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              Expanded(
+                child: PrimaryButton(
+                  label: row.isWaiting ? 'Öde' : 'Ödeme Ekle',
+                  icon: Icons.payments_outlined,
+                  onPressed: () =>
+                      showPaymentForm(context, employees: [row], month: _key, onSaved: _refresh, payFor: row),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: SecondaryButton(
+                  label: 'Avans Ver',
+                  icon: Icons.savings_outlined,
+                  onPressed: () => showPaymentForm(
+                    context,
+                    employees: [row],
+                    month: _key,
+                    onSaved: _refresh,
+                    payFor: row,
+                    type: 'avans',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: AppSpacing.xl),
+      ] else if (canSeePayroll && payrollAsync!.isLoading) ...[
+        const LinearProgressIndicator(),
+        const SizedBox(height: AppSpacing.lg),
+      ] else if (canSeePayroll && payroll == null && payrollAsync!.hasError) ...[
+        PayrollLoadError(error: payrollAsync.error!, onRetry: () => ref.invalidate(payrollMonthProvider(_key))),
+        const SizedBox(height: AppSpacing.xl),
+      ],
+    ];
+
+    // Ödemeler yalnızca maaş verisi GELDİYSE listelenir: yüklenirken ya da
+    // alınamadıysa "ödeme yok" denmez.
+    final paymentsSection = <Widget>[
+      if (canSeePayroll && payroll != null) ...[
+        const SizedBox(height: AppSpacing.xl),
+        AppSectionHeader(title: 'Ödemeler (${payments.length})'),
+        if (payments.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+            child: Text('Bu aya ait ödeme yok.', style: AppTypography.metadata),
+          )
+        else
+          for (final p in payments)
+            PaymentCard(
+              payment: p,
+              showName: false,
+              onTap: canPay ? () => confirmDeletePayment(context, ref, p, onDeleted: _refresh) : null,
+            ),
+      ],
+    ];
+
+    Widget attendanceList(List<AttendanceRecord> all) {
+      final records = all.where((r) => r.employeeId == widget.employeeId).toList()
+        ..sort((a, b) => b.date.compareTo(a.date));
+      final days = records.fold(0.0, (s, r) => s + attendanceDayValue(r.status));
+      final hours = records.fold(0.0, (s, r) => s + r.workHours);
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.xs, AppSpacing.lg, AppSpacing.xxl),
+        children: [
+          ...payrollSection,
+          AppSectionHeader(
+            title: 'Mesai · ${Formatters.decimal(days)} gün · ${Formatters.decimal(hours)} sa',
+            trailing: canManage
+                ? TextButton.icon(
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Mesai Ekle'),
+                    onPressed: () => showAttendanceForm(
+                      context,
+                      onSaved: _refresh,
+                      employeeId: widget.employeeId,
+                      employeeName: widget.fullName,
+                      initialDate: _defaultDate,
+                    ),
+                  )
+                : null,
+          ),
+          if (records.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+              child: Text('Bu ay mesai kaydı yok.', style: AppTypography.metadata),
+            )
+          else
+            for (final r in records)
+              AppListCard(
+                key: ValueKey('mesai-${r.id}'),
+                onTap: canManage ? () => showAttendanceForm(context, onSaved: _refresh, existing: r) : null,
+                title: _dayLabel(r.date),
+                subtitle: [attendanceTimeRange(r), if (r.note.isNotEmpty) r.note].join('  ·  '),
+                trailing: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    StatusRegistry.build(r.status, StatusRegistry.attendance),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text('${Formatters.decimal(r.workHours)} sa', style: AppTypography.metadata),
+                  ],
+                ),
+              ),
+          ...paymentsSection,
+        ],
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -128,117 +252,25 @@ class _PersonMonthScreenState extends ConsumerState<PersonMonthScreen> {
           Expanded(
             child: RefreshIndicator(
               onRefresh: () async => _refresh(),
-              child: AsyncStateView(
-                value: recordsAsync,
-                onRetry: () async => _refresh(),
-                data: (context, all) {
-                  final records = all.where((r) => r.employeeId == widget.employeeId).toList()
-                    ..sort((a, b) => b.date.compareTo(a.date));
-                  final days = records.fold(0.0, (s, r) => s + attendanceDayValue(r.status));
-                  final hours = records.fold(0.0, (s, r) => s + r.workHours);
-                  return ListView(
-                    padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.xs, AppSpacing.lg, AppSpacing.xxl),
-                    children: [
-                      if (canSeePayroll && row != null) ...[
-                        _PayrollSummaryCard(row: row),
-                        if (canPay) ...[
-                          const SizedBox(height: AppSpacing.md),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: PrimaryButton(
-                                  label: row.isWaiting ? 'Öde' : 'Ödeme Ekle',
-                                  icon: Icons.payments_outlined,
-                                  onPressed: () => showPaymentForm(
-                                    context,
-                                    employees: [row],
-                                    month: _key,
-                                    onSaved: _refresh,
-                                    payFor: row,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: AppSpacing.sm),
-                              Expanded(
-                                child: SecondaryButton(
-                                  label: 'Avans Ver',
-                                  icon: Icons.savings_outlined,
-                                  onPressed: () => showPaymentForm(
-                                    context,
-                                    employees: [row],
-                                    month: _key,
-                                    onSaved: _refresh,
-                                    payFor: row,
-                                    type: 'avans',
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                        const SizedBox(height: AppSpacing.xl),
-                      ] else if (canSeePayroll && payrollAsync!.isLoading) ...[
-                        const LinearProgressIndicator(),
-                        const SizedBox(height: AppSpacing.lg),
-                      ],
-                      AppSectionHeader(
-                        title: 'Mesai · ${Formatters.decimal(days)} gün · ${Formatters.decimal(hours)} sa',
-                        trailing: canManage
-                            ? TextButton.icon(
-                                icon: const Icon(Icons.add, size: 18),
-                                label: const Text('Mesai Ekle'),
-                                onPressed: () => showAttendanceForm(
-                                  context,
-                                  onSaved: _refresh,
-                                  employeeId: widget.employeeId,
-                                  employeeName: widget.fullName,
-                                  initialDate: _defaultDate,
-                                ),
-                              )
-                            : null,
-                      ),
-                      if (records.isEmpty)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                          child: Text('Bu ay mesai kaydı yok.', style: AppTypography.metadata),
-                        )
-                      else
-                        for (final r in records)
-                          AppListCard(
-                            key: ValueKey('mesai-${r.id}'),
-                            onTap: canManage ? () => showAttendanceForm(context, onSaved: _refresh, existing: r) : null,
-                            title: _dayLabel(r.date),
-                            subtitle: [attendanceTimeRange(r), if (r.note.isNotEmpty) r.note].join('  ·  '),
-                            trailing: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                StatusRegistry.build(r.status, StatusRegistry.attendance),
-                                const SizedBox(height: AppSpacing.xs),
-                                Text('${Formatters.decimal(r.workHours)} sa', style: AppTypography.metadata),
-                              ],
-                            ),
-                          ),
-                      if (canSeePayroll) ...[
-                        const SizedBox(height: AppSpacing.xl),
-                        AppSectionHeader(title: 'Ödemeler (${payments.length})'),
-                        if (payments.isEmpty)
+              child: recordsAsync != null
+                  ? AsyncStateView(
+                      value: recordsAsync,
+                      onRetry: () async => _refresh(),
+                      data: (context, all) => attendanceList(all),
+                    )
+                  // Yalnızca maaş: kart (ya da hata) ve ödemeler.
+                  : ListView(
+                      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.xs, AppSpacing.lg, AppSpacing.xxl),
+                      children: [
+                        ...payrollSection,
+                        if (payroll != null && row == null)
                           Padding(
                             padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                            child: Text('Bu aya ait ödeme yok.', style: AppTypography.metadata),
-                          )
-                        else
-                          for (final p in payments)
-                            PaymentCard(
-                              payment: p,
-                              showName: false,
-                              onTap: canPay ? () => confirmDeletePayment(context, ref, p, onDeleted: _refresh) : null,
-                            ),
+                            child: Text('Bu ay için maaş kaydı yok.', style: AppTypography.metadata),
+                          ),
+                        ...paymentsSection,
                       ],
-                    ],
-                  );
-                },
-              ),
+                    ),
             ),
           ),
         ],

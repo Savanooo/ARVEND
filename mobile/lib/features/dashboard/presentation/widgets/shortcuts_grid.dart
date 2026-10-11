@@ -10,12 +10,19 @@ import '../../../../core/widgets/app_section_header.dart';
 import '../../../auth/domain/user.dart';
 
 class _Shortcut {
-  const _Shortcut(this.label, this.icon, this.path, {this.push = false, this.permission});
+  const _Shortcut(this.label, this.icon, this.path, {this.push = false, this.permission, this.altPermission});
   final String label;
   final IconData icon;
   final String path;
   final bool push;
   final String? permission;
+
+  /// [permission] yoksa bu izin de yeter (Mesai: yalnızca maaş izni olan
+  /// da girer). Maaş izni KATI denetlenir (canAccess).
+  final String? altPermission;
+
+  bool visibleFor(User? user) =>
+      permission == null || user.can(permission!) || (altPermission != null && user.canAccess(altPermission!));
 }
 
 const _shortcuts = <_Shortcut>[
@@ -23,7 +30,7 @@ const _shortcuts = <_Shortcut>[
   _Shortcut('Teklifler', Icons.description_outlined, '/teklifler', permission: 'offers.read'),
   _Shortcut('Görevler', Icons.checklist_outlined, '/gorevler', permission: 'projects.tasks.read'),
   _Shortcut('Müşteriler', Icons.people_outline, '/diger/musteriler', push: true, permission: 'customers.read'),
-  _Shortcut('Mesai', Icons.schedule, '/diger/mesai', push: true, permission: 'attendance.read'),
+  _Shortcut('Mesai', Icons.schedule, '/diger/mesai', push: true, permission: 'attendance.read', altPermission: 'payroll.read'),
   _Shortcut('Metraj', Icons.straighten, '/diger/metraj', push: true, permission: 'calculations.read'),
   _Shortcut(
     'Bildirimler',
@@ -45,7 +52,7 @@ class ShortcutsGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = [
       for (final s in _shortcuts)
-        if (s.permission == null || user.can(s.permission!)) s,
+        if (s.visibleFor(user)) s,
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

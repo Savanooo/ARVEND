@@ -48,6 +48,13 @@ const List<MenuEntry> kManagementMenuEntries = [...kCatalogMenuEntries, ...kTeam
 /// Firma Ayarları bu listede DEĞİL, bkz. aşağıdaki yorum).
 const List<MenuEntry> kManagementSettingsEntries = [...settingsMenuEntries];
 
+/// Mesai ekranının menü adı: yalnızca maaş izni olan (puantajı göremeyen)
+/// kişide ekranın kendisi gibi "Maaş".
+String attendanceMenuLabel(User? user) {
+  final attendance = user == null || user.permissions.isEmpty || user.hasPermission('attendance.read');
+  return !attendance && user.canAccess('payroll.read') ? 'Maaş' : 'Mesai';
+}
+
 class OtherMenuScreen extends ConsumerWidget {
   const OtherMenuScreen({super.key});
 
@@ -82,10 +89,13 @@ class OtherMenuScreen extends ConsumerWidget {
           label: 'Metraj Hesaplama',
           onTap: () => context.push('/diger/metraj'),
         ),
-      if (canSee('attendance.read'))
+      // Maaş izni (payroll.read) puantaj izninden ayrıdır: yalnızca maaş
+      // verilmiş kişi (ör. muhasebe) de bu ekrana girer (eskiden menü
+      // attendance.read istiyordu, maaşa hiçbir yerden ulaşılamıyordu).
+      if (canSee('attendance.read') || user.canAccess('payroll.read'))
         _MenuItem(
           icon: Icons.access_time_outlined,
-          label: 'Mesai',
+          label: attendanceMenuLabel(user),
           onTap: () => context.push('/diger/mesai'),
         ),
     ];

@@ -162,6 +162,20 @@ void main() {
       expect(_labelsInOrder(tester, _managementOrder), ['Firma Ayarları']);
     });
 
+    // payroll.* attendance.*'tan ayrı: yalnızca maaş izni verilen kişi
+    // (ör. muhasebe) eskiden maaşa hiçbir yerden ulaşamıyordu.
+    testWidgets('yalnızca payroll.read: İş Araçları\'nda "Maaş" var', (tester) async {
+      await _pumpTall(tester, _custom(role: UserRole.kullanici, permissions: const ['payroll.read', 'payroll.manage']));
+      expect(find.text('Maaş'), findsOneWidget);
+      expect(find.text('Mesai'), findsNothing);
+    });
+
+    testWidgets('ne puantaj ne maaş izni: Mesai/Maaş girişi yok', (tester) async {
+      await _pumpTall(tester, _custom(role: UserRole.kullanici, permissions: const ['projects.read']));
+      expect(find.text('Maaş'), findsNothing);
+      expect(find.text('Mesai'), findsNothing);
+    });
+
     testWidgets('kullanıcı yüklenmemişse (null) yönetim girişi yok', (tester) async {
       await _pumpTall(tester, null);
       expect(find.text('Yönetim'), findsNothing);
