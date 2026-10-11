@@ -686,7 +686,7 @@ func TestNotifications(t *testing.T) {
 		if before < 3 {
 			t.Fatalf("en az 3 okunmamış bildirim bekleniyordu, geldi: %d", before)
 		}
-		if err := notifSvc.MarkAllRead(ctx, u1.ID, orgA.ID); err != nil {
+		if err := notifSvc.MarkAllRead(ctx, u1.ID, orgA.ID, nil); err != nil {
 			t.Fatalf("MarkAllRead başarısız: %v", err)
 		}
 		after, _ := notifSvc.UnreadCount(ctx, u1.ID, orgA.ID)

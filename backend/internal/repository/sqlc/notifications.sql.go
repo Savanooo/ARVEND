@@ -332,15 +332,24 @@ func (q *Queries) ListUsersWithPermission(ctx context.Context, arg ListUsersWith
 const markAllNotificationsRead = `-- name: MarkAllNotificationsRead :execrows
 UPDATE notifications SET read_at = now()
 WHERE user_id = $1 AND organization_id = $2 AND read_at IS NULL
+  AND ($3::timestamptz IS NULL
+       OR created_at < date_trunc('second', $3::timestamptz) + interval '1 second')
 `
 
 type MarkAllNotificationsReadParams struct {
-	UserID         pgtype.UUID `json:"user_id"`
-	OrganizationID pgtype.UUID `json:"organization_id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	Before         pgtype.Timestamptz `json:"before"`
 }
 
+// `before` (isteğe bağlı): istemcinin gördüğü listedeki en yeni bildirimin
+// zamanı. Yalnızca o ana kadarki okunmamışlar işaretlenir; liste
+// görüldükten SONRA gelen (ya da gruplanıp yeniden öne çıkan, bkz.
+// BumpGroupedNotification) bildirim okunmamış kalır. created_at yanıtta
+// saniye hassasiyetinde (RFC3339) döndüğü için karşılaştırma saniyeye
+// yuvarlanır. NULL = sınırsız (eski istemciler).
 func (q *Queries) MarkAllNotificationsRead(ctx context.Context, arg MarkAllNotificationsReadParams) (int64, error) {
-	result, err := q.db.Exec(ctx, markAllNotificationsRead, arg.UserID, arg.OrganizationID)
+	result, err := q.db.Exec(ctx, markAllNotificationsRead, arg.UserID, arg.OrganizationID, arg.Before)
 	if err != nil {
 		return 0, err
 	}

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/theme/app_status_colors.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../../notifications/data/notifications_providers.dart';
 import '../../domain/dashboard.dart';
 import '../../domain/dashboard_registry.dart';
 import 'dashboard_nav.dart';
@@ -13,16 +15,21 @@ import 'kpi_tile.dart';
 /// Nabız: en çok 4 kutucuk (spec §3.3/§6.4). 2 sütun; 3 kutucukta son
 /// kutucuk tam genişlik; dar ekranda (içerik < 300dp, ~332dp telefon) ya
 /// da yazı ölçeği >= 1,3 iken tek sütun. 2'den az aday varsa çizilmez.
-class KpiGrid extends StatelessWidget {
+class KpiGrid extends ConsumerWidget {
   const KpiGrid({super.key, required this.data, required this.kpis});
 
   final Dashboard data;
   final List<KpiKey> kpis;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (kpis.length < 2) return const SizedBox.shrink();
-    final items = [for (final k in kpis) (k, kpiTileData(context, data, k))];
+    // "Okunmamış bildirim" kutucuğu zil rozetiyle AYNI sayacı okur: eskiden
+    // ana sayfa anlık görüntüsündeki sayıyı gösteriyordu; bildirimler
+    // okundu işaretlenip dönülünce zil 0, kutucuk hâlâ 7 diyordu. Anlık
+    // görüntü yalnızca sayaç gelene kadar kullanılır.
+    final liveUnread = kpis.contains(KpiKey.unread) ? ref.watch(unreadNotificationCountProvider).valueOrNull : null;
+    final items = [for (final k in kpis) (k, kpiTileData(context, data, k, liveUnread: liveUnread))];
     final scale = MediaQuery.textScalerOf(context).scale(1);
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -130,7 +137,10 @@ String? _others<T>(List<T> rows, double Function(T) value, String Function(T) fo
 String _spoken(List<String?> parts) => [for (final p in parts) ?p].join(', ');
 
 /// KPI anahtarı -> kutucuk içeriği (etiketler spec §7.2).
-KpiTileData kpiTileData(BuildContext context, Dashboard d, KpiKey key) {
+///
+/// [liveUnread]: zil rozetinin canlı okunmamış sayısı (varsa anlık
+/// görüntünün yerine geçer).
+KpiTileData kpiTileData(BuildContext context, Dashboard d, KpiKey key, {int? liveUnread}) {
   final s = d.sections;
   switch (key) {
     case KpiKey.receivable:
@@ -258,12 +268,13 @@ KpiTileData kpiTileData(BuildContext context, Dashboard d, KpiKey key) {
       );
     case KpiKey.unread:
       final nt = s.notifications!;
+      final unread = liveUnread ?? nt.unread;
       return KpiTileData(
         label: 'Okunmamış bildirim',
-        value: _n(nt.unread),
+        value: _n(unread),
         icon: Icons.notifications_outlined,
         subs: [if (nt.latest.isNotEmpty) nt.latest.first.title],
-        semantics: _spoken(['Okunmamış bildirim ${nt.unread}', if (nt.latest.isNotEmpty) nt.latest.first.title]),
+        semantics: _spoken(['Okunmamış bildirim $unread', if (nt.latest.isNotEmpty) nt.latest.first.title]),
         onTap: () => context.push('/diger/bildirimler'),
       );
   }

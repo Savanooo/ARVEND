@@ -22,5 +22,10 @@ class NotificationsRepository {
 
   Future<void> markRead(String id) => _client.post<void>('/notifications/$id/read');
 
-  Future<void> markAllRead() => _client.post<void>('/notifications/read-all');
+  /// [before]: listede görülen en yeni bildirimin `created_at`'i (sunucunun
+  /// döndürdüğü haliyle). Sunucu yalnızca o ana kadarki bildirimleri okundu
+  /// yapar -- liste açıldıktan sonra gelen bildirim görülmeden okundu
+  /// sayılmaz. null = sınırsız (eski davranış).
+  Future<void> markAllRead({String? before}) =>
+      _client.post<void>('/notifications/read-all', data: before == null ? null : {'before': before});
 }

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -188,7 +189,12 @@ func (s *NotificationService) MarkRead(ctx context.Context, id, userID, organiza
 	return err
 }
 
-func (s *NotificationService) MarkAllRead(ctx context.Context, userID, organizationID string) error {
+// MarkAllRead, kişinin okunmamış bildirimlerini okundu yapar. [before]
+// doluysa yalnızca o ana kadarki (istemcinin gördüğü listedeki en yeni
+// bildirimin zamanı, saniye hassasiyetinde) bildirimler işaretlenir:
+// liste açıldıktan SONRA gelen bildirim görülmeden okundu sayılmaz. nil =
+// sınırsız (sınır göndermeyen eski istemciler).
+func (s *NotificationService) MarkAllRead(ctx context.Context, userID, organizationID string, before *time.Time) error {
 	uid, err := repository.StringToUUID(userID)
 	if err != nil {
 		return domain.ErrNotFound
@@ -197,6 +203,8 @@ func (s *NotificationService) MarkAllRead(ctx context.Context, userID, organizat
 	if err != nil {
 		return domain.ErrNotFound
 	}
-	_, err = s.q.MarkAllNotificationsRead(ctx, sqlc.MarkAllNotificationsReadParams{UserID: uid, OrganizationID: orgID})
+	_, err = s.q.MarkAllNotificationsRead(ctx, sqlc.MarkAllNotificationsReadParams{
+		UserID: uid, OrganizationID: orgID, Before: repository.TimePtrToTimestamptz(before),
+	})
 	return err
 }

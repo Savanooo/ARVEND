@@ -1,9 +1,13 @@
 package handler
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -95,10 +99,49 @@ func (h *NotificationHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 	httpjson.Write(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// markAllReadRequest: gövde isteğe bağlıdır -- eski istemciler gövdesiz
+// gönderir (sınırsız, eski davranış).
+type markAllReadRequest struct {
+	// Before: istemcinin gördüğü listedeki en yeni bildirimin created_at'i
+	// (RFC3339, listede döndüğü haliyle). Yalnızca o ana kadarki bildirimler
+	// okundu sayılır.
+	Before *string `json:"before"`
+}
+
+// parseMarkAllReadBefore, isteğe bağlı gövdedeki sınırı okur; gövde boşsa
+// ya da "before" yoksa nil döner.
+func parseMarkAllReadBefore(r *http.Request) (*time.Time, error) {
+	defer r.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 4096))
+	if err != nil {
+		return nil, errors.New("geçersiz istek gövdesi")
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, nil
+	}
+	var req markAllReadRequest
+	if err := json.Unmarshal(raw, &req); err != nil {
+		return nil, errors.New("geçersiz istek gövdesi")
+	}
+	if req.Before == nil || strings.TrimSpace(*req.Before) == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(*req.Before))
+	if err != nil {
+		return nil, errors.New("geçersiz tarih: before RFC3339 biçiminde olmalı")
+	}
+	return &t, nil
+}
+
 func (h *NotificationHandler) MarkAllRead(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
-	if err := h.svc.MarkAllRead(r.Context(), userID, orgID); err != nil {
+	before, err := parseMarkAllReadBefore(r)
+	if err != nil {
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.svc.MarkAllRead(r.Context(), userID, orgID, before); err != nil {
 		h.writeError(w, err)
 		return
 	}
