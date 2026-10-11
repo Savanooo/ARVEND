@@ -30,7 +30,14 @@ const _shortcuts = <_Shortcut>[
   _Shortcut('Teklifler', Icons.description_outlined, '/teklifler', permission: 'offers.read'),
   _Shortcut('Görevler', Icons.checklist_outlined, '/gorevler', permission: 'projects.tasks.read'),
   _Shortcut('Müşteriler', Icons.people_outline, '/diger/musteriler', push: true, permission: 'customers.read'),
-  _Shortcut('Mesai', Icons.schedule, '/diger/mesai', push: true, permission: 'attendance.read', altPermission: 'payroll.read'),
+  _Shortcut(
+    'Mesai',
+    Icons.schedule,
+    '/diger/mesai',
+    push: true,
+    permission: 'attendance.read',
+    altPermission: 'payroll.read',
+  ),
   _Shortcut('Metraj', Icons.straighten, '/diger/metraj', push: true, permission: 'calculations.read'),
   _Shortcut(
     'Bildirimler',
