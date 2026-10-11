@@ -102,6 +102,59 @@ void main() {
       expect(adapter.calls, ['/offers', '/auth/refresh']);
     });
 
+    test('refresh geçici hatayla (503) düşerse oturum DÜŞMEZ; istek "oturum bitti" değil geçici hatayla döner',
+        () async {
+      // Veritabanı kısa süre koptu (hesap-yetki-b3): access token'ı süresi
+      // dolmuş her telefon refresh'te 503 alır.
+      final adapter = FakeHttpClientAdapter(script: {
+        '/offers': [
+          (status: 401, body: {'error': 'oturum geçersiz veya süresi dolmuş'}),
+        ],
+        '/auth/refresh': [
+          (
+            status: 503,
+            body: {
+              'error': 'sunucu şu anda yanıt veremiyor, biraz sonra tekrar deneyin',
+              'code': 'temporarily_unavailable',
+            }
+          ),
+        ],
+      });
+      final client = await buildFakeApiClient(adapter);
+      var sessionExpired = 0;
+      final blocked = <AccountAccessIssue>[];
+      client.onSessionExpired = () => sessionExpired++;
+      client.onAccountAccessBlocked = blocked.add;
+
+      await expectLater(
+        client.get<Map<String, dynamic>>('/offers'),
+        throwsA(isA<ApiException>()
+            .having((e) => e.kind, 'kind', ApiErrorKind.server)
+            .having((e) => e.statusCode, 'statusCode', 503)
+            .having((e) => e.isAuthError, 'isAuthError', false)),
+      );
+      expect(sessionExpired, 0);
+      expect(blocked, isEmpty);
+    });
+
+    test('refresh sırasında bağlantı koparsa da oturum düşmez (ağ hatası döner)', () async {
+      // /auth/refresh betiklenmedi -> sahte adaptör hata fırlatır (yanıt yok).
+      final adapter = FakeHttpClientAdapter(script: {
+        '/offers': [
+          (status: 401, body: {'error': 'oturum geçersiz veya süresi dolmuş'}),
+        ],
+      });
+      final client = await buildFakeApiClient(adapter);
+      var sessionExpired = 0;
+      client.onSessionExpired = () => sessionExpired++;
+
+      await expectLater(
+        client.get<Map<String, dynamic>>('/offers'),
+        throwsA(isA<ApiException>().having((e) => e.isAuthError, 'isAuthError', false)),
+      );
+      expect(sessionExpired, 0);
+    });
+
     test('login 401 refresh tetiklemez', () async {
       final adapter = FakeHttpClientAdapter(script: {
         '/auth/login': [

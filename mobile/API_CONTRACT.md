@@ -13,8 +13,9 @@ Base: `https://app.arvendyapi.com.tr/api/v1`. Auth: httpOnly cookies
 (`access_token` 15min, `refresh_token` 30d, rotated), never a Bearer header.
 Every error body is `{"error": "<turkish message>"}` (sometimes `Content-Type:
 text/plain` on 401/403 from raw `http.Error` — JSON-decode regardless). A
-`code` field is present ONLY on three errors, all 403: `tenant_context_
-required`, `permission_denied`, `project_access_denied` — every other error,
+`code` field is present ONLY on a few errors: three 403s (`tenant_context_
+required`, `permission_denied`, `project_access_denied`) and the 503
+`temporarily_unavailable` (see below) — every other error,
 including all of the account-access-issue signatures below, has no `code`,
 only the fixed message text.
 `DisallowUnknownFields()` on every request decode — never send extra JSON keys.
@@ -34,6 +35,15 @@ these three; extend the central classifier instead.**
 | `super_admin` hits ANY tenant-scoped endpoint | 403 | `{"error":"...", "code":"tenant_context_required"}` | Yes, via `code` |
 | Organization `suspended`, `cancelled`, OR soft-deleted (`deleted_at`) | 403 | `{"error":"firma askıya alınmış veya erişilemiyor"}` | **No** — backend returns the exact same body for all three; mobile treats them as one class |
 | User `is_active=false` OR soft-deleted (`deleted_at`, soft-delete always also sets `is_active=false`) | 403 | `{"error":"kullanıcı pasif durumda"}` | **No** — backend returns the exact same body for both; mobile treats them as one class |
+
+**Temporarily unavailable is NOT an account-access issue.** When the
+database cannot be read at that moment (connection dropped, Postgres
+restarting), the auth middleware (`RequireAuth`, `RequireActiveUser`,
+`RequireOnboarded`), `GET /auth/me` and `/auth/refresh` answer **503**
+`{"error":"sunucu şu anda yanıt veremiyor, biraz sonra tekrar deneyin","code":"temporarily_unavailable"}`
+(+ `Retry-After`). Cookies are NOT cleared; the client keeps the session and
+retries later. Before 2026-10 these failures came back as the org-blocked 403
+above / a 401, and the whole team was logged out during a short DB outage.
 
 This applies uniformly to `/auth/refresh` failures too (not just ordinary
 API calls) — a refresh that fails with one of these three signatures is
@@ -61,9 +71,9 @@ Mobile never does financial arithmetic — all totals come from the backend as-i
 
 ## Auth
 - `POST /auth/login` `{username, password}` → 200 `User`. 401 wrong creds, 403 inactive/deleted (`kullanıcı pasif durumda` — see account-access-issue table above; NOT distinguishable from a merely-inactive, non-deleted user).
-- `POST /auth/refresh` no body (reads refresh_token cookie) → 200 `User` + new cookies. ANY non-200 clears both cookies server-side — treat as full logout (see account-access-issue table for the three classifiable 403 causes; a plain invalid/expired/reused refresh token is 401 `oturum geçersiz veya süresi dolmuş` and is NOT one of the three).
+- `POST /auth/refresh` no body (reads refresh_token cookie) → 200 `User` + new cookies. A 401/403 clears both cookies server-side — treat as full logout; a 5xx (incl. 503 `temporarily_unavailable`) keeps them — do NOT log out (see account-access-issue table for the three classifiable 403 causes; a plain invalid/expired/reused refresh token is 401 `oturum geçersiz veya süresi dolmuş` and is NOT one of the three).
 - `POST /auth/logout` no body → revokes refresh token.
-- `GET /auth/me` → `User`. Subject to the SAME organization-status/user-active checks as any other authenticated route (i.e. it can also 403 with the org/user-blocked signatures above, not just a bare "not logged in" 401).
+- `GET /auth/me` → `User`. Subject to the SAME organization-status/user-active checks as any other authenticated route (i.e. it can also 403 with the org/user-blocked signatures above, not just a bare "not logged in" 401). 401 only when the user/organization row really does not exist; 503 `temporarily_unavailable` when it could not be read.
 - `PATCH /users/me/password` `{current_password, new_password}` → `{ok:true}`. New password >= 8 chars.
 - `POST /users/me/set-initial-password` `{new_password}` → the `must_change_password=true` flow (mobile "Yeni Şifre Belirleyin" screen) — does NOT require `current_password` (the user is already authenticated via a temporary password issued by an admin).
 

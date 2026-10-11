@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"strconv"
@@ -259,7 +260,15 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	}
 	session, err := h.svc.Me(r.Context(), userID)
 	if err != nil {
-		httpjson.Error(w, http.StatusUnauthorized, "oturum geçersiz")
+		// 401 yalnızca kullanıcı/firma gerçekten yoksa: istemciler 401'de
+		// oturumu kapatır (web /giris'e atar). Okunamadıysa 503 -- oturum
+		// yerinde kalır.
+		if errors.Is(err, domain.ErrNotFound) || errors.Is(err, domain.ErrInvalidToken) {
+			httpjson.Error(w, http.StatusUnauthorized, "oturum geçersiz")
+			return
+		}
+		log.Printf("UYARI: /auth/me: oturum okunamadı: %v -- 503 dönüldü", err)
+		httpjson.TemporarilyUnavailable(w)
 		return
 	}
 	httpjson.Write(w, http.StatusOK, toSessionResponse(r.Context(), h.authzSvc, *session))
@@ -284,6 +293,11 @@ func (h *AuthHandler) writeAuthError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusForbidden, "firma askıya alınmış veya erişilemiyor")
 	case errors.Is(err, domain.ErrInvalidToken):
 		httpjson.Error(w, http.StatusUnauthorized, "oturum geçersiz veya süresi dolmuş")
+	case isInternalError(err):
+		// Veritabanına/ağa o an ulaşılamadı: oturum bitmedi, çerezler
+		// silinmedi (bkz. isSessionEndingError) -- istemci sonra yeniden dener.
+		log.Printf("UYARI: oturum işlemi: geçici hata: %v -- 503 dönüldü", err)
+		httpjson.TemporarilyUnavailable(w)
 	default:
 		httpjson.Error(w, http.StatusInternalServerError, "beklenmeyen bir hata oluştu")
 	}

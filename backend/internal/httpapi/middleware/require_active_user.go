@@ -61,6 +61,12 @@ func RequireActiveUser(q *sqlc.Queries) func(http.Handler) http.Handler {
 				return
 			}
 			st, err := q.GetUserGateStatus(r.Context(), uid)
+			if isTransientDBError(err) {
+				// Kullanıcı satırı okunamadı: oturum geçersiz SAYILMAZ (401
+				// istemciyi refresh'e, o da başarısız olursa çıkışa götürür).
+				writeTemporarilyUnavailable(w, "kullanıcı durumu okunamadı", err)
+				return
+			}
 			if err != nil {
 				http.Error(w, `{"error":"oturum geçersiz veya süresi dolmuş"}`, http.StatusUnauthorized)
 				return

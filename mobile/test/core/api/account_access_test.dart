@@ -142,6 +142,33 @@ void main() {
       expect(sessionExpiredCount, 0);
     });
 
+    test('503 temporarily_unavailable (veritabanı o an okunamadı): hesap engeli DEĞİL, oturum düşmez', () async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/projects': [
+          (
+            status: 503,
+            body: {
+              'error': 'sunucu şu anda yanıt veremiyor, biraz sonra tekrar deneyin',
+              'code': 'temporarily_unavailable',
+            }
+          ),
+        ],
+      });
+      final client = await buildFakeApiClient(adapter);
+      final blocked = <AccountAccessIssue>[];
+      var sessionExpiredCount = 0;
+      client.onAccountAccessBlocked = blocked.add;
+      client.onSessionExpired = () => sessionExpiredCount++;
+
+      await expectLater(
+        client.get<Map<String, dynamic>>('/projects'),
+        throwsA(isA<ApiException>().having((e) => e.kind, 'kind', ApiErrorKind.server)),
+      );
+      expect(blocked, isEmpty);
+      expect(sessionExpiredCount, 0);
+      expect(adapter.calls, ['/projects'], reason: '503 refresh tetiklemez');
+    });
+
     test('resetAccountAccessGuard çağrılana kadar tekrar bildirilmez; çağrıldıktan sonra tekrar açılır', () async {
       final adapter = FakeHttpClientAdapter(script: {
         '/projects': [
