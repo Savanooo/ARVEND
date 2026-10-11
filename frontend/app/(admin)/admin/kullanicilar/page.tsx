@@ -48,8 +48,10 @@ export default async function KullanicilarPage({
   const canManage = canAccess(me, "organization.users.manage");
   // Yeni kullanıcı formu rol listesini de çeker (bkz. yeni/page.tsx kapısı).
   const canCreate = canManage && canAccess(me, PAGE_PERMISSIONS.roles);
-  // Kişi = tek kayıt: bağlı personel sayfası "Personeli görüntüleme" ister.
+  // Kişi = tek kayıt: bağlı personel sayfası "Personeli görüntüleme",
+  // personel kaydı oluşturmak/bağlamak ayrıca "Personeli düzenleme" ister.
   const canOpenEmployees = canAccess(me, PAGE_PERMISSIONS.employees);
+  const canLinkEmployees = canOpenEmployees && canAccess(me, "employees.manage");
 
   return (
     <>
@@ -101,11 +103,21 @@ export default async function KullanicilarPage({
                         <span>{u.employee_full_name || "Personel kaydı"}</span>
                       )
                     ) : (
-                      <span
-                        className="text-text-muted"
-                        title="Görev atanamaz, mesai ve maaş listelerinde görünmez. Kullanıcı sayfasından oluşturabilir ya da bağlayabilirsin."
-                      >
-                        Personel kaydı yok
+                      <span className="flex flex-wrap items-center gap-x-2">
+                        <span
+                          className="text-text-muted"
+                          title="Görev atanamaz, mesai ve maaş listelerinde görünmez."
+                        >
+                          Personel kaydı yok
+                        </span>
+                        {canLinkEmployees && (
+                          <Link
+                            href={`/admin/kullanicilar/${u.id}#personel-kaydi`}
+                            className="text-xs font-semibold text-gold hover:underline"
+                          >
+                            Oluştur / bağla
+                          </Link>
+                        )}
                       </span>
                     )}
                     {u.employee_id && u.employee_is_active === false && (

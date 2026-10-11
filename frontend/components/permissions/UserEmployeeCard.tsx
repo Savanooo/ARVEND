@@ -82,7 +82,8 @@ export function UserEmployeeCard({
   }
 
   return (
-    <Card>
+    // id: kullanıcı listesindeki "Oluştur / bağla" bağlantısının hedefi.
+    <Card id="personel-kaydi">
       <CardHeader>Personel Kaydı</CardHeader>
       <CardBody className="flex flex-col gap-3">
         {user.employee_id ? (
