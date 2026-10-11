@@ -523,6 +523,32 @@ modüllerinde tek kilit cümlesi ve kırmızı, ayrı iptal düğmesi.
 
 ---
 
+## 7.3 Mobil 1.5.14+20 — düzeltme sürümü (2026-10-12)
+
+Dal `mobil/1.5.14` (temel: `mobil/temel-1.5.14` = finans sızıntısı + KDV
+tutarlılığı). Yalnızca Google Play (sideload/uzaktan APK kanalı 2026-10-09'da
+kapandı). İçerik:
+- **Altyapı:** Firebase Crashlytics (yalnızca iç kullanıcı/firma kimliği),
+  sistem paylaşım menüsü (teklif PDF'i/linki, proje dosyaları, fotoğraflar),
+  Play'de zorunlu güncelleme (In-App Updates + sunucu `play.json` min_build),
+  kamera/dosya/disk hataları artık gösteriliyor, çıkışta push token ve
+  indirilen dosyalar siliniyor (yedekten de dışlandı), geçici DB hatası
+  503 (oturum düşmüyor; /auth/me izinleri okunamazsa boş liste değil 503).
+- **Teklif:** kalem id'si gönderiliyor (iç maliyetli taslak 409 vermiyor),
+  geçerlilik tarihi seçici, süresi geçmiş taslak kaydedilebiliyor, Revize'de
+  geçmiş tarih yerine firma varsayılanı, arşivle/geri al, izin kapıları,
+  bayat listeler.
+- **Müşteri/ayarlar:** kalan alacak iptal projeleri saymıyor, müşteri kartı
+  tazeleniyor, pasif müşteriye teklif yok, para birimi TRY'ye dönmüyor,
+  yetkiler uygulama açıkken tazeleniyor, maaş ekranı izin/hata, bildirim
+  sayacı tek kaynak, tedarikçi IBAN doğrulaması (backend).
+- **Metraj:** çatı eğimi yalnızca çatıda, 0 miktarlı satırlar seçili değil,
+  `calc_snapshot` kanonik şema, metraj→teklif miktar yuvarlaması.
+- **Eski istemci uyumu:** bkz. §8 "Proje para sızıntıları".
+Doğrulama: flutter analyze temiz, flutter test 1957, `go test -p 1 ./...`
+temiz, web npm test/tsc/eslint/build. Web özellik işleri bu sürümde YOK
+(ürün sahibi kararı: web en sona; hazır web dalları `docs/web-yapilacaklar.md`).
+
 ## 8. Bilinen eksikler / bir sonraki oturumun bilmesi gerekenler
 
 - **`README.md` köke güncel DEĞİL** (yalnızca ilk modülü listeliyor) — bu
@@ -548,10 +574,14 @@ modüllerinde tek kilit cümlesi ve kırmızı, ayrı iptal düğmesi.
   `projects.finance.read` sahibine tutar döner (bkz.
   `backend/docs/authorization.md` §11). 1.5.13 ve öncesi null
   `contract_amount`'ta proje listesini/detayını açamaz (finans izni
-  olmayanlarda: Saha, Proje Yöneticisi) — backend bu haliyle ancak
-  null-tolerant 1.5.14 Play'de yayınlanıp kullanıcılara ulaştıktan sonra
-  (gerekirse sunucu `min_build` ile zorunlu güncelleme) canlıya çıkar;
-  "birlikte" yetmez. Ana sayfa bunları KULLANMAZ (bkz.
+  olmayanlarda: Saha, Proje Yöneticisi). Bu yüzden 1.5.14 her istekte
+  `X-Arvend-Client: mobile` gönderir; başlıksız Dart istemcisine (1.5.13
+  ve öncesi) finans izni yoksa `contract_amount` null yerine **0** gider
+  (`project_handler.go` `legacyMobileClient`) — gerçek tutar yine gitmez,
+  eski uygulama çökmez. Yani backend, 1.5.14 Play'e çıkmadan da canlıya
+  alınabilir; herkes 1.5.14+'a geçince bu uyum kaldırılabilir. Eski sürümü
+  zorla güncellemek için: sunucuda `APP_RELEASES_DIR/android/play.json` →
+  `{"min_build": 20}` (yalnızca 1.5.14+ bunu okur). Ana sayfa bunları KULLANMAZ (bkz.
   `docs/dashboard/SPEC.md` §9 madde 8). (Proje listesinin gerçekleşen
   maliyet/kârı artık finans özetiyle kuruşu kuruşuna aynı: taşeron modülü
   ödemeleri `2dea4e4`'te eklendi, float farkı ve KDV hariç alanlar

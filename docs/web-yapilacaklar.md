@@ -1,5 +1,15 @@
 # Web — yapılacaklar (mobilin gerisinde kalanlar)
 
+> **Durum (2026-10-12):** Ürün sahibi kararıyla web EN SONA bırakıldı. Aşağıdaki
+> maddelerin çoğu için hazır ama BİRLEŞTİRİLMEMİŞ dallar var (main@1129279'dan):
+> `feat/web-taseron` (§1), `feat/web-masraf` (§2, §8), `feat/web-onay-gorev`
+> (§3, §5), `feat/web-teklif` (§4, §9, §11), `feat/web-hesap` (§6, §7, §10).
+> `feat/web-teklif` ve `feat/web-masraf` sonundaki "wip" commit'leri yarıda
+> kesilen incelemeden; web sırası gelince bu dallar incelenip birleştirilir.
+> Ek web eksikleri: KDV hariç `*_net` alanları (proje listesi, maliyet
+> kontrolü, ek iş kârlılığı, ana sayfa) web'de henüz gösterilmiyor; metraj
+> `calc_snapshot` web tarafı kanonik şemaya geçmeli (bkz. mobile/API_CONTRACT.md).
+
 2026-10-07 itibarıyla backend ve mobil bu özelliklerin hepsini yapıyor ve canlıda
 (sunucu 19b7d75, şema 65; mobil 1.5.8). Web arayüzü henüz yapmıyor. Ürün sahibi
 kararıyla web en sona bırakıldı. Her maddede davranışın kaynağı mobil ekran +
