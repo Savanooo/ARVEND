@@ -41,9 +41,6 @@ Future<void> _start() async {
     ],
   );
 
-  // Raporlara yalnızca iç kullanıcı/firma kimliği gider (ad, e-posta YOK).
-  bindCrashReporterToSession(container, crash);
-
   // Tek uçuş refresh başarısız olduğunda (sınıflandırılamayan bir 401/403)
   // oturumu senkron biçimde temizle - go_router'ın redirect'i
   // authControllerProvider'ı dinlediği için kullanıcı otomatik olarak
@@ -67,6 +64,11 @@ Future<void> _start() async {
   apiClient.onAccountSetupRequired = () {
     container.read(authControllerProvider.notifier).recheckAccountSetup();
   };
+
+  // Raporlara yalnızca iç kullanıcı/firma kimliği gider (ad, e-posta YOK).
+  // Oturum denetimini (/auth/me) başlatır -- bu yüzden yukarıdaki oturum
+  // geri çağrıları bağlandıktan SONRA.
+  bindCrashReporterToSession(container, crash);
 
   // "Yenilikler": bu sürümün ilk açılışında kaydın tabanı yazılır
   // (güncelleme mi, sıfırdan kurulum mu) -- kullanıcı giriş yapmasa da.

@@ -635,12 +635,12 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
   }
 }
 
-/// Web teklif detayındaki "Paylaşım" kartının karşılığı: oluşturulmuş
-/// linkler, kopyala ve iptal et. Hiç link yoksa bölüm görünmez (yeni link
-/// aşağıdaki "Paylaşım Linki" düğmesiyle oluşturulur).
 /// Paylaşım menüsüyle (WhatsApp vb.) müşteriye giden hazır mesaj.
 String offerShareLinkText(String url) => 'Teklifimizi bu bağlantıdan inceleyebilirsiniz:\n$url';
 
+/// Web teklif detayındaki "Paylaşım" kartının karşılığı: oluşturulmuş
+/// linkler, kopyala, paylaş ve iptal et. Hiç link yoksa bölüm görünmez (yeni
+/// link aşağıdaki "Paylaşım Linki" düğmesiyle oluşturulur).
 class _ShareLinksSection extends ConsumerStatefulWidget {
   const _ShareLinksSection({required this.offerId, required this.canRevoke});
   final String offerId;
