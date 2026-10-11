@@ -203,7 +203,14 @@ func computeOfferTotals(items []OfferItemInput, vatRateInput *float64, canManage
 	subtotal := decimal.Zero
 	for _, it := range items {
 		name := strings.TrimSpace(it.ProductName)
-		qty := decimal.NewFromFloat(it.Quantity).Round(2)
+		rawQty := decimal.NewFromFloat(it.Quantity)
+		qty := rawQty.Round(domain.OfferQuantityScale)
+		// 0'dan büyük ama 2 haneye yuvarlanınca 0 olan miktar boş satır
+		// değildir: eskiden o da sessizce düşüyor, kalem tekliften
+		// habersizce kayboluyordu.
+		if name != "" && rawQty.IsPositive() && qty.IsZero() {
+			return fail(fmt.Sprintf("%q kaleminin miktarı en az 0,01 olmalıdır", name))
+		}
 		// Adı boş ya da miktarı 0 olan satırlar formun boş bıraktığı
 		// satırlardır -- sessizce atlanır (mevcut davranış).
 		if name == "" || !qty.IsPositive() {

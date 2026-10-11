@@ -271,6 +271,53 @@ func TestComputeRecipeQuantity_MinQuantity(t *testing.T) {
 	}
 }
 
+// TestComputeRecipeQuantity_NoneRoundsToOfferPrecision: "none" kalem
+// teklifin miktar hanesinde (2 ondalık) döner; aksi halde metraj satır
+// toplamı (6 haneli miktardan) teklifin satır toplamını (2 haneli
+// miktardan) tutmuyordu. 5 kg/m², %5 fire, 12,35 m² -> ham 64,8375 kg.
+func TestComputeRecipeQuantity_NoneRoundsToOfferPrecision(t *testing.T) {
+	item := domain.CalcRecipeItem{
+		MaterialName: "Yapıştırıcı", Unit: "kg", CalculationType: domain.CalcTypeAreaBased,
+		QuantityPerM2: d("5"), WastePercent: d("5"), RoundingType: domain.RoundingNone,
+	}
+	geo, _ := domain.ComputeGeometry(domain.CalcInput{Area: dPtr("12.35")})
+	qty, warn := domain.ComputeRecipeQuantity(item, geo)
+	if warn != nil {
+		t.Fatalf("beklenmeyen warning: %+v", warn)
+	}
+	if !qty.Equal(d("64.84")) || qty.Exponent() != -domain.OfferQuantityScale {
+		t.Fatalf("miktar = %s, istenen 64.84 (teklif hassasiyeti)", qty)
+	}
+}
+
+// TestComputeRecipeQuantity_BelowPrecisionWarns: 0,01'in altında kalan
+// miktar 0 olur ama sessizce kaybolmaz -- uyarı döner.
+func TestComputeRecipeQuantity_BelowPrecisionWarns(t *testing.T) {
+	for _, rounding := range []string{domain.RoundingNone, domain.RoundingRound} {
+		item := domain.CalcRecipeItem{
+			ID: "item-tiny", MaterialName: "Katkı", Unit: "kg", CalculationType: domain.CalcTypeAreaBased,
+			QuantityPerM2: d("0.002"), RoundingType: rounding,
+		}
+		geo, _ := domain.ComputeGeometry(domain.CalcInput{Area: dPtr("2")}) // ham 0,004
+		qty, warn := domain.ComputeRecipeQuantity(item, geo)
+		if !qty.IsZero() {
+			t.Errorf("%s: miktar = %s, istenen 0", rounding, qty)
+		}
+		if warn == nil || warn.Code != "quantity_below_precision" || warn.ItemID != "item-tiny" {
+			t.Errorf("%s: warning = %+v, istenen quantity_below_precision", rounding, warn)
+		}
+	}
+	// Ceil'de küçük miktar 1'e çıkar, uyarı gerekmez.
+	ceil := domain.CalcRecipeItem{
+		MaterialName: "Katkı", Unit: "torba", CalculationType: domain.CalcTypeAreaBased,
+		QuantityPerM2: d("0.002"), RoundingType: domain.RoundingCeil,
+	}
+	geo, _ := domain.ComputeGeometry(domain.CalcInput{Area: dPtr("2")})
+	if qty, warn := domain.ComputeRecipeQuantity(ceil, geo); !qty.Equal(d("1")) || warn != nil {
+		t.Errorf("ceil: miktar = %s warning = %+v, istenen 1 ve uyarısız", qty, warn)
+	}
+}
+
 // TestComputeRecipeQuantity_FixedIgnoresArea: fixed tipte alan/çevre
 // miktarı etkilemez.
 func TestComputeRecipeQuantity_FixedIgnoresArea(t *testing.T) {

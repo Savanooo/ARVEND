@@ -103,7 +103,8 @@ void main() {
 
     test('golden: 60x60 Alüminyum Tavan, area=1 -> quantity 5.000000, line_total 1000.00', () {
       // base = area(1) * quantity_per_m2(5) = 5; waste=0, no package,
-      // rounding_type=none -> Round(6) = 5.000000; unit_price 200.00 ->
+      // rounding_type=none -> offer precision, at most 2 decimals (older
+      // servers sent 6: "5.000000"); unit_price 200.00 ->
       // line_total = 5 * 200.00 = 1000.00.
       final item = CalcResultItem.fromJson({
         'recipe_item_id': 'r1',

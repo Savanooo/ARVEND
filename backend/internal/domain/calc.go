@@ -281,7 +281,7 @@ func ComputeGeometry(in CalcInput) (CalcGeometry, error) {
 
 // recipeCoefficientPrecision, calc_recipe_items.quantity_per_m2/
 // quantity_per_meter kolonlarının ondalık hanesiyle (numeric(14,6))
-// eşleşir -- ceil/none çıktısını bu haneye yuvarlamak, ondalık bölmeden
+// eşleşir -- ceil/paket çıktısını bu haneye yuvarlamak, ondalık bölmeden
 // (ör. 1/3.6) doğan gerçek-olmayan kesirli basamakların (decimal'de
 // float64 gibi ikili temsil hatası YOKTUR ama 1/3.6 taban-10'da da devirli
 // bir kesirdir) bir paket fazla/eksik çıkarmasını önler -- BYZ'nin
@@ -302,6 +302,14 @@ const recipeCoefficientPrecision = 6
 //   - perimeter_based bir kalemde çevre bilinmiyorsa SESSİZCE 0 üretmez
 //     -- açık bir warning döner (item quantity yine de 0'dır, ama
 //     çağıran bunu görür).
+//
+// Paket/ceil dışındaki ("none", "round") miktarlar teklif hassasiyetinde
+// (OfferQuantityScale, 2 ondalık) döner: metrajda görülen miktar × birim
+// fiyat = satır toplamı teklife aynen geçer, metraj toplamı teklif ara
+// toplamını kuruşu kuruşuna tutar. Eskiden "none" 6 ondalık dönüyor, satır
+// toplamı bu miktardan hesaplanıyor, teklif ise miktarı 2 haneye
+// yuvarlıyordu. 0'dan büyük ama 0,01'in altında kalan bir miktar 0 olur ve
+// sessizce kaybolmasın diye uyarı döner.
 func ComputeRecipeQuantity(item CalcRecipeItem, geo CalcGeometry) (decimal.Decimal, *CalcWarning) {
 	var base decimal.Decimal
 
@@ -355,12 +363,18 @@ func ComputeRecipeQuantity(item CalcRecipeItem, geo CalcGeometry) (decimal.Decim
 		return withMin.Div(*item.PackageSize).Round(recipeCoefficientPrecision).Ceil(), nil
 	}
 
-	switch item.RoundingType {
-	case RoundingCeil:
+	if item.RoundingType == RoundingCeil {
 		return withMin.Round(recipeCoefficientPrecision).Ceil(), nil
-	case RoundingRound:
-		return withMin.Round(2), nil
-	default: // "none" -- yalnızca GÖRÜNTÜLEME hassasiyeti, bir iş kuralı değil.
-		return withMin.Round(recipeCoefficientPrecision), nil
 	}
+	// "round" (en yakına, 2 ondalık) ve "none" (kural yok) burada aynı
+	// sonucu verir: teklifin miktar hanesi.
+	qty := withMin.Round(OfferQuantityScale)
+	if qty.IsZero() && withMin.IsPositive() {
+		return qty, &CalcWarning{
+			ItemID: item.ID, Code: "quantity_below_precision",
+			Message: fmt.Sprintf("%q için hesaplanan miktar 0,01'den küçük; 0 gösterildi ve teklife eklenmez.",
+				item.MaterialName),
+		}
+	}
+	return qty, nil
 }
