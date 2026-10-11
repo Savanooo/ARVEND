@@ -28,6 +28,6 @@ class CalcRepository {
       'perimeter': perimeter,
       'pitch_deg': pitchDeg,
     });
-    return CalcRunResult.fromJson(json);
+    return CalcRunResult.fromJson(json, requestedPitchDeg: pitchDeg);
   }
 }

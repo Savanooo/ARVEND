@@ -431,6 +431,8 @@ type calcInputResponse struct {
 	FootprintArea string  `json:"footprint_area"`
 	EffectiveArea string  `json:"effective_area"`
 	Perimeter     *string `json:"perimeter"`
+	// PitchDeg: etkin alana uygulanan eğim (derece); uygulanmadıysa null.
+	PitchDeg *string `json:"pitch_deg"`
 }
 
 type calcResultItemResponse struct {
@@ -451,6 +453,10 @@ type calcResultItemResponse struct {
 	Factor          string `json:"factor"`
 	WastePercent    string `json:"waste_percent"`
 	RoundingType    string `json:"rounding_type"`
+	// MinQuantity/PackageSize: reçetenin minimum ve paket kuralı; yoksa
+	// alan hiç gönderilmez.
+	MinQuantity *string `json:"min_quantity,omitempty"`
+	PackageSize *string `json:"package_size,omitempty"`
 
 	// PriceSource: product | reference | none -- unit_price nereden geldi.
 	// PriceWarning: ürün fiyatı kullanılamadıysa kısa Türkçe sebep
@@ -521,6 +527,14 @@ func (h *CalcHandler) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	httpjson.Write(w, http.StatusOK, toCalcRunResponse(result))
+}
+
+// toCalcRunResponse: /calculations/run yanıtı. input.pitch_deg anahtarı
+// her zaman bulunur (eğim uygulanmadıysa null) -- mobil, anahtarı hiç
+// göndermeyen eski sunucuyu bundan ayırt eder ve o zaman istekteki eğime
+// düşer.
+func toCalcRunResponse(result *domain.CalcResult) calcRunResponse {
 	items := make([]calcResultItemResponse, len(result.Items))
 	for i, it := range result.Items {
 		items[i] = calcResultItemResponse{
@@ -529,6 +543,7 @@ func (h *CalcHandler) Run(w http.ResponseWriter, r *http.Request) {
 			LineTotal: it.LineTotal.StringFixed(2), GroupName: it.GroupName,
 			CalculationType: it.CalculationType, Factor: it.Factor.String(),
 			WastePercent: it.WastePercent.String(), RoundingType: it.RoundingType,
+			MinQuantity: decimalPtrString(it.MinQuantity), PackageSize: decimalPtrString(it.PackageSize),
 			PriceSource: it.PriceSource, PriceWarning: it.PriceWarning,
 		}
 	}
@@ -536,24 +551,28 @@ func (h *CalcHandler) Run(w http.ResponseWriter, r *http.Request) {
 	for i, wr := range result.Warnings {
 		warnings[i] = calcWarningResponse{ItemID: wr.ItemID, Code: wr.Code, Message: wr.Message}
 	}
-	var perimeterStr *string
-	if result.Geometry.Perimeter != nil {
-		s := result.Geometry.Perimeter.String()
-		perimeterStr = &s
-	}
 
-	httpjson.Write(w, http.StatusOK, calcRunResponse{
+	return calcRunResponse{
 		Category: calcCategoryRefResponse{ID: result.Category.ID, Slug: result.Category.Slug, Name: result.Category.Name},
 		Input: calcInputResponse{
 			FootprintArea: result.Geometry.FootprintArea.String(),
 			EffectiveArea: result.Geometry.EffectiveArea.String(),
-			Perimeter:     perimeterStr,
+			Perimeter:     decimalPtrString(result.Geometry.Perimeter),
+			PitchDeg:      decimalPtrString(result.Geometry.PitchDeg),
 		},
 		Items: items, TotalCost: result.TotalCost.StringFixed(2), Warnings: warnings,
-	})
+	}
 }
 
 // ---------- Yardımcılar ----------
+
+func decimalPtrString(d *decimal.Decimal) *string {
+	if d == nil {
+		return nil
+	}
+	s := d.String()
+	return &s
+}
 
 func parseNullableDecimal(s *string, field string) (*decimal.Decimal, error) {
 	if s == nil || strings.TrimSpace(*s) == "" {

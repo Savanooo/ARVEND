@@ -29,6 +29,13 @@ const (
 	DiscountFixed   = "fixed"
 )
 
+// OfferQuantityScale: teklif kalemi miktarının ondalık hanesi
+// (offer_revision_items.quantity numeric(12,2)). Metraj motoru da paket/
+// ceil dışındaki miktarları bu haneyle döndürür (bkz.
+// ComputeRecipeQuantity) -- metrajda görülen miktar ve tutar teklife
+// aynen geçer.
+const OfferQuantityScale = 2
+
 type OfferItem struct {
 	ID            string
 	ProductID     *string
@@ -43,10 +50,10 @@ type OfferItem struct {
 	// Unit/SectionLabel/CalcCategoryID/CalcSnapshot: Metraj Hesaplama
 	// entegrasyonu (Faz M2). Serbest/elle girilen kalemlerde Unit boş,
 	// diğerleri nil'dir. CalcSnapshot, hesap ANINDAKİ dondurulmuş
-	// görünümdür (area/perimeter/pitch_deg/factor/waste/rounding/
-	// price_at_calc) -- kategori/reçete sonradan değişse/silinse bile
-	// bu kalem üzerinde HİÇBİR ZAMAN güncellenmez (offer_revisions'ın
-	// "geçmişi mutate etme" ilkesiyle aynı).
+	// görünümdür (kanonik şema: bkz. calc_snapshot.go) -- kategori/reçete
+	// sonradan değişse/silinse bile bu kalem üzerinde HİÇBİR ZAMAN
+	// güncellenmez (offer_revisions'ın "geçmişi mutate etme" ilkesiyle
+	// aynı).
 	Unit           string
 	SectionLabel   *string
 	CalcCategoryID *string

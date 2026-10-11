@@ -58,9 +58,19 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
   final _pitchController = TextEditingController();
 
   CalcRunResult? _result;
+
+  /// Sonucun hesaplandığı grubun adı -- snapshot'taki group_name buradan
+  /// gelir, "Teklife Ekle" anında seçili olan gruptan değil.
+  String? _resultGroupName;
   bool _calculating = false;
   String? _error;
   final Set<String> _selectedForOffer = {};
+
+  /// Girdi (ölçü, mod, grup, kategori) her değiştiğinde ve her hesapta
+  /// artar. Yavaş şebekede yanıt gelmeden ölçüyü düzeltip grubu/kategoriyi
+  /// değiştiren kullanıcının eski hesabı, yanıt sonradan gelince ekrana ve
+  /// teklife taşınmaz.
+  int _inputVersion = 0;
 
   @override
   void dispose() {
@@ -70,6 +80,28 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
     _perimeterController.dispose();
     _pitchController.dispose();
     super.dispose();
+  }
+
+  /// Eğim alanı yalnızca çatı gruplarında görünür; görünmediği yerde
+  /// içinde kalmış bir değer ne doğrulanır ne gönderilir (sunucu eğimi
+  /// kategoriye bakmadan uygular, gizli bir eğim tüm miktarları şişirirdi).
+  bool get _showPitch => _group?.looksLikeRoof ?? false;
+
+  /// Ölçü, mod, grup ya da kategori değişince eski sonuç ekranda kalmaz:
+  /// aksi halde "Teklife Ekle" yeni ölçüleri değil eski hesabı teklife
+  /// taşırdı. Yolda olan bir hesabın yanıtı da artık geçersizdir.
+  /// setState içinden çağrılır.
+  void _dropResult() {
+    _inputVersion++;
+    _result = null;
+  }
+
+  void _invalidateResult() {
+    if (_result != null) {
+      setState(_dropResult);
+    } else {
+      _inputVersion++;
+    }
   }
 
   /// Yalnızca daha hızlı geri bildirim için -- gerçek sınır her zaman
@@ -86,8 +118,10 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
     }
     final p = validatePositiveIfPresent(_perimeterController.text, 'Çevre');
     if (p != null) return p;
-    final pitch = validatePositiveIfPresent(_pitchController.text, 'Çatı Eğimi');
-    if (pitch != null) return pitch;
+    if (_showPitch) {
+      final pitch = validatePitchIfPresent(_pitchController.text);
+      if (pitch != null) return pitch;
+    }
     return null;
   }
 
@@ -98,6 +132,8 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
       setState(() => _error = validationError);
       return;
     }
+    final version = ++_inputVersion;
+    final groupName = _group?.name;
     setState(() {
       _calculating = true;
       _error = null;
@@ -109,15 +145,22 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
             width: _useAreaDirectly ? null : _nonEmpty(_widthController.text),
             height: _useAreaDirectly ? null : _nonEmpty(_heightController.text),
             perimeter: _nonEmpty(_perimeterController.text),
-            pitchDeg: _nonEmpty(_pitchController.text),
+            pitchDeg: _showPitch ? _nonEmpty(_pitchController.text) : null,
           );
+      // Yanıt beklenirken girdi değiştiyse bu sonuç artık ekrandakiyle
+      // ilgili değil; kullanıcı yeniden hesaplar.
+      if (!mounted || version != _inputVersion) return;
       setState(() {
         _result = result;
+        _resultGroupName = groupName;
+        // Miktarı 0 olan satırlar (ör. çevre girilmedi) seçili gelmez;
+        // teklife eklenemezler.
         _selectedForOffer
           ..clear()
-          ..addAll(result.items.map((e) => e.recipeItemId));
+          ..addAll(result.items.where((e) => e.hasOfferQuantity).map((e) => e.recipeItemId));
       });
     } on ApiException catch (e) {
+      if (!mounted || version != _inputVersion) return;
       setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _calculating = false);
@@ -129,7 +172,7 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
   void _addToOffer() {
     final result = _result;
     if (result == null) return;
-    final items = buildOfferItemsFromCalcResult(result, _selectedForOffer);
+    final items = buildOfferItemsFromCalcResult(result, _selectedForOffer, groupName: _resultGroupName);
     if (items.isEmpty) return;
     if (widget.pickMode) {
       Navigator.of(context).pop(items);
@@ -173,7 +216,10 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
                         onChanged: (g) => setState(() {
                           _group = g;
                           _category = null;
-                          _result = null;
+                          _dropResult();
+                          // Eğim yalnızca çatı grubuna ait; başka gruba
+                          // geçince gizlenen alanda değer kalmasın.
+                          _pitchController.clear();
                         }),
                       ),
                       if (_group != null) ...[
@@ -184,7 +230,7 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
                             selected: _category?.id == c.id,
                             onTap: () => setState(() {
                               _category = c;
-                              _result = null;
+                              _dropResult();
                             }),
                           ),
                       ],
@@ -201,11 +247,15 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
                             ButtonSegment(value: false, label: Text('En × Boy')),
                           ],
                           selected: {_useAreaDirectly},
-                          onSelectionChanged: (s) => setState(() => _useAreaDirectly = s.first),
+                          onSelectionChanged: (s) => setState(() {
+                            _useAreaDirectly = s.first;
+                            _dropResult();
+                          }),
                         ),
                         if (_useAreaDirectly)
                           TextField(
                             controller: _areaController,
+                            onChanged: (_) => _invalidateResult(),
                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             decoration: const InputDecoration(labelText: 'Alan (m²)'),
                           )
@@ -215,6 +265,7 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
                               Expanded(
                                 child: TextField(
                                   controller: _widthController,
+                                  onChanged: (_) => _invalidateResult(),
                                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                   decoration: const InputDecoration(labelText: 'En (m)'),
                                 ),
@@ -223,6 +274,7 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
                               Expanded(
                                 child: TextField(
                                   controller: _heightController,
+                                  onChanged: (_) => _invalidateResult(),
                                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                   decoration: const InputDecoration(labelText: 'Boy (m)'),
                                 ),
@@ -231,15 +283,17 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
                           ),
                         TextField(
                           controller: _perimeterController,
+                          onChanged: (_) => _invalidateResult(),
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
                           decoration: const InputDecoration(
                             labelText: 'Çevre (m) — opsiyonel',
                             helperText: 'Boş bırakılırsa En×Boy\'dan hesaplanır (yalnızca En×Boy modunda)',
                           ),
                         ),
-                        if (_group?.looksLikeRoof ?? false)
+                        if (_showPitch)
                           TextField(
                             controller: _pitchController,
+                            onChanged: (_) => _invalidateResult(),
                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             decoration: const InputDecoration(labelText: 'Çatı Eğimi (derece) — opsiyonel'),
                           ),
@@ -417,19 +471,37 @@ class _ResultSection extends StatelessWidget {
         ));
       }
       lastGroup = group;
-      final isSelected = selected.contains(item.recipeItemId);
+      final addable = item.hasOfferQuantity;
+      final isSelected = addable && selected.contains(item.recipeItemId);
+      final footer = [
+        if (!addable)
+          Text(
+            // Eski sunucu 0,01'in altındaki miktarı 6 ondalıkla (ör.
+            // 0,004) gönderir; o satıra "0" demek ekranla çelişirdi.
+            (double.tryParse(item.quantity) ?? 0) > 0
+                ? "Miktar 0,01'den küçük olduğu için teklife eklenmez"
+                : 'Miktar 0 olduğu için teklife eklenmez',
+            key: ValueKey('metraj-zero-qty-${item.recipeItemId}'),
+            style: AppTypography.helper,
+          ),
+        if (item.hasPriceWarning) _PriceWarningLine(item: item),
+      ];
       widgets.add(AppListCard(
         margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-        onTap: () => onToggle(item.recipeItemId, !isSelected),
+        onTap: addable ? () => onToggle(item.recipeItemId, !isSelected) : null,
         leading: Checkbox(
           value: isSelected,
-          onChanged: (v) => onToggle(item.recipeItemId, v ?? false),
+          onChanged: addable ? (v) => onToggle(item.recipeItemId, v ?? false) : null,
         ),
         title: item.materialName,
         subtitle: '${Formatters.quantityFromString(item.quantity)} ${item.unit} × '
             '${Formatters.moneyFromString(item.unitPrice)}',
         trailing: _lineTotalText(item.lineTotal),
-        footer: item.hasPriceWarning ? _PriceWarningLine(item: item) : null,
+        footer: footer.isEmpty
+            ? null
+            : footer.length == 1
+                ? footer.single
+                : Column(crossAxisAlignment: CrossAxisAlignment.start, children: footer),
       ));
     }
     return widgets;

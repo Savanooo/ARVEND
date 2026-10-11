@@ -341,7 +341,9 @@ func ToDomainOfferRevisionItem(i sqlc.OfferRevisionItem) domain.OfferItem {
 		SortOrder:     int(i.SortOrder),
 		Unit:          i.Unit,
 		SectionLabel:  i.SectionLabel,
-		CalcSnapshot:  json.RawMessage(i.CalcSnapshot),
+		// Eski kayıtlar (ör. eski mobilin effective_area/factor anahtarları)
+		// okumada kanonik şemaya çevrilir; veritabanındaki kayıt değişmez.
+		CalcSnapshot: domain.NormalizeCalcSnapshot(i.CalcSnapshot),
 	}
 	if i.ProductID.Valid {
 		s := i.ProductID.String()

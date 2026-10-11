@@ -93,14 +93,17 @@ abstract final class CalcType {
   static String label(String value) => labels[value] ?? value;
 }
 
-/// Backend `rounding_type` değerleri -- web `ROUNDING_LABELS` ile aynı.
+/// Backend `rounding_type` değerleri -- web `ROUNDING_LABELS` ile aynı
+/// anahtarlar. Sunucu 2026-10-11'den beri "none" miktarı da teklif
+/// hassasiyetinde (en çok 2 ondalık) döndürüyor; "ham değer" etiketi
+/// yanıltıcı olduğu için değişti (web'deki etiket ayrı işte güncellenecek).
 abstract final class CalcRounding {
   static const none = 'none';
   static const ceil = 'ceil';
   static const round = 'round';
 
   static const labels = <String, String>{
-    none: 'Yok (ham değer)',
+    none: 'Yok (en çok 2 ondalık)',
     ceil: 'Yukarı yuvarla (tam sayı/paket)',
     round: 'En yakına yuvarla (2 ondalık)',
   };

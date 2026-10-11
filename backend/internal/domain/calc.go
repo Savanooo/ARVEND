@@ -131,6 +131,11 @@ type CalcGeometry struct {
 	// verilmiş) -- perimeter_based kalemler bu durumda sessizce 0 ÜRETMEZ,
 	// bkz. ComputeRecipeQuantity.
 	Perimeter *decimal.Decimal
+	// PitchDeg, etkin alana GERÇEKTEN uygulanan çatı eğimidir; eğim
+	// verilmediyse ya da 0 verildiyse nil (negatif ya da 90° ve üstü
+	// eğim ComputeGeometry'de reddedilir) -- teklife dondurulan
+	// calc_snapshot.pitch_deg bunu taşır.
+	PitchDeg *decimal.Decimal
 }
 
 type CalcWarning struct {
@@ -198,6 +203,10 @@ type CalcResultItem struct {
 	Factor          decimal.Decimal
 	WastePercent    decimal.Decimal
 	RoundingType    string
+	// MinQuantity/PackageSize: reçetedeki minimum ve paket kuralı (yoksa
+	// nil) -- "neden 3 paket?" sorusu teklif kaleminde de yanıtlanabilsin.
+	MinQuantity *decimal.Decimal
+	PackageSize *decimal.Decimal
 }
 
 type CalcResult struct {
@@ -231,6 +240,13 @@ func ComputeGeometry(in CalcInput) (CalcGeometry, error) {
 	if in.Perimeter != nil && !in.Perimeter.IsPositive() {
 		return CalcGeometry{}, fmt.Errorf("'perimeter' 0'dan büyük olmalı")
 	}
+	// Eğim 0 = eğim yok (mevcut davranış, web "0" gönderebiliyor). Negatif
+	// ya da 90° ve üstü bir eğimde etkin alan tanımsızdır; eskiden sessizce
+	// yok sayılıyor, düz alan hesaplanıyor ve istemci girilen eğimi teklife
+	// yazıyordu.
+	if in.PitchDeg != nil && (in.PitchDeg.IsNegative() || !in.PitchDeg.LessThan(decimal.NewFromInt(90))) {
+		return CalcGeometry{}, fmt.Errorf("'pitch_deg' 0 ile 90 derece arasında olmalı")
+	}
 	haveWH := in.Width != nil && in.Height != nil
 
 	var footprint decimal.Decimal
@@ -254,22 +270,25 @@ func ComputeGeometry(in CalcInput) (CalcGeometry, error) {
 	}
 
 	effective := footprint
+	var appliedPitch *decimal.Decimal
 	if in.PitchDeg != nil {
 		deg, _ := in.PitchDeg.Float64()
 		if deg > 0 && deg < 90 {
 			factor := math.Cos(deg * math.Pi / 180)
 			if factor > 0 {
 				effective = footprint.Div(decimal.NewFromFloat(factor))
+				p := *in.PitchDeg
+				appliedPitch = &p
 			}
 		}
 	}
 
-	return CalcGeometry{FootprintArea: footprint, EffectiveArea: effective, Perimeter: perimeter}, nil
+	return CalcGeometry{FootprintArea: footprint, EffectiveArea: effective, Perimeter: perimeter, PitchDeg: appliedPitch}, nil
 }
 
 // recipeCoefficientPrecision, calc_recipe_items.quantity_per_m2/
 // quantity_per_meter kolonlarının ondalık hanesiyle (numeric(14,6))
-// eşleşir -- ceil/none çıktısını bu haneye yuvarlamak, ondalık bölmeden
+// eşleşir -- ceil/paket çıktısını bu haneye yuvarlamak, ondalık bölmeden
 // (ör. 1/3.6) doğan gerçek-olmayan kesirli basamakların (decimal'de
 // float64 gibi ikili temsil hatası YOKTUR ama 1/3.6 taban-10'da da devirli
 // bir kesirdir) bir paket fazla/eksik çıkarmasını önler -- BYZ'nin
@@ -290,6 +309,14 @@ const recipeCoefficientPrecision = 6
 //   - perimeter_based bir kalemde çevre bilinmiyorsa SESSİZCE 0 üretmez
 //     -- açık bir warning döner (item quantity yine de 0'dır, ama
 //     çağıran bunu görür).
+//
+// Paket/ceil dışındaki ("none", "round") miktarlar teklif hassasiyetinde
+// (OfferQuantityScale, 2 ondalık) döner: metrajda görülen miktar × birim
+// fiyat = satır toplamı teklife aynen geçer, metraj toplamı teklif ara
+// toplamını kuruşu kuruşuna tutar. Eskiden "none" 6 ondalık dönüyor, satır
+// toplamı bu miktardan hesaplanıyor, teklif ise miktarı 2 haneye
+// yuvarlıyordu. 0'dan büyük ama 0,01'in altında kalan bir miktar 0 olur ve
+// sessizce kaybolmasın diye uyarı döner.
 func ComputeRecipeQuantity(item CalcRecipeItem, geo CalcGeometry) (decimal.Decimal, *CalcWarning) {
 	var base decimal.Decimal
 
@@ -343,12 +370,18 @@ func ComputeRecipeQuantity(item CalcRecipeItem, geo CalcGeometry) (decimal.Decim
 		return withMin.Div(*item.PackageSize).Round(recipeCoefficientPrecision).Ceil(), nil
 	}
 
-	switch item.RoundingType {
-	case RoundingCeil:
+	if item.RoundingType == RoundingCeil {
 		return withMin.Round(recipeCoefficientPrecision).Ceil(), nil
-	case RoundingRound:
-		return withMin.Round(2), nil
-	default: // "none" -- yalnızca GÖRÜNTÜLEME hassasiyeti, bir iş kuralı değil.
-		return withMin.Round(recipeCoefficientPrecision), nil
 	}
+	// "round" (en yakına, 2 ondalık) ve "none" (kural yok) burada aynı
+	// sonucu verir: teklifin miktar hanesi.
+	qty := withMin.Round(OfferQuantityScale)
+	if qty.IsZero() && withMin.IsPositive() {
+		return qty, &CalcWarning{
+			ItemID: item.ID, Code: "quantity_below_precision",
+			Message: fmt.Sprintf("%q için hesaplanan miktar 0,01'den küçük; 0 gösterildi ve teklife eklenmez.",
+				item.MaterialName),
+		}
+	}
+	return qty, nil
 }

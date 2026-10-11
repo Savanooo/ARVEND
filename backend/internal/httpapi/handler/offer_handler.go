@@ -59,8 +59,8 @@ type offerItemResponse struct {
 
 	// Unit/SectionLabel/CalcCategoryID/CalcSnapshot: Metraj Hesaplama
 	// entegrasyonu (Faz M2) -- serbest kalemlerde Unit="" ve diğerleri
-	// null döner. CalcSnapshot ham JSON olarak geçirilir (sunucu
-	// tarafında yorumlanmaz, hesap anındaki dondurulmuş görünümdür).
+	// null döner. CalcSnapshot hesap anındaki dondurulmuş görünümdür;
+	// kanonik şemada döner (bkz. domain.NormalizeCalcSnapshot).
 	Unit           string          `json:"unit,omitempty"`
 	SectionLabel   *string         `json:"section_label,omitempty"`
 	CalcCategoryID *string         `json:"calc_category_id,omitempty"`

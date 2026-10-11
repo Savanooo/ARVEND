@@ -120,6 +120,11 @@ void main() {
       expect(validateDecimalField('0', label: 'Paket', positive: true), "Paket 0'dan büyük olmalı");
     });
 
+    test('"none" rounding no longer claims a raw value (server returns at most 2 decimals)', () {
+      expect(CalcRounding.label(CalcRounding.none), 'Yok (en çok 2 ondalık)');
+      expect(CalcRounding.labels.values.where((l) => l.contains('ham değer')), isEmpty);
+    });
+
     test('recipe input serializes like the web payload', () {
       final json = _input().toJson();
       expect(json['category_id'], 'c1');
