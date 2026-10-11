@@ -26,6 +26,8 @@ class ProjectListCard extends StatelessWidget {
 
   /// Sözleşme bedeli ve tahsilat çubuğu yalnızca `projects.finance.read`
   /// ile -- detay ekranının Özet'i de finans izni olmayana para göstermez.
+  /// Sunucu da izin yoksa tutarları göndermez (null): o durumda izin
+  /// önbelleği ne derse desin tutar çizilmez.
   final bool showFinance;
 
   @override
@@ -33,7 +35,7 @@ class ProjectListCard extends StatelessWidget {
     final contractValue =
         project.currentContractValue ?? project.contractAmount;
     final collected = project.collectedAmount;
-    final progress = (showFinance && collected != null && contractValue > 0)
+    final progress = (showFinance && collected != null && contractValue != null && contractValue > 0)
         ? (collected / contractValue).clamp(0.0, 1.0)
         : null;
 
@@ -73,7 +75,7 @@ class ProjectListCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   StatusRegistry.build(project.status, StatusRegistry.project),
-                  if (showFinance) ...[
+                  if (showFinance && contractValue != null) ...[
                     const SizedBox(height: 4),
                     MoneyText(
                       contractValue,

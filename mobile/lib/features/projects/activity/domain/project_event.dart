@@ -35,10 +35,12 @@ class ProjectEvent {
       );
 }
 
-/// Web `ProjectActivitySection.detail()`'in tutar gösterdiği alanlar. Uç
-/// bunları proje erişimi olan HERKESE döndürür (HANDOFF §8 "bilinen veri
-/// sızıntıları"); uygulama bunları yalnızca `projects.finance.read` sahibine
-/// gösterir -- tutar finans izni olmayana hiçbir ekranda görünmez.
+/// Web `ProjectActivitySection.detail()`'in tutar gösterdiği alanlar. Sunucu
+/// tutar anahtarlarını (bunlar + total, net_payable, etc_amount; backend
+/// `domain.ProjectEventMoneyKeys`) `projects.finance.read` izni olmayana
+/// metadata'dan düşürür -- olay listede kalır, tutarı gelmez. Uygulama da
+/// tutarı yalnızca bu izinle gösterir (çift kilit); anahtar yoksa ayrıntı
+/// tutarsız yazılır, çökmez.
 const kProjectEventMoneyKeys = ['amount', 'planned_amount', 'contract_amount', 'grand_total'];
 
 /// Olayın Türkçe etiketi (web `PROJECT_EVENT_LABELS`); bilinmeyen tip ham

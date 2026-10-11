@@ -251,6 +251,25 @@ void main() {
       });
     }
 
+    testWidgets('sunucu tutarı göndermezse (contract_amount null, aggregate yok) liste çökmez, 0 yazmaz', (tester) async {
+      // Finans izni olmayana backend contract_amount'u null döner ve liste
+      // aggregate'lerini hiç yazmaz. İzin önbelleği eski olsa (izin "var"
+      // görünse) bile kart tutar/tahsilat çizmez.
+      final project = {..._projectJson(), 'contract_amount': null};
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['projects.read', 'projects.finance.read']))],
+        '/projects': [
+          (status: 200, body: {'projects': [project], 'total': 1}),
+        ],
+      });
+      await _pump(tester, adapter, const ProjectsScreen());
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Merkez Ofis İnşaatı'), findsOneWidget);
+      expect(find.textContaining('0,00'), findsNothing);
+      expect(find.textContaining('Tahsilat'), findsNothing);
+    });
+
     testWidgets('proje kartına dokunmak /projeler/:id yoluna yönlendirir', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
         '/auth/me': [(status: 200, body: _meJson())],
@@ -399,7 +418,11 @@ void main() {
     testWidgets('İletişim/Teklifler/Projeler/Finansal Özet tam izinli kullanıcı için sırayla görünür', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
         '/auth/me': [
-          (status: 200, body: _meJson(permissions: ['customers.manage', 'projects.read', 'offers.read', 'offers.create'])),
+          (
+            status: 200,
+            body: _meJson(
+                permissions: ['customers.manage', 'projects.read', 'projects.finance.read', 'offers.read', 'offers.create']),
+          ),
         ],
         '/customers/c1': [(status: 200, body: _customerJson())],
         '/projects': [(status: 200, body: {'projects': [_projectJson()], 'total': 1})],
@@ -415,6 +438,24 @@ void main() {
         expect(y, greaterThan(lastY));
         lastY = y;
       }
+    });
+
+    testWidgets('projects.finance.read yoksa Projeler görünür ama tutar ve Finansal Özet yok', (tester) async {
+      // Proje Yöneticisi: customers.read + projects.read, finans izni yok --
+      // sunucu contract_amount'u null döner, aggregate göndermez.
+      final project = {..._projectJson(), 'contract_amount': null};
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['customers.read', 'projects.read']))],
+        '/customers/c1': [(status: 200, body: _customerJson())],
+        '/projects': [(status: 200, body: {'projects': [project], 'total': 1})],
+      });
+      await _pump(tester, adapter, const CustomerDetailScreen(customerId: 'c1'));
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Projeler'), findsOneWidget);
+      expect(find.text('Merkez Ofis İnşaatı'), findsOneWidget);
+      expect(find.text('Finansal Özet'), findsNothing);
+      expect(find.textContaining('TL'), findsNothing);
     });
 
     testWidgets('projects.read/offers.read izni olmayan kullanıcı Projeler/Teklifler/Finansal Özet bölümlerini görmez', (tester) async {

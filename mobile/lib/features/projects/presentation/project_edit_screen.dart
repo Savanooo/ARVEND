@@ -301,10 +301,11 @@ class _FrozenInfoCard extends StatelessWidget {
           const SizedBox(height: AppSpacing.xs),
           AppDataRow(label: 'Proje No', value: p.projectNo),
           AppDataRow(label: 'Müşteri', value: p.customerName.isEmpty ? '-' : p.customerName),
-          if (showContractAmount)
+          // Sunucu da finans izni yoksa bedeli null döner: satır çizilmez.
+          if (showContractAmount && p.contractAmount != null)
             AppDataRow(
               label: 'Sözleşme Bedeli',
-              value: Formatters.money(p.contractAmount, currency: p.currency),
+              value: Formatters.money(p.contractAmount!, currency: p.currency),
             ),
           AppDataRow(label: 'Kaynak Teklif', value: p.sourceOfferNo.isEmpty ? '-' : p.sourceOfferNo),
           if (p.sourceOfferNo.isNotEmpty) AppDataRow(label: 'Revizyon', value: '#${p.sourceRevisionNo}'),

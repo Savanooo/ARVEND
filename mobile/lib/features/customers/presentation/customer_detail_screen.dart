@@ -19,6 +19,7 @@ import '../../../core/widgets/quick_action_button.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../offers/data/offers_providers.dart';
 import '../../projects/data/projects_providers.dart';
+import '../../projects/domain/project.dart';
 import '../data/customers_providers.dart';
 import '../domain/customer.dart';
 import 'customer_form_sheet.dart';
@@ -59,6 +60,13 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
         user == null ||
         user.permissions.isEmpty ||
         user.hasPermission('offers.read');
+    // Proje tutarları ve "Finansal Özet" yalnızca `projects.finance.read`
+    // ile: sunucu izin yoksa bu alanları zaten göndermez (contract_amount
+    // null, aggregate'ler yok) -- bölüm boş bir özetle de çizilmez.
+    final canSeeProjectFinance =
+        user == null ||
+        user.permissions.isEmpty ||
+        user.hasPermission('projects.finance.read');
     final canCreateOffer =
         user == null ||
         user.permissions.isEmpty ||
@@ -203,11 +211,13 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                 const SizedBox(height: AppSpacing.xl),
                 const AppSectionHeader(title: 'Projeler'),
                 const SizedBox(height: AppSpacing.sm),
-                _ProjectsSection(customerId: c.id),
-                const SizedBox(height: AppSpacing.xl),
-                const AppSectionHeader(title: 'Finansal Özet'),
-                const SizedBox(height: AppSpacing.sm),
-                _FinancialSummarySection(customerId: c.id),
+                _ProjectsSection(customerId: c.id, showMoney: canSeeProjectFinance),
+                if (canSeeProjectFinance) ...[
+                  const SizedBox(height: AppSpacing.xl),
+                  const AppSectionHeader(title: 'Finansal Özet'),
+                  const SizedBox(height: AppSpacing.sm),
+                  _FinancialSummarySection(customerId: c.id),
+                ],
               ],
             ],
           ),
@@ -334,8 +344,9 @@ class _ContactRow extends StatelessWidget {
 }
 
 class _ProjectsSection extends ConsumerWidget {
-  const _ProjectsSection({required this.customerId});
+  const _ProjectsSection({required this.customerId, required this.showMoney});
   final String customerId;
+  final bool showMoney;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -358,28 +369,35 @@ class _ProjectsSection extends ConsumerWidget {
         }
         return Column(
           children: [
-            for (final p in result.projects)
-              AppListCard(
-                title: p.name,
-                subtitle: p.projectNo,
-                onTap: () => context.push('/projeler/${p.id}'),
-                trailing: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    StatusRegistry.build(p.status, StatusRegistry.project),
-                    const SizedBox(height: AppSpacing.xs),
-                    MoneyText(
-                      p.currentContractValue ?? p.contractAmount,
-                      currency: p.currency,
-                      style: AppTypography.metadata,
-                    ),
-                  ],
-                ),
-              ),
+            for (final p in result.projects) _projectCard(context, p),
           ],
         );
       },
+    );
+  }
+
+  Widget _projectCard(BuildContext context, Project p) {
+    // Tutar yoksa (finans izni yok -> sunucu null döner) satıra yazılmaz.
+    final value = showMoney ? (p.currentContractValue ?? p.contractAmount) : null;
+    return AppListCard(
+      title: p.name,
+      subtitle: p.projectNo,
+      onTap: () => context.push('/projeler/${p.id}'),
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          StatusRegistry.build(p.status, StatusRegistry.project),
+          if (value != null) ...[
+            const SizedBox(height: AppSpacing.xs),
+            MoneyText(
+              value,
+              currency: p.currency,
+              style: AppTypography.metadata,
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

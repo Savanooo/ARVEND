@@ -168,6 +168,9 @@ class _PaymentPlanItemFormState extends ConsumerState<PaymentPlanItemForm> {
   @override
   Widget build(BuildContext context) {
     final currency = widget.project.currency;
+    // Finans izni olmayana sunucu bedeli null döner (bu form finance.manage
+    // ister, pratikte hep dolu) -- null'da önizleme tutarsız yazılır.
+    final contractAmount = widget.project.contractAmount;
     final amount = parseAmountInput(_amount.text);
     final percentage = parsePercentInput(_percentage.text);
     final isEdit = widget.existing != null;
@@ -230,11 +233,13 @@ class _PaymentPlanItemFormState extends ConsumerState<PaymentPlanItemForm> {
                       labelText: 'Yüzde (%) *',
                       // Geçerli bir yüzdede hesaplanan tutar önizlenir: "12.5"
                       // gibi bir yazımın ne anlama geldiği kayıttan önce görünür.
-                      helperText: percentage != null && percentage > 0 && percentage <= 100
-                          ? '= ${Formatters.money(widget.project.contractAmount * percentage / 100, currency: currency)} '
-                              '(ana sözleşme bedelinin ${Formatters.percent(percentage)}\'i)'
-                          : 'Tutar, ana sözleşme bedeli (${Formatters.money(widget.project.contractAmount, currency: currency)}) '
-                              'üzerinden hesaplanır.',
+                      helperText: contractAmount == null
+                          ? 'Tutar, ana sözleşme bedeli üzerinden hesaplanır.'
+                          : percentage != null && percentage > 0 && percentage <= 100
+                              ? '= ${Formatters.money(contractAmount * percentage / 100, currency: currency)} '
+                                  '(ana sözleşme bedelinin ${Formatters.percent(percentage)}\'i)'
+                              : 'Tutar, ana sözleşme bedeli (${Formatters.money(contractAmount, currency: currency)}) '
+                                  'üzerinden hesaplanır.',
                       helperMaxLines: 2,
                     ),
                     validator: (v) {
