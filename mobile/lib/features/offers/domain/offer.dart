@@ -67,9 +67,13 @@ class OfferItem {
 
   /// Create/Update isteği gövdesi. [includeInternalPricing] false ise iç
   /// fiyat alanları GÖNDERİLMEZ (izin yokken sessizce temizlenmesi için
-  /// backend'e boş alan yollamak yerine hiç yollamamak daha net).
+  /// backend'e boş alan yollamak yerine hiç yollamamak daha net). `id`
+  /// yalnızca kayıtlı kalemde gider (web formu da gönderiyor): iç fiyatlama
+  /// yetkisi olmayan düzenleyicide sunucu iç maliyetleri kalem id'siyle
+  /// eşleyip korur.
   Map<String, dynamic> toJson({bool includeInternalPricing = false}) {
     final map = <String, dynamic>{
+      if (id.isNotEmpty) 'id': id,
       'product_id': productId,
       'product_name': productName,
       'quantity': quantity,

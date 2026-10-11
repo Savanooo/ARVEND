@@ -59,6 +59,11 @@ double _round2(double v) => (v * 100).roundToDouble() / 100;
 class _DraftItem {
   _DraftItem();
 
+  /// Kayıtlı kalemin sunucudaki id'si (yeni satırda ve metrajdan gelen
+  /// satırda null). Düzenlemede geri gönderilir: iç fiyatlama yetkisi
+  /// olmayan düzenleyicide sunucu kalemlerin iç maliyetini bu id ile taşır;
+  /// id'siz kayıt iç maliyetli taslakta 409 ile reddediliyordu.
+  String? id;
   String productName = '';
   String quantity = '';
   String unitPrice = '';
@@ -83,6 +88,7 @@ class _DraftItem {
 
   factory _DraftItem.fromOfferItem(OfferItem item) {
     final d = _DraftItem()
+      ..id = item.id.isEmpty ? null : item.id
       ..productName = item.productName
       ..quantity = formatTrDecimalInput(item.quantity)
       ..unitPrice = formatTrDecimalInput(item.unitPrice)
@@ -381,7 +387,7 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
       }
 
       out.add(OfferItem(
-        id: '',
+        id: i.id ?? '',
         productId: i.productId,
         productName: i.productName.trim(),
         quantity: qty,
