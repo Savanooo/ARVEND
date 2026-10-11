@@ -25,6 +25,7 @@ import '../../payroll/domain/payroll.dart';
 import '../../payroll/presentation/payroll_tab.dart';
 import '../data/attendance_providers.dart';
 import '../domain/attendance.dart';
+import '../domain/attendance_access.dart';
 import '../domain/attendance_people.dart';
 import 'attendance_screen.dart';
 
@@ -100,7 +101,7 @@ class _PersonMonthScreenState extends ConsumerState<PersonMonthScreen> {
     final canPay = canSeePayroll && user.canAccess('payroll.manage');
     // Yalnızca maaş izni olan (attendance.read'siz) kişi: mesai bölümü yok,
     // /attendance çağrılmaz (bkz. AttendanceScreen).
-    final canSeeAttendance = user.can('attendance.read') || !canSeePayroll;
+    final canSeeAttendance = canSeeAttendanceRecords(user);
     final canManage =
         canSeeAttendance && (user == null || user.permissions.isEmpty || user.hasPermission('attendance.manage'));
 

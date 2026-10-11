@@ -5,6 +5,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_form_section.dart';
+import '../../suppliers/domain/supplier.dart' show isValidIban, normalizeIban;
 import '../data/onboarding_repository.dart';
 import '../domain/onboarding_state.dart';
 
@@ -23,7 +24,25 @@ Widget _errorText(String? error) {
   );
 }
 
-Widget _submitRow({required VoidCallback? onSubmit, required bool submitting, required String label, Widget? leading}) {
+/// Form + salt-okur kilidi: [readOnly] iken alanlara dokunulamaz ve
+/// odaklanılamaz (klavye/donanım tuşuyla da) -- Firma Ayarları'nda "Firma
+/// ayarlarını düzenleme" izni yok. Ağaç her iki durumda da aynı kalır --
+/// izin ekran açıkken değişirse girilen metin kaybolmaz.
+Widget _lockableForm({required GlobalKey<FormState> formKey, required bool readOnly, required Widget child}) => Form(
+      key: formKey,
+      child: ExcludeFocus(excluding: readOnly, child: AbsorbPointer(absorbing: readOnly, child: child)),
+    );
+
+Widget _submitRow({
+  required VoidCallback? onSubmit,
+  required bool submitting,
+  required String label,
+  Widget? leading,
+  bool readOnly = false,
+}) {
+  // Salt-okurda Kaydet yok: eskiden düzenleme izni olmayan kişi formu
+  // doldurup Kaydet'te 403 alıyordu.
+  if (readOnly) return const SizedBox.shrink();
   return Padding(
     padding: const EdgeInsets.only(top: AppSpacing.xl),
     child: Row(
@@ -52,6 +71,7 @@ class CompanyStepForm extends StatefulWidget {
     required this.onSaved,
     this.submitLabel = 'Kaydet',
     this.leading,
+    this.readOnly = false,
   });
 
   final OnboardingRepository repository;
@@ -59,6 +79,9 @@ class CompanyStepForm extends StatefulWidget {
   final void Function(OnboardingState) onSaved;
   final String submitLabel;
   final Widget? leading;
+
+  /// Salt-okur: alanlara dokunulamaz, Kaydet çizilmez (bkz. [_lockableForm]).
+  final bool readOnly;
 
   @override
   State<CompanyStepForm> createState() => _CompanyStepFormState();
@@ -115,8 +138,9 @@ class _CompanyStepFormState extends State<CompanyStepForm> {
 
   @override
   Widget build(BuildContext context) {
-    return Form(
-      key: _formKey,
+    return _lockableForm(
+      formKey: _formKey,
+      readOnly: widget.readOnly,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -157,7 +181,13 @@ class _CompanyStepFormState extends State<CompanyStepForm> {
             ],
           ),
           _errorText(_error),
-          _submitRow(onSubmit: _submit, submitting: _submitting, label: widget.submitLabel, leading: widget.leading),
+          _submitRow(
+            onSubmit: _submit,
+            submitting: _submitting,
+            label: widget.submitLabel,
+            leading: widget.leading,
+            readOnly: widget.readOnly,
+          ),
         ],
       ),
     );
@@ -172,6 +202,7 @@ class BillingStepForm extends StatefulWidget {
     required this.onSaved,
     this.submitLabel = 'Kaydet',
     this.leading,
+    this.readOnly = false,
   });
 
   final OnboardingRepository repository;
@@ -179,6 +210,9 @@ class BillingStepForm extends StatefulWidget {
   final void Function(OnboardingState) onSaved;
   final String submitLabel;
   final Widget? leading;
+
+  /// Salt-okur: alanlara dokunulamaz, Kaydet çizilmez (bkz. [_lockableForm]).
+  final bool readOnly;
 
   @override
   State<BillingStepForm> createState() => _BillingStepFormState();
@@ -225,8 +259,9 @@ class _BillingStepFormState extends State<BillingStepForm> {
 
   @override
   Widget build(BuildContext context) {
-    return Form(
-      key: _formKey,
+    return _lockableForm(
+      formKey: _formKey,
+      readOnly: widget.readOnly,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -253,7 +288,13 @@ class _BillingStepFormState extends State<BillingStepForm> {
             ],
           ),
           _errorText(_error),
-          _submitRow(onSubmit: _submit, submitting: _submitting, label: widget.submitLabel, leading: widget.leading),
+          _submitRow(
+            onSubmit: _submit,
+            submitting: _submitting,
+            label: widget.submitLabel,
+            leading: widget.leading,
+            readOnly: widget.readOnly,
+          ),
         ],
       ),
     );
@@ -285,6 +326,7 @@ class OffersStepForm extends StatefulWidget {
     required this.onSaved,
     this.submitLabel = 'Kaydet',
     this.leading,
+    this.readOnly = false,
   });
 
   final OnboardingRepository repository;
@@ -292,6 +334,9 @@ class OffersStepForm extends StatefulWidget {
   final void Function(OnboardingState) onSaved;
   final String submitLabel;
   final Widget? leading;
+
+  /// Salt-okur: alanlara dokunulamaz, Kaydet çizilmez (bkz. [_lockableForm]).
+  final bool readOnly;
 
   @override
   State<OffersStepForm> createState() => _OffersStepFormState();
@@ -351,8 +396,9 @@ class _OffersStepFormState extends State<OffersStepForm> {
 
   @override
   Widget build(BuildContext context) {
-    return Form(
-      key: _formKey,
+    return _lockableForm(
+      formKey: _formKey,
+      readOnly: widget.readOnly,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -427,7 +473,13 @@ class _OffersStepFormState extends State<OffersStepForm> {
             ],
           ),
           _errorText(_error),
-          _submitRow(onSubmit: _submit, submitting: _submitting, label: widget.submitLabel, leading: widget.leading),
+          _submitRow(
+            onSubmit: _submit,
+            submitting: _submitting,
+            label: widget.submitLabel,
+            leading: widget.leading,
+            readOnly: widget.readOnly,
+          ),
         ],
       ),
     );
@@ -442,6 +494,7 @@ class FinanceStepForm extends StatefulWidget {
     required this.onSaved,
     this.submitLabel = 'Kaydet',
     this.leading,
+    this.readOnly = false,
   });
 
   final OnboardingRepository repository;
@@ -449,6 +502,9 @@ class FinanceStepForm extends StatefulWidget {
   final void Function(OnboardingState) onSaved;
   final String submitLabel;
   final Widget? leading;
+
+  /// Salt-okur: alanlara dokunulamaz, Kaydet çizilmez (bkz. [_lockableForm]).
+  final bool readOnly;
 
   @override
   State<FinanceStepForm> createState() => _FinanceStepFormState();
@@ -485,7 +541,7 @@ class _FinanceStepFormState extends State<FinanceStepForm> {
       final state = await widget.repository.saveFinance(
         bankName: _bankName.text.trim(),
         accountHolder: _accountHolder.text.trim(),
-        iban: _iban.text.trim().isEmpty ? null : _iban.text.trim(),
+        iban: _iban.text.trim().isEmpty ? null : normalizeIban(_iban.text),
         paymentDueDays: _paymentDueDays.text.trim().isEmpty ? null : int.tryParse(_paymentDueDays.text.trim()),
       );
       widget.onSaved(state);
@@ -498,8 +554,9 @@ class _FinanceStepFormState extends State<FinanceStepForm> {
 
   @override
   Widget build(BuildContext context) {
-    return Form(
-      key: _formKey,
+    return _lockableForm(
+      formKey: _formKey,
+      readOnly: widget.readOnly,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -510,12 +567,22 @@ class _FinanceStepFormState extends State<FinanceStepForm> {
               TextFormField(
                   controller: _accountHolder, decoration: const InputDecoration(labelText: 'Hesap Sahibi')),
               TextFormField(
+                key: const ValueKey('finance-iban'),
                 controller: _iban,
                 decoration: InputDecoration(
                   labelText: 'IBAN',
                   hintText: widget.initial.ibanSet ? 'Kayıtlı IBAN korunuyor -- değiştirmek için girin' : 'TR..',
                 ),
                 textCapitalization: TextCapitalization.characters,
+                // Firmanın IBAN'ı teklif PDF'inde müşteriye gider ama kayıttan
+                // sonra hiçbir ekranda okunamaz: yazım hatası kaydetmeden önce
+                // yakalanır (tedarikçi IBAN'ıyla aynı kural; sunucu da reddeder).
+                validator: (v) {
+                  final value = normalizeIban(v ?? '');
+                  return value.isNotEmpty && !isValidIban(value)
+                      ? 'Geçerli bir IBAN gir (ör. TR33 0006 1005 1978 6457 8413 26)'
+                      : null;
+                },
               ),
               TextFormField(
                 controller: _paymentDueDays,
@@ -525,7 +592,13 @@ class _FinanceStepFormState extends State<FinanceStepForm> {
             ],
           ),
           _errorText(_error),
-          _submitRow(onSubmit: _submit, submitting: _submitting, label: widget.submitLabel, leading: widget.leading),
+          _submitRow(
+            onSubmit: _submit,
+            submitting: _submitting,
+            label: widget.submitLabel,
+            leading: widget.leading,
+            readOnly: widget.readOnly,
+          ),
         ],
       ),
     );
@@ -540,6 +613,7 @@ class BusinessStepForm extends StatefulWidget {
     required this.onSaved,
     this.submitLabel = 'Tamamla',
     this.leading,
+    this.readOnly = false,
   });
 
   final OnboardingRepository repository;
@@ -547,6 +621,9 @@ class BusinessStepForm extends StatefulWidget {
   final void Function(OnboardingState) onSaved;
   final String submitLabel;
   final Widget? leading;
+
+  /// Salt-okur: alanlara dokunulamaz, Kaydet çizilmez (bkz. [_lockableForm]).
+  final bool readOnly;
 
   @override
   State<BusinessStepForm> createState() => _BusinessStepFormState();
@@ -577,8 +654,9 @@ class _BusinessStepFormState extends State<BusinessStepForm> {
 
   @override
   Widget build(BuildContext context) {
-    return Form(
-      key: _formKey,
+    return _lockableForm(
+      formKey: _formKey,
+      readOnly: widget.readOnly,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -600,7 +678,13 @@ class _BusinessStepFormState extends State<BusinessStepForm> {
             ],
           ),
           _errorText(_error),
-          _submitRow(onSubmit: _submit, submitting: _submitting, label: widget.submitLabel, leading: widget.leading),
+          _submitRow(
+            onSubmit: _submit,
+            submitting: _submitting,
+            label: widget.submitLabel,
+            leading: widget.leading,
+            readOnly: widget.readOnly,
+          ),
         ],
       ),
     );

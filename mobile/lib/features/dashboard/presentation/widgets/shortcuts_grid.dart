@@ -7,22 +7,28 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_section_header.dart';
+import '../../../attendance/domain/attendance_access.dart';
 import '../../../auth/domain/user.dart';
 
 class _Shortcut {
-  const _Shortcut(this.label, this.icon, this.path, {this.push = false, this.permission, this.altPermission});
+  const _Shortcut(this.label, this.icon, this.path, {this.push = false, this.permission, this.visible, this.labelFor});
   final String label;
   final IconData icon;
   final String path;
   final bool push;
   final String? permission;
 
-  /// [permission] yoksa bu izin de yeter (Mesai: yalnızca maaş izni olan
-  /// da girer). Maaş izni KATI denetlenir (canAccess).
-  final String? altPermission;
+  /// [permission] yerine özel görünürlük kuralı (Mesai: puantaj ya da maaş
+  /// izni, bkz. attendance_access.dart).
+  final bool Function(User? user)? visible;
 
-  bool visibleFor(User? user) =>
-      permission == null || user.can(permission!) || (altPermission != null && user.canAccess(altPermission!));
+  /// Kişiye göre ad (Mesai: yalnızca maaş izni olanda "Maaş", menüdeki ve
+  /// ekrandaki adla aynı).
+  final String Function(User? user)? labelFor;
+
+  bool visibleFor(User? user) => visible?.call(user) ?? (permission == null || user.can(permission!));
+
+  String labelOf(User? user) => labelFor?.call(user) ?? label;
 }
 
 const _shortcuts = <_Shortcut>[
@@ -35,8 +41,8 @@ const _shortcuts = <_Shortcut>[
     Icons.schedule,
     '/diger/mesai',
     push: true,
-    permission: 'attendance.read',
-    altPermission: 'payroll.read',
+    visible: canOpenAttendanceScreen,
+    labelFor: attendanceEntryLabel,
   ),
   _Shortcut('Metraj', Icons.straighten, '/diger/metraj', push: true, permission: 'calculations.read'),
   _Shortcut(
@@ -84,7 +90,7 @@ class ShortcutsGrid extends StatelessWidget {
                         children: [
                           Icon(s.icon, size: 20, color: AppColors.textMuted),
                           const SizedBox(width: AppSpacing.md),
-                          Expanded(child: Text(s.label, style: AppTypography.body)),
+                          Expanded(child: Text(s.labelOf(user), style: AppTypography.body)),
                         ],
                       ),
                     ),

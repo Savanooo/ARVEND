@@ -157,9 +157,30 @@ void main() {
 
     testWidgets('izin kümesi boşsa (eski oturum) yönetim ekranları gizli -- fail-closed', (tester) async {
       await _pumpTall(tester, _custom(role: UserRole.admin, permissions: const []));
-      // İş Araçları eskisi gibi fail-open; Firma Ayarları kaba role bakar.
+      // İş Araçları eskisi gibi fail-open; Firma Ayarları da artık izne
+      // bakar (sunucu organization.settings.read ister).
       expect(find.text('Müşteriler'), findsOneWidget);
-      expect(_labelsInOrder(tester, _managementOrder), ['Firma Ayarları']);
+      expect(_labelsInOrder(tester, _managementOrder), isEmpty);
+    });
+
+    // Firma Ayarları eskiden yalnızca kaba role bakıyordu: "Firma
+    // ayarlarını görüntüleme" izni alınmış Yönetici menüde girişi görüp
+    // hata ekranına düşüyordu.
+    testWidgets('Yönetici\'den görüntüleme izni alınmışsa Firma Ayarları gizli', (tester) async {
+      await _pumpTall(
+        tester,
+        _custom(
+          role: UserRole.admin,
+          permissions: [for (final p in kAllPermissions) if (!p.startsWith('organization.settings.')) p],
+        ),
+      );
+      expect(find.text('Firma Ayarları'), findsNothing);
+      expect(find.text('Kullanıcılar'), findsOneWidget);
+    });
+
+    testWidgets('yalnızca görüntüleme izni olan Yönetici Firma Ayarları\'nı görür', (tester) async {
+      await _pumpTall(tester, _custom(role: UserRole.admin, permissions: const ['organization.settings.read']));
+      expect(_labelsInOrder(tester, _managementOrder), ['Firma Ayarları', 'E-posta Ayarları']);
     });
 
     // payroll.* attendance.*'tan ayrı: yalnızca maaş izni verilen kişi

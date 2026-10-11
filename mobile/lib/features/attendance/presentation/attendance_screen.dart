@@ -19,6 +19,7 @@ import '../../../core/widgets/status_badge.dart';
 import '../../payroll/data/payroll_providers.dart';
 import '../../payroll/domain/payroll.dart';
 import '../../payroll/presentation/payroll_tab.dart';
+import '../domain/attendance_access.dart';
 import '../domain/attendance_entry.dart';
 import '../domain/attendance_people.dart';
 import 'person_month_screen.dart';
@@ -90,7 +91,7 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
     // açamıyordu -- menü attendance.read istiyordu, ekran da /attendance
     // 403'ünde tümden hataya düşüyordu. Puantaj izni yoksa liste maaş
     // tablosundan kurulur, /attendance hiç çağrılmaz.
-    final canSeeAttendance = user.can('attendance.read') || !canSeePayroll;
+    final canSeeAttendance = canSeeAttendanceRecords(user);
     final recordsAsync = canSeeAttendance ? ref.watch(attendanceListProvider(_monthKey)) : null;
     // Maaş-yalnız görünümde personel listesi istenmez: aktif personel maaş
     // tablosunda zaten var (bkz. PayrollMonth.payableEmployees).
