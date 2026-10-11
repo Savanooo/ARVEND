@@ -17,6 +17,7 @@ import {
   emptyChangeItemDraft,
   emptySovDraft,
   latestCertifiedCumulative,
+  numberText,
   paidAgainstClaim,
   payableClaims,
   projectIsLocked,
@@ -259,6 +260,16 @@ describe("tutar yardımcıları", () => {
 });
 
 describe("SOV taslakları", () => {
+  it("sayı -> form metni Türkçe virgüllü; 3 haneli ondalık binlik okunmaz", () => {
+    assert.equal(numberText(12.345), "12,345");
+    assert.equal(numberText(1250.5), "1250,5");
+    assert.equal(numberText(5), "5");
+    assert.equal(numberText(null), "");
+    assert.equal(numberText(undefined), "");
+    const d = { ...emptySovDraft(), quantity: numberText(1.125), unit_price: numberText(1000) };
+    assert.equal(sovDraftAmount(d), 1125);
+  });
+
   it("miktar × birim fiyat doluysa tutar ondan, yoksa girilenden (Türkçe yazım)", () => {
     assert.equal(sovDraftAmount({ ...emptySovDraft(), quantity: "12,5", unit_price: "1.000", amount: "1" }), 12500);
     assert.equal(sovDraftAmount({ ...emptySovDraft(), amount: "1.250,50" }), 1250.5);

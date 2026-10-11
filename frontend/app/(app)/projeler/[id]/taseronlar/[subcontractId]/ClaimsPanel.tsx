@@ -23,8 +23,10 @@ import {
   claimPreview,
   claimUnpaidRemainder,
   latestCertifiedCumulative,
+  numberText,
   paidAgainstClaim,
   PROGRESS_CLAIM_STATUS,
+  round2,
   subcontractActions,
   type ClaimCapIssue,
   type ProgressClaim,
@@ -427,13 +429,13 @@ function ClaimForm({
     period_end: initial?.claim.period_end ?? "",
     // Yeni hakedişte sözleşmenin kesinti oranı önerilir (mobil gibi);
     // düzenlemede hakedişin kendi snapshot'ı.
-    retention: String(initial ? initial.claim.retention_percent_snapshot : (subcontract.retention_percent ?? 0)),
-    advance: initial?.claim.advance_recovery_amount ? String(initial.claim.advance_recovery_amount) : "",
-    other: initial?.claim.other_deductions ? String(initial.claim.other_deductions) : "",
+    retention: numberText(initial ? initial.claim.retention_percent_snapshot : (subcontract.retention_percent ?? 0)),
+    advance: initial?.claim.advance_recovery_amount ? numberText(initial.claim.advance_recovery_amount) : "",
+    other: initial?.claim.other_deductions ? numberText(initial.claim.other_deductions) : "",
     notes: initial?.claim.notes ?? "",
   });
   const [entries, setEntries] = useState<Record<string, string>>(() =>
-    Object.fromEntries((initial?.items ?? []).map((it) => [it.subcontract_item_id, String(it.current_progress_amount)]))
+    Object.fromEntries((initial?.items ?? []).map((it) => [it.subcontract_item_id, numberText(it.current_progress_amount)]))
   );
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -471,7 +473,8 @@ function ClaimForm({
   }, []);
 
   const amounts = claimEntryAmounts(entries);
-  const retentionPct = parseAmountTR(form.retention);
+  // Boş oran 0 sayılır (mobil gibi).
+  const retentionPct = form.retention.trim() === "" ? 0 : parseAmountTR(form.retention);
   const advance = form.advance.trim() === "" ? 0 : parseAmountTR(form.advance);
   const other = form.other.trim() === "" ? 0 : parseAmountTR(form.other);
   const preview = claimPreview({
@@ -606,7 +609,7 @@ function ClaimForm({
                           type="button"
                           className="text-xs text-text-muted hover:text-gold"
                           title="Kalan sınırın tamamını yaz"
-                          onClick={() => setEntries({ ...entries, [it.id]: String(Math.round(fillable * 100) / 100) })}
+                          onClick={() => setEntries({ ...entries, [it.id]: numberText(round2(fillable)) })}
                         >
                           Kalanı yaz
                         </button>

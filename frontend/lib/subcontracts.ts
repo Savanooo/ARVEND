@@ -499,8 +499,14 @@ export function emptySovDraft(): SovDraft {
   };
 }
 
-function numberText(n: number | null | undefined): string {
-  return n === null || n === undefined ? "" : String(n);
+/**
+ * Sayı -> form metni, Türkçe ondalık virgülle ("12,345"). String(12.345)
+ * "12.345" verirdi ve parseAmountTR onu BİNLİK ayraç sayıp 12345 okurdu
+ * (düzenlemede 3 haneli ondalıklı miktar 1000 kat büyürdü). Boş -> "".
+ */
+export function numberText(n: number | null | undefined): string {
+  if (n === null || n === undefined || !Number.isFinite(n)) return "";
+  return String(n).replace(".", ",");
 }
 
 /**

@@ -16,6 +16,7 @@ import { formatMoney, parseAmountTR } from "@/lib/format";
 import {
   buildSovItems,
   emptySovDraft,
+  numberText,
   round2,
   sovDraftAmount,
   sovDraftFromItem,
@@ -39,10 +40,6 @@ import { BudgetLineSelect, CostCodeSelect, inputClass, WbsSelect } from "./share
 function supplierLabel(s: Pick<Supplier, "code" | "legal_name" | "trade_name">) {
   const name = s.trade_name || s.legal_name;
   return s.code ? `${s.code} — ${name}` : name;
-}
-
-function numberText(n: number | null | undefined) {
-  return n === null || n === undefined ? "" : String(n);
 }
 
 export function SubcontractForm({
