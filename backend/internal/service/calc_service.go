@@ -596,6 +596,7 @@ func (s *CalcService) Run(ctx context.Context, organizationID string, in CalcRun
 			Quantity: qty, ProductID: resolvedProductID, UnitPrice: unitPrice, LineTotal: lineTotal,
 			GroupName: item.GroupName, CalculationType: item.CalculationType, Factor: factor,
 			WastePercent: item.WastePercent, RoundingType: item.RoundingType,
+			MinQuantity: item.MinQuantity, PackageSize: item.PackageSize,
 			PriceSource: priceSource, PriceWarning: priceWarning,
 		})
 	}

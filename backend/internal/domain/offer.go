@@ -43,10 +43,10 @@ type OfferItem struct {
 	// Unit/SectionLabel/CalcCategoryID/CalcSnapshot: Metraj Hesaplama
 	// entegrasyonu (Faz M2). Serbest/elle girilen kalemlerde Unit boş,
 	// diğerleri nil'dir. CalcSnapshot, hesap ANINDAKİ dondurulmuş
-	// görünümdür (area/perimeter/pitch_deg/factor/waste/rounding/
-	// price_at_calc) -- kategori/reçete sonradan değişse/silinse bile
-	// bu kalem üzerinde HİÇBİR ZAMAN güncellenmez (offer_revisions'ın
-	// "geçmişi mutate etme" ilkesiyle aynı).
+	// görünümdür (kanonik şema: bkz. calc_snapshot.go) -- kategori/reçete
+	// sonradan değişse/silinse bile bu kalem üzerinde HİÇBİR ZAMAN
+	// güncellenmez (offer_revisions'ın "geçmişi mutate etme" ilkesiyle
+	// aynı).
 	Unit           string
 	SectionLabel   *string
 	CalcCategoryID *string

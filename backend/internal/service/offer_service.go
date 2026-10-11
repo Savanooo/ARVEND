@@ -300,7 +300,8 @@ func resolveCustomerSnapshot(ctx context.Context, txq *sqlc.Queries, orgID pgtyp
 // izolasyonu); aksi halde geçersiz UUID'de olduğu gibi sessizce serbest
 // metin satıra düşürülür. calc_category_id AYNI ilkeyle doğrulanır --
 // başka bir organizasyonun kategori id'si sessizce NULL'a düşer, calc_snapshot
-// (dondurulmuş sonuç) buna bakılmaksızın olduğu gibi yazılır.
+// (dondurulmuş sonuç) buna bakılmaksızın yazılır; yalnızca kanonik şemaya
+// getirilir (bkz. domain.NormalizeCalcSnapshot).
 func insertRevisionItems(ctx context.Context, txq *sqlc.Queries, revisionID, orgID pgtype.UUID, items []computedOfferItem) ([]domain.OfferItem, error) {
 	domainItems := make([]domain.OfferItem, 0, len(items))
 	for i, it := range items {
@@ -338,7 +339,7 @@ func insertRevisionItems(ctx context.Context, txq *sqlc.Queries, revisionID, org
 			Unit:                    strings.TrimSpace(it.Unit),
 			SectionLabel:            it.SectionLabel,
 			CalcCategoryID:          calcCategoryID,
-			CalcSnapshot:            []byte(it.CalcSnapshot),
+			CalcSnapshot:            []byte(domain.NormalizeCalcSnapshot(it.CalcSnapshot)),
 			InternalSubcontractCost: repository.Float64PtrToNumeric(it.InternalSubcontractCost),
 			PricingMode:             pricingMode,
 			MarkupPercent:           repository.Float64PtrToNumeric(it.MarkupPercent),

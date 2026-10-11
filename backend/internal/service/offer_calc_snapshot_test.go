@@ -134,6 +134,62 @@ func TestOfferItems_CalcSnapshot(t *testing.T) {
 		}
 	})
 
+	// Eski mobil sürümler effective_area/factor yazıyordu ve pitch_deg
+	// göndermiyordu; web area/recipe_factor yazıyor. Kayıt ve okuma ikisini
+	// de tek (kanonik) şemaya getirir.
+	legacyMobile := json.RawMessage(`{"recipe_item_id":"r1","category_id":"c1","category_name":"Tavan",` +
+		`"footprint_area":"10","effective_area":"11.547005","perimeter":null,"calculation_type":"area_based",` +
+		`"factor":"5","waste_percent":"0","rounding_type":"none","price_at_calc":"200.00","price_source":"reference","foo":"x"}`)
+	canonical := json.RawMessage(`{"recipe_item_id":"r1","category_id":"c1","category_name":"Tavan",` +
+		`"footprint_area":"10","area":"11.547005","perimeter":null,"calculation_type":"area_based",` +
+		`"recipe_factor":"5","waste_percent":"0","rounding_type":"none","price_at_calc":"200.00","price_source":"reference"}`)
+
+	t.Run("eski mobil şemasıyla gelen snapshot kanonik şemayla kaydedilir", func(t *testing.T) {
+		o, err := offerSvc.Create(ctx, service.CreateOfferInput{
+			OrganizationID: orgA.ID, CustomerName: "Eski Mobil Snapshot",
+			Items: []service.OfferItemInput{{
+				ProductName: "Tavan Paneli", Quantity: 57.74, UnitPrice: 200,
+				Unit: "adet", CalcCategoryID: &cat.ID, CalcSnapshot: legacyMobile,
+			}},
+		})
+		if err != nil {
+			t.Fatalf("teklif oluşturulamadı: %v", err)
+		}
+		if !jsonEqual(t, o.Items[0].CalcSnapshot, canonical) {
+			t.Fatalf("calc_snapshot = %s, istenen %s", o.Items[0].CalcSnapshot, canonical)
+		}
+		var stored []byte
+		if err := pool.QueryRow(ctx, `SELECT calc_snapshot FROM offer_revision_items WHERE id = $1`, o.Items[0].ID).Scan(&stored); err != nil {
+			t.Fatalf("kalem okunamadı: %v", err)
+		}
+		if !jsonEqual(t, stored, canonical) {
+			t.Fatalf("veritabanındaki calc_snapshot = %s, istenen %s", stored, canonical)
+		}
+	})
+
+	t.Run("veritabanındaki eski şemalı kayıt okumada kanonik döner", func(t *testing.T) {
+		o, err := offerSvc.Create(ctx, service.CreateOfferInput{
+			OrganizationID: orgA.ID, CustomerName: "Eski Kayıt Snapshot",
+			Items: []service.OfferItemInput{{
+				ProductName: "Tavan Paneli", Quantity: 57.74, UnitPrice: 200, Unit: "adet", CalcSnapshot: snapshot,
+			}},
+		})
+		if err != nil {
+			t.Fatalf("teklif oluşturulamadı: %v", err)
+		}
+		// Bu değişiklikten önce yazılmış bir mobil satırını taklit et.
+		if _, err := pool.Exec(ctx, `UPDATE offer_revision_items SET calc_snapshot = $2 WHERE id = $1`, o.Items[0].ID, []byte(legacyMobile)); err != nil {
+			t.Fatalf("eski kayıt yazılamadı: %v", err)
+		}
+		fetched, err := offerSvc.Get(ctx, o.ID, orgA.ID)
+		if err != nil {
+			t.Fatalf("teklif alınamadı: %v", err)
+		}
+		if !jsonEqual(t, fetched.Items[0].CalcSnapshot, canonical) {
+			t.Fatalf("okunan calc_snapshot = %s, istenen %s", fetched.Items[0].CalcSnapshot, canonical)
+		}
+	})
+
 	t.Run("başka organizasyonun calc_category_id'si sessizce NULL'a düşer (product_id ile aynı ilke)", func(t *testing.T) {
 		o, err := offerSvc.Create(ctx, service.CreateOfferInput{
 			OrganizationID: orgA.ID, CustomerName: "Kaçak Kategori Müşteri",

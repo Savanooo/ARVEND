@@ -131,6 +131,11 @@ type CalcGeometry struct {
 	// verilmiş) -- perimeter_based kalemler bu durumda sessizce 0 ÜRETMEZ,
 	// bkz. ComputeRecipeQuantity.
 	Perimeter *decimal.Decimal
+	// PitchDeg, etkin alana GERÇEKTEN uygulanan çatı eğimidir; eğim
+	// verilmediyse ya da (0, 90) aralığı dışında olduğu için yok
+	// sayıldıysa nil -- teklife dondurulan calc_snapshot.pitch_deg bunu
+	// taşır.
+	PitchDeg *decimal.Decimal
 }
 
 type CalcWarning struct {
@@ -198,6 +203,10 @@ type CalcResultItem struct {
 	Factor          decimal.Decimal
 	WastePercent    decimal.Decimal
 	RoundingType    string
+	// MinQuantity/PackageSize: reçetedeki minimum ve paket kuralı (yoksa
+	// nil) -- "neden 3 paket?" sorusu teklif kaleminde de yanıtlanabilsin.
+	MinQuantity *decimal.Decimal
+	PackageSize *decimal.Decimal
 }
 
 type CalcResult struct {
@@ -254,17 +263,20 @@ func ComputeGeometry(in CalcInput) (CalcGeometry, error) {
 	}
 
 	effective := footprint
+	var appliedPitch *decimal.Decimal
 	if in.PitchDeg != nil {
 		deg, _ := in.PitchDeg.Float64()
 		if deg > 0 && deg < 90 {
 			factor := math.Cos(deg * math.Pi / 180)
 			if factor > 0 {
 				effective = footprint.Div(decimal.NewFromFloat(factor))
+				p := *in.PitchDeg
+				appliedPitch = &p
 			}
 		}
 	}
 
-	return CalcGeometry{FootprintArea: footprint, EffectiveArea: effective, Perimeter: perimeter}, nil
+	return CalcGeometry{FootprintArea: footprint, EffectiveArea: effective, Perimeter: perimeter, PitchDeg: appliedPitch}, nil
 }
 
 // recipeCoefficientPrecision, calc_recipe_items.quantity_per_m2/
