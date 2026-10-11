@@ -306,7 +306,7 @@ repository below.
 ## Customers (`requireAuth`, no admin gate)
 - `GET /customers?filter=aktif|pasif&q=` — `q` matches **name only** (not phone/email). No pagination.
 - `GET/POST/PUT/DELETE(soft)` — `customerResponse`: id,name,phone,email,address,tax_office,tax_number,notes,is_active. Phone/email always `""` not null — check non-empty for call/email actions.
-- Customer card (mobile): Teklifler = `GET /offers/?customer_id=`, Projeler = `GET /projects?customer_id=` (amounts only with `projects.finance.read`). "Finansal Özet" sums the list rows' `current_contract_value`/`collected_amount`/`remaining_receivable` per currency with the dashboard's open-receivable rule (since 2026-10-11): `cancelled` projects are skipped, each project's remaining is clamped at 0, over-collection is a separate "Fazla Tahsilat" row. Pull-to-refresh, returning from an opened offer/project and offer/collection/change-order writes refresh the sections.
+- Customer card (mobile): Teklifler = `GET /offers/?customer_id=`, Projeler = `GET /projects?customer_id=` (amounts only with `projects.finance.read`). "Finansal Özet" sums the list rows' `current_contract_value`/`collected_amount`/`remaining_receivable` per currency with the dashboard's open-receivable rule (since 2026-10-11): `cancelled` projects are skipped, each project's remaining is clamped at 0, over-collection is a separate "Fazla Tahsilat" row. Pull-to-refresh, returning from an opened offer/project and offer/collection/change-order writes refresh the sections. The projects list is read page by page (200 per page, at most 10 pages) so the summary covers every project; if fewer rows than `total` arrive the card says the summary is incomplete.
 - Duplicate guard: `POST`/`PUT` answer **409** `{error, code:"duplicate_customer", field:"tax_number"|"phone", existing_customer:{id,name,is_active}}` when another customer has the same tax number or phone; resend with `allow_duplicate: true` to save anyway. Mobile's customer form shows a dialog (Mevcut müşteriyi aç / Yine de kaydet / Vazgeç). `ApiException` now carries `code` and the raw JSON `body` for such cases.
 
 ## Products (`requireAuth`; read = `products.read`, write = `products.manage`) — mobile since 1.3.0+4 (`lib/features/products/`)
@@ -363,16 +363,23 @@ Every endpoint here needs coarse `role=admin` in addition to the permission, so 
   (the same rule as mobile's `isValidIban`). Supplier PUT overwrites
   `specialty` with whatever is sent — always send it back.
 - `GET /organization/settings` + `PUT /organization/settings/{company,
-  billing,offers,finance,business}` — `requireAdmin`. This is a **different**
+  billing,offers,finance,business}` — `requireAdmin` + `organization.settings.read`
+  (GET) / `.manage` (PUT). Mobile (since 2026-10-11) shows "Firma Ayarları"
+  with `canAccess('organization.settings.read')` (it used to check only the
+  coarse role) and renders the forms read-only without `.manage`. This is a **different**
   route from `/settings` below (SMTP-only) — mobile's `OnboardingRepository`
   (`lib/features/onboarding/data/onboarding_repository.dart`) serves BOTH
   the first-run onboarding wizard (`basePath: '/onboarding'`, same
   sub-resource shape) and the post-onboarding "Firma Ayarları" screen
   (`basePath: '/organization/settings'`) off the identical request/response
-  shape — only the base path differs. `PUT …/offers` writes
-  `default_currency` as sent (empty → TRY): mobile always sends the current
-  value (TRY/USD/EUR picker, any other stored code kept) — before
-  2026-10-11 it always sent TRY and silently overwrote a web choice.
+  shape — only the base path differs. `PUT …/offers`: an omitted/empty
+  `default_currency` keeps the stored one (TRY only if nothing is stored;
+  it used to reset to TRY). Mobile always sends the current value
+  (TRY/USD/EUR picker, any other stored code kept) — before 2026-10-11 it
+  always sent TRY and silently overwrote a web choice (1.5.13 still does).
+  `PUT …/finance` `iban` (write-only, omit = keep, `""` = clear) is
+  normalized and validated like the supplier IBAN since 2026-10-11 →
+  400 `IBAN geçersiz: …`; mobile checks it before saving.
 - `GET /organization/roles`, `GET /organization/permissions` — consumed
   since 1.3.0+4 by the organization-admin screens (see "Users, Roles &
   Permissions" above). Platform (Super Admin) management stays web-only.

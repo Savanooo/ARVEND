@@ -34,7 +34,7 @@ var ErrSupplierLegalNameRequired = errors.New("tedarikçi unvanı zorunludur")
 // yalnızca boşlukları kırpılıp şifreleniyordu; IBAN hiçbir ekranda geri
 // okunamadığı için yazım hatası kalıcı olarak saklanıyordu (mobil formu
 // aynı kuralla zaten reddediyordu).
-var ErrSupplierInvalidIBAN = errors.New("IBAN geçersiz: TR ile başlayan 26 haneli IBAN'ı kontrol edin (ör. TR33 0006 1005 1978 6457 8413 26)")
+var ErrSupplierInvalidIBAN = errors.New("IBAN geçersiz: TR ile başlayan 26 haneli IBAN'ı kontrol et (ör. TR33 0006 1005 1978 6457 8413 26)")
 
 // ErrDuplicateSupplierTaxNumber, aynı firmada aynı vergi numarasıyla
 // kayıtlı başka bir tedarikçi olduğunda döner (errors.Is ile; ayrıntı
