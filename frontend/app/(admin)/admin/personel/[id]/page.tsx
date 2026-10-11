@@ -67,18 +67,19 @@ export default async function PersonelDetayPage({
         />
         <div className="flex flex-col gap-4">
           {/* Kişi = tek kayıt: bağlı giriş hesabı (kullanıcı adı yalnızca
-              kullanıcı listesini görebilene gelir). */}
+              kullanıcı listesini görebilene gelir; kullanıcı sayfası da
+              aynı izinle açılır -- liste ekranındaki LoginCell ile aynı). */}
           {employee.user_id && employee.user_username && (
             <p className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface px-4 py-3 text-sm">
               <span className="text-text-muted">Giriş hesabı:</span>
-              {employee.user_deleted ? (
-                <span>{employee.user_username}</span>
-              ) : (
+              {canReadUsers && !employee.user_deleted ? (
                 <Link href={`/admin/kullanicilar/${employee.user_id}`} className="font-medium hover:text-gold hover:underline">
                   {employee.user_username}
                 </Link>
+              ) : (
+                <span>{employee.user_username}</span>
               )}
-              {employeeLoginDisabled(employee) && <Badge tone="danger">Giriş kapalı</Badge>}
+              {employeeLoginDisabled(employee) && <Badge tone="gold">Giriş kapalı</Badge>}
             </p>
           )}
           {uyari === "yetki" && (

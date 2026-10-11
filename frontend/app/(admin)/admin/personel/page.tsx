@@ -143,7 +143,7 @@ function LoginCell({ employee: e, canOpenUser }: { employee: Employee; canOpenUs
       ) : (
         <span>{e.user_username}</span>
       )}
-      {employeeLoginDisabled(e) && <Badge tone="danger">Giriş kapalı</Badge>}
+      {employeeLoginDisabled(e) && <Badge tone="gold">Giriş kapalı</Badge>}
     </span>
   );
 }
