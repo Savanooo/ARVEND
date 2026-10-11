@@ -18,6 +18,7 @@ class FakePlayClient implements PlayUpdateClient {
 
   PlayUpdateInfo info;
   Object? checkError;
+  Object? completeError;
   PlayUpdateOutcome flexible;
   PlayUpdateOutcome immediate;
   final calls = <String>[];
@@ -42,7 +43,10 @@ class FakePlayClient implements PlayUpdateClient {
   }
 
   @override
-  Future<void> completeFlexible() async => calls.add('complete');
+  Future<void> completeFlexible() async {
+    calls.add('complete');
+    if (completeError != null) throw completeError!;
+  }
 }
 
 /// Sideload kanalı kapalıyken (latest.json yok) backend'in yanıtı: build 0,
@@ -236,6 +240,43 @@ void main() {
     expect(play.calls, ['check']);
   });
 
+  test('zorunlu sürüm esnek yoldan inmişse "Yeniden başlat" beklenmez, hemen kurulur', () async {
+    // Ör. zorunlu güncelleme tam ekrana izin vermediği için arka planda indi
+    // ve uygulama kurulmadan kapatılıp açıldı.
+    final play = FakePlayClient(const PlayUpdateInfo(downloaded: true, versionCode: 14));
+    final c = await controllerFor(play, version: mandatory());
+    expect(await c.run(manual: false), PlayUpdateStatus.started);
+    expect(play.calls, ['check', 'complete']);
+    expect(c.mandatoryPending, isTrue);
+    expect(c.updateRequired, isFalse);
+  });
+
+  test('zorunlu sürüm inerken her öne gelişte yeniden bakılır; kurulamazsa "Güncelleme gerekli"', () async {
+    final play = FakePlayClient(const PlayUpdateInfo(downloading: true, versionCode: 14));
+    final c = await controllerFor(play, version: mandatory(3));
+    expect(await c.run(manual: false), PlayUpdateStatus.downloading);
+    expect(c.mandatoryPending, isTrue, reason: 'öne gelişte yeniden denetlensin (6 saat beklenmez)');
+    expect(c.updateRequired, isFalse, reason: 'inerken uygulama kullanılabilir');
+
+    play.info = const PlayUpdateInfo(downloaded: true, versionCode: 14);
+    play.completeError = PlatformException(code: 'TASK_FAILURE');
+    expect(await c.run(manual: false), PlayUpdateStatus.failed);
+    expect(c.updateRequired, isTrue);
+
+    play.completeError = null;
+    expect(await c.run(manual: true), PlayUpdateStatus.started);
+    expect(c.updateRequired, isFalse);
+  });
+
+  test('zorunlu, esnek yoldan inen sürüm kurulamazsa ekran kalır', () async {
+    final play = FakePlayClient(const PlayUpdateInfo(available: true, flexibleAllowed: true, versionCode: 14))
+      ..completeError = PlatformException(code: 'TASK_FAILURE');
+    final c = await controllerFor(play, version: mandatory());
+    expect(await c.run(manual: false), PlayUpdateStatus.failed);
+    expect(play.calls, ['check', 'flexible', 'complete']);
+    expect(c.updateRequired, isTrue);
+  });
+
   test('Play\'e ulaşılamazsa (ör. Play\'den kurulmamış) sessizce başarısız', () async {
     final play = FakePlayClient(_available)..checkError = Exception('Install Error(-10)');
     final c = await controllerFor(play);
@@ -359,6 +400,29 @@ void main() {
       await tester.pumpAndSettle();
       expect(storeOpens, 1);
       expect(find.text(kPlayStoreOpenFailedMessage), findsOneWidget);
+    });
+
+    testWidgets('Hakkında\'daki elle denetimde zorunlu güncellemeden vazgeçilirse ekran hemen çıkar', (tester) async {
+      final play = FakePlayClient(const PlayUpdateInfo());
+      await pumpWatcher(tester, play, mandatory(2));
+      expect(find.text(kPlayUpdateRequiredTitle), findsNothing);
+
+      // Play'de yeni sürüm göründü; kullanıcı "Güncellemeleri denetle"ye bastı
+      // ve Play'in tam ekranından vazgeçti.
+      play.info = _available;
+      final controller =
+          ProviderScope.containerOf(tester.element(find.text('ana'))).read(playUpdateControllerProvider);
+      await tester.runAsync(() => controller.run(manual: true));
+      await tester.pumpAndSettle();
+      expect(find.text(kPlayUpdateRequiredTitle), findsOneWidget);
+
+      // Play'den dönüş (öne geliş) pencereyi yeniden açmaz.
+      resume(tester);
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pumpAndSettle();
+      expect(play.calls, ['check', 'check', 'immediate', 'check']);
+      expect(find.text(kPlayUpdateRequiredTitle), findsOneWidget);
     });
 
     testWidgets('zorunlu değilse ekran hiç çıkmaz', (tester) async {

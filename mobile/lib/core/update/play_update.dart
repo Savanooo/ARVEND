@@ -174,11 +174,29 @@ class PlayUpdateController {
   /// Son denetimde güncelleme zorunluydu -- her öne gelişte yeniden denenir.
   bool mandatoryPending = false;
 
+  final _updateRequired = ValueNotifier<bool>(false);
+
   /// Güncelleme zorunlu, Play onu sunuyor ama başlatılamadı (kullanıcı Play'in
   /// penceresinden vazgeçti ya da pencere açılamadı): uygulama kapatılamayan
   /// "Güncelleme gerekli" ekranında bekler (PlayUpdateWatcher). Play'e ya da
   /// sunucuya ulaşılamayan her durumda false -- kimse kilitlenmez.
-  bool updateRequired = false;
+  bool get updateRequired => _updateRequired.value;
+  set updateRequired(bool value) {
+    // Kapatıldıktan sonra biten bir denetim (ör. testin sonunda) yazmaz.
+    if (!_disposed) _updateRequired.value = value;
+  }
+
+  /// [updateRequired] değişince haber verir: zorunlu güncelleme Hakkında
+  /// ekranındaki elle denetimden reddedilse de ekran hemen çıkar (yoksa bir
+  /// sonraki öne gelişte Play'in penceresi yeniden açılırdı).
+  ValueListenable<bool> get updateRequiredListenable => _updateRequired;
+
+  bool _disposed = false;
+
+  void dispose() {
+    _disposed = true;
+    _updateRequired.dispose();
+  }
 
   /// İlk denetimde güncellemenin zorunlu olup olmadığı belli oldu
   /// ([mandatoryPending] artık doğru). Yenilikler sayfası zorunlu
@@ -234,13 +252,19 @@ class PlayUpdateController {
     }
     _lastCheckedAt = _ref.read(updateClockProvider)();
 
-    if (info.downloaded) {
+    if (info.downloaded || info.downloading) {
+      // Esnek yoldan inen/inmekte olan sürüm. Zorunluysa (taban bu arada
+      // yükseldi ya da zorunlu güncelleme esnek yoldan indi ve uygulama
+      // kapanıp açıldı) inince "Yeniden başlat" beklenmez, hemen kurulur;
+      // inerken her öne gelişte yeniden bakılır.
+      final mandatory = await _isMandatory();
+      mandatoryPending = mandatory;
       onChecked?.call();
-      return PlayUpdateStatus.readyToInstall;
-    }
-    if (info.downloading) {
-      onChecked?.call();
-      return PlayUpdateStatus.downloading;
+      if (info.downloading) return PlayUpdateStatus.downloading;
+      if (!mandatory) return PlayUpdateStatus.readyToInstall;
+      final installed = await completeUpdate();
+      updateRequired = !installed;
+      return installed ? PlayUpdateStatus.started : PlayUpdateStatus.failed;
     }
     if (!info.available && !info.inProgress) {
       // Sunucu zorunlu dese bile Play'de kurulacak sürüm yoksa (ör. kademeli
@@ -328,8 +352,9 @@ class PlayUpdateController {
     if (!info.flexibleAllowed) return PlayUpdateStatus.failed;
     switch (await client.startFlexible()) {
       case PlayUpdateOutcome.completed:
-        await completeUpdate();
-        return PlayUpdateStatus.started;
+        // Kurulamazsa "Güncelleme gerekli" ekranı; "Güncelle" inen sürümü
+        // yeniden kurmayı dener.
+        return await completeUpdate() ? PlayUpdateStatus.started : PlayUpdateStatus.failed;
       case PlayUpdateOutcome.denied:
         return PlayUpdateStatus.denied;
       case PlayUpdateOutcome.failed:
@@ -359,16 +384,24 @@ class PlayUpdateController {
     }
   }
 
-  Future<void> completeUpdate() async {
+  /// İnen güncellemeyi kurar (uygulama yeniden başlar). Kurulamazsa false;
+  /// hata FIRLATMAZ.
+  Future<bool> completeUpdate() async {
     try {
       await _ref.read(playUpdateClientProvider).completeFlexible();
+      return true;
     } catch (e) {
       debugPrint('Play güncellemesi kurulamadı: $e');
+      return false;
     }
   }
 }
 
-final playUpdateControllerProvider = Provider<PlayUpdateController>(PlayUpdateController.new);
+final playUpdateControllerProvider = Provider<PlayUpdateController>((ref) {
+  final controller = PlayUpdateController(ref);
+  ref.onDispose(controller.dispose);
+  return controller;
+});
 
 /// Uygulamanın Play sayfasını açar; açılamazsa false. Testler sahtesini verir.
 typedef PlayStoreOpener = Future<bool> Function();
@@ -432,6 +465,7 @@ class _PlayUpdateWatcherState extends ConsumerState<PlayUpdateWatcher> with Widg
   late final bool _supported = ref.read(playUpdateSupportedProvider);
   bool _readyToInstall = false;
   bool _required = false;
+  ValueListenable<bool>? _requiredListenable;
 
   PlayUpdateController get _controller => ref.read(playUpdateControllerProvider);
 
@@ -440,13 +474,22 @@ class _PlayUpdateWatcherState extends ConsumerState<PlayUpdateWatcher> with Widg
     super.initState();
     if (!_supported) return;
     WidgetsBinding.instance.addObserver(this);
+    // Zorunlu güncelleme başka yerden (Hakkında > "Güncellemeleri denetle")
+    // reddedilse de ekran hemen çıkar.
+    _requiredListenable = _controller.updateRequiredListenable..addListener(_syncRequired);
     WidgetsBinding.instance.addPostFrameCallback((_) => _check());
   }
 
   @override
   void dispose() {
+    _requiredListenable?.removeListener(_syncRequired);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  void _syncRequired() {
+    final required = _requiredListenable?.value ?? false;
+    if (mounted && _required != required) setState(() => _required = required);
   }
 
   @override

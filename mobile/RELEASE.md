@@ -780,7 +780,10 @@ Diğer > Hakkında > "Güncellemeleri denetle" elle):
   bekler ("Güncelle" / "Google Play'de aç"); geri tuşu ekranı kapatmaz,
   uygulamayı arka plana alır. Ekran açıkken öne gelişte Play'in penceresi
   kendiliğinden yeniden açılmaz (Play'den her dönüşte açılsaydı döngü olurdu),
-  yalnızca zorunluluğun sürüp sürmediğine bakılır.
+  yalnızca zorunluluğun sürüp sürmediğine bakılır. Hakkında'daki elle
+  denetimden vazgeçilirse de ekran hemen çıkar. Play tam ekrana izin vermeyip
+  güncelleme arka planda indiyse (ya da indirme sürerken taban yükseldiyse)
+  "Yeniden başlat" beklenmez: inince hemen kurulur.
 - **Kilitlemeyen durumlar:** Play'e ulaşılamıyorsa (uygulama Play'den
   kurulmamış, ör. `flutter run`/sideload; Play Hizmetleri yok; ağ yok),
   sunucuya ulaşılamıyorsa ya da Play bu telefona henüz yeni sürüm
