@@ -48,6 +48,8 @@ export default async function KullanicilarPage({
   const canManage = canAccess(me, "organization.users.manage");
   // Yeni kullanıcı formu rol listesini de çeker (bkz. yeni/page.tsx kapısı).
   const canCreate = canManage && canAccess(me, PAGE_PERMISSIONS.roles);
+  // Kişi = tek kayıt: bağlı personel sayfası "Personeli görüntüleme" ister.
+  const canOpenEmployees = canAccess(me, PAGE_PERMISSIONS.employees);
 
   return (
     <>
@@ -69,6 +71,7 @@ export default async function KullanicilarPage({
                 <Th>Ad Soyad</Th>
                 <Th>Kullanıcı Adı</Th>
                 <Th>Organizasyon Rolü</Th>
+                <Th>Personel Kaydı</Th>
                 <Th>Durum</Th>
                 <Th />
               </tr>
@@ -89,6 +92,29 @@ export default async function KullanicilarPage({
                     </Badge>
                   </Td>
                   <Td>
+                    {u.employee_id ? (
+                      canOpenEmployees ? (
+                        <Link href={`/admin/personel/${u.employee_id}`} className="hover:text-gold hover:underline">
+                          {u.employee_full_name || "Personel kaydı"}
+                        </Link>
+                      ) : (
+                        <span>{u.employee_full_name || "Personel kaydı"}</span>
+                      )
+                    ) : (
+                      <span
+                        className="text-text-muted"
+                        title="Görev atanamaz, mesai ve maaş listelerinde görünmez. Kullanıcı sayfasından oluşturabilir ya da bağlayabilirsin."
+                      >
+                        Personel kaydı yok
+                      </span>
+                    )}
+                    {u.employee_id && u.employee_is_active === false && (
+                      <span className="ml-2">
+                        <Badge tone="muted">Pasif</Badge>
+                      </span>
+                    )}
+                  </Td>
+                  <Td>
                     <Badge tone={u.is_active ? "success" : "danger"}>
                       {u.is_active ? "Aktif" : "Pasif"}
                     </Badge>
@@ -105,7 +131,7 @@ export default async function KullanicilarPage({
               ))}
               {users.length === 0 && (
                 <tr>
-                  <Td colSpan={5} className="text-center text-text-muted">
+                  <Td colSpan={6} className="text-center text-text-muted">
                     {total === 0 ? "Henüz kullanıcı yok." : "Bu sayfada kullanıcı yok."}
                   </Td>
                 </tr>

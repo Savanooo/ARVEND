@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 
 import { UserAccessCard } from "@/components/permissions/UserAccessCard";
+import { UserEmployeeCard } from "@/components/permissions/UserEmployeeCard";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import { requirePagePermission } from "@/lib/auth";
@@ -18,6 +19,10 @@ export default async function KullaniciDetayPage({
   const { id } = await params;
   const cookieHeader = (await cookies()).toString();
   const canReadAccess = canAccess(me, PAGE_PERMISSIONS.roles);
+  // Kişi = tek kayıt: bağlı personeli açmak "Personeli görüntüleme",
+  // oluşturmak/bağlamak ayrıca "Personeli düzenleme" ister.
+  const canReadEmployees = canAccess(me, PAGE_PERMISSIONS.employees);
+  const canManageEmployees = canReadEmployees && canAccess(me, "employees.manage");
 
   const [user, projectsRes, rolesRes, catalogRes, access] = await Promise.all([
     apiServer<User>(`/api/v1/users/${id}`, cookieHeader),
@@ -35,11 +40,14 @@ export default async function KullaniciDetayPage({
     <>
       <PageHeader title={user.full_name} />
       <div className="grid grid-cols-1 items-start gap-6 p-8 xl:grid-cols-[minmax(0,28rem)_minmax(0,1fr)]">
-        <EditUserForm
-          user={user}
-          projects={projectsRes.projects}
-          canManage={canAccess(me, "organization.users.manage")}
-        />
+        <div className="flex flex-col gap-6">
+          <EditUserForm
+            user={user}
+            projects={projectsRes.projects}
+            canManage={canAccess(me, "organization.users.manage")}
+          />
+          <UserEmployeeCard user={user} canRead={canReadEmployees} canManage={canManageEmployees} />
+        </div>
         {access && (
           <UserAccessCard
             userId={user.id}

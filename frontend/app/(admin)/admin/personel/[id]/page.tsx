@@ -1,11 +1,14 @@
+import Link from "next/link";
 import { cookies } from "next/headers";
 
 import { CreateLoginCard } from "@/components/permissions/CreateLoginCard";
 import { UserAccessCard } from "@/components/permissions/UserAccessCard";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { Badge } from "@/components/ui/Badge";
 import { apiServer } from "@/lib/api";
 import { requirePagePermission } from "@/lib/auth";
 import { canAccess, PAGE_PERMISSIONS } from "@/lib/permissions";
+import { employeeLoginDisabled } from "@/lib/person-link";
 import type { Employee, OrganizationRole, Permission, User, UserPermissions } from "@/lib/types";
 
 import { fetchAllUsers } from "../fetchAllUsers";
@@ -63,6 +66,21 @@ export default async function PersonelDetayPage({
           canLinkUsers={canReadUsers}
         />
         <div className="flex flex-col gap-4">
+          {/* Kişi = tek kayıt: bağlı giriş hesabı (kullanıcı adı yalnızca
+              kullanıcı listesini görebilene gelir). */}
+          {employee.user_id && employee.user_username && (
+            <p className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface px-4 py-3 text-sm">
+              <span className="text-text-muted">Giriş hesabı:</span>
+              {employee.user_deleted ? (
+                <span>{employee.user_username}</span>
+              ) : (
+                <Link href={`/admin/kullanicilar/${employee.user_id}`} className="font-medium hover:text-gold hover:underline">
+                  {employee.user_username}
+                </Link>
+              )}
+              {employeeLoginDisabled(employee) && <Badge tone="danger">Giriş kapalı</Badge>}
+            </p>
+          )}
           {uyari === "yetki" && (
             <p className="rounded-md border border-danger/40 bg-danger/5 px-4 py-3 text-sm">
               Personel kaydedildi ama kişiye özel yetkiler kaydedilemedi. Aşağıdan tekrar kaydedebilirsin.

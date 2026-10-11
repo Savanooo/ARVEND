@@ -46,6 +46,43 @@ export interface User {
   // migration 0043 -- "yumuşak silme") -- yalnızca Süper Admin'in
   // Silinenler/Arşiv görünümündeki kayıtlarda dolu gelir.
   deleted_at?: string | null;
+  // Deneme süresi (yalnızca oturum: /auth/me, login, refresh). trial_*
+  // alanları YALNIZCA firma denemedeyken ve bitiş tarihi kayıtlıyken gelir;
+  // trial_ends_on ve trial_days_left İstanbul takvim günüdür (bitiş günü 0,
+  // geçtiyse negatif) -- istemci tarih hesabı yapmaz (bkz. lib/trial.ts).
+  organization_status?: OrgStatus;
+  trial_ends_at?: string;
+  trial_ends_on?: string;
+  trial_days_left?: number;
+  trial_expired?: boolean;
+  // Kişi = tek kayıt: hesabın bağlı olduğu personel kaydı. Kullanıcı
+  // listesi/detayı ve hesap açma cevaplarında, hesap bağlıysa gelir; yoksa
+  // alanlar hiç gelmez (bkz. lib/person-link.ts).
+  employee_id?: string;
+  employee_full_name?: string;
+  employee_is_active?: boolean;
+}
+
+// POST /users ve Süper Admin "Kullanıcı Oluştur" cevabı: kullanıcı + personel
+// adımının sonucu. message, olduğu gibi gösterilecek Türkçe özet.
+export type EmployeeLinkStatus =
+  | "created"
+  | "linked"
+  | "linked_same_name"
+  | "skipped"
+  | "ambiguous_name"
+  | "no_permission";
+
+export interface EmployeeLink {
+  status: EmployeeLinkStatus;
+  employee_id?: string;
+  employee_full_name?: string;
+  employee_is_active?: boolean;
+  message?: string;
+}
+
+export interface CreatedUser extends User {
+  employee_link?: EmployeeLink;
 }
 
 export interface ApiErrorBody {
@@ -538,6 +575,24 @@ export interface Employee {
   // user_id, bu personelin bağlı olduğu login hesabıdır (nullable) --
   // GET /tasks/mine'ın "bana ATANAN görevler" anlamının tek kaynağı.
   user_id: string | null;
+  // Bağlı giriş hesabının özeti -- backend YALNIZCA kullanıcı listesini
+  // görebilene (organization.users.read) gönderir; diğerlerinde yalnızca
+  // user_id'den "hesabı var" bilinir.
+  user_username?: string;
+  user_is_active?: boolean;
+  user_deleted?: boolean;
+}
+
+// GET /employees/link-suggestions: personel kaydı olmayan bir giriş hesabı
+// ile bağlantısız bir personelin BİREBİR aynı adı taşıdığı öneri. Sunucu
+// hiçbir şeyi kendiliğinden bağlamaz; yönetici "Bağla" der.
+export interface EmployeeLinkSuggestion {
+  user_id: string;
+  username: string;
+  user_full_name: string;
+  employee_id: string;
+  employee_full_name: string;
+  employee_position: string;
 }
 
 export interface SmtpSettings {

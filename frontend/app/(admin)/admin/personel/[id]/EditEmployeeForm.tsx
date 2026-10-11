@@ -8,6 +8,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { apiClient, ApiError } from "@/lib/api";
+import { userOptionLabel } from "@/lib/person-link";
 import type { Employee, User } from "@/lib/types";
 
 export function EditEmployeeForm({
@@ -160,7 +161,7 @@ export function EditEmployeeForm({
                 <option value="">— Bağlantı yok —</option>
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.full_name} ({u.username})
+                    {userOptionLabel(u, employee.id)}
                   </option>
                 ))}
               </Select>

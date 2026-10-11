@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { apiClient, ApiError } from "@/lib/api";
-import type { Employee, OrganizationRole, Permission, User } from "@/lib/types";
+import { employeeUpdateBody } from "@/lib/person-link";
+import type { CreatedUser, Employee, OrganizationRole, Permission } from "@/lib/types";
 
 import { PermissionMatrix, type AccessState } from "./PermissionMatrix";
 import { saveUserAccess } from "./saveUserAccess";
@@ -38,15 +39,19 @@ export function CreateLoginCard({
       return;
     }
     setBusy(true);
-    let created: User;
+    let created: CreatedUser;
     try {
-      created = await apiClient<User>("/api/v1/users", {
+      // Hesap BU personele, hesapla aynı işlemde bağlanır (employee_id): sunucu
+      // kendi kuralıyla yeni bir personel açmaz ya da aynı adlı başka bir
+      // kayda bağlamaz (bkz. mobile/API_CONTRACT.md "Person = one record").
+      created = await apiClient<CreatedUser>("/api/v1/users", {
         method: "POST",
         body: JSON.stringify({
           username: username.trim(),
           password,
           full_name: employee.full_name,
           organization_role_code: access.roleCode,
+          employee_id: employee.id,
         }),
       });
     } catch (err) {
@@ -56,20 +61,15 @@ export function CreateLoginCard({
     }
 
     try {
-      await apiClient(`/api/v1/employees/${employee.id}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          full_name: employee.full_name,
-          phone: employee.phone,
-          position: employee.position,
-          daily_wage: employee.daily_wage,
-          salary: employee.salary,
-          start_date: employee.start_date,
-          description: employee.description,
-          is_active: employee.is_active,
-          user_id: created.id,
-        }),
-      });
+      // Sunucu bağı onayladıysa ikinci istek gerekmez. Onaylamadıysa (eski
+      // sunucu) eski yol: kayıt employees.manage ile okundu -> ücretler dolu
+      // gelir ve aynen geri yazılır (PUT tam-güncellemedir).
+      if (created.employee_id !== employee.id) {
+        await apiClient(`/api/v1/employees/${employee.id}`, {
+          method: "PUT",
+          body: JSON.stringify(employeeUpdateBody(employee, created.id)),
+        });
+      }
     } catch (err) {
       setError(
         `"${created.username}" giriş hesabı oluşturuldu ama bu personele bağlanamadı (${

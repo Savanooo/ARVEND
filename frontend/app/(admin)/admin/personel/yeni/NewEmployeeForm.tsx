@@ -10,6 +10,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { apiClient, ApiError } from "@/lib/api";
+import { userOptionLabel } from "@/lib/person-link";
 import type { Employee, OrganizationRole, Permission, User, UserPermissions } from "@/lib/types";
 
 type LoginMode = "none" | "existing" | "new";
@@ -110,6 +111,10 @@ export function NewEmployeeForm({
             password,
             full_name: form.full_name.trim(),
             organization_role_code: access.roleCode,
+            // Personeli bu form kendisi açıp hesabı ona bağlıyor: sunucu
+            // hesapla birlikte ayrıca bir personel açmasın / aynı adlı başka
+            // bir kayda bağlamasın (kişi = tek kayıt; yoksa ikinci adım 409).
+            create_employee: false,
           }),
         });
         userId = created.id;
@@ -261,7 +266,7 @@ export function NewEmployeeForm({
                 <option value="">Hesap seçin</option>
                 {knownUsers.map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.full_name} ({u.username})
+                    {userOptionLabel(u)}
                   </option>
                 ))}
               </Select>

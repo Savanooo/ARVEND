@@ -17,7 +17,7 @@ import { Tabs } from "@/components/ui/Tabs";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/Toast";
 import { apiClient, ApiError } from "@/lib/api";
-import type { Organization, OrganizationRole, User } from "@/lib/types";
+import type { CreatedUser, Organization, OrganizationRole, User } from "@/lib/types";
 
 // Süper Admin'in firma kullanıcı yönetimi. "Kullanıcıyı Sil" DAHİL hiçbir
 // işlem kullanıcı satırını fiziksel olarak KALDIRMAZ -- Sil bile bir
@@ -185,11 +185,12 @@ export function UsersTab({
         <Table>
           <thead>
             <tr>
-              <Th className="w-[26%]">Ad Soyad</Th>
-              <Th className="w-[18%]">Kullanıcı Adı</Th>
-              <Th className="w-[20%]">Rol</Th>
-              <Th className="w-[12%]">Durum</Th>
-              <Th className="w-[16%]">{filter === "deleted" ? "Silinme Tarihi" : "İlk Giriş / Şifre"}</Th>
+              <Th className="w-[22%]">Ad Soyad</Th>
+              <Th className="w-[15%]">Kullanıcı Adı</Th>
+              <Th className="w-[16%]">Rol</Th>
+              <Th className="w-[15%]">Personel Kaydı</Th>
+              <Th className="w-[10%]">Durum</Th>
+              <Th className="w-[14%]">{filter === "deleted" ? "Silinme Tarihi" : "İlk Giriş / Şifre"}</Th>
               <Th className="w-[8%]" />
             </tr>
           </thead>
@@ -217,6 +218,18 @@ export function UsersTab({
                       <Badge tone="gold">Sahip</Badge>
                     ) : (
                       u.organization_role_name || <span className="text-danger">Rol atanmamış</span>
+                    )}
+                  </Td>
+                  <Td>
+                    {/* Kişi = tek kayıt: hesabın bağlı olduğu personel (yoksa
+                        görev atanamaz, mesai/maaş listelerinde görünmez). */}
+                    {u.employee_id ? (
+                      <span>
+                        {u.employee_full_name || "Bağlı"}
+                        {u.employee_is_active === false && <span className="text-text-muted"> · pasif</span>}
+                      </span>
+                    ) : (
+                      <span className="text-text-muted">{deleted ? "—" : "Personel kaydı yok"}</span>
                     )}
                   </Td>
                   <Td>
@@ -367,6 +380,12 @@ function ProvisionUserModal({
   // istemeden fazladan bir Sahip oluşturabilir (ki bu ikinci Sahip ayrıca
   // gerçek Sahip üzerindeki son-Sahip korumasını da kaldırır).
   const [roleCode, setRoleCode] = useState(presetRole ?? "");
+  // Kişi = tek kayıt (tenant "Yeni Kullanıcı" ile aynı varsayılan): hesapla
+  // birlikte personel kaydı açılır ya da aynı adlı TEK bağlantısız personele
+  // bağlanır. Süper Admin firmanın personel listesini görmediği için kayıt
+  // seçilemez; yalnızca kapatılabilir ya da "aynı adlıya bağlama" kapatılır.
+  const [createEmployee, setCreateEmployee] = useState(true);
+  const [linkSameName, setLinkSameName] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -383,16 +402,24 @@ function ProvisionUserModal({
     }
     setLoading(true);
     try {
-      const created = await apiClient<User>(base, {
+      const created = await apiClient<CreatedUser>(base, {
         method: "POST",
         body: JSON.stringify({
           username: username.trim(),
           full_name: fullName.trim(),
           temporary_password: password,
           organization_role_code: roleCode,
+          // Gönderilmeyen alan = backend varsayılanı (personel aç / aynı adlıya bağla).
+          ...(createEmployee ? (linkSameName ? {} : { link_same_name: false }) : { create_employee: false }),
         }),
       });
-      onDone(`${created.full_name} oluşturuldu (${created.organization_role_name ?? roleCode}). İlk girişte şifresini değiştirmesi istenecek.`);
+      // Sunucunun personel adımı özeti ("Personel kaydı da oluşturuldu." ...).
+      const note = created.employee_link?.message;
+      onDone(
+        `${created.full_name} oluşturuldu (${created.organization_role_name ?? roleCode}). İlk girişte şifresini değiştirmesi istenecek.${
+          note ? ` ${note}` : ""
+        }`
+      );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
       setLoading(false);
@@ -445,6 +472,42 @@ function ProvisionUserModal({
               erişir.
             </p>
           </div>
+        </section>
+
+        <section className="flex flex-col gap-3 border-t border-border pt-5">
+          <p className="text-xs font-semibold uppercase tracking-widest text-text-muted">Personel Kaydı</p>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={createEmployee}
+              onChange={(e) => setCreateEmployee(e.target.checked)}
+              className="mt-0.5 accent-gold"
+            />
+            <span>
+              Personel kaydı da oluştur
+              <span className="block text-xs text-text-muted">
+                Kişi görev atanabilsin, mesai ve maaş listelerinde görünsün diye Personel&apos;e de eklenir (ücretsiz,
+                bugünün tarihiyle).
+              </span>
+            </span>
+          </label>
+          {createEmployee && (
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={linkSameName}
+                onChange={(e) => setLinkSameName(e.target.checked)}
+                className="mt-0.5 accent-gold"
+              />
+              <span>
+                Aynı adlı personel varsa ona bağla
+                <span className="block text-xs text-text-muted">
+                  Firmada aynı adı taşıyan tek bir bağlantısız personel varsa yeni kayıt açılmaz, hesap ona bağlanır.
+                  Farklı bir kişiyse kapat.
+                </span>
+              </span>
+            </label>
+          )}
         </section>
 
         <section className="flex flex-col gap-4 border-t border-border pt-5">
