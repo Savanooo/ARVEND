@@ -689,6 +689,27 @@ export interface Expense {
   decided_by: string | null;
   decided_at: string | null;
   decision_note: string;
+  // KDV (backend migration 0065): amount ödenen tutardır (oran varsa KDV
+  // dahil). vat_rate null = "Belirtilmedi"; o zaman vat_amount/net_amount
+  // da null. vat_amount = round(amount × oran / (100 + oran), 2), sunucuda.
+  vat_rate: number | null;
+  vat_amount: number | null;
+  net_amount: number | null;
+  // Masrafı herkes girer (backend migration 0066): project_id ("Masraflarım"
+  // projeler arası listeler), created_by (kendi masrafında Onayla/Reddet
+  // gizlenir, Düzenle/Geri çek açılır), voided_by (= created_by ise
+  // "Geri çekildi"). Eski kayıtlarda created_by/voided_by boş olabilir.
+  project_id: string;
+  created_by: string | null;
+  voided_by: string | null;
+}
+
+// "Masraflarım" satırı (GET /expenses/mine): masraf + girildiği proje.
+// Sunucu yalnızca çağıranın masraflarını döndürür; toplam/özet yoktur.
+export interface MyExpense extends Expense {
+  project_name: string;
+  project_no: string;
+  project_status: ProjectStatus;
 }
 
 export type ExpenseApprovalStatus = "pending" | "approved" | "rejected";
@@ -805,6 +826,12 @@ export interface FinancialSummary {
   contract_vat_amount: number;
   contract_vat_known: boolean;
   current_contract_value_net: number;
+  // Onaylı masrafların içindeki KDV ve ondan düşülmüş maliyetler (masrafa
+  // KDV girilmemişse brütle aynıdır; "Maliyet (KDV hariç)" yalnızca
+  // farklıysa gösterilir).
+  expense_vat_total: number;
+  realized_cost_net: number;
+  committed_cost_net: number;
   realized_gross_profit_net: number;
   estimated_gross_profit_net: number;
   realized_margin_percent_net: number;
@@ -813,6 +840,7 @@ export interface FinancialSummary {
   // budget = Maliyet Kontrolü EAC (+ eski taşeron), commitments = taahhüt bazlı.
   forecast_basis: "budget" | "commitments";
   forecast_cost: number;
+  forecast_cost_net: number;
   forecast_profit: number;
   forecast_profit_net: number;
   forecast_margin_percent: number;
