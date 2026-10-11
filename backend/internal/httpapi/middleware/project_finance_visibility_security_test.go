@@ -28,6 +28,9 @@ var projectMoneyKeys = []string{
 	"subcontractor_remaining", "new_subcontract_paid", "remaining_receivable",
 	"realized_cost", "realized_gross_profit", "invoice_count", "paid_invoice_count",
 	"change_order_net", "current_contract_value",
+	// KDV hariç karşılıklar (liste aggregate'leriyle aynı kapı).
+	"expense_vat_total", "contract_vat_known", "current_contract_value_net",
+	"realized_cost_net", "realized_gross_profit_net",
 }
 
 // projectPublicKeys: finans izni olmayana dolu dönebilecek TEK alanlar.
@@ -145,8 +148,10 @@ func TestProjectFinanceVisibilityMatrix(t *testing.T) {
 				if c, _ := proj["collected_amount"].(float64); c != distinctiveCollection {
 					t.Errorf("collected_amount = %v, want %v", proj["collected_amount"], distinctiveCollection)
 				}
-				if _, ok := proj["current_contract_value"].(float64); !ok {
-					t.Errorf("current_contract_value görünmeli: %v", proj)
+				for _, k := range []string{"current_contract_value", "current_contract_value_net", "realized_cost_net"} {
+					if _, ok := proj[k].(float64); !ok {
+						t.Errorf("%s görünmeli: %v", k, proj)
+					}
 				}
 			}
 			return
@@ -328,10 +333,16 @@ func TestProjectFinanceVisibilityMatrix(t *testing.T) {
 					t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
 				}
 				summary, _ := body["summary"].(map[string]any)
-				if _, ok := summary["eac"].(float64); !ok {
-					t.Fatalf("maliyet rakamları cost_control.read ile görünmeli: %v", summary)
+				for _, k := range []string{"eac", "actual_cost_net", "eac_net"} {
+					if _, ok := summary[k].(float64); !ok {
+						t.Fatalf("maliyet rakamları (%s) cost_control.read ile görünmeli: %v", k, summary)
+					}
 				}
-				for _, k := range []string{"contract_value", "forecast_profit", "forecast_margin_percent"} {
+				if _, isBool := summary["contract_vat_known"].(bool); isBool != v.seesMoney {
+					t.Errorf("contract_vat_known = %v, finans görünürlüğü %v olmalıydı", summary["contract_vat_known"], v.seesMoney)
+				}
+				for _, k := range []string{"contract_value", "forecast_profit", "forecast_margin_percent",
+					"contract_vat_amount", "contract_value_net", "forecast_profit_net", "forecast_margin_percent_net"} {
 					val, present := summary[k]
 					if !present {
 						t.Errorf("%s alanı yanıtta olmalı (izinsizde null): %v", k, summary)

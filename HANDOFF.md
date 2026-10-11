@@ -551,10 +551,11 @@ modüllerinde tek kilit cümlesi ve kırmızı, ayrı iptal düğmesi.
   olmayanlarda: Saha, Proje Yöneticisi) — backend bu haliyle ancak
   null-tolerant 1.5.14 Play'de yayınlanıp kullanıcılara ulaştıktan sonra
   (gerekirse sunucu `min_build` ile zorunlu güncelleme) canlıya çıkar;
-  "birlikte" yetmez. Hâlâ açık: proje
-  listesindeki gerçekleşen maliyet proje özetindeki formülden eksik
-  hesaplanıyor. Ana sayfa bunları KULLANMAZ (bkz. `docs/dashboard/SPEC.md`
-  §9 madde 8).
+  "birlikte" yetmez. Ana sayfa bunları KULLANMAZ (bkz.
+  `docs/dashboard/SPEC.md` §9 madde 8). (Proje listesinin gerçekleşen
+  maliyet/kârı artık finans özetiyle kuruşu kuruşuna aynı: taşeron modülü
+  ödemeleri `2dea4e4`'te eklendi, float farkı ve KDV hariç alanlar
+  2026-10-09'da; `finance_vat_consistency_test.go` sabitler.)
 - **Arvend Yapı'nın (canlı firma) kataloğu** hâlâ 2026-09-12'deki tek
   seferlik BYZ aktarımından; Ulaş/Demir Profil'den hiç senkronlanmadı, gece
   otomatiği kapalı — açmak firma sahibinin kararı.

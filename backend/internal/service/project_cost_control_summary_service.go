@@ -34,6 +34,7 @@ func (s *ProjectService) CostControlSummary(ctx context.Context, projectID, orga
 		return nil, err
 	}
 	summary := repository.ToDomainCostControlSummary(row)
+	applyCostControlNetFigures(&summary)
 
 	_, err = s.GetProjectBudget(ctx, projectID, organizationID)
 	switch {
@@ -45,6 +46,15 @@ func (s *ProjectService) CostControlSummary(ctx context.Context, projectID, orga
 		return nil, err
 	}
 	return &summary, nil
+}
+
+// applyCostControlNetFigures: KDV hariç sözleşme bedeli, tahmini kâr ve
+// marj -- finans özetinin applyNetFigures'ıyla AYNI kural (domain.VATBasis).
+func applyCostControlNetFigures(s *domain.CostControlSummary) {
+	b := domain.VATBasis{Value: s.ContractValue, VAT: s.ContractVATAmount, Known: s.ContractVATKnown}
+	s.ContractValueNet = b.Net()
+	s.ForecastProfitNet = b.ProfitNet(s.EACTotal, s.EACNet)
+	s.ForecastMarginPercentNet = domain.MarginPercent(s.ForecastProfitNet, s.ContractValueNet)
 }
 
 // CostControlLines, "Maliyet Kontrolü" ana kırılım tablosunu (WBS × Cost

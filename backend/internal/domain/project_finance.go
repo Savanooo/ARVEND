@@ -399,11 +399,6 @@ type ProjectFinancialSummary struct {
 	EstimatedGrossProfitNet   float64
 	RealizedMarginPercentNet  float64
 	EstimatedMarginPercentNet float64
-	// CodedExpenseVATTotal: ExpenseVATTotal'ın maliyet koduna/bütçe kalemine
-	// bağlı masraflardan gelen kısmı -- bütçe bazlı tahminin (EAC) içindeki
-	// masraf KDV'si (EAC kodsuz masrafı hiç içermez). Yalnızca hesap için;
-	// API'de yok.
-	CodedExpenseVATTotal float64
 
 	// Forecast*: "Tahmini" bölümünün TEK kaynağı -- bütçe varsa Maliyet
 	// Kontrolü'nün EAC'si (ForecastBasis = "budget"), yoksa taahhüt bazlı
@@ -433,6 +428,51 @@ func MarginPercent(profit, base float64) float64 {
 	m := math.Round(profit*100/base*100) / 100
 	return math.Max(-99999999.99, math.Min(99999999.99, m))
 }
+
+// ---------- KDV hariç bedel / maliyet / kâr -- TEK kural ----------
+//
+// Ürün sahibi kararları (2026-10-06/07, finans özeti): bedeller (sözleşme,
+// ek iş) KDV DAHİL tutulur ve içlerindeki KDV ayrıca bilinir; masraf tutarı
+// ödenen (KDV dahil) tutardır, oranı girilmişse içindeki KDV (vat_amount)
+// bilinir. Kâr ya da gerçekleşen maliyet hesaplayan HER yüzey -- finans
+// özeti, proje listesi, Maliyet Kontrolü, ek iş kârlılığı, ana sayfa --
+// KDV hariç karşılığı bu yardımcılarla türetir; KDV dahil (brüt) alanlar
+// olduğu gibi kalır. SQL tarafındaki tek girdi "onaylı, iptal edilmemiş
+// masrafların içindeki KDV"dir: sum(vat_amount), oranı belirtilmemiş
+// masrafta NULL olduğundan sayılmaz (tutarın tamamı maliyettir). Taşeron
+// ödemeleri KDV bilgisi taşımaz, olduğu gibi maliyettir.
+
+// VATBasis: KDV dahil bir bedel (Value) ve içindeki KDV (VAT). Known=false
+// ise bedelin KDV'si bilinmiyor (proje tekliften açılmamış): KDV hariç kâr
+// hesaplanamaz, kâr "net"i KDV dahil maliyetle hesaplanır -- KDV dahil
+// bedelden KDV hariç maliyet çıkarmak kârı şişirirdi.
+type VATBasis struct {
+	Value float64
+	VAT   float64
+	Known bool
+}
+
+// Net: KDV hariç bedel.
+func (b VATBasis) Net() float64 { return roundKurus(b.Value - b.VAT) }
+
+// ProfitNet: KDV hariç kâr = KDV hariç bedel - KDV hariç maliyet (costNet,
+// costGross'un KDV hariç karşılığıdır; bkz. CostNet). Bedelin KDV'si
+// bilinmiyorsa costGross kullanılır (bkz. VATBasis).
+func (b VATBasis) ProfitNet(costGross, costNet float64) float64 {
+	cost := costNet
+	if !b.Known {
+		cost = costGross
+	}
+	return roundKurus(b.Net() - cost)
+}
+
+// CostNet: KDV hariç maliyet = maliyet - içindeki masraf KDV'si.
+func CostNet(cost, expenseVAT float64) float64 { return roundKurus(cost - expenseVAT) }
+
+// RoundKurus, kuruşa yuvarlar. Go'da toplanan tutarlar (ör. proje
+// listesinin gerçekleşen maliyeti) bununla SQL numeric toplamının
+// float64 karşılığıyla BİREBİR aynı olur.
+func RoundKurus(v float64) float64 { return roundKurus(v) }
 
 // OverCollected, müşterinin sözleşme bedelinden fazla ödeme yaptığı
 // tutarı döner (yoksa 0). Bakiye negatifse UI bunu "fazla tahsilat"

@@ -197,11 +197,12 @@ func TestDashboardFinanceSection(t *testing.T) {
 
 	// Maliyet: masraf + eski taşeron ödemesi + Sprint 5 taşeron ödemesi.
 	// Yalnızca ONAYLI masraf sayılır (migration 0060): bekleyen ve reddedilen
-	// masraflar hiçbir rakamı değiştirmemeli.
-	e.exec(t, `INSERT INTO project_expenses (organization_id, project_id, category, description, amount, currency, expense_date, approval_status)
-	           VALUES ($1, $2, 'material', 'Malzeme', 8000, 'TRY', $3::date, 'approved'),
-	                  ($1, $2, 'material', 'Onay bekleyen', 4000, 'TRY', $3::date, 'pending'),
-	                  ($1, $2, 'material', 'Reddedilen', 700, 'TRY', $3::date, 'rejected')`, org, pA.ID, ms)
+	// masraflar hiçbir rakamı değiştirmemeli. Onaylı masrafın %20 KDV'si
+	// (1.333,33) yalnızca KDV hariç maliyetten düşer; nakit KDV dahil kalır.
+	e.exec(t, `INSERT INTO project_expenses (organization_id, project_id, category, description, amount, currency, expense_date, approval_status, vat_rate)
+	           VALUES ($1, $2, 'material', 'Malzeme', 8000, 'TRY', $3::date, 'approved', 20),
+	                  ($1, $2, 'material', 'Onay bekleyen', 4000, 'TRY', $3::date, 'pending', 20),
+	                  ($1, $2, 'material', 'Reddedilen', 700, 'TRY', $3::date, 'rejected', 20)`, org, pA.ID, ms)
 	// İptal edilmiş projede karar verilemez (finans kilidi): gündeme girmez.
 	e.exec(t, `INSERT INTO project_expenses (organization_id, project_id, category, description, amount, currency, expense_date, approval_status)
 	           VALUES ($1, $2, 'material', 'Kapalı projede bekleyen', 900, 'TRY', $3::date, 'pending')`, org, pC.ID, ms)
@@ -251,6 +252,8 @@ func TestDashboardFinanceSection(t *testing.T) {
 		{"open_receivable", try.OpenReceivable, 65000},
 		// Masraf 8.000 + eski taşeron 2.000 + Sprint 5 taşeron 3.000.
 		{"realized_cost", try.RealizedCost, 13000},
+		// Finans özetinin realized_cost_net kuralı: onaylı masrafın KDV'si düşer.
+		{"realized_cost_net", try.RealizedCostNet, 11666.67},
 		{"cash_balance", try.CashBalance, 97000},
 		// Bu ay: iptal edilmiş C dahil (nakit gerçektir); B geçen ay.
 		{"month.collections", try.Month.Collections, 50000},
@@ -265,6 +268,22 @@ func TestDashboardFinanceSection(t *testing.T) {
 		if !approx(c.got, c.want) {
 			t.Errorf("%s = %v, beklenen %v", c.name, c.got, c.want)
 		}
+	}
+	// Tek kural: ana sayfanın gerçekleşen maliyeti (KDV dahil ve hariç),
+	// portföydeki projelerin (A, B; iptal edilen C hariç) finans özetlerindeki
+	// realized_cost / realized_cost_net toplamına kuruşu kuruşuna eşit.
+	var sumCost, sumCostNet float64
+	for _, id := range []string{pA.ID, pB.ID} {
+		fs, err := e.projectSvc.FinancialSummary(e.ctx, id, org)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sumCost += fs.RealizedCost
+		sumCostNet += fs.RealizedCostNet
+	}
+	if !approx(try.RealizedCost, sumCost) || !approx(try.RealizedCostNet, sumCostNet) {
+		t.Errorf("ana sayfa maliyeti finans özetlerinin toplamı olmalı: dahil %v/%v, hariç %v/%v",
+			try.RealizedCost, sumCost, try.RealizedCostNet, sumCostNet)
 	}
 	if try.CollectionPct == nil || !approx(*try.CollectionPct, 71.0) {
 		t.Errorf("collection_pct = %v, beklenen 71.0", try.CollectionPct)

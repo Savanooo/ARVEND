@@ -160,6 +160,12 @@ linkinde müşteri Kabul Et / Reddet görmüyor. Kural: `mobile/API_CONTRACT.md`
   USD/EUR) katalogdan seçilen fiyat çevrilmeden yazılıyor — web ve mobil
   aynı. Mobil önerilerin üstünde uyarıyor ("Katalog fiyatları TL; bu teklif
   USD…"); web hiç uyarmıyor. Kalıcı çözüm kur çevrimi.
-- Maliyet kontrol gerçekleşenleri, proje listesi kârı, ek iş kârlılığı ve ana
-  sayfa hâlâ masrafları KDV DAHİL topluyor; yalnızca finans özeti KDV'yi
-  çıkarıyor.
+- KDV hariç maliyet/kâr (2026-10-09, backend): finans özetinin kuralı tek
+  yerde (`domain.VATBasis`/`CostNet`) ve proje listesi, Maliyet Kontrolü, ek
+  iş kârlılığı, ana sayfa aynı kuralla `*_net` alanlarını da döndürüyor
+  (bkz. mobile/API_CONTRACT.md "VAT-exclusive figures everywhere else").
+  Anlamı değişen alan yok: eksiz alanlar her yerde KDV DAHİL kaldı. Ekranlar
+  HENÜZ geçmedi — web proje listesi "Brüt Kâr"/"Gerç. Maliyet", Maliyet
+  Kontrolü "Tahmini Kâr/Marj" ve ek iş "Kârlılık" KDV dahil değerleri
+  gösteriyor (mobil Maliyet Kontrolü ve ek iş de); `*_net` + "KDV hariç"
+  etiketine geçiş web ve mobilde birlikte yapılmalı.

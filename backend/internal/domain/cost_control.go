@@ -238,6 +238,11 @@ type CostControlLine struct {
 	EAC                 float64
 	Variance            float64
 	IsUnbudgeted        bool
+	// KDV hariç karşılıklar (bkz. VATBasis): ActualCostNet = gerçekleşen -
+	// onaylı masrafların içindeki KDV; EACNet = ActualCostNet + ETC (ETC'nin
+	// KDV'si bilinmez, olduğu gibi kalır). ActualCost/EAC KDV DAHİL kalır.
+	ActualCostNet float64
+	EACNet        float64
 }
 
 // CostControlSummary, proje seviyesinde Maliyet Kontrolü özet KPI'larıdır.
@@ -261,6 +266,17 @@ type CostControlSummary struct {
 	Variance              float64
 	ForecastProfit        float64
 	ForecastMarginPercent float64
+	// KDV hariç karşılıklar -- finans özetiyle AYNI kural (bkz. VATBasis):
+	// ContractValueNet = ContractValue - ContractVATAmount; ForecastProfitNet
+	// = ContractValueNet - EACNet (sözleşmenin KDV'si bilinmiyorsa EAC);
+	// ForecastProfit/ForecastMarginPercent KDV DAHİL kalır.
+	ActualCostNet            float64
+	EACNet                   float64
+	ContractVATAmount        float64
+	ContractVATKnown         bool
+	ContractValueNet         float64
+	ForecastProfitNet        float64
+	ForecastMarginPercentNet float64
 	// HasBudget, bu projenin HENÜZ bir bütçesi olup olmadığını belirtir --
 	// "bütçesiz proje" geçerli bir durumdur (spec §42), false ise diğer
 	// TÜM alanlar (ContractValue hariç) 0'dır.

@@ -77,6 +77,14 @@ type projectResponse struct {
 	// ASLA değişmez -- bkz. domain.Project.CurrentContractValue).
 	ChangeOrderNet       *float64 `json:"change_order_net,omitempty"`
 	CurrentContractValue *float64 `json:"current_contract_value,omitempty"`
+	// KDV hariç karşılıklar -- financial-summary'nin aynı adlı alanlarıyla
+	// AYNI kural ve değer (domain.VATBasis). realized_cost/
+	// realized_gross_profit/current_contract_value KDV DAHİL kalır.
+	ExpenseVATTotal         *float64 `json:"expense_vat_total,omitempty"`
+	ContractVATKnown        *bool    `json:"contract_vat_known,omitempty"`
+	CurrentContractValueNet *float64 `json:"current_contract_value_net,omitempty"`
+	RealizedCostNet         *float64 `json:"realized_cost_net,omitempty"`
+	RealizedGrossProfitNet  *float64 `json:"realized_gross_profit_net,omitempty"`
 }
 
 // canSeeProjectFinance: proje yanıtlarındaki para alanları (sözleşme bedeli,
@@ -135,6 +143,10 @@ func toProjectResponse(p domain.Project, showFinance bool) projectResponse {
 		resp.ChangeOrderNet = &p.ChangeOrderNet
 		current := p.CurrentContractValue()
 		resp.CurrentContractValue = &current
+		resp.ExpenseVATTotal = &p.ExpenseVATTotal
+		resp.ContractVATKnown = &p.ContractVATKnown
+		currentNet, costNet, profitNet := p.CurrentContractValueNet(), p.RealizedCostNet(), p.RealizedGrossProfitNet()
+		resp.CurrentContractValueNet, resp.RealizedCostNet, resp.RealizedGrossProfitNet = &currentNet, &costNet, &profitNet
 	}
 	if p.StartDate != nil {
 		s := p.StartDate.Format(dateLayout)

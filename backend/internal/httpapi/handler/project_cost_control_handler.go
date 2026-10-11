@@ -493,6 +493,10 @@ type costControlLineResponse struct {
 	EAC                 float64 `json:"eac"`
 	Variance            float64 `json:"variance"`
 	IsUnbudgeted        bool    `json:"is_unbudgeted"`
+	// KDV hariç karşılıklar (bkz. domain.CostControlLine); actual_cost/eac
+	// KDV dahil kalır.
+	ActualCostNet float64 `json:"actual_cost_net"`
+	EACNet        float64 `json:"eac_net"`
 }
 
 func toCostControlLineResponse(l domain.CostControlLine) costControlLineResponse {
@@ -502,6 +506,7 @@ func toCostControlLineResponse(l domain.CostControlLine) costControlLineResponse
 		Description: l.Description, OriginalBudget: l.OriginalAmount, ApprovedAdjustments: l.ApprovedAdjustments,
 		RevisedBudget: l.RevisedBudget, CommittedCost: l.CommittedCost, ActualCost: l.ActualCost,
 		ETC: l.ETCAmount, EAC: l.EAC, Variance: l.Variance, IsUnbudgeted: l.IsUnbudgeted,
+		ActualCostNet: l.ActualCostNet, EACNet: l.EACNet,
 	}
 }
 
@@ -527,6 +532,22 @@ type costControlSummaryResponse struct {
 	ForecastProfit        *float64 `json:"forecast_profit"`
 	ForecastMarginPercent *float64 `json:"forecast_margin_percent"`
 	HasBudget             bool     `json:"has_budget"`
+
+	// KDV hariç karşılıklar -- finans özetiyle AYNI kural (bkz.
+	// domain.CostControlSummary); yukarıdaki tutarlar KDV dahil kalır.
+	// Maliyet tarafı (actual_cost_net/eac_net) actual_cost/eac ile aynı
+	// görünürlükte.
+	ActualCostNet float64 `json:"actual_cost_net"`
+	EACNet        float64 `json:"eac_net"`
+	// Gelir tarafı (sözleşme bedelinin KDV'si, KDV hariç bedel) ve ondan
+	// türeyen KDV hariç kâr/marj: contract_value/forecast_profit ile AYNI
+	// yerde, aynı koşulda yazılır (bkz. setCostControlRevenue) -- pointer,
+	// projects.finance.read izni olmayana null döner.
+	ContractVATAmount        *float64 `json:"contract_vat_amount"`
+	ContractVATKnown         *bool    `json:"contract_vat_known"`
+	ContractValueNet         *float64 `json:"contract_value_net"`
+	ForecastProfitNet        *float64 `json:"forecast_profit_net"`
+	ForecastMarginPercentNet *float64 `json:"forecast_margin_percent_net"`
 }
 
 func toCostControlSummaryResponse(s domain.CostControlSummary, showRevenue bool) costControlSummaryResponse {
@@ -534,14 +555,31 @@ func toCostControlSummaryResponse(s domain.CostControlSummary, showRevenue bool)
 		Currency: s.Currency, OriginalBudget: s.OriginalBudget,
 		ApprovedAdjustments: s.ApprovedAdjustments, RevisedBudget: s.RevisedBudget,
 		CommittedCost: s.CommittedCost, ActualCost: s.ActualCost, ETC: s.ETCTotal, EAC: s.EACTotal,
-		Variance: s.Variance, HasBudget: s.HasBudget,
+		Variance:      s.Variance,
+		HasBudget:     s.HasBudget,
+		ActualCostNet: s.ActualCostNet, EACNet: s.EACNet,
 	}
 	if showRevenue {
-		resp.ContractValue = &s.ContractValue
-		resp.ForecastProfit = &s.ForecastProfit
-		resp.ForecastMarginPercent = &s.ForecastMarginPercent
+		setCostControlRevenue(&resp, s)
 	}
 	return resp
+}
+
+// setCostControlRevenue: gelir tarafı -- sözleşme bedeli, tahmini kâr/marj
+// (KDV dahil) ve bunların KDV hariç karşılıkları TEK yerde. Satış bedeli ve
+// kâr finans bilgisidir: çağrının tamamı projects.finance.read koşuluna
+// bağlıdır (bkz. toCostControlSummaryResponse, canSeeProjectFinance); KDV
+// hariç alanlar KDV dahil olanlardan ayrı açık kalmamalı (bkz.
+// vat_net_response_test.go costControlRevenueKeys).
+func setCostControlRevenue(resp *costControlSummaryResponse, s domain.CostControlSummary) {
+	resp.ContractValue = &s.ContractValue
+	resp.ForecastProfit = &s.ForecastProfit
+	resp.ForecastMarginPercent = &s.ForecastMarginPercent
+	resp.ContractVATAmount = &s.ContractVATAmount
+	resp.ContractVATKnown = &s.ContractVATKnown
+	resp.ContractValueNet = &s.ContractValueNet
+	resp.ForecastProfitNet = &s.ForecastProfitNet
+	resp.ForecastMarginPercentNet = &s.ForecastMarginPercentNet
 }
 
 // CostControl, "Maliyet Kontrolü" ekranının TEK istekle ihtiyaç duyduğu

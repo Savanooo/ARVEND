@@ -419,7 +419,7 @@ interface Sections {
     past_end_date: number; ending_within_30d: number; top: ProjectRow[] /* ≤5 open, server-ranked */ };
   finance: { by_currency: {
     currency: string; portfolio_value: Money; collected_total: Money; open_receivable: Money; collection_pct: Pct;
-    realized_cost: Money; cash_balance: Money;
+    realized_cost: Money; realized_cost_net: Money; cash_balance: Money;
     month: { collections: Money; expenses: Money; subcontract_payments: Money; outflows: Money; net_cash: Money };
     overdue_plan: CountAmount; overdue_sales_invoices: CountAmount;
     trend_6m: { month: string /* "2026-04" */; collections: Money; outflows: Money; net: Money }[] /* exactly 6, oldest first */
@@ -548,8 +548,9 @@ interface MyTask { ref: Ref; title: string; project_name: string; due_date: ISOD
 - **collected_total** = Σ non-void `project_collections`.
 - **open_receivable** = Σ GREATEST(current_value − collected, 0) per project.
 - **collection_pct** = collected_total / portfolio_value × 100.
-- **realized_cost** = Σ(non-void expenses + non-void legacy `project_subcontractor_payments` + non-void `subcontract_payments`). This is the same formula as the summary. The two payment tables are physically separate (migration 0039), so there is no double count.
-- **cash_balance** = collected_total − realized_cost.
+- **realized_cost** = Σ(non-void **approved** expenses + non-void legacy `project_subcontractor_payments` + non-void `subcontract_payments`). This is the same formula as the summary's `realized_cost`. The two payment tables are physically separate (migration 0039), so there is no double count. It is cash and VAT-INCLUSIVE (expense amounts are what was paid; collections are VAT-inclusive too), so "Harcanan" and `cash_balance` stay VAT-inclusive.
+- **realized_cost_net** (2026-10-09) = realized_cost − Σ `vat_amount` of the same approved, non-void expenses (an expense without a VAT rate has NULL and counts in full; subcontractor payments carry no VAT and count as they are). Same rule as the financial summary's `realized_cost_net` (backend `domain.VATBasis`/`CostNet`). Returned for consumers that need the VAT-exclusive cost; the v1 card does not show it.
+- **cash_balance** = collected_total − realized_cost (VAT-inclusive on both sides).
 - **month.*** over **all ap, including cancelled** (the cash is real), with dates in [month_start, next_month_start):
   - `collections` by `received_date`;
   - `expenses` by `expense_date`;
@@ -659,6 +660,9 @@ SELECT currency,
        THEN round(sum(collected) / sum(current_value) * 100, 1) END AS collection_pct
 FROM per GROUP BY currency;
 -- (legacy project_subcontractor_payments: if the table lacks organization_id, filter via project_id IN pn only)
+-- (as built, backend/internal/repository/queries/dashboard.sql: expenses also need approval_status = 'approved'
+--  (migration 0060), and the cost CTE carries COALESCE(vat_amount, 0) for expenses / 0 for both payment tables, so
+--  realized_cost_net = sum(realized) - sum(realized_vat).)
 
 -- Month flows / trend: one query, all ap statuses, keyed by (currency, month):
 --   SELECT ap.currency, date_trunc('month', received_date)::date AS m, sum(amount) ... WHERE received_date >= @trend_start AND received_date < @next_month_start
@@ -782,7 +786,9 @@ func (h *DashboardHandler) Get(w http.ResponseWriter, r *http.Request) {
   - cancelled projects are excluded from portfolio and receivable but included in month flows;
   - a voided collection is excluded;
   - a due_date equal to today is **not** overdue;
-  - both payment tables count toward `realized_cost`.
+  - both payment tables count toward `realized_cost`;
+  - `realized_cost_net` subtracts only the VAT inside approved expenses (pending/rejected expenses change no figure).
+  - `realized_cost` and `realized_cost_net` equal the sum of the financial summaries' fields of the same name over the portfolio's projects (one rule, checked against `GET /projects/{id}/financial-summary`).
 - **Offers:**
   - `is_passive` is excluded;
   - the 90-day decision uses the event date (an old `offer_date` with a recent `customer_accepted` counts);

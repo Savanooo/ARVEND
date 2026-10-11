@@ -101,6 +101,14 @@ type Project struct {
 	// ChangeOrderNet -- projects tablosunda TUTULMAZ (bkz. Faz 8, 0027
 	// migration).
 	ChangeOrderNet float64
+	// KDV (finans özetiyle AYNI kaynaklar): ExpenseVATTotal onaylı, iptal
+	// edilmemiş masrafların içindeki KDV; ContractVATAmount güncel proje
+	// bedelinin içindeki KDV (kaynak revizyon + onaylı ek işler -
+	// eksiltmeler); ContractVATKnown bedelin KDV'sinin bilinip bilinmediği.
+	// KDV hariç maliyet/kâr bunlardan domain.VATBasis ile türetilir.
+	ExpenseVATTotal   float64
+	ContractVATAmount float64
+	ContractVATKnown  bool
 	// HasFinanceAggregates, yukarıdaki finans kolonlarının GERÇEKTEN
 	// doldurulduğunu söyler -- yalnızca liste sorgusundan (ListProjects)
 	// gelen satırlarda true'dur. Tekil okuma yollarında (Get/GetByOffer/
@@ -114,19 +122,43 @@ type Project struct {
 
 // CurrentContractValue, ana sözleşme bedeline onaylı ek iş/eksiltmelerin
 // net etkisini ekler. ContractAmount kendisi ASLA değişmez; bu yalnızca
-// bir TÜRETME'dir (Faz 8).
-func (p Project) CurrentContractValue() float64 { return p.ContractAmount + p.ChangeOrderNet }
+// bir TÜRETME'dir (Faz 8). Go'daki toplamlar kuruşa yuvarlanır: finans
+// özetinin SQL numeric sonucuyla BİREBİR aynı float64 çıkar.
+func (p Project) CurrentContractValue() float64 {
+	return roundKurus(p.ContractAmount + p.ChangeOrderNet)
+}
 
 // RemainingReceivable, bakiyedir; negatif olabilir (fazla tahsilat).
 // Faz 8'den beri GÜNCEL proje bedeli (ana sözleşme + onaylı ek işler)
 // üzerinden hesaplanır -- ana sözleşmenin kendisi üzerinden değil.
-func (p Project) RemainingReceivable() float64 { return p.CurrentContractValue() - p.CollectedAmount }
-
-// RealizedCost/RealizedGrossProfit, liste satırı için gerçekleşen
-// maliyet ve kârdır -- özet uçtaki (SQL'de hesaplanan) tanımla birebir
-// aynı formül.
-func (p Project) RealizedCost() float64 {
-	return p.TotalExpenses + p.SubcontractorPaid + p.NewSubcontractPaid
+func (p Project) RemainingReceivable() float64 {
+	return roundKurus(p.CurrentContractValue() - p.CollectedAmount)
 }
 
-func (p Project) RealizedGrossProfit() float64 { return p.CurrentContractValue() - p.RealizedCost() }
+// RealizedCost/RealizedGrossProfit, liste satırı için gerçekleşen
+// maliyet ve kârdır (KDV DAHİL) -- finans özetinin realized_cost/
+// realized_gross_profit'iyle birebir aynı formül: onaylı masraflar + eski
+// taşeron ödemeleri + taşeron modülü ödemeleri (hepsi iptal edilmemiş).
+func (p Project) RealizedCost() float64 {
+	return roundKurus(p.TotalExpenses + p.SubcontractorPaid + p.NewSubcontractPaid)
+}
+
+func (p Project) RealizedGrossProfit() float64 {
+	return roundKurus(p.CurrentContractValue() - p.RealizedCost())
+}
+
+// KDV hariç karşılıklar -- finans özetinin realized_cost_net/
+// current_contract_value_net/realized_gross_profit_net'iyle AYNI kural
+// (domain.VATBasis): kâr "net"i, bedelin KDV'si bilinmiyorsa KDV dahil
+// maliyetle hesaplanır.
+func (p Project) contractVATBasis() VATBasis {
+	return VATBasis{Value: p.CurrentContractValue(), VAT: p.ContractVATAmount, Known: p.ContractVATKnown}
+}
+
+func (p Project) CurrentContractValueNet() float64 { return p.contractVATBasis().Net() }
+
+func (p Project) RealizedCostNet() float64 { return CostNet(p.RealizedCost(), p.ExpenseVATTotal) }
+
+func (p Project) RealizedGrossProfitNet() float64 {
+	return p.contractVATBasis().ProfitNet(p.RealizedCost(), p.RealizedCostNet())
+}

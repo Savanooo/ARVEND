@@ -218,4 +218,17 @@ type ChangeOrderProfitability struct {
 	EstimatedProfit        float64
 	RealizedMarginPercent  float64
 	EstimatedMarginPercent float64
+
+	// KDV hariç karşılıklar -- finans özetiyle AYNI kural (VATBasis):
+	// gelir etkisi = işaretli ara toplam (ek işin KDV'si her zaman bilinir),
+	// maliyet = gerçekleşen - bu ek işe bağlı onaylı masrafların içindeki
+	// KDV (taşeron tarafı olduğu gibi). Marjlar |KDV hariç gelir etkisi|ne
+	// göre, kuruş hassasiyetinde. Yukarıdaki alanlar KDV DAHİL kalır.
+	RevenueEffectNet          float64
+	RealizedCostNet           float64
+	CommittedCostNet          float64
+	RealizedProfitNet         float64
+	EstimatedProfitNet        float64
+	RealizedMarginPercentNet  float64
+	EstimatedMarginPercentNet float64
 }

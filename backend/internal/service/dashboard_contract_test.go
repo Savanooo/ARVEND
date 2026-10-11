@@ -172,7 +172,7 @@ func sectionKeys(t *testing.T, raw []byte) []string {
 // izleyicide bunlar ya hiç yoktur ya da null / boş dizidir.
 var moneyKeys = map[string]bool{
 	"amount": true, "amounts": true, "current_value": true, "portfolio_value": true, "collected_total": true,
-	"open_receivable": true, "realized_cost": true, "cash_balance": true, "paid_to_date": true,
+	"open_receivable": true, "realized_cost": true, "realized_cost_net": true, "cash_balance": true, "paid_to_date": true,
 	"committed_active": true, "approved_net_this_month": true, "by_currency": true, "approved_this_month": true,
 }
 
