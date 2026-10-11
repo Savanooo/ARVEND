@@ -546,9 +546,12 @@ modüllerinde tek kilit cümlesi ve kırmızı, ayrı iptal düğmesi.
   `GET /projects`, tekil proje yanıtları, `GET /projects/{id}/events` ve
   maliyet kontrolündeki gelir/kâr artık yalnızca efektif
   `projects.finance.read` sahibine tutar döner (bkz.
-  `backend/docs/authorization.md` §11). Eski mobil sürümler null
-  `contract_amount`'ta proje listesini açamaz — null-tolerant mobil
-  sürüm backend'den önce/birlikte yayınlanmalı. Hâlâ açık: proje
+  `backend/docs/authorization.md` §11). 1.5.13 ve öncesi null
+  `contract_amount`'ta proje listesini/detayını açamaz (finans izni
+  olmayanlarda: Saha, Proje Yöneticisi) — backend bu haliyle ancak
+  null-tolerant 1.5.14 Play'de yayınlanıp kullanıcılara ulaştıktan sonra
+  (gerekirse sunucu `min_build` ile zorunlu güncelleme) canlıya çıkar;
+  "birlikte" yetmez. Hâlâ açık: proje
   listesindeki gerçekleşen maliyet proje özetindeki formülden eksik
   hesaplanıyor. Ana sayfa bunları KULLANMAZ (bkz. `docs/dashboard/SPEC.md`
   §9 madde 8).
