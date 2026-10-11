@@ -32,7 +32,13 @@ export function Sidebar({
     <aside
       className={`app-sidebar ${collapsed ? "app-sidebar-collapsed" : ""} relative flex h-screen shrink-0 flex-col justify-between overflow-hidden border-r border-sidebar-border bg-sidebar-bg text-sidebar-text`}
     >
-      <div className={`sidebar-section relative z-10 flex flex-col gap-8 p-5 ${collapsed ? "items-center px-3" : ""}`}>
+      {/* Menü uzunsa (Sahip/Yönetici ~16 bölüm) KENDİ İÇİNDE kayar: alt
+          bölüm (Yenilikler, Çıkış Yap, daralt) her ekran yüksekliğinde
+          görünür kalır -- aside h-screen + overflow-hidden olduğu için
+          aksi hâlde dizüstü ekranlarda kırpılıyordu. */}
+      <div
+        className={`sidebar-section relative z-10 flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto p-5 [scrollbar-width:thin] ${collapsed ? "items-center px-3" : ""}`}
+      >
         <div className={`sidebar-brand flex items-center gap-3 ${collapsed ? "flex-col gap-2" : ""}`}>
           <Logo />
           {!collapsed && (
