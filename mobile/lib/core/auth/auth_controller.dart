@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:clock/clock.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/auth/domain/user.dart';
@@ -28,8 +30,15 @@ class AuthController extends AsyncNotifier<User?> {
   /// gelince oturumu sunucuda doğrulamak için tekrar deneme aralığı.
   static const revalidateInterval = Duration(seconds: 30);
 
+  /// Yetki tazelemesinin en kısa aralığı: uygulama öne gelişleri ve 403
+  /// "yetkiniz yok" cevapları art arda gelse de /auth/me bundan sık
+  /// istenmez (bkz. [recheckPermissions]).
+  static const permissionRecheckInterval = Duration(seconds: 30);
+
   Timer? _revalidateTimer;
   Future<void>? _setupRecheck;
+  Future<void>? _permissionRecheck;
+  DateTime? _lastUserCheck;
 
   @override
   Future<User?> build() async {
@@ -55,6 +64,7 @@ class AuthController extends AsyncNotifier<User?> {
   }
 
   void _remember(User? user) {
+    _lastUserCheck = user == null ? null : clock.now();
     final store = ref.read(lastUserStoreProvider);
     unawaited(user == null ? store.clear() : store.save(user));
   }
@@ -165,18 +175,54 @@ class AuthController extends AsyncNotifier<User?> {
   /// state zaten sessionExpired() ile null'a düşer, burada ayrıca ele
   /// almaya gerek yok.
   ///
-  /// Ağ hatasında eldeki kullanıcı korunur (hata yutulur).
+  /// Ağ hatasında eldeki kullanıcı korunur (hata yutulur). Sunucudaki
+  /// kullanıcı değişmediyse durum yeniden yazılmaz (izleyen ekranlar boşuna
+  /// yeniden çizilmesin); istek sürerken çıkış/başka giriş olduysa sonuç
+  /// yazılmaz (çıkış yapan oturum geri gelmesin).
   Future<void> refresh() async {
+    final before = state.valueOrNull;
     final User? user;
     try {
       user = await ref.read(authRepositoryProvider).me();
     } catch (_) {
       return;
     }
-    if (user != null) {
-      state = AsyncData(user);
-      _remember(user);
+    if (user == null || state.valueOrNull?.id != before?.id) return;
+    final current = state.valueOrNull;
+    _remember(user);
+    if (current != null && _sameUser(current, user)) return;
+    state = AsyncData(user);
+  }
+
+  /// Yetkiler (rol, kişiye özel izin) web'den değiştirilebilir; eskiden
+  /// telefondaki izin listesi yalnızca açılışta ve girişte okunuyordu --
+  /// yeni verilen yetkinin düğmeleri uygulama kapatılıp açılana kadar
+  /// çıkmıyor, geri alınan yetkinin düğmeleri ise 403'e basıyordu. Uygulama
+  /// öne gelince, açıkken belli aralıkla (bkz. PermissionRefreshWatcher) ve
+  /// bir uç "yetkiniz yok" deyince (main.dart) kullanıcı tazelenir; menü,
+  /// düğmeler ve yönlendirmeler yeni izinlerle yeniden çizilir.
+  ///
+  /// Son doğrulamadan [permissionRecheckInterval] geçmediyse istek atılmaz
+  /// ([force] hariç); eşzamanlı çağrılar tek /auth/me paylaşır. Oturum
+  /// yoksa hiçbir şey yapmaz.
+  Future<void> recheckPermissions({bool force = false}) {
+    if (state.valueOrNull == null) return Future.value();
+    final running = _permissionRecheck;
+    if (running != null) return running;
+    final last = _lastUserCheck;
+    if (!force && last != null && clock.now().difference(last) < permissionRecheckInterval) {
+      return Future.value();
     }
+    // Ağ hatasında da aralık işlesin: çekmeyen telefonda her dokunuş yeni
+    // istek atmasın.
+    _lastUserCheck = clock.now();
+    return _permissionRecheck = refresh().whenComplete(() => _permissionRecheck = null);
+  }
+
+  static bool _sameUser(User a, User b) {
+    final ja = a.toJson()..['permissions'] = (a.permissions.toList()..sort());
+    final jb = b.toJson()..['permissions'] = (b.permissions.toList()..sort());
+    return jsonEncode(ja) == jsonEncode(jb);
   }
 }
 

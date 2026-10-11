@@ -51,6 +51,13 @@ Future<void> main() async {
     container.read(authControllerProvider.notifier).recheckAccountSetup();
   };
 
+  // Bir uç "yetkiniz yok" dedi (403 permission_denied): yetkiler web'den
+  // değişmiş olabilir -- izin listesi tazelenir (seyreltilmiş), izinsiz
+  // düğmeler kaybolur.
+  apiClient.onPermissionDenied = () {
+    unawaited(container.read(authControllerProvider.notifier).recheckPermissions());
+  };
+
   // "Yenilikler": bu sürümün ilk açılışında kaydın tabanı yazılır
   // (güncelleme mi, sıfırdan kurulum mu) -- kullanıcı giriş yapmasa da.
   // Beklenmez; açılışı geciktirmez, hata da fırlatmaz.

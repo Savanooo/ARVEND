@@ -73,6 +73,12 @@ class ApiClient {
   /// ekrana yönlendirir (bkz. main.dart).
   void Function()? onAccountSetupRequired;
 
+  /// Bir uç 403 `permission_denied` ("bu işlem için yetkiniz yok") döndü:
+  /// kullanıcının yetkileri web'den değişmiş olabilir. AuthController izin
+  /// listesini tazeler (seyreltilmiş, bkz. recheckPermissions) ve ekranlar
+  /// artık izinsiz düğmeyi göstermez. Oturum DÜŞÜRÜLMEZ.
+  void Function()? onPermissionDenied;
+
   void resetAccountAccessGuard() => _accountBlockNotified = false;
 
   Future<void> _notifyAccountAccessBlocked(AccountAccessIssue issue) async {
@@ -335,6 +341,11 @@ class ApiClient {
           rawMessage: _extractError(error.response?.data),
         )) {
           onAccountSetupRequired?.call();
+          return handler.next(error);
+        }
+
+        if (error.response?.statusCode == 403 && _extractCode(error.response?.data) == 'permission_denied') {
+          onPermissionDenied?.call();
           return handler.next(error);
         }
 
