@@ -7,6 +7,7 @@ import 'package:arvend/core/auth/auth_controller.dart';
 import 'package:arvend/core/widgets/app_list_card.dart';
 import 'package:arvend/features/calculations/domain/calc.dart';
 import 'package:arvend/features/calculations/presentation/metraj_screen.dart';
+import 'package:arvend/features/offers/domain/offer.dart';
 
 import '../../test_utils/fake_api_client.dart';
 import '../projects/form_test_support.dart';
@@ -62,7 +63,7 @@ Map<String, dynamic> _runWithZeroLine() {
   return json;
 }
 
-Future<void> _pump(WidgetTester tester, FakeHttpClientAdapter adapter) async {
+Future<void> _pump(WidgetTester tester, FakeHttpClientAdapter adapter, {Widget home = const MetrajScreen()}) async {
   final client = await buildFakeApiClient(adapter);
   await tester.binding.setSurfaceSize(const Size(500, 2400));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -71,7 +72,7 @@ Future<void> _pump(WidgetTester tester, FakeHttpClientAdapter adapter) async {
       apiClientProvider.overrideWithValue(client),
       authControllerProvider.overrideWith(() => FakeAuth(testUser({'calculations.read', 'offers.create'}))),
     ],
-    child: const MaterialApp(home: MetrajScreen()),
+    child: MaterialApp(home: home),
   ));
   await tester.pumpAndSettle();
 }
@@ -184,5 +185,47 @@ void main() {
     // 0,01'in altındaki miktar teklifte 0,00 olurdu; o da eklenemez.
     final tiny = CalcResultItem.fromJson({...(_runWithZeroLine()['items'] as List).first as Map<String, dynamic>, 'quantity': '0.004'});
     expect(tiny.hasOfferQuantity, isFalse);
+  });
+
+  testWidgets('Teklife Ekle: snapshot hesapta kullanılan eğimi ve grubu kanonik şemada taşır', (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/calculations/categories': [(status: 200, body: _catalog())],
+      // input.pitch_deg'i göndermeyen sunucu: istekteki eğim yazılır.
+      '/calculations/run': [(status: 200, body: _run('cat-onduline', 'Onduline Çatı'))],
+    });
+    List<OfferItem>? picked;
+    await _pump(
+      tester,
+      adapter,
+      home: Builder(
+        builder: (context) => TextButton(
+          onPressed: () async {
+            picked = await Navigator.of(context).push<List<OfferItem>>(
+              MaterialPageRoute(builder: (_) => const MetrajScreen(pickMode: true)),
+            );
+          },
+          child: const Text('Metrajdan Ekle'),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Metrajdan Ekle'));
+    await tester.pumpAndSettle();
+
+    await _pickGroup(tester, 'Çatı Hesaplamaları');
+    await tester.tap(find.text('Onduline Çatı'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Alan (m²)'), '100');
+    await tester.enterText(_pitchField, '30');
+    await tester.tap(find.text('Hesapla'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Teklife Ekle (1)'));
+    await tester.pumpAndSettle();
+
+    final snapshot = picked!.single.calcSnapshot as Map<String, dynamic>;
+    expect(snapshot['pitch_deg'], '30');
+    expect(snapshot['group_name'], 'Çatı Hesaplamaları');
+    expect(snapshot['area'], '100');
+    expect(snapshot['recipe_factor'], '0.1');
+    expect(snapshot['price_source'], 'product');
   });
 }

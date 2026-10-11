@@ -87,15 +87,15 @@ Confirmed zero non-admin-accessible settings endpoint exists anywhere. No
 mobile Settings screen was built for regular users, since there is nothing
 for the app to call.
 
-## 10. `calc_snapshot` has no server-enforced schema
-`offer_revision_items.calc_snapshot` is `json.RawMessage` end-to-end — the
-backend never validates or types it. The shape the mobile app writes
-(`recipe_item_id`, `category_id`, `category_name`, `footprint_area`,
-`effective_area`, `perimeter`, `calculation_type`, `factor`, `waste_percent`,
-`rounding_type`, `price_at_calc`, plus `price_source` when the server sends
-it — since 2026-10-07) is a **client convention**, not a backend
-contract — matches the intent described in the domain code comment but
-isn't enforced.
+## 10. ~~`calc_snapshot` has no server-enforced schema~~ (resolved 2026-10-11)
+Web and mobile used to write different keys (web `area`/`recipe_factor`/
+`pitch_deg`, mobile `effective_area`/`factor`/`recipe_item_id`) and the
+server stored whatever it got. There is now one canonical schema
+(`backend/internal/domain/calc_snapshot.go`, described in API_CONTRACT.md
+› Calculations › "`calc_snapshot`"); the server normalizes every write and
+every read, mobile writes the canonical keys. Web still writes a subset of
+them (no `recipe_item_id`, `footprint_area`, `calculation_type`,
+`price_source`, `min_quantity`, `package_size`) — a separate web task.
 
 ## 11. `calc_category_id`/`product_id` cross-org references fail silently
 If a mobile client (bug, stale cache, or race) submits an offer item with a

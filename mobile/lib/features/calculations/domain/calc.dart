@@ -91,6 +91,11 @@ class CalcResultItem {
   final String wastePercent;
   final String roundingType;
 
+  /// Reçetedeki minimum miktar ve paket büyüklüğü (doluysa miktar paket
+  /// sayısıdır); kural yoksa ya da eski sunucu göndermiyorsa null.
+  final String? minQuantity;
+  final String? packageSize;
+
   /// `unit_price` nereden geldi: product | reference (ürün fiyatı yok/0,
   /// reçetenin referans fiyatı) | none (hiç fiyat yok, 0). Alanı göndermeyen
   /// eski sunucuda ''.
@@ -124,6 +129,8 @@ class CalcResultItem {
     required this.factor,
     required this.wastePercent,
     required this.roundingType,
+    this.minQuantity,
+    this.packageSize,
     this.priceSource = '',
     this.priceWarning,
   });
@@ -141,6 +148,8 @@ class CalcResultItem {
         factor: json['factor'] as String,
         wastePercent: json['waste_percent'] as String,
         roundingType: json['rounding_type'] as String,
+        minQuantity: json['min_quantity'] as String?,
+        packageSize: json['package_size'] as String?,
         priceSource: json['price_source'] as String? ?? '',
         priceWarning: json['price_warning'] as String?,
       );
@@ -178,6 +187,9 @@ class CalcRunResult {
   final String footprintArea;
   final String effectiveArea;
   final String? perimeter;
+
+  /// Etkin alana uygulanan çatı eğimi (derece); eğim yoksa null.
+  final String? pitchDeg;
   final List<CalcResultItem> items;
   final String totalCost;
   final List<CalcWarning> warnings;
@@ -188,12 +200,16 @@ class CalcRunResult {
     required this.footprintArea,
     required this.effectiveArea,
     required this.perimeter,
+    this.pitchDeg,
     required this.items,
     required this.totalCost,
     required this.warnings,
   });
 
-  factory CalcRunResult.fromJson(Map<String, dynamic> json) {
+  /// [requestedPitchDeg]: istekte gönderilen eğim. Sunucu uyguladığı
+  /// eğimi `input.pitch_deg` ile bildirir; bu alanı hiç göndermeyen eski
+  /// sunucuda gönderilen değer kullanılır.
+  factory CalcRunResult.fromJson(Map<String, dynamic> json, {String? requestedPitchDeg}) {
     final category = json['category'] as Map<String, dynamic>;
     final input = json['input'] as Map<String, dynamic>;
     return CalcRunResult(
@@ -202,6 +218,7 @@ class CalcRunResult {
       footprintArea: input['footprint_area'] as String,
       effectiveArea: input['effective_area'] as String,
       perimeter: input['perimeter'] as String?,
+      pitchDeg: input.containsKey('pitch_deg') ? input['pitch_deg'] as String? : requestedPitchDeg,
       items: (json['items'] as List).cast<Map<String, dynamic>>().map(CalcResultItem.fromJson).toList(),
       totalCost: json['total_cost'] as String,
       warnings: (json['warnings'] as List<dynamic>? ?? [])
@@ -230,12 +247,17 @@ String? validatePositiveIfPresent(String raw, String fieldLabel) {
 
 /// Seçilen kalemleri teklife eklenecek `OfferItem` listesine çevirir --
 /// backend'in `/calculations/run`'dan DÖNDÜRDÜĞÜ değerleri olduğu gibi
-/// taşır, yeni bir hesap/formül İCAT ETMEZ. `calcSnapshot`'ın 11 alanı
-/// (bkz. MOBILE_BACKEND_GAPS.md #10 -- backend bu şekli doğrulamaz,
-/// yalnızca ham JSON olarak dondurur) burada TEK yerde inşa edilir, hem
+/// taşır, yeni bir hesap/formül İCAT ETMEZ. `calcSnapshot` web ile ortak
+/// kanonik şemadadır (bkz. API_CONTRACT.md "calc_snapshot"; sunucu da
+/// kayıtta bu şemaya getirir) ve burada TEK yerde inşa edilir -- hem
 /// bağımsız Metraj ekranından hem de bir teklif taslağına "Metrajdan
-/// Ekle" ile eklerken AYNI şekilde kullanılır.
-List<OfferItem> buildOfferItemsFromCalcResult(CalcRunResult result, Set<String> selectedRecipeItemIds) {
+/// Ekle" ile eklerken AYNI şekilde kullanılır. [groupName]: hesaplama
+/// grubunun adı (ör. "Çatı Hesaplamaları").
+List<OfferItem> buildOfferItemsFromCalcResult(
+  CalcRunResult result,
+  Set<String> selectedRecipeItemIds, {
+  String? groupName,
+}) {
   return result.items
       .where((i) => i.hasOfferQuantity && selectedRecipeItemIds.contains(i.recipeItemId))
       .map((i) => OfferItem(
@@ -249,15 +271,19 @@ List<OfferItem> buildOfferItemsFromCalcResult(CalcRunResult result, Set<String> 
             sectionLabel: result.categoryName,
             calcCategoryId: result.categoryId,
             calcSnapshot: {
+              'area': result.effectiveArea,
+              'footprint_area': result.footprintArea,
+              'perimeter': result.perimeter,
+              'pitch_deg': result.pitchDeg,
               'recipe_item_id': i.recipeItemId,
               'category_id': result.categoryId,
               'category_name': result.categoryName,
-              'footprint_area': result.footprintArea,
-              'effective_area': result.effectiveArea,
-              'perimeter': result.perimeter,
+              if (groupName != null && groupName.isNotEmpty) 'group_name': groupName,
               'calculation_type': i.calculationType,
-              'factor': i.factor,
+              'recipe_factor': i.factor,
               'waste_percent': i.wastePercent,
+              if (i.minQuantity != null) 'min_quantity': i.minQuantity,
+              if (i.packageSize != null) 'package_size': i.packageSize,
               'rounding_type': i.roundingType,
               'price_at_calc': i.unitPrice,
               // Fiyat ürün yerine reçete referansından geldiyse sonradan

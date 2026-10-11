@@ -307,17 +307,56 @@ void main() {
       expect(item.productName, '3600 mm Ana Taşıyıcı');
     });
 
-    test('calc_snapshot carries exactly the 11 documented keys (matches MOBILE_BACKEND_GAPS.md #10)', () {
-      final item = buildOfferItemsFromCalcResult(resultWithTwoItems(), {'r1'}).single;
+    test('calc_snapshot uses the canonical schema shared with web (API_CONTRACT.md "calc_snapshot")', () {
+      final item = buildOfferItemsFromCalcResult(resultWithTwoItems(), {'r1'}, groupName: '60x60 Asma Tavanlar').single;
       final snapshot = item.calcSnapshot as Map<String, dynamic>;
       expect(snapshot.keys.toSet(), {
-        'recipe_item_id', 'category_id', 'category_name', 'footprint_area', 'effective_area',
-        'perimeter', 'calculation_type', 'factor', 'waste_percent', 'rounding_type', 'price_at_calc',
+        'area', 'footprint_area', 'perimeter', 'pitch_deg', 'recipe_item_id', 'category_id', 'category_name',
+        'group_name', 'calculation_type', 'recipe_factor', 'waste_percent', 'rounding_type', 'price_at_calc',
       });
+      expect(snapshot['area'], '1');
+      expect(snapshot['recipe_factor'], '5');
+      expect(snapshot['pitch_deg'], isNull);
+      expect(snapshot['group_name'], '60x60 Asma Tavanlar');
       expect(snapshot['recipe_item_id'], 'r1');
       expect(snapshot['category_id'], 'cat1');
       expect(snapshot['calculation_type'], 'area_based');
       expect(snapshot['price_at_calc'], '200.00');
+      // Eski mobil anahtarları artık yazılmaz.
+      expect(snapshot.containsKey('effective_area'), isFalse);
+      expect(snapshot.containsKey('factor'), isFalse);
+    });
+
+    test('calc_snapshot freezes the applied pitch and the package/minimum rule when the server sends them', () {
+      final json = {
+        'category': {'id': 'cat1', 'slug': 'onduline', 'name': 'Onduline Çatı'},
+        'input': {'footprint_area': '10', 'effective_area': '11.547005', 'perimeter': null, 'pitch_deg': '30'},
+        'items': [
+          {
+            'recipe_item_id': 'r1', 'material_name': 'Taşyünü', 'unit': 'paket', 'quantity': '4',
+            'product_id': 'p1', 'unit_price': '100.00', 'line_total': '400.00', 'group_name': '',
+            'calculation_type': 'area_based', 'factor': '1', 'waste_percent': '0', 'rounding_type': 'ceil',
+            'min_quantity': '2', 'package_size': '3.6',
+          },
+        ],
+        'total_cost': '400.00',
+        'warnings': <Map<String, dynamic>>[],
+      };
+      // Sunucunun bildirdiği eğim, istekte gönderilenden önce gelir.
+      final snapshot = buildOfferItemsFromCalcResult(CalcRunResult.fromJson(json, requestedPitchDeg: '95'), {'r1'})
+          .single
+          .calcSnapshot as Map<String, dynamic>;
+      expect(snapshot['pitch_deg'], '30');
+      expect(snapshot['min_quantity'], '2');
+      expect(snapshot['package_size'], '3.6');
+
+      // Eğimi uygulamadığını bildiren sunucu: null.
+      (json['input'] as Map<String, dynamic>)['pitch_deg'] = null;
+      expect(CalcRunResult.fromJson(json, requestedPitchDeg: '95').pitchDeg, isNull);
+
+      // input.pitch_deg'i hiç göndermeyen eski sunucu: gönderilen eğim.
+      (json['input'] as Map<String, dynamic>).remove('pitch_deg');
+      expect(CalcRunResult.fromJson(json, requestedPitchDeg: '30').pitchDeg, '30');
     });
 
     test('OfferItem.toJson() sends calc_category_id/calc_snapshot/section_label (never dropped, even implicitly)', () {

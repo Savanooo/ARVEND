@@ -144,7 +144,7 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
   void _addToOffer() {
     final result = _result;
     if (result == null) return;
-    final items = buildOfferItemsFromCalcResult(result, _selectedForOffer);
+    final items = buildOfferItemsFromCalcResult(result, _selectedForOffer, groupName: _group?.name);
     if (items.isEmpty) return;
     if (widget.pickMode) {
       Navigator.of(context).pop(items);
