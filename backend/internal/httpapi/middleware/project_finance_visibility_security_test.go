@@ -1,7 +1,8 @@
 package middleware_test
 
 // Finans izni olmayana proje para bilgisi: GET /projects, GET /projects/{id},
-// PUT /projects/{id}, GET /offers/{id}/project, GET /projects/{id}/events ve
+// PUT /projects/{id}, POST /projects/from-offer/{offerId},
+// GET /offers/{id}/project, GET /projects/{id}/events ve
 // GET /projects/{id}/cost-control projects.read/cost_control.read ile açılır
 // (Saha, Proje Yöneticisi). Sözleşme bedeli, liste aggregate'leri, olay
 // tutarları ve maliyet kontrolündeki gelir/kâr YALNIZCA efektif
@@ -213,6 +214,35 @@ func TestProjectFinanceVisibilityMatrix(t *testing.T) {
 		}
 	})
 
+	t.Run("create_from_offer_response", func(t *testing.T) {
+		// projects.create: Sahip ve Yönetici (finans geri alınmış Yönetici de
+		// proje açabilir -- dönen projede sözleşme bedelini görmemeli).
+		for _, v := range []struct {
+			name      string
+			token     string
+			seesMoney bool
+		}{{"owner", ownerToken, true}, {"admin_with_finance_revoked", revokedToken, false}} {
+			t.Run(v.name, func(t *testing.T) {
+				offerID := mustAcceptedOfferForFinanceTest(t, ctx, d, orgID)
+				rec, body := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/from-offer/"+offerID, v.token,
+					`{"name":"Finans Görünürlüğü `+v.name+`"}`)
+				if rec.Code != http.StatusCreated {
+					t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+				}
+				val, present := body["contract_amount"]
+				if !present {
+					t.Fatalf("contract_amount alanı her zaman yanıtta olmalı: %v", body)
+				}
+				if _, isNum := val.(float64); isNum != v.seesMoney {
+					t.Errorf("contract_amount = %v, finans görünürlüğü %v olmalıydı", val, v.seesMoney)
+				}
+				if body["name"] == nil || body["project_no"] == nil {
+					t.Errorf("finans dışı alanlar dönmeli: %v", body)
+				}
+			})
+		}
+	})
+
 	t.Run("events", func(t *testing.T) {
 		for _, v := range viewers {
 			t.Run(v.name, func(t *testing.T) {
@@ -298,4 +328,29 @@ func TestProjectFinanceVisibilityMatrix(t *testing.T) {
 			t.Errorf("Saha maliyet kontrolünü açamamalı, geldi %d", rec.Code)
 		}
 	})
+}
+
+// mustAcceptedOfferForFinanceTest: projeye henüz dönüştürülmemiş, müşterinin
+// kabul ettiği bir teklif (mustCreateProject'in ilk yarısı) -- POST
+// /projects/from-offer yanıtını sınamak için.
+func mustAcceptedOfferForFinanceTest(t *testing.T, ctx context.Context, d *rbacTestDeps, orgID string) string {
+	t.Helper()
+	o, err := d.offerSvc.Create(ctx, service.CreateOfferInput{
+		OrganizationID: orgID, CustomerName: "RBAC Test Müşteri",
+		Items: []service.OfferItemInput{{ProductName: "İş", Quantity: 1, UnitPrice: 10000}},
+	})
+	if err != nil {
+		t.Fatalf("teklif oluşturulamadı: %v", err)
+	}
+	if _, err := d.offerSvc.UpdateStatus(ctx, o.ID, orgID, domain.OfferStatusGonderildi, ""); err != nil {
+		t.Fatalf("teklif gönderilemedi: %v", err)
+	}
+	link, err := d.offerSvc.CreateShareLink(ctx, o.ID, orgID, "", nil)
+	if err != nil {
+		t.Fatalf("paylaşım linki oluşturulamadı: %v", err)
+	}
+	if _, err := d.offerSvc.RespondByShareLinkToken(ctx, link.Token, domain.OfferStatusKabulEdildi, "", ""); err != nil {
+		t.Fatalf("teklif kabul edilemedi: %v", err)
+	}
+	return o.ID
 }
