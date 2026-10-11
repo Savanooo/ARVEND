@@ -17,6 +17,9 @@ const (
 	EventEmailSent        = "email_sent"
 	EventEmailFailed      = "email_failed"
 	EventOfferCancelled   = "offer_cancelled"
+	// EventOfferReactivated, arşivdeki (pasif) teklif arşivden
+	// çıkarıldığında yazılır; arşive giriş EventOfferCancelled'dır.
+	EventOfferReactivated = "offer_reactivated"
 	// EventProjectCreated, kabul edilen revizyon bir projeye
 	// dönüştürüldüğünde teklifin zaman çizelgesine yazılır (bkz.
 	// ProjectService.CreateFromOffer).

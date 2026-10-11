@@ -1165,9 +1165,9 @@ func setOfferStatusTx(ctx context.Context, tx pgx.Tx, txq *sqlc.Queries, uid, or
 }
 
 // TogglePassive, teklifi arşivler/arşivden çıkarır (durumu tersine çevirir).
-// Yalnızca arşive GİRİŞ (is_passive false -> true) bir "offer_cancelled"
-// olayı üretir -- arşivden çıkarmanın gerekli kabul edilen 12 olay tipi
-// arasında bir karşılığı yok, bu yüzden loglanmaz.
+// Arşive giriş "offer_cancelled", arşivden çıkış "offer_reactivated" olayı
+// yazar (eskiden çıkış hiç loglanmıyordu: zaman çizelgesi teklifi hâlâ
+// arşivde gösteriyordu).
 func (s *OfferService) TogglePassive(ctx context.Context, id, organizationID, userID string) error {
 	return s.setPassive(ctx, id, organizationID, userID, nil)
 }
@@ -1223,16 +1223,18 @@ func (s *OfferService) setPassive(ctx context.Context, id, organizationID, userI
 	if err := txq.SetOfferPassive(ctx, sqlc.SetOfferPassiveParams{ID: uid, OrganizationID: orgID, IsPassive: newPassive}); err != nil {
 		return err
 	}
-	if newPassive {
-		var actorID pgtype.UUID
-		if userID != "" {
-			if u, err := repository.StringToUUID(userID); err == nil {
-				actorID = u
-			}
+	var actorID pgtype.UUID
+	if userID != "" {
+		if u, err := repository.StringToUUID(userID); err == nil {
+			actorID = u
 		}
-		if err := logOfferEvent(ctx, txq, orgID, uid, row.CurrentRevisionID, domain.EventOfferCancelled, actorID, nil, "", ""); err != nil {
-			return err
-		}
+	}
+	event := domain.EventOfferCancelled
+	if !newPassive {
+		event = domain.EventOfferReactivated
+	}
+	if err := logOfferEvent(ctx, txq, orgID, uid, row.CurrentRevisionID, event, actorID, nil, "", ""); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }
