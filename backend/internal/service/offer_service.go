@@ -1244,10 +1244,20 @@ func (s *OfferService) Revise(ctx context.Context, id, organizationID, userID st
 
 	// Süresi zaten dolmuş bir geçerlilik tarihi yeni revizyona taşınmaz:
 	// yeni revizyon yeni bir fiyat/süre teklifidir, eski tarihle gönderilirse
-	// müşteri onu hiç yanıtlayamazdı. Personel yeni tarihi taslakta girer.
+	// müşteri onu hiç yanıtlayamazdı. Yerine yeni teklifteki gibi firma
+	// varsayılan süresi bugünden (İstanbul) işletilir; firma süre
+	// tanımlamamışsa revizyon süresiz açılır. Eskiden her durumda süresiz
+	// açılıyordu: tarihi formda fark etmeyen personelin gönderdiği revizyonu
+	// müşteri aylar sonra eski fiyatla kabul edebiliyordu. Personel tarihi
+	// taslakta yine değiştirebilir.
+	now := time.Now()
 	validUntil := currentRev.ValidUntil
-	if offerRevisionValidityExpired(currentRev, time.Now()) {
-		validUntil = pgtype.Date{}
+	if offerRevisionValidityExpired(currentRev, now) {
+		defaults, err := loadOfferDefaults(ctx, txq, orgID)
+		if err != nil {
+			return nil, err
+		}
+		validUntil = repository.TimePtrToDate(defaults.ValidUntilFrom(istanbulDay(now)))
 	}
 
 	newRev, err := txq.CreateOfferRevision(ctx, sqlc.CreateOfferRevisionParams{
