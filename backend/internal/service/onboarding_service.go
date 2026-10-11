@@ -36,6 +36,13 @@ func NewOnboardingService(q *sqlc.Queries, box *crypto.SecretBox) *OnboardingSer
 	return &OnboardingService{q: q, box: box}
 }
 
+// ErrOrganizationInvalidIBAN: firmanın kendi IBAN'ı (Finans adımı) biçim ya
+// da kontrol basamağı (ISO 13616 mod-97; TR için 26 hane) doğrulamasından
+// geçmedi. Bu IBAN teklif PDF'inde müşteriye gider ama hiçbir ekranda geri
+// okunamaz; eskiden yalnızca kırpılıp saklanıyordu, yazım hatası müşteriye
+// giden her teklifte basılıyordu. Tedarikçi IBAN'ıyla aynı kural ve mesaj.
+var ErrOrganizationInvalidIBAN = errors.New(ErrSupplierInvalidIBAN.Error())
+
 type OnboardingState struct {
 	OnboardingCompleted bool
 	OnboardingStep      domain.OnboardingStep
@@ -177,7 +184,13 @@ func (s *OnboardingService) SaveOffersStep(ctx context.Context, organizationID s
 	if err != nil {
 		return nil, err
 	}
+	// Gönderilmeyen (ya da boş) para birimi MEVCUT değeri korur: eskiden
+	// boş değer TRY'ye dönüyordu -- alanı göstermeyen bir istemci, web'de
+	// seçilmiş EUR'yu sessizce ezebiliyordu. Hiç kayıt yoksa TRY.
 	currency := strings.TrimSpace(in.DefaultCurrency)
+	if currency == "" {
+		currency = strings.TrimSpace(row.DefaultCurrency)
+	}
 	if currency == "" {
 		currency = "TRY"
 	}
@@ -236,10 +249,15 @@ func (s *OnboardingService) SaveFinanceStep(ctx context.Context, organizationID 
 		row.PaymentDueDays = &v
 	}
 	if in.IBAN != nil {
-		iban := strings.TrimSpace(*in.IBAN)
+		// Boşluklar atılıp büyütülerek saklanır (PDF formatIBAN ile yine
+		// dörderli gruplar basar); geçersizse hiçbir alan yazılmaz.
+		iban := domain.NormalizeIBAN(*in.IBAN)
 		if iban == "" {
 			row.IbanEnc = ""
 		} else {
+			if !domain.ValidIBAN(iban) {
+				return nil, ErrOrganizationInvalidIBAN
+			}
 			enc, err := s.box.Encrypt(iban)
 			if err != nil {
 				return nil, err

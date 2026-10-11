@@ -150,6 +150,8 @@ func (h *OnboardingHandler) SaveBilling(w http.ResponseWriter, r *http.Request) 
 }
 
 type offersStepRequest struct {
+	// Boş ya da gönderilmezse mevcut para birimi korunur (bkz.
+	// SaveOffersStep).
 	DefaultCurrency      string  `json:"default_currency"`
 	DefaultVATRate       float64 `json:"default_vat_rate"`
 	OfferPrefix          string  `json:"offer_prefix"`
