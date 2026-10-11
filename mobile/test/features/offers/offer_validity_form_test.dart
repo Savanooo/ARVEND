@@ -163,6 +163,20 @@ void main() {
       expect(requestBodyFor(adapter, '/offers/o1')['valid_until'], '2026-10-25');
     });
 
+    testWidgets('360 px genişlikte alan ve uyarı taşmaz', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/offers/o1': [(status: 200, body: _offer(validUntil: '2026-10-01'))],
+      });
+      await _pump(tester, adapter, const OfferCreateScreen(offerId: 'o1'));
+      await tester.binding.setSurfaceSize(const Size(360, 780));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(_expiredNote);
+      await tester.pumpAndSettle();
+
+      expect(_expiredNote, findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('süresiz yapılabilir', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
         '/offers/o1': [
