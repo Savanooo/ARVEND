@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -163,7 +164,9 @@ class _PushWatcherState extends ConsumerState<PushWatcher> {
       version = '${info.version}+${info.buildNumber}';
     } catch (_) {}
     try {
-      await ref.read(pushRepositoryProvider).register(token, appVersion: version);
+      await ref
+          .read(pushRepositoryProvider)
+          .register(token, platform: Platform.isIOS ? 'ios' : 'android', appVersion: version);
       // Anahtar artık bu kullanıcının: çıkıştan kalan bekleyen silme unutulur.
       await ref.read(pushCleanupStoreProvider).clear();
     } catch (e) {

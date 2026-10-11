@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -36,6 +37,13 @@ class FirebasePushMessaging implements PushMessaging {
   @override
   Future<String?> token() async {
     try {
+      // iOS: FCM anahtarı APNs anahtarı gelmeden alınamaz ("apns-token-not-set");
+      // izin verildikten hemen sonra birkaç saniye gecikebilir.
+      if (!kIsWeb && Platform.isIOS) {
+        for (var i = 0; i < 10 && await _fm.getAPNSToken() == null; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+        }
+      }
       return await _fm.getToken();
     } catch (e) {
       // Google Play Hizmetleri olmayan cihaz / ağ hatası.

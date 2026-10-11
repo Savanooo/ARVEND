@@ -33,8 +33,16 @@
 	     open_filex, iOS'un kendi sistem seçici/görüntüleyicisini kullanır --
 	     ayrı bir NSUsageDescription GEREKTİRMEZ. Konum/kişi/mikrofon/reklam
 	     kimliği erişimi YOK, bu yüzden ilgili izin metinleri EKLENMEDİ. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>ARVEND, şantiye fotoğrafı çekebilmeniz için kameranıza erişim istiyor.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>ARVEND konumunuzu kullanmaz. Bu açıklama, fotoğraf ve dosya seçerken kullanılan sistem bileşenleri gerektirdiği için vardır.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>ARVEND, galerinizden şantiye fotoğrafı seçebilmeniz için fotoğraflarınıza erişim istiyor.</string>
 	<key>UIApplicationSceneManifest</key>
