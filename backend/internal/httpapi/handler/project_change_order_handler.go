@@ -252,9 +252,46 @@ type recordChangeOrderDecisionRequest struct {
 	Note     string `json:"note"`
 }
 
+// changeOrderDecisionReceiptResponse: record-decision yanıtı, çağıran
+// projects.finance.read TAŞIMIYORSA (uç projects.change_orders.approve ile
+// açılır; ör. finans okuması kişiye özel kaldırılmış bir Yönetici). Kararın
+// kaydedildiğini doğrulamaya yeten alanlar döner; tutarlar (ara toplam,
+// KDV, genel toplam, kalem fiyatları, kârlılık), iç notlar ve müşteri
+// paylaşım token'ı (açan /ek-is sayfasında sözleşme bedelini görür)
+// YAZILMAZ -- proje yanıtlarıyla aynı kural (bkz. canSeeProjectFinance,
+// docs/authorization.md §11). Beyaz liste: changeOrderResponse'a eklenen
+// yeni bir para alanı buraya kendiliğinden sızmaz.
+type changeOrderDecisionReceiptResponse struct {
+	ID                     string  `json:"id"`
+	ProjectID              string  `json:"project_id"`
+	SequenceNo             int     `json:"sequence_no"`
+	ChangeOrderNo          string  `json:"change_order_no"`
+	ChangeType             string  `json:"change_type"`
+	Title                  string  `json:"title"`
+	Status                 string  `json:"status"`
+	UpdatedAt              string  `json:"updated_at"`
+	RespondedAt            *string `json:"responded_at"`
+	ApprovedAt             *string `json:"approved_at"`
+	RejectedAt             *string `json:"rejected_at"`
+	DecisionRecordedBy     *string `json:"decision_recorded_by"`
+	DecisionRecordedByName string  `json:"decision_recorded_by_name"`
+	DecisionNote           string  `json:"decision_note"`
+}
+
+func toChangeOrderDecisionReceipt(co domain.ChangeOrder) changeOrderDecisionReceiptResponse {
+	return changeOrderDecisionReceiptResponse{
+		ID: co.ID, ProjectID: co.ProjectID, SequenceNo: co.SequenceNo, ChangeOrderNo: co.ChangeOrderNo(),
+		ChangeType: co.ChangeType, Title: co.Title, Status: co.Status, UpdatedAt: co.UpdatedAt.Format(rfc3339),
+		RespondedAt: tsStrPtr(co.RespondedAt), ApprovedAt: tsStrPtr(co.ApprovedAt), RejectedAt: tsStrPtr(co.RejectedAt),
+		DecisionRecordedBy: co.DecisionRecordedBy, DecisionRecordedByName: co.DecisionRecordedByName,
+		DecisionNote: co.DecisionNote,
+	}
+}
+
 // RecordChangeOrderDecision: "Müşteri onayladı/reddetti olarak işaretle"
 // (projects.change_orders.approve). Kurallar paylaşım linkiyle aynıdır
-// (bkz. service.RecordChangeOrderDecision).
+// (bkz. service.RecordChangeOrderDecision). projects.finance.read yoksa
+// yanıt tutarsız özettir (changeOrderDecisionReceiptResponse).
 func (h *ProjectHandler) RecordChangeOrderDecision(w http.ResponseWriter, r *http.Request) {
 	var req recordChangeOrderDecisionRequest
 	if err := httpjson.Decode(r, &req); err != nil {
@@ -266,6 +303,10 @@ func (h *ProjectHandler) RecordChangeOrderDecision(w http.ResponseWriter, r *htt
 	co, err := h.svc.RecordChangeOrderDecision(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "changeOrderId"), orgID, userID, req.Decision, req.Note)
 	if err != nil {
 		h.writeError(w, err)
+		return
+	}
+	if !canSeeProjectFinance(r) {
+		httpjson.Write(w, http.StatusOK, toChangeOrderDecisionReceipt(*co))
 		return
 	}
 	httpjson.Write(w, http.StatusOK, toChangeOrderResponse(*co))

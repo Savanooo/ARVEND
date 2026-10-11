@@ -62,8 +62,13 @@ func (h *NotificationHandler) List(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	// Ek iş kararı bildirimindeki tutar okuyanın GÜNCEL finans iznine göre
+	// (bkz. domain.NotificationBodyForViewer): izin sonradan kaldırıldıysa
+	// eski bildirim tutarı göstermez.
+	showMoney := canSeeProjectFinance(r)
 	notifications := make([]notificationResponse, len(result.Notifications))
 	for i, n := range result.Notifications {
+		n.Body = domain.NotificationBodyForViewer(n.Type, n.Body, showMoney)
 		notifications[i] = toNotificationResponse(n)
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"notifications": notifications, "total": result.Total})

@@ -19,7 +19,10 @@ class ProjectEditable {
 
   // Değiştirilemeyen (salt okunur gösterilen) bilgiler.
   final String customerName;
-  final double contractAmount;
+
+  /// `projects.finance.read` izni olmayana sunucu null döner -- 0 DEĞİL,
+  /// "gösterilmez"; ekran null'da satırı çizmez.
+  final double? contractAmount;
   final String currency;
   final String sourceOfferNo;
   final int sourceRevisionNo;
@@ -52,7 +55,7 @@ class ProjectEditable {
         description: json['description'] as String? ?? '',
         internalNotes: json['internal_notes'] as String? ?? '',
         customerName: json['customer_name'] as String? ?? '',
-        contractAmount: (json['contract_amount'] as num?)?.toDouble() ?? 0,
+        contractAmount: (json['contract_amount'] as num?)?.toDouble(),
         currency: json['currency'] as String? ?? 'TRY',
         sourceOfferNo: json['source_offer_no'] as String? ?? '',
         sourceRevisionNo: (json['source_revision_no'] as num?)?.toInt() ?? 0,

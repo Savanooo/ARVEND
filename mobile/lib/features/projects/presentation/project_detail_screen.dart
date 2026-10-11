@@ -459,13 +459,14 @@ class _OverviewTab extends ConsumerWidget {
               ),
               const SizedBox(height: AppSpacing.md),
               _InfoRow(label: 'Proje Türü', value: project.projectType.isEmpty ? '-' : project.projectType),
-              // Tutar yalnızca finans görüntüleme iznine sahip kişiye (web
-              // "Ana Sözleşme Bedeli"ni tüm proje okuyucularına gösterir;
-              // mobil kuralı daha sıkı: finans izni yoksa hiç para yok).
-              if (canFinance)
+              // Tutar yalnızca finans görüntüleme iznine sahip kişiye. Sunucu
+              // da `projects.finance.read` yoksa contract_amount'u null
+              // döner (web de satırı gizler) -- izin önbelleği eskiyse bile
+              // "0,00 TL" çizilmez.
+              if (canFinance && project.contractAmount != null)
                 _InfoRow(
                     label: 'Sözleşme Tutarı',
-                    value: Formatters.money(project.contractAmount, currency: project.currency)),
+                    value: Formatters.money(project.contractAmount!, currency: project.currency)),
               _InfoRow(label: 'Başlangıç', value: Formatters.date(project.startDate)),
               _InfoRow(label: 'Bitiş', value: Formatters.date(project.endDate)),
               // Web "Kaynak Teklif": teklif no · revizyon; teklif okuma izni

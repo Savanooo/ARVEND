@@ -37,7 +37,6 @@ type projectResponse struct {
 	CustomerPhone    string  `json:"customer_phone"`
 	CustomerEmail    string  `json:"customer_email"`
 	CustomerAddress  string  `json:"customer_address"`
-	ContractAmount   float64 `json:"contract_amount"`
 	Currency         string  `json:"currency"`
 	Status           string  `json:"status"`
 	StartDate        *string `json:"start_date"`
@@ -48,6 +47,11 @@ type projectResponse struct {
 	CreatedAt        string  `json:"created_at"`
 	UpdatedAt        string  `json:"updated_at"`
 
+	// ContractAmount: projects.finance.read izni olmayana null (bkz.
+	// canSeeProjectFinance). Alan her zaman yanıttadır; null "sıfır" değil
+	// "bu kişiye gösterilmez" demektir.
+	ContractAmount *float64 `json:"contract_amount"`
+
 	// Liste ekranı için aggregate finans alanları. YALNIZCA List
 	// yanıtında dolu (pointer + omitempty): tekil okuma yollarında
 	// (Get/GetByOffer/Create/Update) bu alanlar hiç sorgulanmadığı için
@@ -56,7 +60,8 @@ type projectResponse struct {
 	// döndürdüğü gerçek (sıfır olmayan) değerlerle çelişen, yanlış finans
 	// bilgisi taşıyan bir yanıt üretiyordu (bkz. denetim bulgusu). Proje
 	// detayının gerçek finans kaynağı her zaman
-	// GET /projects/{id}/financial-summary'dir.
+	// GET /projects/{id}/financial-summary'dir. projects.finance.read izni
+	// olmayana List'te de HİÇ yazılmaz (fatura sayıları dahil).
 	CollectedAmount        *float64 `json:"collected_amount,omitempty"`
 	TotalExpenses          *float64 `json:"total_expenses,omitempty"`
 	SubcontractorPaid      *float64 `json:"subcontractor_paid,omitempty"`
@@ -74,7 +79,20 @@ type projectResponse struct {
 	CurrentContractValue *float64 `json:"current_contract_value,omitempty"`
 }
 
-func toProjectResponse(p domain.Project) projectResponse {
+// canSeeProjectFinance: proje yanıtlarındaki para alanları (sözleşme bedeli,
+// liste aggregate'leri, olay tutarları, maliyet kontrolündeki gelir/kâr)
+// yalnızca projects.finance.read sahibine döner. İzin, kişiye özel
+// ekleme/kaldırma dahil EFEKTİF izin kümesinden okunur (AuthzContext).
+// Proje okuma (projects.read) Saha ve Proje Yöneticisi'nde de var; bu
+// alanlar onlara eskiden de dönüyordu, mobil yalnızca ekranda gizliyordu.
+func canSeeProjectFinance(r *http.Request) bool {
+	authz, ok := middleware.AuthzContextFromRequest(r.Context())
+	return ok && authz.HasPermission(domain.PermProjectsFinanceRead)
+}
+
+// toProjectResponse: showFinance false ise (bkz. canSeeProjectFinance)
+// contract_amount null, aggregate finans alanları yok.
+func toProjectResponse(p domain.Project, showFinance bool) projectResponse {
 	resp := projectResponse{
 		ID:               p.ID,
 		ProjectNo:        p.ProjectNo,
@@ -89,7 +107,6 @@ func toProjectResponse(p domain.Project) projectResponse {
 		CustomerPhone:    p.CustomerPhone,
 		CustomerEmail:    p.CustomerEmail,
 		CustomerAddress:  p.CustomerAddress,
-		ContractAmount:   p.ContractAmount,
 		Currency:         p.Currency,
 		Status:           p.Status,
 		Description:      p.Description,
@@ -98,7 +115,10 @@ func toProjectResponse(p domain.Project) projectResponse {
 		CreatedAt:        p.CreatedAt.Format(rfc3339),
 		UpdatedAt:        p.UpdatedAt.Format(rfc3339),
 	}
-	if p.HasFinanceAggregates {
+	if showFinance {
+		resp.ContractAmount = &p.ContractAmount
+	}
+	if showFinance && p.HasFinanceAggregates {
 		resp.CollectedAmount = &p.CollectedAmount
 		resp.TotalExpenses = &p.TotalExpenses
 		resp.SubcontractorPaid = &p.SubcontractorPaid
@@ -166,7 +186,7 @@ func (h *ProjectHandler) CreateFromOffer(w http.ResponseWriter, r *http.Request)
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusCreated, toProjectResponse(*p))
+	httpjson.Write(w, http.StatusCreated, toProjectResponse(*p, canSeeProjectFinance(r)))
 }
 
 func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -200,9 +220,13 @@ func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	// Filtre/arama yalnızca ad, numara, müşteri, tip, durum, para birimi ve
+	// tarih üzerinde; tutara göre sıralama/filtre YOK -- finans izni
+	// olmayan kişi tutarı sorgu yoluyla da çıkaramaz.
+	showFinance := canSeeProjectFinance(r)
 	projects := make([]projectResponse, len(result.Projects))
 	for i, p := range result.Projects {
-		projects[i] = toProjectResponse(p)
+		projects[i] = toProjectResponse(p, showFinance)
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"projects": projects, "total": result.Total})
 }
@@ -214,7 +238,7 @@ func (h *ProjectHandler) Get(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toProjectResponse(*p))
+	httpjson.Write(w, http.StatusOK, toProjectResponse(*p, canSeeProjectFinance(r)))
 }
 
 // GetByOffer, teklifin projeye dönüştürülüp dönüştürülmediğini söyler.
@@ -227,7 +251,8 @@ func (h *ProjectHandler) Get(w http.ResponseWriter, r *http.Request) {
 // için proje üyeliği, bkz. AuthorizationService.CanAccessProject). Eskiden
 // offers.read'i olan herkes üyesi olmadığı projelerin bu bilgilerini
 // okuyabiliyordu. İzin kontrolü projeye bakmadan önce yapılır (izinsiz
-// kullanıcı projenin varlığını da öğrenmez).
+// kullanıcı projenin varlığını da öğrenmez). Sözleşme bedeli, öteki proje
+// uçlarıyla aynı kuralla yalnızca projects.finance.read sahibine döner.
 func (h *ProjectHandler) GetByOffer(authzSvc *service.AuthorizationService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		authz, ok := middleware.AuthzContextFromRequest(r.Context())
@@ -254,7 +279,7 @@ func (h *ProjectHandler) GetByOffer(authzSvc *service.AuthorizationService) http
 			})
 			return
 		}
-		httpjson.Write(w, http.StatusOK, toProjectResponse(*p))
+		httpjson.Write(w, http.StatusOK, toProjectResponse(*p, canSeeProjectFinance(r)))
 	}
 }
 
@@ -293,7 +318,7 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toProjectResponse(*p))
+	httpjson.Write(w, http.StatusOK, toProjectResponse(*p, canSeeProjectFinance(r)))
 }
 
 func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {

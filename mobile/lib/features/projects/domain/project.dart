@@ -2,6 +2,11 @@
 /// Finans alanları YALNIZCA liste uçlarında dolu gelir; tekil GET'te
 /// (`omitempty` + backend'in bilinçli tasarımı) hepsi null'dur - detay
 /// ekranı bu yüzden ayrıca `GET /financial-summary` çağırmalı.
+///
+/// `projects.finance.read` izni olmayana sunucu para alanlarını HİÇ
+/// göndermez: `contract_amount` null, liste aggregate'leri yok. Bu yüzden
+/// [contractAmount] dahil tüm tutarlar nullable'dır -- null "sıfır" değil
+/// "bu kişiye gösterilmez" demektir; ekranlar null'da tutarı çizmez.
 class Project {
   final String id;
   final String projectNo;
@@ -11,7 +16,7 @@ class Project {
   final String customerName;
   final String customerPhone;
   final String customerEmail;
-  final double contractAmount;
+  final double? contractAmount;
   final String currency;
   final String status;
   final String? startDate;
@@ -69,7 +74,7 @@ class Project {
         customerName: json['customer_name'] as String? ?? '',
         customerPhone: json['customer_phone'] as String? ?? '',
         customerEmail: json['customer_email'] as String? ?? '',
-        contractAmount: (json['contract_amount'] as num).toDouble(),
+        contractAmount: (json['contract_amount'] as num?)?.toDouble(),
         currency: json['currency'] as String? ?? 'TRY',
         status: json['status'] as String,
         startDate: json['start_date'] as String?,
@@ -685,6 +690,12 @@ class CostControlSummary {
   final double forecastMarginPercent;
   final bool hasBudget;
 
+  /// Gelir tarafı (sözleşme bedeli, tahmini kâr/marj) yanıtta var mı:
+  /// sunucu bunları `projects.finance.read` izni olmayana null döner (uç
+  /// cost_control.read ile açılır). false ise yukarıdaki üç alan 0'dır ve
+  /// GÖSTERİLMEZ -- "0,00 TL" yazmak yanlış bilgi olurdu.
+  final bool hasRevenue;
+
   const CostControlSummary({
     required this.currency,
     required this.contractValue,
@@ -699,6 +710,7 @@ class CostControlSummary {
     required this.forecastProfit,
     required this.forecastMarginPercent,
     required this.hasBudget,
+    this.hasRevenue = true,
   });
 
   factory CostControlSummary.fromJson(Map<String, dynamic> json) => CostControlSummary(
@@ -715,6 +727,7 @@ class CostControlSummary {
         forecastProfit: (json['forecast_profit'] as num?)?.toDouble() ?? 0,
         forecastMarginPercent: (json['forecast_margin_percent'] as num?)?.toDouble() ?? 0,
         hasBudget: json['has_budget'] as bool? ?? false,
+        hasRevenue: json['contract_value'] is num,
       );
 }
 

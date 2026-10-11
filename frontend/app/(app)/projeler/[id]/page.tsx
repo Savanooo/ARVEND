@@ -313,14 +313,17 @@ export default async function ProjeDetayPage({
         <div className="grid grid-cols-2 gap-4 rounded-lg border border-border bg-surface p-4 text-sm md:grid-cols-4 lg:grid-cols-6">
           <Row label="Proje No" value={<span className="font-medium">{project.project_no}</span>} />
           <Row label="Müşteri" value={project.customer_name} />
-          <Row
-            label="Ana Sözleşme Bedeli"
-            value={
-              <span className="font-medium">
-                {formatMoney(project.contract_amount, project.currency)}
-              </span>
-            }
-          />
+          {/* contract_amount: projects.finance.read yoksa backend null döner. */}
+          {project.contract_amount != null && (
+            <Row
+              label="Ana Sözleşme Bedeli"
+              value={
+                <span className="font-medium">
+                  {formatMoney(project.contract_amount, project.currency)}
+                </span>
+              }
+            />
+          )}
           <Row label="Başlangıç" value={formatDate(project.start_date)} />
           <Row label="Bitiş" value={formatDate(project.end_date)} />
           <Row
@@ -370,14 +373,16 @@ export default async function ProjeDetayPage({
               {/* Fiyat kırılımı: ana sözleşme + onaylı ek işler/eksiltmeler.
                   Bunların toplamı olan güncel proje bedeli üstteki KPI
                   şeridinde; gerçekleşen kâr/marj ise Finans > Maliyet /
-                  Kârlılık bölümünde -- burada tekrarlanmaz. summary null ise
-                  (finance.read izni yok) yalnızca ASLA değişmeyen ana
-                  sözleşme bedeli gösterilir. */}
-              <div className="mt-4 grid grid-cols-2 gap-4 border-t border-border pt-4 md:grid-cols-4">
-                <Row
-                  label="Ana Sözleşme Bedeli"
-                  value={<span className="font-medium">{formatMoney(project.contract_amount, project.currency)}</span>}
-                />
+                  Kârlılık bölümünde -- burada tekrarlanmaz. finance.read izni
+                  yoksa backend ana sözleşme bedelini null, summary'yi 403
+                  döner: blok hiç çizilmez (empty:hidden). */}
+              <div className="mt-4 grid grid-cols-2 gap-4 border-t border-border pt-4 empty:hidden md:grid-cols-4">
+                {project.contract_amount != null && (
+                  <Row
+                    label="Ana Sözleşme Bedeli"
+                    value={<span className="font-medium">{formatMoney(project.contract_amount, project.currency)}</span>}
+                  />
+                )}
                 {summary && (
                   <>
                     <Row
@@ -450,7 +455,9 @@ export default async function ProjeDetayPage({
               <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
                 <Row label="Teklif No" value={project.source_offer_no} />
                 <Row label="Kabul Edilen Revizyon" value={`Revizyon ${project.source_revision_no}`} />
-                <Row label="Teklif Toplamı" value={formatMoney(project.contract_amount, project.currency)} />
+                {project.contract_amount != null && (
+                  <Row label="Teklif Toplamı" value={formatMoney(project.contract_amount, project.currency)} />
+                )}
                 <Row label="Para Birimi" value={project.currency} />
               </div>
               {canReadOffers && (

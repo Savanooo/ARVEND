@@ -196,11 +196,11 @@ class _BudgetCostControlTabState extends ConsumerState<BudgetCostControlTab> {
               ? _CostSummaryCard(
                   summary: data.summary,
                   overCount: overBudgetLines(data.lines).length,
-                  showRevenue: canFinance,
+                  showRevenue: canFinance && data.summary.hasRevenue,
                 )
               : _NoBudgetSummaryCard(
                   summary: data.summary,
-                  showRevenue: canFinance,
+                  showRevenue: canFinance && data.summary.hasRevenue,
                   onOpenBudget: canBudget ? () => context.push(budgetPath(_pid)) : null,
                   onCreate: canBudget && user.can(kBudgetManagePermission) && !locked ? _createBudget : null,
                   creating: _creating,
@@ -342,7 +342,8 @@ class _CostSummaryCard extends StatelessWidget {
   /// gerçekleşen, varyans) `cost_control.read`/`budget.read` ile görünür:
   /// Proje Yöneticisi rolü bunları görmek için tasarlandı (migration 0035),
   /// ama gelir/kâr finans iznidir (HANDOFF §7.2). Backend `/cost-control`
-  /// bu alanları cost_control.read'e de döndürür -- ekran göstermez.
+  /// de finans izni olmayana bu alanları null döner
+  /// ([CostControlSummary.hasRevenue] false) -- ekran ikisine de bakar.
   final bool showRevenue;
 
   @override

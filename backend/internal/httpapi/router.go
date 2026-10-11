@@ -602,8 +602,8 @@ func NewRouter(d Deps) http.Handler {
 		// değerlendirir, yetkisiz bölüm yanıtta hiç görünmez (bkz.
 		// service.DashboardService). super_admin requireTenant'ta 403
 		// tenant_context_required alır. Proje seçici GET /projects'i
-		// KULLANMAZ (o uç tutar döner) -- tutar alanı içermeyen, üyelik
-		// kapsamlı ayrı bir uçtur.
+		// KULLANMAZ (o uç finans izinliye tutar döner) -- tutar alanı
+		// içermeyen, üyelik kapsamlı ayrı bir uçtur.
 		r.With(requireAuth, requireTenant, requireOnboarded, loadAuthorization).
 			Get("/dashboard", d.Dashboard.Get)
 		r.With(requireAuth, requireTenant, requireOnboarded, loadAuthorization, perm(domain.PermProjectsRead)).

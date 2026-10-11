@@ -240,6 +240,7 @@ func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
 		CostCodes:         handler.NewCostCodeHandler(costCodeSvc),
 		Suppliers:         handler.NewSupplierHandler(supplierSvc),
 		Dashboard:         handler.NewDashboardHandler(dashboardSvc),
+		Notifications:     handler.NewNotificationHandler(service.NewNotificationService(q)),
 		CORSOrigins:       []string{"*"},
 	})
 

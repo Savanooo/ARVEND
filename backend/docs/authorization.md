@@ -232,3 +232,53 @@ Yeni bir izin/rota eklerken:
   temiz olmalı.
 - Migration değişikliği varsa up→down→up gerçek dev DB'ye karşı
   test edilmeli.
+
+## 11. Alan düzeyinde gizleme: proje para bilgisi (`projects.finance.read`)
+
+Bazı uçlar finans dışı bir izinle açılır ama yanıtlarında para taşır.
+Uç kapatılmaz (Saha ve Proje Yöneticisi projeyi, olay geçmişini, maliyet
+rakamlarını görmeli); para alanları **sunucuda** yalnızca efektif
+`projects.finance.read` sahibine yazılır. Efektif izin = rol izinleri +
+kişiye özel ekleme − kişiye özel kaldırma (`AuthzContext.HasPermission`);
+rol koduna ya da kaba `users.role`'e BAKILMAZ. Karar
+`handler.canSeeProjectFinance` (proje uçları) ile tek yerde verilir.
+
+| Uç | Açan izin | Finans izni yoksa |
+|----|-----------|-------------------|
+| `GET /projects` | `projects.read` | `contract_amount: null`; liste aggregate'leri (`collected_amount`, `total_expenses`, `subcontractor_paid/remaining`, `new_subcontract_paid`, `remaining_receivable`, `realized_cost`, `realized_gross_profit`, `invoice_count`, `paid_invoice_count`, `change_order_net`, `current_contract_value`) HİÇ yazılmaz |
+| `GET /projects/{id}`, `PUT /projects/{id}`, `POST /projects/from-offer/{offerId}`, `GET /offers/{id}/project` | `projects.read` / `projects.update` / `projects.create` / `offers.read` + proje erişimi | `contract_amount: null` (tekil yanıtlarda aggregate zaten yok) |
+| `GET /projects/{id}/events` | `projects.read` | Olay listede kalır; `metadata`'dan `domain.ProjectEventMoneyKeys` (`amount`, `planned_amount`, `contract_amount`, `grand_total`, `total`, `net_payable`, `etc_amount`) düşürülür |
+| `GET /projects/{id}/cost-control` | `projects.cost_control.read` | `summary.contract_value`, `forecast_profit`, `forecast_margin_percent` null; maliyet rakamları (bütçe, taahhüt, gerçekleşen, ETC, EAC, varyans) aynen döner |
+| `POST /projects/{id}/change-orders/{coId}/record-decision` | `projects.change_orders.approve` | Karar kaydedilir; yanıt tutarsız özettir (`changeOrderDecisionReceiptResponse`: kimlik, no, tip, başlık, durum, karar zamanları/kaydeden/not) — toplamlar, kalemler, kârlılık, iç notlar ve müşteri paylaşım token'ı yok |
+| `GET /notifications`, ana sayfa bildirim bölümü | `notifications.read` | Ek iş kararı bildiriminin (`change_order_approved/rejected`) gövdesindeki işaretli tutar ("+1.250.000 TL") okuma anında düşer (`domain.NotificationBodyForViewer`) — bildirim finans okuyana gönderilmiştir ama izin SONRADAN kaldırılmış olabilir |
+
+Kurallar:
+- `contract_amount` anahtarı her zaman yanıttadır; `null` "sıfır" değil
+  "bu kişiye gösterilmez" demektir. İstemciler (web `lib/project-finance.ts`,
+  mobil `Project.contractAmount`) null'da tutarı çizmez, `0`/`NaN` yazmaz.
+- Liste filtre/arama/sıralaması tutar üzerinden YAPILMAZ (ad, numara,
+  müşteri, tip, durum, para birimi, tarih) — tutar sorgu yoluyla da
+  çıkarılamaz. Tutara göre sıralama/filtre eklenecekse aynı izne bağlanmalı.
+- Bir olaya tutar yazan YENİ bir metadata anahtarı
+  `domain.ProjectEventMoneyKeys`'e eklenmeli;
+  `service/project_event_money_test.go` servis kaynağını tarayıp tutar adlı
+  (amount/total/payable/price/cost/value/paid/profit/margin/wage/salary/
+  balance/receivable) her anahtarın listede olduğunu zorlar.
+- Aynı desen başka yerlerde de var: personel ücretleri (`salary`,
+  `daily_wage`) yalnızca `employees.manage` ile (`canSeeEmployeeWages`);
+  ana sayfa bölümleri serviste izne göre düşer (docs/dashboard/SPEC.md §9);
+  ek iş kararı bildirimleri yalnızca `projects.finance.read` sahiplerine
+  gider, masraf bildirimleri tutar yazmaz.
+- Kapsam dışı (bilinçli): maliyet tarafı tutarlar kendi izinleriyle açılır
+  — bütçe (`projects.budget.read`), satın alma (`projects.procurement.read`),
+  taşeron sözleşme/hakediş/ödeme (`projects.subcontracts.read`,
+  `projects.subcontract_claims.read`, `projects.subcontract_payments.read`).
+  Proje Yöneticisi rolü bunları varsayılan olarak taşır; bu bir sızıntı
+  değil rol tasarımıdır. Teklif tutarları `offers.read` ile açılır.
+
+Test: `internal/httpapi/middleware/project_finance_visibility_security_test.go`
+(Sahip, Finans, kişiye özel finance.read verilmiş Saha görür; Proje
+Yöneticisi, Saha ve finance.read'i kişiye özel kaldırılmış Yönetici
+görmez — liste, detay, güncelleme, tekliften oluşturma, teklif→proje,
+olaylar, maliyet kontrolü, ek iş kararı kaydı, izin sonradan kaldırılınca
+ek iş bildirimi).
