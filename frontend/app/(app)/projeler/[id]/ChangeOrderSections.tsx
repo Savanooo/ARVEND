@@ -267,7 +267,8 @@ function ChangeOrderCard({
     const note = await askReason({
       title: text.title,
       message: text.message,
-      label: "Not (isteğe bağlı)",
+      // ReasonDialog "(opsiyonel)" ekini kendisi yazar -> "Not (opsiyonel)".
+      label: "Not",
       placeholder: text.placeholder,
       confirmLabel: text.confirmLabel,
       danger: text.danger,
