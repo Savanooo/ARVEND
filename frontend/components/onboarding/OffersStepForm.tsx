@@ -4,8 +4,10 @@ import { FormEvent, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { apiClient, ApiError } from "@/lib/api";
+import { currencyChoice } from "@/lib/offers";
 import type { OnboardingState, OrganizationCommercialSettings } from "@/lib/types";
 
 export function OffersStepForm({
@@ -21,8 +23,14 @@ export function OffersStepForm({
   submitLabel?: string;
   onBack?: () => void;
 }) {
+  // Para birimi eskiden serbest metindi ("TL", "tl", "Euro"...): backend
+  // yalnızca 3 harfli kodu kabul eder, teklif/proje ekranları da TRY/USD/EUR'u
+  // biçimlendirir. Kayıtlı değer koda çevrilip seçili gelir; listede olmayan
+  // geçerli bir kod (ör. GBP) sessizce TRY'ye dönmesin diye seçenek olarak kalır.
+  const [currency] = useState(() => currencyChoice(initial.default_currency));
+  const currencyOptions = currency.options;
   const [form, setForm] = useState({
-    default_currency: initial.default_currency || "TRY",
+    default_currency: currency.value,
     default_vat_rate: initial.default_vat_rate ?? 20,
     offer_prefix: initial.offer_prefix || "TKF",
     offer_validity_days: initial.offer_validity_days || 30,
@@ -70,11 +78,18 @@ export function OffersStepForm({
         />
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <Input
+        <Select
+          id="default_currency"
           label="Varsayılan Para Birimi"
           value={form.default_currency}
           onChange={(e) => setForm({ ...form, default_currency: e.target.value })}
-        />
+        >
+          {currencyOptions.map((c) => (
+            <option key={c.code} value={c.code}>
+              {c.label}
+            </option>
+          ))}
+        </Select>
         <Input
           label="Varsayılan KDV Oranı (%)"
           type="number"
