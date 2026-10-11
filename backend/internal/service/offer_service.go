@@ -806,6 +806,12 @@ func OfferValidityExpired(validUntil *time.Time, now time.Time) bool {
 	return validUntil != nil && calendarDay(IstanbulNow(now)).After(calendarDay(*validUntil))
 }
 
+// sameStoredDate: istekteki tarih revizyonda kayıtlı tarihle aynı takvim
+// günü mü (ikisi de doluysa).
+func sameStoredDate(in *time.Time, stored pgtype.Date) bool {
+	return in != nil && stored.Valid && calendarDay(*in).Equal(calendarDay(stored.Time))
+}
+
 func offerRevisionValidityExpired(rev sqlc.OfferRevision, now time.Time) bool {
 	if !rev.ValidUntil.Valid {
 		return false
@@ -842,11 +848,6 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 	if len(in.Items) == 0 {
 		return nil, errors.New("en az bir kalem girilmelidir")
 	}
-	if in.ValidUntilProvided {
-		if err := validateOfferValidUntil(in.ValidUntil, time.Now()); err != nil {
-			return nil, err
-		}
-	}
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -855,23 +856,32 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 	defer tx.Rollback(ctx)
 	txq := s.q.WithTx(tx)
 
+	currentRev, err := txq.GetOfferRevisionByID(ctx, sqlc.GetOfferRevisionByIDParams{ID: offerRow.CurrentRevisionID, OrganizationID: orgID})
+	if err != nil {
+		return nil, err
+	}
+	// Geçmiş tarih yalnızca YENİ girilirse reddedilir. Kayıtlı tarihin aynen
+	// geri gelmesi (web formu ve 1.5.14 öncesi mobil her kayıtta gönderir)
+	// süresi geçmiş bir taslağın öteki alanlarının kaydını engellemez --
+	// eskiden böyle bir taslak hiç kaydedilemiyordu. Gönderim yine
+	// engellenir (ErrOfferSendExpired).
+	if in.ValidUntilProvided && !sameStoredDate(in.ValidUntil, currentRev.ValidUntil) {
+		if err := validateOfferValidUntil(in.ValidUntil, time.Now()); err != nil {
+			return nil, err
+		}
+	}
+
 	// Gönderilmeyen geçerlilik tarihi ve KDV oranı KORUNUR (Create'teki
 	// firma varsayılanı burada uygulanmaz -- taslak zaten bir değer taşır;
 	// eskiden KDV'siz bir kayıt oranı sessizce %20'ye çeviriyordu).
 	validUntil := repository.TimePtrToDate(in.ValidUntil)
+	if !in.ValidUntilProvided {
+		validUntil = currentRev.ValidUntil
+	}
 	vatIn := in.VatRate
-	if !in.ValidUntilProvided || vatIn == nil {
-		currentRev, err := txq.GetOfferRevisionByID(ctx, sqlc.GetOfferRevisionByIDParams{ID: offerRow.CurrentRevisionID, OrganizationID: orgID})
-		if err != nil {
-			return nil, err
-		}
-		if !in.ValidUntilProvided {
-			validUntil = currentRev.ValidUntil
-		}
-		if vatIn == nil {
-			v := repository.NumericToFloat64(currentRev.VatRate)
-			vatIn = &v
-		}
+	if vatIn == nil {
+		v := repository.NumericToFloat64(currentRev.VatRate)
+		vatIn = &v
 	}
 
 	// İç fiyatlama yetkisi olmayan düzenleyici: istemcinin gönderdiği iç
