@@ -21,6 +21,7 @@ import '../../../core/widgets/app_section_header.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/money_text.dart';
 import '../../../core/widgets/status_badge.dart';
+import '../../projects/data/projects_providers.dart' show customerProjectsProvider, projectsListProvider;
 import '../data/offers_providers.dart';
 import '../domain/offer.dart';
 import '../history/offer_history_routes.dart' show OfferHistorySection, invalidateOfferHistory;
@@ -187,6 +188,10 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     if (result == null) return;
     invalidate(offerProjectLinkProvider(offerId));
     invalidateOfferHistory(invalidate, offerId);
+    // Yeni proje müşteri kartının "Projeler"ine ve Finansal Özet'ine düşer
+    // (kart Diğer sekmesinde canlı kalabilir) ve proje listesine.
+    invalidate(customerProjectsProvider);
+    invalidate(projectsListProvider);
     if (!mounted) return;
     final message = result.alreadyConvertedMessage;
     if (message != null) {

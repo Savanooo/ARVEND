@@ -65,6 +65,13 @@ Future<void> _start() async {
     container.read(authControllerProvider.notifier).recheckAccountSetup();
   };
 
+  // Bir uç "yetkiniz yok" dedi (403 permission_denied): yetkiler web'den
+  // değişmiş olabilir -- izin listesi tazelenir (seyreltilmiş), izinsiz
+  // düğmeler kaybolur.
+  apiClient.onPermissionDenied = () {
+    unawaited(container.read(authControllerProvider.notifier).recheckPermissions());
+  };
+
   // Raporlara yalnızca iç kullanıcı/firma kimliği gider (ad, e-posta YOK).
   // Oturum denetimini (/auth/me) başlatır -- bu yüzden yukarıdaki oturum
   // geri çağrıları bağlandıktan SONRA.

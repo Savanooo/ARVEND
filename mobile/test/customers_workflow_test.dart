@@ -295,6 +295,52 @@ void main() {
     test('empty project list produces no summary rows', () {
       expect(summarizeProjectReceivables(const []), isEmpty);
     });
+
+    // Ana sayfanın açık alacağıyla (dashboard.sql) aynı kural: iptal edilen
+    // proje alacak üretmez. Eskiden 300.000'lik iptal edilmiş proje de
+    // "Kalan Alacak"a ekleniyordu.
+    test('cancelled projects are left out of every figure', () {
+      final projects = [
+        Project.fromJson(_projectJson(
+            id: 'p1', currentContractValue: 500000, collectedAmount: 200000, remainingReceivable: 300000)),
+        Project.fromJson(_projectJson(
+            id: 'p2',
+            status: 'cancelled',
+            currentContractValue: 300000,
+            collectedAmount: 0,
+            remainingReceivable: 300000)),
+      ];
+      final result = summarizeProjectReceivables(projects).single;
+      expect(result.contractValue, 500000);
+      expect(result.collected, 200000);
+      expect(result.remaining, 300000);
+      expect(result.overCollected, 0);
+      expect(cancelledProjectCount(projects), 1);
+    });
+
+    // Proje başına sıfırın altına inilmez: A'daki 50.000 fazla tahsilat
+    // B'nin alacağını kapatmaz, ayrı satırda durur.
+    test('over-collection on one project does not reduce another project\'s receivable', () {
+      final projects = [
+        Project.fromJson(_projectJson(
+            id: 'a', currentContractValue: 100000, collectedAmount: 150000, remainingReceivable: -50000)),
+        Project.fromJson(_projectJson(
+            id: 'b', currentContractValue: 200000, collectedAmount: 50000, remainingReceivable: 150000)),
+      ];
+      final result = summarizeProjectReceivables(projects).single;
+      expect(result.remaining, 150000);
+      expect(result.overCollected, 50000);
+      expect(result.contractValue - result.collected, result.remaining - result.overCollected);
+    });
+
+    test('only cancelled projects: no summary rows, but they are counted for the note', () {
+      final projects = [
+        Project.fromJson(_projectJson(
+            id: 'p1', status: 'cancelled', currentContractValue: 1000, collectedAmount: 0, remainingReceivable: 1000)),
+      ];
+      expect(summarizeProjectReceivables(projects), isEmpty);
+      expect(cancelledProjectCount(projects), 1);
+    });
   });
 
   group('permissions — exact two-tier, org-only model (customers.read / customers.manage)', () {
@@ -540,6 +586,7 @@ Map<String, dynamic> _projectJson({
   String id = 'p1',
   String? customerId,
   String currency = 'TRY',
+  String status = 'active',
   double? currentContractValue,
   double? collectedAmount,
   double? remainingReceivable,
@@ -555,7 +602,7 @@ Map<String, dynamic> _projectJson({
       'customer_email': '',
       'contract_amount': currentContractValue ?? 100000.0,
       'currency': currency,
-      'status': 'active',
+      'status': status,
       'start_date': null,
       'end_date': null,
       'description': '',

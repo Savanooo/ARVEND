@@ -39,8 +39,16 @@ UPDATE notifications SET read_at = now()
 WHERE id = $1 AND user_id = $2 AND organization_id = $3 AND read_at IS NULL;
 
 -- name: MarkAllNotificationsRead :execrows
+-- `before` (isteğe bağlı): istemcinin gördüğü listedeki en yeni bildirimin
+-- zamanı. Yalnızca o ana kadarki okunmamışlar işaretlenir; liste
+-- görüldükten SONRA gelen (ya da gruplanıp yeniden öne çıkan, bkz.
+-- BumpGroupedNotification) bildirim okunmamış kalır. created_at yanıtta
+-- saniye hassasiyetinde (RFC3339) döndüğü için karşılaştırma saniyeye
+-- yuvarlanır. NULL = sınırsız (eski istemciler).
 UPDATE notifications SET read_at = now()
-WHERE user_id = $1 AND organization_id = $2 AND read_at IS NULL;
+WHERE user_id = sqlc.arg(user_id) AND organization_id = sqlc.arg(organization_id) AND read_at IS NULL
+  AND (sqlc.narg('before')::timestamptz IS NULL
+       OR created_at < date_trunc('second', sqlc.narg('before')::timestamptz) + interval '1 second');
 
 -- name: ListUsersWithPermission :many
 -- Bir izin kodunu tutan kullanıcıların TERS-arama'sı (permission_code ->

@@ -60,4 +60,7 @@ void invalidateChangeOrders(
   invalidate(changeOrderEventsProvider(projectId));
   invalidate(projectChangeOrdersProvider(projectId));
   invalidate(projectFinancialSummaryProvider(projectId));
+  // Onaylı ek iş güncel sözleşme bedelini değiştirir: müşteri kartının
+  // Finansal Özet'i de tazelenir.
+  invalidate(customerProjectsProvider);
 }

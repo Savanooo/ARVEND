@@ -53,4 +53,20 @@ class NotificationsPage {
   final bool reachedEnd;
 
   bool get hasMore => !reachedEnd && notifications.length < total;
+
+  /// Listede görülen en yeni bildirimin `created_at`'i (sunucudaki metin
+  /// olduğu gibi) -- "Tümünü okundu"nun üst sınırı. Liste boşsa null.
+  String? get newestCreatedAt {
+    String? newest;
+    DateTime? newestAt;
+    for (final n in notifications) {
+      final at = DateTime.tryParse(n.createdAt);
+      if (at == null) continue;
+      if (newestAt == null || at.isAfter(newestAt)) {
+        newestAt = at;
+        newest = n.createdAt;
+      }
+    }
+    return newest;
+  }
 }

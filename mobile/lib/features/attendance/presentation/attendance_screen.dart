@@ -19,6 +19,7 @@ import '../../../core/widgets/status_badge.dart';
 import '../../payroll/data/payroll_providers.dart';
 import '../../payroll/domain/payroll.dart';
 import '../../payroll/presentation/payroll_tab.dart';
+import '../domain/attendance_access.dart';
 import '../domain/attendance_entry.dart';
 import '../domain/attendance_people.dart';
 import 'person_month_screen.dart';
@@ -72,20 +73,67 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final recordsAsync = ref.watch(attendanceListProvider(_monthKey));
-    final employees = ref.watch(employeesProvider).valueOrNull;
-    final user = ref.watch(authControllerProvider).valueOrNull;
+    final auth = ref.watch(authControllerProvider);
+    final user = auth.valueOrNull;
+    // Kullanıcı (izinler) henüz yüklenmediyse hangi tablonun okunacağı
+    // bilinmez: maaş-yalnız kullanıcıda boşuna /attendance istenmesin.
+    if (user == null && auth.isLoading) {
+      return Scaffold(appBar: buildAppBar('Mesai'), body: const LoadingState());
+    }
     final canManage = user == null || user.permissions.isEmpty || user.hasPermission('attendance.manage');
     // Maaş tutarı hassas: mesainin yukarıdaki "izin listesi boşsa her şey
     // görünür" (fail-open) kuralı burada KULLANILMAZ -- canAccess fail-CLOSED'dır
     // (kullanıcı yüklenmemişse ya da izni yoksa maaş hiç görünmez, /payroll
     // hiç çağrılmaz). Web'deki "Mesai & Maaş" sayfasıyla aynı karar.
     final canSeePayroll = user.canAccess('payroll.read');
-    final payroll = canSeePayroll ? ref.watch(payrollMonthProvider(_monthKey)).valueOrNull : null;
+    // Maaş izni puantaj izninden AYRIDIR (backend payroll.*): yalnızca
+    // payroll.read verilmiş kişi (ör. muhasebe) eskiden bu ekranı hiç
+    // açamıyordu -- menü attendance.read istiyordu, ekran da /attendance
+    // 403'ünde tümden hataya düşüyordu. Puantaj izni yoksa liste maaş
+    // tablosundan kurulur, /attendance hiç çağrılmaz.
+    final canSeeAttendance = canSeeAttendanceRecords(user);
+    final recordsAsync = canSeeAttendance ? ref.watch(attendanceListProvider(_monthKey)) : null;
+    // Maaş-yalnız görünümde personel listesi istenmez: aktif personel maaş
+    // tablosunda zaten var (bkz. PayrollMonth.payableEmployees).
+    final employees = canSeeAttendance ? ref.watch(employeesProvider).valueOrNull : null;
+    final payrollAsync = canSeePayroll ? ref.watch(payrollMonthProvider(_monthKey)) : null;
+    final payroll = payrollAsync?.valueOrNull;
+    final title = !canSeeAttendance ? 'Maaş' : (canSeePayroll ? 'Mesai & Maaş' : 'Mesai');
+
+    Widget peopleList(List<AttendanceRecord>? records) {
+      final showToday = _isCurrentMonth && records != null;
+      final people = peopleForMonth(
+        employees: employees,
+        records: records,
+        payroll: payroll,
+        todayIso: showToday ? _todayIso() : null,
+      );
+      return _PeopleList(
+        people: people,
+        payroll: payroll,
+        // Maaş alınamadıysa liste yine çizilir ama hata söylenir (eskiden
+        // "Ödenecek" satırı ve kalan rozetleri sessizce kayboluyordu).
+        payrollError: payroll == null && payrollAsync != null && payrollAsync.hasError ? payrollAsync.error : null,
+        onRetryPayroll: () => ref.invalidate(payrollMonthProvider(_monthKey)),
+        showToday: showToday,
+        showAttendance: records != null,
+        // Kişi ekranı AYNI sağlayıcıları (ay anahtarıyla) tazeler;
+        // dönüşte liste zaten güncel, yeniden istek gerekmez.
+        onOpen: (p) => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => PersonMonthScreen(
+              employeeId: p.employeeId,
+              fullName: p.fullName,
+              initialMonth: _month,
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
-      appBar: buildAppBar(canSeePayroll ? 'Mesai & Maaş' : 'Mesai'),
-      floatingActionButton: canManage
+      appBar: buildAppBar(title),
+      floatingActionButton: canManage && canSeeAttendance
           ? FloatingActionButton(
               tooltip: 'Mesai Ekle',
               onPressed: () => showAttendanceForm(context, onSaved: _refresh),
@@ -98,34 +146,17 @@ class _AttendanceScreenState extends ConsumerState<AttendanceScreen> {
           Expanded(
             child: RefreshIndicator(
               onRefresh: () async => _refresh(),
-              child: AsyncStateView(
-                value: recordsAsync,
-                onRetry: () async => _refresh(),
-                data: (context, records) {
-                  final people = peopleForMonth(
-                    employees: employees,
-                    records: records,
-                    payroll: payroll,
-                    todayIso: _isCurrentMonth ? _todayIso() : null,
-                  );
-                  return _PeopleList(
-                    people: people,
-                    payroll: payroll,
-                    showToday: _isCurrentMonth,
-                    // Kişi ekranı AYNI sağlayıcıları (ay anahtarıyla) tazeler;
-                    // dönüşte liste zaten güncel, yeniden istek gerekmez.
-                    onOpen: (p) => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => PersonMonthScreen(
-                          employeeId: p.employeeId,
-                          fullName: p.fullName,
-                          initialMonth: _month,
-                        ),
-                      ),
+              child: recordsAsync != null
+                  ? AsyncStateView(
+                      value: recordsAsync,
+                      onRetry: () async => _refresh(),
+                      data: (context, records) => peopleList(records),
+                    )
+                  : AsyncStateView(
+                      value: payrollAsync!,
+                      onRetry: () async => _refresh(),
+                      data: (context, _) => peopleList(null),
                     ),
-                  );
-                },
-              ),
             ),
           ),
         ],
@@ -171,12 +202,26 @@ class MonthSwitcher extends StatelessWidget {
 }
 
 class _PeopleList extends StatelessWidget {
-  const _PeopleList({required this.people, required this.payroll, required this.showToday, required this.onOpen});
+  const _PeopleList({
+    required this.people,
+    required this.payroll,
+    required this.showToday,
+    required this.onOpen,
+    this.payrollError,
+    this.onRetryPayroll,
+    this.showAttendance = true,
+  });
 
   final List<PersonMonth> people;
   final PayrollMonth? payroll;
   final bool showToday;
   final ValueChanged<PersonMonth> onOpen;
+  final Object? payrollError;
+  final VoidCallback? onRetryPayroll;
+
+  /// Puantaj okunabiliyor mu (attendance.read); yoksa satırlardaki gün/saat
+  /// maaş tablosundan gelir.
+  final bool showAttendance;
 
   @override
   Widget build(BuildContext context) {
@@ -186,6 +231,11 @@ class _PeopleList extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.xs, AppSpacing.lg, 88),
       children: [
+        if (payrollError != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: PayrollLoadError(error: payrollError!, onRetry: onRetryPayroll ?? () {}),
+          ),
         if (pay != null)
           Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.sm),
@@ -227,7 +277,12 @@ class _PeopleList extends StatelessWidget {
           for (final p in people) _PersonRow(person: p, showToday: showToday, onTap: () => onOpen(p)),
         Padding(
           padding: const EdgeInsets.only(top: AppSpacing.xs),
-          child: Text('Kişiye dokun: o ayın mesaisi, maaşı ve ödemeleri.', style: AppTypography.helper),
+          child: Text(
+            showAttendance
+                ? 'Kişiye dokun: o ayın mesaisi, maaşı ve ödemeleri.'
+                : 'Kişiye dokun: o ayın maaşı ve ödemeleri.',
+            style: AppTypography.helper,
+          ),
         ),
       ],
     );

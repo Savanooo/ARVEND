@@ -30,9 +30,12 @@ final legacySubcontractorPaymentsProvider =
 /// etkilenen TÜM okumalar: listeler, finans özeti (gerçekleşen maliyet,
 /// tahsil edilen), ödeme planı (kalemin "Tahsil Edilen"i tahsilat bağından
 /// hesaplanır), maliyet kontrolü (masraflar gerçekleşen maliyete girer) ve
-/// proje hareketleri, kişinin "Masraflarım" listesi. autoDispose oldukları
-/// için yalnızca izlenenler yeniden istek atar.
+/// proje hareketleri, kişinin "Masraflarım" listesi, müşteri kartının
+/// Projeler/Finansal Özet'i (tahsil edilen ve kalan alacak; kart Diğer
+/// sekmesinde canlı kalabilir). autoDispose oldukları için yalnızca
+/// izlenenler yeniden istek atar.
 void invalidateProjectLedger(void Function(ProviderOrFamily provider) invalidate, String projectId) {
+  invalidate(customerProjectsProvider);
   invalidate(projectExpensesProvider(projectId));
   invalidate(myExpensesProvider);
   invalidate(projectCollectionsProvider(projectId));

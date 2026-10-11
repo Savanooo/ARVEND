@@ -9,6 +9,7 @@ import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/viz/progress_bar.dart';
 import '../../../auth/domain/user.dart';
+import '../../../onboarding/presentation/organization_settings_screen.dart' show kPermOrganizationSettingsRead;
 import '../../domain/dashboard.dart';
 import '../../domain/dashboard_registry.dart';
 
@@ -79,15 +80,19 @@ class OnboardingCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           for (final step in onboarding.steps) _StepRow(step: step, cta: step.done ? null : _cta(context, step.key)),
-          const SizedBox(height: AppSpacing.xs),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton(
-              style: TextButton.styleFrom(padding: EdgeInsets.zero),
-              onPressed: () => context.push('/diger/firma-ayarlari'),
-              child: const Text('Firma bilgilerini gözden geçir →'),
+          // Firma Ayarları'nı açamayacak kişiye (görüntüleme izni yok)
+          // kilit ekranına giden bağlantı gösterilmez (menüyle aynı kapı).
+          if (user.canAccess(kPermOrganizationSettingsRead)) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                onPressed: () => context.push('/diger/firma-ayarlari'),
+                child: const Text('Firma bilgilerini gözden geçir →'),
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );

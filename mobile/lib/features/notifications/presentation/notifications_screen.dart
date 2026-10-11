@@ -41,10 +41,19 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
     ref.invalidate(unreadNotificationCountProvider);
   }
 
+  /// Yalnızca GÖRÜLEN listeye kadar okundu işaretlenir (sunucuya listenin
+  /// en yeni bildiriminin zamanı gider): eskiden liste açıldıktan sonra
+  /// gelen bildirim de görülmeden okundu sayılıyordu. Liste henüz yoksa ya
+  /// da boşsa işaretlenecek görülmüş bir şey yoktur -- liste tazelenir.
   Future<void> _markAllRead() async {
+    final before = ref.read(notificationsListProvider).valueOrNull?.newestCreatedAt;
+    if (before == null) {
+      _refreshBell();
+      return;
+    }
     setState(() => _markingAll = true);
     try {
-      await ref.read(notificationsRepositoryProvider).markAllRead();
+      await ref.read(notificationsRepositoryProvider).markAllRead(before: before);
       _refreshBell();
     } catch (e) {
       _showError(e);

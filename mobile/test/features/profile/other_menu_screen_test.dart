@@ -157,9 +157,44 @@ void main() {
 
     testWidgets('izin kümesi boşsa (eski oturum) yönetim ekranları gizli -- fail-closed', (tester) async {
       await _pumpTall(tester, _custom(role: UserRole.admin, permissions: const []));
-      // İş Araçları eskisi gibi fail-open; Firma Ayarları kaba role bakar.
+      // İş Araçları eskisi gibi fail-open; Firma Ayarları da artık izne
+      // bakar (sunucu organization.settings.read ister).
       expect(find.text('Müşteriler'), findsOneWidget);
-      expect(_labelsInOrder(tester, _managementOrder), ['Firma Ayarları']);
+      expect(_labelsInOrder(tester, _managementOrder), isEmpty);
+    });
+
+    // Firma Ayarları eskiden yalnızca kaba role bakıyordu: "Firma
+    // ayarlarını görüntüleme" izni alınmış Yönetici menüde girişi görüp
+    // hata ekranına düşüyordu.
+    testWidgets('Yönetici\'den görüntüleme izni alınmışsa Firma Ayarları gizli', (tester) async {
+      await _pumpTall(
+        tester,
+        _custom(
+          role: UserRole.admin,
+          permissions: [for (final p in kAllPermissions) if (!p.startsWith('organization.settings.')) p],
+        ),
+      );
+      expect(find.text('Firma Ayarları'), findsNothing);
+      expect(find.text('Kullanıcılar'), findsOneWidget);
+    });
+
+    testWidgets('yalnızca görüntüleme izni olan Yönetici Firma Ayarları\'nı görür', (tester) async {
+      await _pumpTall(tester, _custom(role: UserRole.admin, permissions: const ['organization.settings.read']));
+      expect(_labelsInOrder(tester, _managementOrder), ['Firma Ayarları', 'E-posta Ayarları']);
+    });
+
+    // payroll.* attendance.*'tan ayrı: yalnızca maaş izni verilen kişi
+    // (ör. muhasebe) eskiden maaşa hiçbir yerden ulaşamıyordu.
+    testWidgets('yalnızca payroll.read: İş Araçları\'nda "Maaş" var', (tester) async {
+      await _pumpTall(tester, _custom(role: UserRole.kullanici, permissions: const ['payroll.read', 'payroll.manage']));
+      expect(find.text('Maaş'), findsOneWidget);
+      expect(find.text('Mesai'), findsNothing);
+    });
+
+    testWidgets('ne puantaj ne maaş izni: Mesai/Maaş girişi yok', (tester) async {
+      await _pumpTall(tester, _custom(role: UserRole.kullanici, permissions: const ['projects.read']));
+      expect(find.text('Maaş'), findsNothing);
+      expect(find.text('Mesai'), findsNothing);
     });
 
     testWidgets('kullanıcı yüklenmemişse (null) yönetim girişi yok', (tester) async {

@@ -107,11 +107,9 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
       ],
       body: AsyncStateView(
         value: customerAsync,
-        onRetry: () async =>
-            ref.invalidate(customerDetailProvider(widget.customerId)),
+        onRetry: () async => _refreshAll(),
         data: (context, c) => RefreshIndicator(
-          onRefresh: () async =>
-              ref.invalidate(customerDetailProvider(widget.customerId)),
+          onRefresh: () async => _refreshAll(),
           child: ListView(
             padding: const EdgeInsets.all(AppSpacing.lg),
             children: [
@@ -125,9 +123,23 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                   ),
                 ],
               ),
+              // Pasif (arşivlenmiş) müşteriye yeni teklif verilmez: teklif
+              // formunun müşteri seçicisi de yalnızca aktifleri listeler,
+              // sunucu da reddeder. Eskiden "Yeni Teklif" burada görünüyor ve
+              // teklif arşivdeki karta bağlanıyordu.
+              if (canCreateOffer && !c.isActive) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  canManage
+                      ? 'Pasif müşteriye yeni teklif verilmez. Teklif için önce müşteriyi aktifleştir.'
+                      : 'Pasif müşteriye yeni teklif verilmez.',
+                  key: const ValueKey('customer-passive-offer-note'),
+                  style: AppTypography.helper,
+                ),
+              ],
               if (c.phone.isNotEmpty ||
                   c.email.isNotEmpty ||
-                  canCreateOffer) ...[
+                  (canCreateOffer && c.isActive)) ...[
                 const SizedBox(height: AppSpacing.md),
                 Wrap(
                   spacing: AppSpacing.sm,
@@ -147,11 +159,13 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
                         onPressed: () =>
                             launchUrl(Uri(scheme: 'mailto', path: c.email)),
                       ),
-                    if (canCreateOffer)
+                    if (canCreateOffer && c.isActive)
                       QuickActionButton(
                         icon: Icons.add_circle_outline,
                         label: 'Yeni Teklif',
-                        onPressed: () => context.push(
+                        onPressed: () => openFromCustomerCard(
+                          context,
+                          c.id,
                           Uri(
                             path: '/teklifler/yeni',
                             queryParameters: {
@@ -224,6 +238,17 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
         ),
       ),
     );
+  }
+
+  /// Aşağı çekip yenileme kartın TAMAMINI tazeler: eskiden yalnızca müşteri
+  /// bilgisi yenileniyordu, Teklifler/Projeler/Finansal Özet ekrandan çıkıp
+  /// girene kadar eski kalıyordu. İzinsiz bölümün sağlayıcısı hiç
+  /// kurulmadığı için tazelemek istek atmaz.
+  void _refreshAll() {
+    final id = widget.customerId;
+    ref.invalidate(customerDetailProvider(id));
+    ref.invalidate(customerOffersProvider(id));
+    ref.invalidate(customerProjectsProvider(id));
   }
 
   void _showFormSheet(Customer existing) {
@@ -322,6 +347,19 @@ class _CustomerDetailScreenState extends ConsumerState<CustomerDetailScreen> {
   }
 }
 
+/// Müşteri kartından açılan ekrandan (teklif, proje, Yeni Teklif) dönülünce
+/// kartın Teklifler/Projeler (ve onlardan türeyen Finansal Özet) bölümleri
+/// tazelenir: orada girilen tahsilat, kaydedilen teklif ya da değişen durum
+/// burada eski kalmasın. Kart yığında canlı kaldığı için kendiliğinden
+/// yenilenmez. Kapsayıcı `push`'tan ÖNCE alınır (kart bu arada ağaçtan
+/// kalkabilir); ana sayfanın openRecordRoute'uyla aynı desen.
+Future<void> openFromCustomerCard(BuildContext context, String customerId, String location) async {
+  final container = ProviderScope.containerOf(context, listen: false);
+  await context.push(location);
+  container.invalidate(customerOffersProvider(customerId));
+  container.invalidate(customerProjectsProvider(customerId));
+}
+
 class _ContactRow extends StatelessWidget {
   const _ContactRow({required this.icon, required this.value});
   final IconData icon;
@@ -382,7 +420,7 @@ class _ProjectsSection extends ConsumerWidget {
     return AppListCard(
       title: p.name,
       subtitle: p.projectNo,
-      onTap: () => context.push('/projeler/${p.id}'),
+      onTap: () => openFromCustomerCard(context, customerId, '/projeler/${p.id}'),
       trailing: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -418,11 +456,31 @@ class _FinancialSummarySection extends ConsumerWidget {
           const Text('Finansal özet alınamadı', style: AppTypography.metadata),
       data: (result) {
         final summaries = summarizeProjectReceivables(result.projects);
+        final cancelled = cancelledProjectCount(result.projects);
+        // Okunamayan proje (sayfa sınırının ötesi, bkz. customerProjectsProvider).
+        final missing = result.total - result.projects.length;
+        Widget note(String text) => Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.sm),
+              child: Text(text, style: AppTypography.helper),
+            );
+        // İptal edilen projeler özete katılmaz (ana sayfadaki açık alacakla
+        // aynı kural) -- rakam proje listesinden farklı görünürse sebebi
+        // yazılır. Eksik okunan özet de eksik olduğunu söyler.
+        final notes = [
+          if (cancelled > 0) note('İptal edilen $cancelled proje özete katılmadı.'),
+          if (missing > 0) note('Özet ilk ${result.projects.length} projeye göre; $missing proje sayılmadı.'),
+        ];
         if (summaries.isEmpty) {
-          return const AppCard(
-            child: Text(
-              'Gösterilecek finansal veri yok.',
-              style: AppTypography.metadata,
+          return AppCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Gösterilecek finansal veri yok.',
+                  style: AppTypography.metadata,
+                ),
+                ...notes,
+              ],
             ),
           );
         }
@@ -452,8 +510,17 @@ class _FinancialSummarySection extends ConsumerWidget {
                   currency: s.currency,
                   emphasize: true,
                 ),
+                // Bedelinden fazla tahsil edilen projelerin fazlası: başka
+                // projenin alacağından düşülmez, ayrı satırda durur.
+                if (s.overCollected > 0)
+                  _ReceivablesRow(
+                    label: 'Fazla Tahsilat',
+                    amount: s.overCollected,
+                    currency: s.currency,
+                  ),
                 if (s != summaries.last) const Divider(height: AppSpacing.lg),
               ],
+              ...notes,
             ],
           ),
         );
@@ -481,7 +548,9 @@ class _ReceivablesRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: AppTypography.metadata),
+          // Büyük yazı ölçeğinde uzun tutar etiketi taşırmasın.
+          Flexible(child: Text(label, style: AppTypography.metadata)),
+          const SizedBox(width: AppSpacing.sm),
           MoneyText(
             amount,
             currency: currency,
@@ -524,7 +593,7 @@ class _OffersSection extends ConsumerWidget {
               AppListCard(
                 title: o.offerNo,
                 subtitle: Formatters.date(o.offerDate),
-                onTap: () => context.push('/teklifler/${o.id}'),
+                onTap: () => openFromCustomerCard(context, customerId, '/teklifler/${o.id}'),
                 trailing: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.end,

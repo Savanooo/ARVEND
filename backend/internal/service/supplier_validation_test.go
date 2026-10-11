@@ -45,6 +45,49 @@ func TestSupplierValidation(t *testing.T) {
 		}
 	})
 
+	// IBAN kaydedildikten sonra hiçbir ekranda okunamaz: geçersiz IBAN
+	// kayıtta reddedilmeli (eskiden yalnızca kırpılıp saklanıyordu).
+	t.Run("invalid_iban_rejected_on_create_and_update", func(t *testing.T) {
+		bad := "TR12 0006 1234"
+		if _, err := supplierSvc.Create(ctx, org.ID, service.SupplierInput{Code: "IB1", LegalName: "IBAN Hatalı", IBAN: &bad}); !errors.Is(err, service.ErrSupplierInvalidIBAN) {
+			t.Fatalf("eksik haneli IBAN reddedilmeli: %v", err)
+		}
+		wrongCheck := "TR330006100519786457841327"
+		if _, err := supplierSvc.Update(ctx, s1.ID, org.ID, service.SupplierInput{LegalName: "Demir A.Ş.", TaxNumber: s1.TaxNumber, IBAN: &wrongCheck}); !errors.Is(err, service.ErrSupplierInvalidIBAN) {
+			t.Fatalf("kontrol basamağı tutmayan IBAN reddedilmeli: %v", err)
+		}
+		got, err := supplierSvc.Get(ctx, s1.ID, org.ID)
+		if err != nil || got.IBANEncSet {
+			t.Errorf("reddedilen IBAN yazılmamalı: %+v err=%v", got, err)
+		}
+	})
+
+	t.Run("valid_iban_with_spaces_saved_and_clearable", func(t *testing.T) {
+		good := "tr33 0006 1005 1978 6457 8413 26"
+		s, err := supplierSvc.Create(ctx, org.ID, service.SupplierInput{Code: "IB2", LegalName: "IBAN Doğru", IBAN: &good})
+		if err != nil {
+			t.Fatalf("boşluklu/küçük harfli geçerli IBAN kabul edilmeli: %v", err)
+		}
+		if !s.IBANEncSet {
+			t.Fatal("IBAN kaydedilmeli")
+		}
+		var enc string
+		if err := pool.QueryRow(ctx, "SELECT iban_enc FROM suppliers WHERE id = $1", s.ID).Scan(&enc); err != nil {
+			t.Fatal(err)
+		}
+		if plain, err := box.Decrypt(enc); err != nil || plain != "TR330006100519786457841326" {
+			t.Errorf("IBAN normalize edilmiş saklanmalı: %q err=%v", plain, err)
+		}
+		// IBAN alanı gönderilmezse korunur, boş metin temizler.
+		if u, err := supplierSvc.Update(ctx, s.ID, org.ID, service.SupplierInput{LegalName: "IBAN Doğru"}); err != nil || !u.IBANEncSet {
+			t.Errorf("gönderilmeyen IBAN korunmalı: %+v err=%v", u, err)
+		}
+		empty := "  "
+		if u, err := supplierSvc.Update(ctx, s.ID, org.ID, service.SupplierInput{LegalName: "IBAN Doğru", IBAN: &empty}); err != nil || u.IBANEncSet {
+			t.Errorf("boş IBAN temizlemeli: %+v err=%v", u, err)
+		}
+	})
+
 	t.Run("duplicate_tax_number_rejected", func(t *testing.T) {
 		_, err := supplierSvc.Create(ctx, org.ID, service.SupplierInput{Code: "T2", LegalName: "Demir Anonim", TaxNumber: "1112223344"})
 		var dup *service.DuplicateSupplierTaxNumberError

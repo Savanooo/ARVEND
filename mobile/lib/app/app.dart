@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/auth/permission_refresh_watcher.dart';
 import '../core/push/push_watcher.dart';
 import '../core/theme/app_theme.dart';
 import '../core/update/app_update_watcher.dart';
@@ -28,8 +29,12 @@ class ArvendApp extends ConsumerWidget {
         navigatorKey: router.routerDelegate.navigatorKey,
         child: PlayUpdateWatcher(
           // Telefona bildirim: kayıt, açıkken gelen bildirim, dokununca
-          // hedef ekran (bkz. core/push/).
-          child: PushWatcher(router: router, child: child ?? const SizedBox.shrink()),
+          // hedef ekran (bkz. core/push/). Yetkiler öne gelişte ve belli
+          // aralıkla tazelenir (bkz. PermissionRefreshWatcher).
+          child: PushWatcher(
+            router: router,
+            child: PermissionRefreshWatcher(child: child ?? const SizedBox.shrink()),
+          ),
         ),
       ),
       locale: const Locale('tr', 'TR'),

@@ -104,6 +104,30 @@ void main() {
       await repo.markAllRead();
 
       expect(adapter.calls, ['/notifications/read-all']);
+      // Sınırsız (eski davranış): gövde yok.
+      expect(adapter.requestBodies.single, isNull);
+    });
+
+    test('markAllRead(before:) sınırı gövdede gönderir', () async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/notifications/read-all': [(status: 200, body: {'ok': true})],
+      });
+      final repo = NotificationsRepository(await buildFakeApiClient(adapter));
+
+      await repo.markAllRead(before: '2026-09-20T10:15:30Z');
+
+      expect(adapter.requestBodies.single, {'before': '2026-09-20T10:15:30Z'});
+    });
+
+    test('newestCreatedAt: sıradan bağımsız en yeni, liste boşsa null', () {
+      final page = NotificationsPage(notifications: [
+        AppNotification.fromJson({..._notificationJson(id: 'a'), 'created_at': '2026-09-20T09:00:00Z'}),
+        AppNotification.fromJson({..._notificationJson(id: 'b'), 'created_at': '2026-09-20T12:30:00+03:00'}),
+        AppNotification.fromJson({..._notificationJson(id: 'c'), 'created_at': '2026-09-20T09:20:00Z'}),
+      ], total: 3);
+      // 12:30+03:00 = 09:30Z, en yenisi; sunucunun metni olduğu gibi döner.
+      expect(page.newestCreatedAt, '2026-09-20T12:30:00+03:00');
+      expect(const NotificationsPage(notifications: [], total: 0).newestCreatedAt, isNull);
     });
   });
 

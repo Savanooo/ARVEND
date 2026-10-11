@@ -185,6 +185,109 @@ void main() {
     });
   });
 
+  // payroll.* attendance.*'tan AYRI bir izin (backend router.go): yalnızca
+  // maaş verilen kişi (ör. muhasebe) eskiden bu ekrana hiç giremiyordu.
+  group('yalnızca payroll.read (attendance.read yok)', () {
+    testWidgets('liste maaş tablosundan kurulur, /attendance hiç çağrılmaz; kişi ekranı maaş ve ödemeleri gösterir',
+        (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(['payroll.read', 'payroll.manage']))],
+        '/payroll': [(status: 200, body: _payrollJson())],
+      });
+      await _pump(tester, adapter);
+
+      expect(find.text('Maaş'), findsOneWidget, reason: 'başlık');
+      expect(find.textContaining('Ödenecek'), findsOneWidget);
+      expect(find.byKey(const ValueKey('kisi-e1')), findsOneWidget);
+      // Gün/saat maaş tablosundan (puantaj okunamıyor).
+      expect(find.textContaining('21,5 gün'), findsOneWidget);
+      expect(find.byType(FloatingActionButton), findsNothing);
+      expect(find.textContaining('bugün'), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('kisi-e1')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('kisi-maas-ozet')), findsOneWidget);
+      expect(find.text('Öde'), findsOneWidget);
+      expect(find.text('Ödemeler (2)'), findsOneWidget);
+      expect(find.textContaining('Mesai ·'), findsNothing);
+      expect(find.text('Mesai Ekle'), findsNothing);
+      expect(adapter.calls, isNot(contains('/attendance')));
+      expect(adapter.calls, isNot(contains('/employees')));
+    });
+  });
+
+  group('maaş alınamayınca hata söylenir (eskiden yutuluyordu)', () {
+    testWidgets('listede "Maaş bilgisi alınamadı" + Tekrar Dene; tekrar denenince Ödenecek gelir', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(['attendance.read', 'payroll.read']))],
+        '/attendance': [(status: 200, body: {'attendance': <Map<String, dynamic>>[]})],
+        '/payroll': [
+          (status: 500, body: {'error': 'beklenmeyen bir sunucu hatası oluştu'}),
+          (status: 200, body: _payrollJson()),
+        ],
+      });
+      await _pump(tester, adapter);
+
+      expect(find.byKey(const ValueKey('maas-hata')), findsOneWidget);
+      expect(find.textContaining('Ödenecek'), findsNothing);
+
+      await tester.tap(find.text('Tekrar Dene'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('maas-hata')), findsNothing);
+      expect(find.textContaining('Ödenecek'), findsOneWidget);
+    });
+
+    testWidgets('kişi ekranında "Bu aya ait ödeme yok" DENMEZ; hata kartı ve Tekrar Dene gösterilir', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(['attendance.read', 'payroll.read', 'payroll.manage']))],
+        '/attendance': [
+          (
+            status: 200,
+            body: {
+              'attendance': [
+                {
+                  'id': 'a1',
+                  'employee_id': 'e1',
+                  'employee_name': 'Ahmet Usta',
+                  'date': '2026-09-02',
+                  'status': 'geldi',
+                  'check_in': '',
+                  'check_out': '',
+                  'work_hours': 9,
+                  'note': '',
+                },
+              ],
+            },
+          ),
+        ],
+        '/payroll': [
+          (status: 500, body: {'error': 'beklenmeyen bir sunucu hatası oluştu'}),
+          (status: 500, body: {'error': 'beklenmeyen bir sunucu hatası oluştu'}),
+          (status: 200, body: _payrollJson()),
+        ],
+      });
+      await _pump(tester, adapter);
+      await tester.tap(find.text('Ahmet Usta'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('maas-hata')), findsOneWidget);
+      expect(find.text('Bu aya ait ödeme yok.'), findsNothing);
+      expect(find.textContaining('Ödemeler'), findsNothing);
+      expect(find.text('Öde'), findsNothing);
+      // Mesai yine görünür.
+      expect(find.byKey(const ValueKey('mesai-a1')), findsOneWidget);
+
+      await tester.tap(find.text('Tekrar Dene'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Tekrar Dene'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('kisi-maas-ozet')), findsOneWidget);
+      expect(find.text('Ödemeler (2)'), findsOneWidget);
+    });
+  });
+
   group('maaş dökümü PDF', () {
     testWidgets('kişi ekranındaki PDF düğmesi o kişinin o ayının dökümünü ister; maaş izni yoksa düğme yok',
         (tester) async {
@@ -371,7 +474,11 @@ void main() {
       expect(find.byType(DropdownButtonFormField<Employee>), findsNothing, reason: 'personel sabit');
       await tester.tap(find.text('Kaydet'));
       await tester.pumpAndSettle();
-      final body = adapter.requestBodies[adapter.calls.indexOf('/attendance', 1)] as Map;
+      final post = [
+        for (var i = 0; i < adapter.calls.length; i++)
+          if (adapter.calls[i] == '/attendance' && adapter.methods[i] == 'POST') i,
+      ].single;
+      final body = adapter.requestBodies[post] as Map;
       expect(body['employee_id'], 'e1');
     });
   });

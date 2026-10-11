@@ -52,8 +52,10 @@ class OnboardingRepository {
     return OnboardingState.fromJson(json);
   }
 
+  /// [defaultCurrency] zorunlu: eskiden varsayılanı 'TRY' idi ve formda
+  /// alan olmadığı için her kayıt web'de seçilmiş para birimini ezerdi.
   Future<OnboardingState> saveOffers({
-    String defaultCurrency = 'TRY',
+    required String defaultCurrency,
     double defaultVatRate = 20,
     String offerPrefix = 'TKF',
     int offerValidityDays = 30,

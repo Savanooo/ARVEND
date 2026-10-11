@@ -50,9 +50,13 @@ double attendanceDayValue(String status) => switch (status) {
 ///
 /// [employees] null = personel listesi okunamadı (izin yok/hata): o zaman
 /// kimse "pasif" sayılmaz, çünkü bilinemez.
+///
+/// [records] null = puantaj okunamıyor (attendance.read yok, yalnızca
+/// payroll.read): gün/saat maaş tablosundan (backend aynı kuralla sayar)
+/// alınır.
 List<PersonMonth> peopleForMonth({
   required List<Employee>? employees,
-  required List<AttendanceRecord> records,
+  required List<AttendanceRecord>? records,
   PayrollMonth? payroll,
   String? todayIso,
 }) {
@@ -68,7 +72,7 @@ List<PersonMonth> peopleForMonth({
       active: known?.active ?? p.isActive,
     );
   }
-  for (final r in records) {
+  for (final r in records ?? const <AttendanceRecord>[]) {
     byId.putIfAbsent(
       r.employeeId,
       () => (
@@ -81,7 +85,7 @@ List<PersonMonth> peopleForMonth({
   }
 
   final recordsBy = <String, List<AttendanceRecord>>{};
-  for (final r in records) {
+  for (final r in records ?? const <AttendanceRecord>[]) {
     recordsBy.putIfAbsent(r.employeeId, () => []).add(r);
   }
   final payrollBy = {for (final p in payroll?.summary ?? const <PayrollSummaryRow>[]) p.employeeId: p};
@@ -90,16 +94,19 @@ List<PersonMonth> peopleForMonth({
     for (final MapEntry(key: id, value: info) in byId.entries)
       () {
         final own = [...?recordsBy[id]]..sort((a, b) => b.date.compareTo(a.date));
+        final pay = payrollBy[id];
         return PersonMonth(
           employeeId: id,
           fullName: info.name,
           position: info.position,
           isActive: info.active ?? true,
-          workedDays: own.fold(0.0, (s, r) => s + attendanceDayValue(r.status)),
-          workHours: own.fold(0.0, (s, r) => s + r.workHours),
+          workedDays: records == null
+              ? (pay?.workedDays ?? 0)
+              : own.fold(0.0, (s, r) => s + attendanceDayValue(r.status)),
+          workHours: records == null ? (pay?.workHours ?? 0) : own.fold(0.0, (s, r) => s + r.workHours),
           records: own,
           today: todayIso == null ? null : own.where((r) => r.date == todayIso).firstOrNull,
-          payroll: payrollBy[id],
+          payroll: pay,
         );
       }(),
   ];

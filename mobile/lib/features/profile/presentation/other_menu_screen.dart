@@ -11,8 +11,9 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_list_card.dart';
 import '../../../core/widgets/app_section_header.dart';
 import '../../access/access_routes.dart';
-import '../../auth/domain/user.dart';
+import '../../attendance/domain/attendance_access.dart';
 import '../../calc_admin/calc_admin_routes.dart';
+import '../../onboarding/presentation/organization_settings_screen.dart' show kPermOrganizationSettingsRead;
 import '../../cost_codes/cost_codes_routes.dart';
 import '../../employees/employees_routes.dart';
 import '../../products/products_routes.dart';
@@ -48,6 +49,7 @@ const List<MenuEntry> kManagementMenuEntries = [...kCatalogMenuEntries, ...kTeam
 /// Firma Ayarları bu listede DEĞİL, bkz. aşağıdaki yorum).
 const List<MenuEntry> kManagementSettingsEntries = [...settingsMenuEntries];
 
+
 class OtherMenuScreen extends ConsumerWidget {
   const OtherMenuScreen({super.key});
 
@@ -82,10 +84,13 @@ class OtherMenuScreen extends ConsumerWidget {
           label: 'Metraj Hesaplama',
           onTap: () => context.push('/diger/metraj'),
         ),
-      if (canSee('attendance.read'))
+      // Maaş izni (payroll.read) puantaj izninden ayrıdır: yalnızca maaş
+      // verilmiş kişi (ör. muhasebe) de bu ekrana girer (eskiden menü
+      // attendance.read istiyordu, maaşa hiçbir yerden ulaşılamıyordu).
+      if (canOpenAttendanceScreen(user))
         _MenuItem(
           icon: Icons.access_time_outlined,
-          label: 'Mesai',
+          label: attendanceEntryLabel(user),
           onTap: () => context.push('/diger/mesai'),
         ),
     ];
@@ -120,18 +125,13 @@ class OtherMenuScreen extends ConsumerWidget {
     // süzülür: izin kümesi boşsa/yüklenmemişse hiçbiri görünmez (web
     // lib/nav.ts ile aynı karar). Her ekran ayrıca kendi iznini denetler.
     //
-    // Firma Ayarları backend'de requireAdmin arkasındadır (bkz. router.go:
-    // /organization/settings/*) -- kullanici rolüne 403 ile sonuçlanacak
-    // bir ekranı göstermemek için yalnızca admin'e gösterilir (Super Admin
-    // mobilde bu ekranı kullanmaz, bkz. MOBILE_BACKEND_GAPS.md - platform
-    // yönetimi web'e özeldir). BİLİNÇLİ OLARAK `user.role` (kaba platform/
-    // kiracı ekseni) kontrol edilir, `hasPermission` (ince RBAC ekseni)
-    // DEĞİL -- backend'in kendisi bu ucu requireAdmin ile korur, perm()
-    // ile DEĞİL, bu yüzden mobil kontrol GERÇEK sunucu davranışını birebir
-    // yansıtır. app_router.dart'taki super_admin yönlendirmesi sayesinde
-    // super_admin zaten bu ekrana hiç gelmez -- ama `role == admin` yanlışça
-    // `hasPermission(...)`'a "düzeltilmeye" çalışılırsa DİKKAT: bu ekranın
-    // gerçek koruması RBAC izin kodu DEĞİL, kaba admin rolüdür.
+    // Firma Ayarları backend'de requireAdmin + organization.settings.read
+    // (kaydetmek .manage) arkasındadır (bkz. router.go settingsRoutes).
+    // `canAccess` ikisini birden denetler: bu izin Yönetici'ye kilitlidir,
+    // kaba rol admin de gerekir (bkz. kAdminRoleOnlyPermissions). Eskiden
+    // yalnızca role bakılıyordu: görüntüleme izni alınmış Yönetici menüde
+    // girişi görüp hata ekranına düşüyordu. Super Admin mobilde bu ekranı
+    // kullanmaz (app_router.dart yönlendirmesi).
     final catalogItems = [
       for (final e in kCatalogMenuEntries)
         if (user.canAccess(e.permission)) fromEntry(e),
@@ -141,7 +141,7 @@ class OtherMenuScreen extends ConsumerWidget {
         if (user.canAccess(e.permission)) fromEntry(e),
     ];
     final settingsItems = [
-      if (user?.role == UserRole.admin)
+      if (user.canAccess(kPermOrganizationSettingsRead))
         _MenuItem(
           icon: Icons.apartment_outlined,
           label: 'Firma Ayarları',

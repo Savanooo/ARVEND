@@ -16,6 +16,7 @@ Map<String, dynamic> _n({
   String? readAt = '2026-09-20T11:00:00Z',
   String actionTarget = '/hedef',
   String entityType = 'task',
+  String createdAt = '2026-09-20T10:00:00Z',
 }) =>
     {
       'id': id,
@@ -27,7 +28,7 @@ Map<String, dynamic> _n({
       'project_id': 'p1',
       'action_target': actionTarget,
       'read_at': readAt,
-      'created_at': '2026-09-20T10:00:00Z',
+      'created_at': createdAt,
     };
 
 Future<GoRouter> _pump(WidgetTester tester, FakeHttpClientAdapter adapter) async {
@@ -75,6 +76,60 @@ void main() {
 
     expect(adapter.calls, contains('/notifications/read-all'));
     expect(find.byTooltip('Tümünü okundu işaretle'), findsNothing);
+  });
+
+  // Liste görüldükten SONRA gelen bildirim görülmeden okundu sayılmasın:
+  // sunucuya listedeki en yeni bildirimin zamanı sınır olarak gider.
+  testWidgets('"Tümünü okundu" listede görülen en yeni bildirimin zamanını sınır olarak gönderir', (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/notifications': [
+        (
+          status: 200,
+          body: {
+            'notifications': [
+              _n(id: 'n2', readAt: null, createdAt: '2026-09-20T09:00:00Z'),
+              _n(id: 'n3', readAt: null, createdAt: '2026-09-20T10:15:30Z'),
+              _n(id: 'n1', createdAt: '2026-09-19T08:00:00Z'),
+            ],
+            'total': 3,
+          },
+        ),
+        (status: 200, body: {'notifications': <Map<String, dynamic>>[], 'total': 0}),
+      ],
+      '/notifications/unread-count': [
+        (status: 200, body: {'unread_count': 2}),
+        (status: 200, body: {'unread_count': 1}),
+      ],
+      '/notifications/read-all': [(status: 200, body: {'ok': true})],
+    });
+    await _pump(tester, adapter);
+
+    await tester.tap(find.byTooltip('Tümünü okundu işaretle'));
+    await tester.pumpAndSettle();
+
+    final i = adapter.calls.indexOf('/notifications/read-all');
+    expect(adapter.requestBodies[i], {'before': '2026-09-20T10:15:30Z'});
+  });
+
+  testWidgets('liste boşken sayaç > 0 ise işaretleme yapılmaz, liste tazelenir (görülmemiş bildirim okunmaz)',
+      (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/notifications': [
+        (status: 200, body: {'notifications': <Map<String, dynamic>>[], 'total': 0}),
+        (status: 200, body: {'notifications': [_n(readAt: null)], 'total': 1}),
+      ],
+      '/notifications/unread-count': [
+        (status: 200, body: {'unread_count': 1}),
+        (status: 200, body: {'unread_count': 1}),
+      ],
+    });
+    await _pump(tester, adapter);
+
+    await tester.tap(find.byTooltip('Tümünü okundu işaretle'));
+    await tester.pumpAndSettle();
+
+    expect(adapter.calls, isNot(contains('/notifications/read-all')));
+    expect(find.text('Görev atandı'), findsOneWidget);
   });
 
   testWidgets('"Tümünü okundu" başarısız olursa backend mesajı gösterilir', (tester) async {

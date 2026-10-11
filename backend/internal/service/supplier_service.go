@@ -29,6 +29,13 @@ var ErrSupplierFieldsRequired = errors.New("tedarikçi kodu ve unvanı zorunludu
 // kartı (seçim listelerinde adsız satır) oluşabiliyordu.
 var ErrSupplierLegalNameRequired = errors.New("tedarikçi unvanı zorunludur")
 
+// ErrSupplierInvalidIBAN: tedarikçi IBAN'ı biçim ya da kontrol basamağı
+// (ISO 13616 mod-97; TR için 26 hane) doğrulamasından geçmedi. Eskiden
+// yalnızca boşlukları kırpılıp şifreleniyordu; IBAN hiçbir ekranda geri
+// okunamadığı için yazım hatası kalıcı olarak saklanıyordu (mobil formu
+// aynı kuralla zaten reddediyordu).
+var ErrSupplierInvalidIBAN = errors.New("IBAN geçersiz: TR ile başlayan 26 haneli IBAN'ı kontrol et (ör. TR33 0006 1005 1978 6457 8413 26)")
+
 // ErrDuplicateSupplierTaxNumber, aynı firmada aynı vergi numarasıyla
 // kayıtlı başka bir tedarikçi olduğunda döner (errors.Is ile; ayrıntı
 // *DuplicateSupplierTaxNumberError'da). Eskiden kontrol yoktu -- aynı
@@ -275,13 +282,18 @@ func (s *SupplierService) Reactivate(ctx context.Context, id, organizationID, us
 // encryptIBAN, onboarding_service.go'daki IBAN üç-durumlu (nil=değiştirme,
 // boş=temizle, dolu=şifrele) deseninin AYNISIdır -- yeni bir şifreleme
 // ilkesi İCAT EDİLMEDİ (internal/platform/crypto.SecretBox, AES-256-GCM).
+// Dolu IBAN boşlukları atılıp büyütülerek saklanır; geçersizse
+// ErrSupplierInvalidIBAN (hiçbir şey yazılmaz).
 func (s *SupplierService) encryptIBAN(iban *string, current string) (string, error) {
 	if iban == nil {
 		return current, nil
 	}
-	trimmed := strings.TrimSpace(*iban)
-	if trimmed == "" {
+	normalized := domain.NormalizeIBAN(*iban)
+	if normalized == "" {
 		return "", nil
 	}
-	return s.box.Encrypt(trimmed)
+	if !domain.ValidIBAN(normalized) {
+		return "", ErrSupplierInvalidIBAN
+	}
+	return s.box.Encrypt(normalized)
 }
