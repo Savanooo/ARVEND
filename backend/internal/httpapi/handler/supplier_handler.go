@@ -171,7 +171,8 @@ func (h *SupplierHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrDuplicateSupplierTaxNumber):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrSupplierFieldsRequired),
-		errors.Is(err, service.ErrSupplierLegalNameRequired):
+		errors.Is(err, service.ErrSupplierLegalNameRequired),
+		errors.Is(err, service.ErrSupplierInvalidIBAN):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	case isInternalError(err):
 		// Veritabanı/bağlantı hatası: ham metni (tablo/kısıt adları)
