@@ -498,7 +498,8 @@ export interface Project {
   customer_phone: string;
   customer_email: string;
   customer_address: string;
-  contract_amount: number;
+  // projects.finance.read izni yoksa null (bkz. lib/project-finance.ts).
+  contract_amount: number | null;
   currency: string;
   status: ProjectStatus;
   start_date: string | null;
@@ -509,7 +510,8 @@ export interface Project {
   created_at: string;
   updated_at: string;
 
-  // Liste ekranının finans kolonları (backend'de aggregate edilir).
+  // Liste ekranının finans kolonları (backend'de aggregate edilir). Yalnızca
+  // GET /projects'te ve yalnızca projects.finance.read sahibine gelir.
   collected_amount?: number;
   total_expenses?: number;
   subcontractor_paid?: number;
@@ -823,6 +825,8 @@ export interface ProjectEvent {
   id: string;
   event_type: string;
   user_id: string | null;
+  // Tutar anahtarları (amount, grand_total, contract_amount...) finans izni
+  // olmayana hiç gelmez -- olay yine listelenir.
   metadata?: Record<string, unknown>;
   created_at: string;
 }
@@ -1397,10 +1401,12 @@ export interface CostControlLine {
 
 // CostControlSummary — has_budget=false ise proje için HENÜZ bir bütçe
 // oluşturulmamıştır (spec: "bütçesiz proje geçerli bir durumdur"); bu
-// durumda contract_value dışındaki alanlar 0'dır.
+// durumda contract_value dışındaki alanlar 0'dır. Gelir tarafı
+// (contract_value, forecast_profit, forecast_margin_percent)
+// projects.finance.read izni yoksa null'dır (uç cost_control.read ile açılır).
 export interface CostControlSummary {
   currency: string;
-  contract_value: number;
+  contract_value: number | null;
   original_budget: number;
   approved_adjustments: number;
   revised_budget: number;
@@ -1409,8 +1415,8 @@ export interface CostControlSummary {
   etc: number;
   eac: number;
   variance: number;
-  forecast_profit: number;
-  forecast_margin_percent: number;
+  forecast_profit: number | null;
+  forecast_margin_percent: number | null;
   has_budget: boolean;
 }
 

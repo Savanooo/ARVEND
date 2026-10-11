@@ -91,7 +91,12 @@ function SummaryCard({ label, value, tone }: { label: string; value: string; ton
 
 function OverviewTab({ data }: { data: CostControlData }) {
   const { summary, lines } = data;
-  const marginTone = summary.forecast_profit >= 0 ? "success" : "danger";
+  // Gelir tarafı (sözleşme bedeli, tahmini kâr/marj) projects.finance.read
+  // yoksa null gelir (uç cost_control.read ile açılır; Proje Yöneticisi
+  // maliyeti görür, satış bedelini/kârı görmez) -- o kartlar çizilmez.
+  const forecastProfit = summary.forecast_profit;
+  const forecastMargin = summary.forecast_margin_percent;
+  const marginTone = (forecastProfit ?? 0) >= 0 ? "success" : "danger";
 
   const totals = lines.reduce(
     (acc, l) => ({
@@ -110,21 +115,19 @@ function OverviewTab({ data }: { data: CostControlData }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
-        <SummaryCard label="Sözleşme Bedeli" value={formatMoney(summary.contract_value, summary.currency)} />
+        {summary.contract_value != null && (
+          <SummaryCard label="Sözleşme Bedeli" value={formatMoney(summary.contract_value, summary.currency)} />
+        )}
         <SummaryCard label="Revize Bütçe" value={formatMoney(summary.revised_budget, summary.currency)} />
         <SummaryCard label="Taahhüt" value={formatMoney(summary.committed_cost, summary.currency)} />
         <SummaryCard label="Gerçekleşen" value={formatMoney(summary.actual_cost, summary.currency)} />
         <SummaryCard label="EAC (Tahmini Nihai Maliyet)" value={formatMoney(summary.eac, summary.currency)} />
-        <SummaryCard
-          label="Tahmini Kâr"
-          value={formatMoney(summary.forecast_profit, summary.currency)}
-          tone={marginTone}
-        />
-        <SummaryCard
-          label="Tahmini Marj"
-          value={`%${summary.forecast_margin_percent.toFixed(2)}`}
-          tone={marginTone}
-        />
+        {forecastProfit != null && (
+          <SummaryCard label="Tahmini Kâr" value={formatMoney(forecastProfit, summary.currency)} tone={marginTone} />
+        )}
+        {forecastMargin != null && (
+          <SummaryCard label="Tahmini Marj" value={`%${forecastMargin.toFixed(2)}`} tone={marginTone} />
+        )}
       </div>
 
       {!summary.has_budget && (

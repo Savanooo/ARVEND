@@ -164,14 +164,18 @@ export function ProjectEditForm({ project }: { project: Project }) {
                 <div className="text-xs uppercase tracking-widest text-text-muted">Müşteri</div>
                 <div>{project.customer_name}</div>
               </div>
-              <div>
-                <div className="text-xs uppercase tracking-widest text-text-muted">
-                  Sözleşme Bedeli
-                </div>
+              {/* projects.finance.read yoksa backend sözleşme bedelini null
+                  döner -- satır hiç gösterilmez (mobil düzenleme ekranıyla aynı). */}
+              {project.contract_amount != null && (
                 <div>
-                  {formatTL(project.contract_amount)} {project.currency}
+                  <div className="text-xs uppercase tracking-widest text-text-muted">
+                    Sözleşme Bedeli
+                  </div>
+                  <div>
+                    {formatTL(project.contract_amount)} {project.currency}
+                  </div>
                 </div>
-              </div>
+              )}
               <div>
                 <div className="text-xs uppercase tracking-widest text-text-muted">Kaynak Teklif</div>
                 <div>
