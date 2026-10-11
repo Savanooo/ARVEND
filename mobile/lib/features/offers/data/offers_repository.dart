@@ -83,6 +83,9 @@ class OffersRepository {
     return OfferRevision.fromJson(json);
   }
 
+  /// [validUntil]: null = tarih değişmedi (sunucu düzenlemede kayıtlı tarihi
+  /// korur, yenide firma süresini uygular), '' = süresiz, 'YYYY-MM-DD' =
+  /// yeni tarih (bugünden önce olamaz).
   Map<String, dynamic> _offerBody({
     String? customerId,
     String customerName = '',

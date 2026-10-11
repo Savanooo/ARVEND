@@ -164,7 +164,10 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
   /// seçenek olarak kalır (müşteriye göndermeden kontrol etmek için).
   /// Durum değiştirme yetkisi (offers.approve) olmayana yalnızca önizleme
   /// sunulur; sunucu da mark_sent'i bu izin olmadan reddeder.
-  Future<_DraftShareChoice?> _askDraftShareChoice({required bool canMarkSent}) {
+  /// [expired]: geçerlilik tarihi geçmiş taslak gönderilemez (sunucu 409);
+  /// yalnızca önizleme linki sunulur ve nedeni söylenir.
+  Future<_DraftShareChoice?> _askDraftShareChoice({required bool canMarkSent, bool expired = false}) {
+    final canSend = canMarkSent && !expired;
     return showDialog<_DraftShareChoice>(
       context: context,
       builder: (context) => AlertDialog(
@@ -174,12 +177,20 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              canMarkSent
+              canSend
                   ? "Müşterinin linkten Kabul Et / Reddet yapabilmesi için teklif 'Gönderildi' olmalı. "
                       'Gönderildi olarak işaretleyip linki oluşturayım mı?'
                   : "Müşterinin linkten Kabul Et / Reddet yapabilmesi için teklif 'Gönderildi' olmalı.",
             ),
-            if (!canMarkSent) ...[
+            if (expired) ...[
+              const SizedBox(height: AppSpacing.sm),
+              const Text(
+                'Geçerlilik tarihi geçtiği için teklif gönderilemez; oluşturulacak link yalnızca önizlemedir. '
+                'Göndermek için önce teklifi düzenleyip tarihi güncelle.',
+                key: ValueKey('share-draft-expired-note'),
+                style: AppTypography.metadata,
+              ),
+            ] else if (!canMarkSent) ...[
               const SizedBox(height: AppSpacing.sm),
               const Text(
                 'Teklif durumunu değiştirme yetkiniz yok; oluşturulacak link yalnızca önizlemedir.',
@@ -196,7 +207,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
             onPressed: () => Navigator.of(context).pop(_DraftShareChoice.preview),
             child: const Text('Yalnızca önizleme linki'),
           ),
-          if (canMarkSent)
+          if (canSend)
             FilledButton(
               key: const ValueKey('share-draft-send'),
               autofocus: true,
@@ -208,10 +219,10 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     );
   }
 
-  Future<void> _createShareLink(Offer offer, {required bool canMarkSent}) async {
+  Future<void> _createShareLink(Offer offer, {required bool canMarkSent, bool expired = false}) async {
     var markSent = false;
     if (offer.status == Offer.statusTaslak) {
-      final choice = await _askDraftShareChoice(canMarkSent: canMarkSent);
+      final choice = await _askDraftShareChoice(canMarkSent: canMarkSent, expired: expired);
       if (choice == null || !mounted) return;
       markSent = choice == _DraftShareChoice.send;
     }
@@ -290,6 +301,27 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     }
   }
 
+  /// Geçerlilik tarihi geçmiş teklif müşteriye gönderilemez (sunucu 409:
+  /// "göndermeden önce geçerlilik tarihini güncelleyin"). Gönderim düğmesine
+  /// basana nedenini ve ne yapacağını söyler; taslakta düzenlemeye götürür.
+  Future<void> _explainExpired(Offer offer, {required bool canUpdate}) async {
+    final canFix = offer.isEditable && canUpdate;
+    final edit = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const ValueKey('offer-expired-dialog'),
+        title: const Text('Geçerlilik tarihi geçmiş'),
+        content: Text(_expiredText(offer, canUpdate: canUpdate)),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: Text(canFix ? 'Vazgeç' : 'Tamam')),
+          if (canFix)
+            FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Tarihi Güncelle')),
+        ],
+      ),
+    );
+    if (edit == true && mounted) context.push('/teklifler/$offerId/duzenle');
+  }
+
   Future<void> _sendEmail() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -331,6 +363,10 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     final canUpdate = user?.hasPermission(kPermOffersUpdate) ?? false;
     final canApprove = user?.hasPermission(kPermOffersApprove) ?? false;
     final canDelete = user?.hasPermission(kPermOffersDelete) ?? false;
+    // Geçerlilik tarihi geçmiş (arşivde olmayan) teklif müşteriye gönderilemez.
+    final today = ref.watch(offersTodayProvider);
+    final loaded = offerAsync.valueOrNull;
+    final expired = loaded != null && !loaded.isPassive && loaded.validityExpiredOn(today);
     // İzni olmayan VEYA henüz "kabul edildi" durumuna gelmemiş bir teklif
     // İÇİN bu sorgu hiç atılmaz -- yalnızca kabul edilmiş teklifler
     // dönüştürülebilir, gereksiz bir /offers/{id}/project isteği YOK.
@@ -409,6 +445,13 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
               ),
               const SizedBox(height: AppSpacing.sm),
               Text('Revizyon #${offer.revisionNo}', style: AppTypography.metadata),
+              if (expired && (offer.status == Offer.statusTaslak || offer.status == Offer.statusGonderildi)) ...[
+                const SizedBox(height: AppSpacing.md),
+                _ExpiredValidityNotice(
+                  text: _expiredText(offer, canUpdate: canUpdate),
+                  onFix: offer.isEditable && canUpdate ? () => context.push('/teklifler/$offerId/duzenle') : null,
+                ),
+              ],
               const SizedBox(height: AppSpacing.lg),
               AppCard(
                 child: Column(
@@ -493,7 +536,9 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
               if (offer.isEditable && canApprove)
                 PrimaryButton(
                   label: 'Gönderildi Olarak İşaretle',
-                  onPressed: () => _confirmAndSetStatus(
+                  onPressed: expired
+                      ? () => _explainExpired(offer, canUpdate: canUpdate)
+                      : () => _confirmAndSetStatus(
                     Offer.statusGonderildi,
                     title: 'Gönderildi Olarak İşaretle',
                     message: '${offer.offerNo} gönderildi olarak işaretlensin mi? Bu revizyon artık '
@@ -572,13 +617,13 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                       icon: Icons.ios_share_outlined,
                       label: 'Paylaşım Linki',
                       loading: _creatingLink,
-                      onPressed: () => _createShareLink(offer, canMarkSent: canApprove),
+                      onPressed: () => _createShareLink(offer, canMarkSent: canApprove, expired: expired),
                     ),
                     SecondaryButton(
                       icon: Icons.mail_outline,
                       label: 'E-posta Gönder',
                       loading: _sendingEmail,
-                      onPressed: _sendEmail,
+                      onPressed: expired ? () => _explainExpired(offer, canUpdate: canUpdate) : _sendEmail,
                     ),
                   ],
                 ],
@@ -586,6 +631,73 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Süresi geçmiş teklifte ne olduğunu ve ne yapılacağını söyleyen metin
+/// (detaydaki uyarı ve gönderim düğmelerinin açıklaması).
+String _expiredText(Offer offer, {required bool canUpdate}) {
+  final date = Formatters.date(offer.validUntil);
+  switch (offer.status) {
+    case Offer.statusTaslak:
+      final next = canUpdate
+          ? 'Teklifi düzenleyip yeni bir tarih seç ya da süresiz yap.'
+          : 'Tarihi, teklif düzenleme yetkisi olan biri güncelleyebilir.';
+      return 'Geçerlilik tarihi geçti ($date); bu haliyle müşteriye gönderilemez. $next';
+    case Offer.statusKabulEdildi:
+      return 'Geçerlilik tarihi geçti ($date); teklif e-postayla yeniden gönderilemez.';
+    default:
+      final next = offer.canRevise && canUpdate
+          ? ' Yeni fiyat ve süreyle göndermek için "Revize Et ve Düzenle"yi kullan.'
+          : '';
+      return 'Geçerlilik tarihi geçti ($date); müşteri bu teklifi artık linkten kabul edemez ve teklif '
+          'yeniden gönderilemez.$next';
+  }
+}
+
+/// Detayın üstündeki "geçerlilik tarihi geçti" uyarısı; taslakta (izin
+/// varsa) doğrudan düzenlemeye götüren "Tarihi Güncelle" düğmesiyle.
+class _ExpiredValidityNotice extends StatelessWidget {
+  const _ExpiredValidityNotice({required this.text, this.onFix});
+
+  final String text;
+  final VoidCallback? onFix;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('offer-expired-notice'),
+      padding: const EdgeInsets.fromLTRB(AppSpacing.md, 10, AppSpacing.md, 10),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(AppRadius.control),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.warning_amber_rounded, size: 18, color: AppColors.warning),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(text, style: AppTypography.helper.copyWith(color: AppColors.textPrimary, height: 1.35)),
+              ),
+            ],
+          ),
+          if (onFix != null)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                icon: const Icon(Icons.event_outlined, size: 18),
+                label: const Text('Tarihi Güncelle'),
+                onPressed: onFix,
+              ),
+            ),
+        ],
       ),
     );
   }

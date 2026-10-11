@@ -92,6 +92,14 @@ class OfferItem {
   }
 }
 
+/// 'YYYY-MM-DD' geçerlilik tarihi [today] itibarıyla geçti mi (bkz.
+/// [Offer.validityExpiredOn]); boş/okunamayan tarih süresizdir.
+bool offerValidityExpired(String? validUntil, DateTime today) {
+  final d = DateTime.tryParse(validUntil ?? '');
+  if (d == null) return false;
+  return DateTime.utc(d.year, d.month, d.day).isBefore(DateTime.utc(today.year, today.month, today.day));
+}
+
 /// Markup modunda istemci önizlemesi — sunucu otoriterdir; bu yalnızca UX.
 double? previewMarkupUnitPrice(double cost, double markupPercent) {
   if (cost < 0) return null;
@@ -151,6 +159,12 @@ class Offer {
   static const statusReddedildi = 'reddedildi';
 
   bool get isEditable => status == statusTaslak && !isPassive;
+
+  /// Geçerlilik tarihi [today] (İstanbul takvim günü) itibarıyla geçti mi --
+  /// backend `OfferValidityExpired` ile aynı kural: tarihin kendisi dahil
+  /// geçerlidir, tarihsiz teklif süresizdir. Süresi geçmiş teklif müşteriye
+  /// gönderilemez (409) ve linkten kabul edilemez.
+  bool validityExpiredOn(DateTime today) => offerValidityExpired(validUntil, today);
 
   bool get canRevise =>
       !isPassive && (status == statusGonderildi || status == statusReddedildi);

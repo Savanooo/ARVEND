@@ -1,11 +1,19 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_providers.dart';
+import '../../projects/data/istanbul_day.dart';
+import '../../projects/finance_plan/domain/finance_dates.dart' show istanbulToday;
 import '../domain/offer.dart';
 import 'offers_repository.dart';
 
 final offersRepositoryProvider =
     Provider<OffersRepository>((ref) => OffersRepository(ref.watch(apiClientProvider)));
+
+/// İstanbul'un bugünü (sunucunun geçerlilik kuralıyla aynı gün): detaydaki
+/// "geçerlilik tarihi geçti" uyarısı ve gönderim kapıları, formdaki tarih
+/// seçicinin en erken günü. Gün değişince kendini yeniler; testlerde sabit
+/// bir günle ezilir.
+final offersTodayProvider = Provider.autoDispose<DateTime>((ref) => trackIstanbulDay(ref, istanbulToday));
 
 /// Teklif listesinin TAZELEME SİNYALİ (anahtar: '' = aktif, 'pasif').
 /// Teklif detay/oluşturma ekranları bir değişiklikten sonra

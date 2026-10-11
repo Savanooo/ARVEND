@@ -75,11 +75,13 @@ class FormPushProbe {
 
 /// Formu gerçek bir go_router yığınında açar: `/` -> `/form` (push). Kayıt
 /// sonrası gidilen her detay rotası "detay /yol" metniyle çizilir.
+/// [overrides]: ek sağlayıcı ezmeleri (ör. sabit "bugün").
 Future<FormPushProbe> pumpRoutedForm(
   WidgetTester tester,
   FakeHttpClientAdapter adapter, {
   required Widget form,
   User? user,
+  List<Override> overrides = const [],
 }) async {
   await tester.binding.setSurfaceSize(const Size(1000, 1600));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -123,6 +125,7 @@ Future<FormPushProbe> pumpRoutedForm(
       overrides: [
         apiClientProvider.overrideWithValue(client),
         if (user != null) authControllerProvider.overrideWith(() => FakeAuth(user)),
+        ...overrides,
       ],
       child: MaterialApp.router(routerConfig: router),
     ),

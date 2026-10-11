@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:arvend/core/utils/formatters.dart';
+import 'package:arvend/features/offers/data/offers_providers.dart';
 import 'package:arvend/features/offers/presentation/offer_create_screen.dart';
 
 import '../../test_utils/fake_api_client.dart';
@@ -50,6 +52,8 @@ TextField _textField(WidgetTester tester, String label) =>
     tester.widget<TextField>(find.descendant(of: formField(label), matching: find.byType(TextField)));
 
 void main() {
+  setUpAll(() => initializeDateFormatting('tr_TR'));
+
   testWidgets('"12.500" birim fiyat on iki bin beş yüz gider; önizleme ara toplam / KDV / toplamı gösterir', (tester) async {
     final adapter = FakeHttpClientAdapter(script: {
       '/offers/': [(status: 201, body: _offer())],
@@ -134,7 +138,7 @@ void main() {
     expect(body['customer_name'], 'Moda Mimarlık Şantiye');
   });
 
-  testWidgets('teklifi düzenlemek geçerlilik tarihini silmez', (tester) async {
+  testWidgets('teklifi düzenlemek geçerlilik tarihini silmez: değişmeyen tarih gönderilmez, sunucu korur', (tester) async {
     final existing = _offer(id: 'o1', validUntil: '2026-11-30')
       ..['items'] = [
         {'id': 'i1', 'product_name': 'Alçıpan', 'quantity': 3, 'unit_price': 1250.5, 'line_total': 3751.5, 'unit': 'm2'},
@@ -145,14 +149,24 @@ void main() {
         (status: 200, body: _offer(id: 'o1', validUntil: '2026-11-30')),
       ],
     });
-    await pumpRoutedForm(tester, adapter, form: const OfferCreateScreen(offerId: 'o1'), user: _user);
+    await pumpRoutedForm(
+      tester,
+      adapter,
+      form: const OfferCreateScreen(offerId: 'o1'),
+      user: _user,
+      overrides: [offersTodayProvider.overrideWithValue(DateTime.utc(2026, 10, 11))],
+    );
 
+    expect(find.descendant(of: find.byKey(const ValueKey('offer-valid-until')), matching: find.text('30.11.2026')),
+        findsOneWidget);
     // Mevcut değer alana geri okunabilir biçimde yazılır ("1250,5").
+    await tester.scrollUntilVisible(find.text('1250,5'), 200, scrollable: find.byType(Scrollable).first);
     expect(find.text('1250,5'), findsOneWidget);
     await tapButton(tester, 'Kaydet');
 
     final body = requestBodyFor(adapter, '/offers/o1');
-    expect(body['valid_until'], '2026-11-30');
+    // null = alan değişmedi: sunucu kayıtlı tarihi (30.11.2026) korur.
+    expect(body['valid_until'], isNull);
     expect(((body['items'] as List).single as Map)['unit_price'], 1250.5);
   });
 }
