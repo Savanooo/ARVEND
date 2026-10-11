@@ -774,7 +774,10 @@ Diğer > Hakkında > "Güncellemeleri denetle" elle):
 - **Zorunlu güncelleme:** kurulu build sunucudaki tabanın altındaysa Play'in
   tam ekran güncellemesi açılır. Kullanıcı vazgeçerse ya da pencere
   açılamazsa uygulama, kapatılamayan **"Güncelleme gerekli"** ekranında
-  bekler ("Güncelle" / "Google Play'de aç"); her öne gelişte yeniden denenir.
+  bekler ("Güncelle" / "Google Play'de aç"); geri tuşu ekranı kapatmaz,
+  uygulamayı arka plana alır. Ekran açıkken öne gelişte Play'in penceresi
+  kendiliğinden yeniden açılmaz (Play'den her dönüşte açılsaydı döngü olurdu),
+  yalnızca zorunluluğun sürüp sürmediğine bakılır.
 - **Kilitlemeyen durumlar:** Play'e ulaşılamıyorsa (uygulama Play'den
   kurulmamış, ör. `flutter run`/sideload; Play Hizmetleri yok; ağ yok),
   sunucuya ulaşılamıyorsa ya da Play bu telefona henüz yeni sürüm

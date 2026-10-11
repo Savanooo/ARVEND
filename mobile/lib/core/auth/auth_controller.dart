@@ -177,8 +177,12 @@ class AuthController extends AsyncNotifier<User?> {
   /// (sunucu kaydı yeni kullanıcıya geçer); silinmez, bekleyen iş unutulur.
   /// PushWatcher açılışta ve öne gelişte çağırır. Hata fırlatmaz.
   Future<void> retryPendingPushCleanup() async {
+    // Giriş sürüyorsa (ya da oturum geri yükleniyorsa) dokunulmaz: anahtar
+    // birazdan yeni oturumun adına kaydedilecek.
+    if (state.isLoading) return;
     final pending = ref.read(pushCleanupStoreProvider);
     if (!await pending.isPending()) return;
+    if (state.isLoading) return;
     if (state.valueOrNull != null) {
       await pending.clear();
       return;

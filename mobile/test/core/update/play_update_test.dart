@@ -311,6 +311,45 @@ void main() {
       expect(find.text('ana'), findsOneWidget);
     });
 
+    void resume(WidgetTester tester) {
+      for (final state in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+    }
+
+    testWidgets('ekran açıkken öne gelince Play\'in penceresi kendiliğinden açılmaz (döngü yok)', (tester) async {
+      final play = FakePlayClient(_available);
+      await pumpWatcher(tester, play, mandatory(3));
+      expect(find.text(kPlayUpdateRequiredTitle), findsOneWidget);
+      expect(play.calls, ['check', 'immediate']);
+
+      resume(tester);
+      await tester.pumpAndSettle();
+
+      expect(play.calls, ['check', 'immediate', 'check'], reason: 'yalnızca durum soruldu');
+      expect(find.text(kPlayUpdateRequiredTitle), findsOneWidget);
+    });
+
+    testWidgets('ekran açıkken Play artık güncelleme sunmuyorsa öne gelişte ekran kalkar', (tester) async {
+      final play = FakePlayClient(_available);
+      await pumpWatcher(tester, play, mandatory(3));
+      expect(find.text(kPlayUpdateRequiredTitle), findsOneWidget);
+
+      play.info = const PlayUpdateInfo();
+      resume(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text(kPlayUpdateRequiredTitle), findsNothing);
+      expect(find.text('ana'), findsOneWidget);
+    });
+
     testWidgets('"Google Play\'de aç" Play sayfasını açar; açılamazsa ne yapacağı söylenir', (tester) async {
       final play = FakePlayClient(_available, immediate: PlayUpdateOutcome.failed);
       await pumpWatcher(tester, play, mandatory(), storeOpenResult: false);

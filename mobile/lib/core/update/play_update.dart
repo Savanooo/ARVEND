@@ -31,8 +31,9 @@ import 'update_prompt_dialog.dart' show UpdateNotice;
 ///   `play.json`; sideload'un `latest.json`'ı da aynı versionCode dizisini
 ///   kullanır) Play'in tam ekran güncellemesi açılır. Kullanıcı vazgeçerse
 ///   ya da pencere açılamazsa uygulama kapatılamayan "Güncelleme gerekli"
-///   ekranında bekler (Güncelle / Google Play'de aç) ve her öne gelişinde
-///   yeniden dener.
+///   ekranında bekler (Güncelle / Google Play'de aç); ekran açıkken öne
+///   gelişte Play'in penceresi kendiliğinden açılmaz, yalnızca zorunluluğun
+///   sürüp sürmediğine bakılır.
 /// - Play'e ya da sunucuya ulaşılamazsa (uygulama Play'den kurulmamış,
 ///   derleme Play'e bağlı değil, ağ yok) hiçbir şey kilitlenmez.
 ///
@@ -289,6 +290,36 @@ class PlayUpdateController {
     return PlayUpdateStatus.failed;
   }
 
+  /// "Güncelleme gerekli" ekranı açıkken öne gelişte: Play'in penceresini
+  /// AÇMADAN zorunluluğun sürüp sürmediğine bakar. Play'in tam ekranından
+  /// her dönüşte pencere yeniden açılsaydı kullanıcı ekranı hiç göremeden
+  /// döngüye girerdi; yeniden denemek "Güncelle" düğmesinin işidir. Play'e ya
+  /// da sunucuya ulaşılamazsa ya da Play artık güncelleme sunmuyorsa ekran
+  /// kalkar. Hata FIRLATMAZ.
+  Future<bool> recheckRequired() async {
+    if (_busy) return updateRequired;
+    _busy = true;
+    try {
+      final PlayUpdateInfo info;
+      try {
+        info = await _ref.read(playUpdateClientProvider).check();
+      } catch (e) {
+        debugPrint('Play güncelleme denetimi başarısız: $e');
+        return updateRequired = false;
+      }
+      _lastCheckedAt = _ref.read(updateClockProvider)();
+      if (!info.available && !info.inProgress) {
+        mandatoryPending = false;
+        return updateRequired = false;
+      }
+      final mandatory = await _isMandatory();
+      mandatoryPending = mandatory;
+      return updateRequired = mandatory;
+    } finally {
+      _busy = false;
+    }
+  }
+
   /// Zorunlu güncelleme: Play'in tam ekran güncellemesi (yarım kaldıysa
   /// sürdürülür). Play buna izin vermiyorsa arka planda indirilip hemen
   /// kurulur. Erteleme hiç dinlenmez.
@@ -421,7 +452,18 @@ class _PlayUpdateWatcherState extends ConsumerState<PlayUpdateWatcher> with Widg
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
+    // Ekran açıkken Play'in penceresi kendiliğinden yeniden açılmaz (bkz.
+    // PlayUpdateController.recheckRequired).
+    if (_required) {
+      _recheckRequired();
+      return;
+    }
     if (_readyToInstall || _controller.mandatoryPending || _controller.isStale) _check();
+  }
+
+  Future<void> _recheckRequired() async {
+    final required = await _controller.recheckRequired();
+    if (mounted && _required != required) setState(() => _required = required);
   }
 
   /// Geri tuşu: zorunlu güncelleme ekranı kapanmaz (arkadaki uygulamanın
