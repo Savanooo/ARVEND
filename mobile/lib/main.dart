@@ -8,12 +8,25 @@ import 'app/app.dart';
 import 'core/api/api_client.dart';
 import 'core/api/api_providers.dart';
 import 'core/auth/auth_controller.dart';
+import 'core/crash/crash_reporter.dart';
+import 'core/crash/firebase_crash_reporter.dart';
 import 'core/push/firebase_push_messaging.dart';
 import 'core/push/push_messaging.dart';
 import 'core/whats_new/whats_new.dart';
 
-Future<void> main() async {
+void main() {
+  // Uygulamanın tamamı tek bir korunan bölgede çalışır: buradan kaçan her
+  // yakalanmamış hata (bekleyen Future'lar dahil) raporlanır.
+  runZonedGuarded(_start, CrashHandlers.onUncaught);
+}
+
+Future<void> _start() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Çökme raporlama en başta kurulur: açılıştaki hatalar da yakalansın.
+  // Firebase başlatılamazsa (iOS vb.) raporlama sessizce kapalıdır.
+  final crash = await FirebaseCrashReporter.create() ?? const NoopCrashReporter();
+  CrashHandlers.install(crash);
+
   await initializeDateFormatting('tr_TR');
 
   final apiClient = await ApiClient.create();
@@ -24,8 +37,12 @@ Future<void> main() async {
     overrides: [
       apiClientProvider.overrideWithValue(apiClient),
       if (push != null) pushMessagingProvider.overrideWithValue(push),
+      crashReporterProvider.overrideWithValue(crash),
     ],
   );
+
+  // Raporlara yalnızca iç kullanıcı/firma kimliği gider (ad, e-posta YOK).
+  bindCrashReporterToSession(container, crash);
 
   // Tek uçuş refresh başarısız olduğunda (sınıflandırılamayan bir 401/403)
   // oturumu senkron biçimde temizle - go_router'ın redirect'i

@@ -4,4 +4,9 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <application>
+        <!-- Profil yapısından Crashlytics'e hiçbir şey gitmez (bkz.
+             src/debug/AndroidManifest.xml). -->
+        <meta-data android:name="firebase_crashlytics_collection_enabled" android:value="false"/>
+    </application>
 </manifest>

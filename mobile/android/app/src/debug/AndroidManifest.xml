@@ -5,5 +5,10 @@
          adresi olan 10.0.2.2 gibi HTTP hedeflere (dart-define ile verilen
          API_BASE_URL) bağlanabilmek için; ana manifest'teki
          android:usesCleartextTraffic="false" release'de aynen korunur. -->
-    <application android:usesCleartextTraffic="true" tools:replace="android:usesCleartextTraffic"/>
+    <application android:usesCleartextTraffic="true" tools:replace="android:usesCleartextTraffic">
+        <!-- Geliştirme yapısından Crashlytics'e hiçbir şey gitmez: Dart
+             tarafı da kapatır (lib/core/crash/firebase_crash_reporter.dart),
+             bu ayar Dart başlamadan önceki anı da kapsar. -->
+        <meta-data android:name="firebase_crashlytics_collection_enabled" android:value="false"/>
+    </application>
 </manifest>
