@@ -245,6 +245,18 @@ String? validatePositiveIfPresent(String raw, String fieldLabel) {
   return null;
 }
 
+/// Çatı eğimi (derece): boşsa eğim yok; doluysa 0'dan büyük ve 90'dan
+/// küçük olmalı. 90° ve üstü bir eğimde etkin alan tanımsızdır: sunucu
+/// 400 döner, eski sunucu ise eğimi sessizce yok sayıp düz alan
+/// hesaplıyordu.
+String? validatePitchIfPresent(String raw) {
+  final err = validatePositiveIfPresent(raw, 'Çatı Eğimi');
+  if (err != null) return err;
+  final n = double.tryParse(raw.trim().replaceAll(',', '.'));
+  if (n != null && n >= 90) return "Çatı Eğimi 90'dan küçük olmalı";
+  return null;
+}
+
 /// Seçilen kalemleri teklife eklenecek `OfferItem` listesine çevirir --
 /// backend'in `/calculations/run`'dan DÖNDÜRDÜĞÜ değerleri olduğu gibi
 /// taşır, yeni bir hesap/formül İCAT ETMEZ. `calcSnapshot` web ile ortak

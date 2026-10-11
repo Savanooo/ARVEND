@@ -58,9 +58,19 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
   final _pitchController = TextEditingController();
 
   CalcRunResult? _result;
+
+  /// Sonucun hesaplandığı grubun adı -- snapshot'taki group_name buradan
+  /// gelir, "Teklife Ekle" anında seçili olan gruptan değil.
+  String? _resultGroupName;
   bool _calculating = false;
   String? _error;
   final Set<String> _selectedForOffer = {};
+
+  /// Girdi (ölçü, mod, grup, kategori) her değiştiğinde ve her hesapta
+  /// artar. Yavaş şebekede yanıt gelmeden ölçüyü düzeltip grubu/kategoriyi
+  /// değiştiren kullanıcının eski hesabı, yanıt sonradan gelince ekrana ve
+  /// teklife taşınmaz.
+  int _inputVersion = 0;
 
   @override
   void dispose() {
@@ -77,10 +87,21 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
   /// kategoriye bakmadan uygular, gizli bir eğim tüm miktarları şişirirdi).
   bool get _showPitch => _group?.looksLikeRoof ?? false;
 
-  /// Ölçü ya da mod değişince eski sonuç ekranda kalmaz: aksi halde
-  /// "Teklife Ekle" yeni ölçüleri değil eski hesabı teklife taşırdı.
+  /// Ölçü, mod, grup ya da kategori değişince eski sonuç ekranda kalmaz:
+  /// aksi halde "Teklife Ekle" yeni ölçüleri değil eski hesabı teklife
+  /// taşırdı. Yolda olan bir hesabın yanıtı da artık geçersizdir.
+  /// setState içinden çağrılır.
+  void _dropResult() {
+    _inputVersion++;
+    _result = null;
+  }
+
   void _invalidateResult() {
-    if (_result != null) setState(() => _result = null);
+    if (_result != null) {
+      setState(_dropResult);
+    } else {
+      _inputVersion++;
+    }
   }
 
   /// Yalnızca daha hızlı geri bildirim için -- gerçek sınır her zaman
@@ -98,7 +119,7 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
     final p = validatePositiveIfPresent(_perimeterController.text, 'Çevre');
     if (p != null) return p;
     if (_showPitch) {
-      final pitch = validatePositiveIfPresent(_pitchController.text, 'Çatı Eğimi');
+      final pitch = validatePitchIfPresent(_pitchController.text);
       if (pitch != null) return pitch;
     }
     return null;
@@ -111,6 +132,8 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
       setState(() => _error = validationError);
       return;
     }
+    final version = ++_inputVersion;
+    final groupName = _group?.name;
     setState(() {
       _calculating = true;
       _error = null;
@@ -124,8 +147,12 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
             perimeter: _nonEmpty(_perimeterController.text),
             pitchDeg: _showPitch ? _nonEmpty(_pitchController.text) : null,
           );
+      // Yanıt beklenirken girdi değiştiyse bu sonuç artık ekrandakiyle
+      // ilgili değil; kullanıcı yeniden hesaplar.
+      if (!mounted || version != _inputVersion) return;
       setState(() {
         _result = result;
+        _resultGroupName = groupName;
         // Miktarı 0 olan satırlar (ör. çevre girilmedi) seçili gelmez;
         // teklife eklenemezler.
         _selectedForOffer
@@ -133,6 +160,7 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
           ..addAll(result.items.where((e) => e.hasOfferQuantity).map((e) => e.recipeItemId));
       });
     } on ApiException catch (e) {
+      if (!mounted || version != _inputVersion) return;
       setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _calculating = false);
@@ -144,7 +172,7 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
   void _addToOffer() {
     final result = _result;
     if (result == null) return;
-    final items = buildOfferItemsFromCalcResult(result, _selectedForOffer, groupName: _group?.name);
+    final items = buildOfferItemsFromCalcResult(result, _selectedForOffer, groupName: _resultGroupName);
     if (items.isEmpty) return;
     if (widget.pickMode) {
       Navigator.of(context).pop(items);
@@ -188,7 +216,7 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
                         onChanged: (g) => setState(() {
                           _group = g;
                           _category = null;
-                          _result = null;
+                          _dropResult();
                           // Eğim yalnızca çatı grubuna ait; başka gruba
                           // geçince gizlenen alanda değer kalmasın.
                           _pitchController.clear();
@@ -202,7 +230,7 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
                             selected: _category?.id == c.id,
                             onTap: () => setState(() {
                               _category = c;
-                              _result = null;
+                              _dropResult();
                             }),
                           ),
                       ],
@@ -221,7 +249,7 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
                           selected: {_useAreaDirectly},
                           onSelectionChanged: (s) => setState(() {
                             _useAreaDirectly = s.first;
-                            _result = null;
+                            _dropResult();
                           }),
                         ),
                         if (_useAreaDirectly)
@@ -448,7 +476,11 @@ class _ResultSection extends StatelessWidget {
       final footer = [
         if (!addable)
           Text(
-            'Miktar 0 olduğu için teklife eklenmez',
+            // Eski sunucu 0,01'in altındaki miktarı 6 ondalıkla (ör.
+            // 0,004) gönderir; o satıra "0" demek ekranla çelişirdi.
+            (double.tryParse(item.quantity) ?? 0) > 0
+                ? "Miktar 0,01'den küçük olduğu için teklife eklenmez"
+                : 'Miktar 0 olduğu için teklife eklenmez',
             key: ValueKey('metraj-zero-qty-${item.recipeItemId}'),
             style: AppTypography.helper,
           ),
