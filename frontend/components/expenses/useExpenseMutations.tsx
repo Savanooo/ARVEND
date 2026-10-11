@@ -75,14 +75,17 @@ export function useExpenseMutations() {
     );
   }
 
+  // Finans yöneticisinin iptali: gerekçe ZORUNLU (mobil showReasonDialog
+  // gerekçesiz "İptal Et"i açmaz); gerekçesiz iz yalnızca girenin "Geri Çek"i.
   async function voidExpense(projectId: string, e: Expense): Promise<boolean> {
     const reason = await askReason({
       title: "Masrafı İptal Et",
-      message: `${formatMoney(e.amount, e.currency)} tutarındaki masraf iptal edilecek; kayıt silinmez, İPTAL olarak işaretlenir.`,
+      message: `${formatMoney(e.amount, e.currency)} tutarındaki masraf iptal edilir, gerçekleşen maliyetten düşer. Kayıt silinmez; listede üstü çizili kalır.`,
       label: "İptal nedeni",
       confirmLabel: "İptal Et",
       cancelLabel: "Vazgeç",
       danger: true,
+      required: true,
     });
     if (reason === null) return false;
     return run(

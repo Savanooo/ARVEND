@@ -184,6 +184,7 @@ export function MyExpensesView({
                     <button
                       type="button"
                       onClick={() => setDetailId(e.id)}
+                      aria-label={`${categoryLabel(e.category)} masrafının ayrıntısı (${formatDateTR(e.expense_date)})`}
                       className="text-xs text-text-muted hover:text-text hover:underline"
                     >
                       Ayrıntı
@@ -239,7 +240,8 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
   return (
     <div className="flex justify-between gap-4 border-b border-border py-2 last:border-b-0">
       <span className="shrink-0 text-text-muted">{label}</span>
-      <span className="text-right">{children}</span>
+      {/* Boşluksuz uzun değer (fatura no, not) dar ekranda pencereyi yatay kaydırmasın. */}
+      <span className="min-w-0 break-words text-right">{children}</span>
     </div>
   );
 }
