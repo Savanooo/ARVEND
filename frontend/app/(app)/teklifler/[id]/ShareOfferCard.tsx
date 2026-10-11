@@ -8,12 +8,12 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input } from "@/components/ui/Input";
+import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { useToast } from "@/components/ui/Toast";
 import { apiClient, ApiError } from "@/lib/api";
+import { shareLinkBody, shareNeedsDraftChoice, type ShareExpiresIn as ExpiresIn } from "@/lib/offers";
 import type { Offer, OfferShareLink } from "@/lib/types";
-
-type ExpiresIn = "7d" | "30d" | "never";
 
 const EXPIRY_OPTIONS: { value: ExpiresIn; label: string }[] = [
   { value: "7d", label: "7 gün" },
@@ -21,20 +21,32 @@ const EXPIRY_OPTIONS: { value: ExpiresIn; label: string }[] = [
   { value: "never", label: "Süresiz" },
 ];
 
+// Taslak teklifin linkinde müşteri teklifi görür ama Kabul Et / Reddet
+// göremez (yalnızca "gönderildi" revizyon yanıtlanabilir). Sahada link
+// WhatsApp'tan atılıyor, "Gönderildi" işaretlemesi unutuluyordu -- bu yüzden
+// taslakta link oluşturmadan önce (mobildeki gibi) sorulur: "Gönder ve link
+// oluştur" (mark_sent, offers.approve ister) / "Yalnızca önizleme linki" /
+// "Vazgeç". Durum değiştirme yetkisi olmayana yalnızca önizleme sunulur;
+// sunucu da mark_sent'i bu izin olmadan 403 ile reddeder.
 export function ShareOfferCard({
   offer,
   links,
   revisionNoById,
+  canApprove = false,
 }: {
   offer: Offer;
   links: OfferShareLink[];
   revisionNoById: Record<string, number>;
+  // offers.approve: taslakta "Gönder ve link oluştur" seçeneği (yalnızca UX;
+  // gerçek sınır backend'de).
+  canApprove?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
   const { confirm, dialog } = useConfirmDialog();
   const [expiresIn, setExpiresIn] = useState<ExpiresIn>("never");
   const [creating, setCreating] = useState(false);
+  const [draftChoiceOpen, setDraftChoiceOpen] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showMailForm, setShowMailForm] = useState(false);
@@ -52,14 +64,30 @@ export function ShareOfferCard({
     return `${window.location.origin}/paylas/${token}`;
   }
 
-  async function handleCreate() {
+  function handleCreateClick() {
+    if (shareNeedsDraftChoice(offer.status)) setDraftChoiceOpen(true);
+    else void createLink(false);
+  }
+
+  function handleDraftChoice(choice: "send" | "preview" | null) {
+    setDraftChoiceOpen(false);
+    if (choice) void createLink(choice === "send");
+  }
+
+  async function createLink(markSent: boolean) {
     setCreating(true);
     try {
       await apiClient(`/api/v1/offers/${offer.id}/share-links`, {
         method: "POST",
-        body: JSON.stringify({ expires_in: expiresIn }),
+        body: JSON.stringify(shareLinkBody(expiresIn, markSent)),
       });
-      toast.success("Paylaşım linki oluşturuldu.");
+      toast.success(
+        markSent
+          ? "Teklif gönderildi olarak işaretlendi, paylaşım linki oluşturuldu."
+          : "Paylaşım linki oluşturuldu."
+      );
+      // Sunucu bileşeni teklifi (durum), revizyonları, linkleri ve geçmişi
+      // yeniden çeker: mark_sent sonrası durum "Gönderildi" görünür.
       router.refresh();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Bağlantı hatası");
@@ -201,7 +229,7 @@ export function ShareOfferCard({
               </option>
             ))}
           </Select>
-          <Button type="button" variant="secondary" disabled={creating} onClick={handleCreate}>
+          <Button type="button" variant="secondary" disabled={creating} onClick={handleCreateClick}>
             {creating ? "Oluşturuluyor…" : activeLinks.length === 0 ? "Link Oluştur" : "Yeni Link Oluştur"}
           </Button>
           <Button type="button" onClick={() => setShowMailForm((v) => !v)}>
@@ -253,6 +281,42 @@ export function ShareOfferCard({
         )}
       </CardBody>
       {dialog}
+      <Modal
+        open={draftChoiceOpen}
+        onClose={() => handleDraftChoice(null)}
+        title="Teklif taslak"
+        footer={
+          <>
+            <Button type="button" variant="ghost" onClick={() => handleDraftChoice(null)}>
+              Vazgeç
+            </Button>
+            <Button
+              type="button"
+              variant={canApprove ? "secondary" : "primary"}
+              onClick={() => handleDraftChoice("preview")}
+            >
+              Yalnızca önizleme linki
+            </Button>
+            {canApprove && (
+              <Button type="button" onClick={() => handleDraftChoice("send")}>
+                Gönder ve link oluştur
+              </Button>
+            )}
+          </>
+        }
+      >
+        <div className="flex flex-col gap-2">
+          <p>
+            Müşterinin linkten Kabul Et / Reddet yapabilmesi için teklif &apos;Gönderildi&apos; olmalı.
+            {canApprove && " Gönderildi olarak işaretleyip linki oluşturayım mı?"}
+          </p>
+          {!canApprove && (
+            <p className="text-xs text-text-muted">
+              Teklif durumunu değiştirme yetkiniz yok; oluşturulacak link yalnızca önizlemedir.
+            </p>
+          )}
+        </div>
+      </Modal>
     </Card>
   );
 }

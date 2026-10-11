@@ -33,6 +33,7 @@ export default async function TeklifDetayPage({
 }) {
   const user = await requirePagePermission(PAGE_PERMISSIONS.offers);
   const canUpdate = hasPermission(user.permissions, "offers.update");
+  const canApprove = hasPermission(user.permissions, "offers.approve");
   const canCreateProject = hasPermission(user.permissions, "projects.create");
   const { id } = await params;
   const cookieHeader = (await cookies()).toString();
@@ -195,7 +196,7 @@ export default async function TeklifDetayPage({
             </CardBody>
           </Card>
 
-          <ShareOfferCard offer={offer} links={share_links} revisionNoById={revisionNoById} />
+          <ShareOfferCard offer={offer} links={share_links} revisionNoById={revisionNoById} canApprove={canApprove} />
 
           {revisions.length > 1 && (
             <Card className="h-fit">
