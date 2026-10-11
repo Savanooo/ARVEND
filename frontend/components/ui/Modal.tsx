@@ -47,7 +47,19 @@ export function Modal({
     if (dismissible && e.target === ref.current) onClose();
   }
 
+  // İç içe pencere (ör. masraf düzenleme penceresindeki "Yeniden onaya
+  // gidecek" onayı): React cancel/close olaylarını DOM'dan farklı olarak
+  // üst bileşenlerin dialog'larına da iletir -- içteki pencerenin ESC'si
+  // ya da kapanışı dıştakini de kapatmasın diye yalnızca bu dialog'un
+  // KENDİ olayı dikkate alınır.
+  const ownEvent = (e: React.SyntheticEvent<HTMLDialogElement>) => e.target === e.currentTarget;
+
+  function handleClose(e: React.SyntheticEvent<HTMLDialogElement>) {
+    if (ownEvent(e)) onClose();
+  }
+
   function handleCancel(e: React.SyntheticEvent<HTMLDialogElement>) {
+    if (!ownEvent(e)) return;
     // ESC: kapatılamaz durumdayken tarayıcının dialog'u kapatmasını engelle.
     if (!dismissible) {
       e.preventDefault();
@@ -59,7 +71,7 @@ export function Modal({
   return (
     <dialog
       ref={ref}
-      onClose={onClose}
+      onClose={handleClose}
       onCancel={handleCancel}
       onClick={handleBackdropClick}
       className={`m-auto w-full ${widthClassName} rounded-lg border border-border bg-surface p-0 text-text shadow-xl backdrop:bg-black/40`}
