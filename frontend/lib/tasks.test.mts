@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { projectTaskHref, webHrefForActionTarget } from "./dashboard.ts";
 import {
+  TASK_FOCUS_PARAM,
   taskEditDraft,
   taskEditRequest,
   taskUpdateRequest,
@@ -104,5 +106,20 @@ describe("Görev düzenleme (PUT .../tasks/{id} satırı bütünüyle yazar)", (
     assert.equal(d.schedule_item_id, "");
     assert.equal(d.assigned_employee_id, "");
     assert.equal(d.due_date, "");
+  });
+});
+
+describe("görev bağlantısı (bildirim / ana sayfa -> açık görev satırı)", () => {
+  it("?gorev= TaskRow'un okuduğu parametreyle aynı", () => {
+    const href = projectTaskHref("p1", "t1");
+    const url = new URL(href, "http://x");
+    assert.equal(url.pathname, "/projeler/p1");
+    assert.equal(url.searchParams.get("tab"), "operasyon");
+    assert.equal(url.searchParams.get(TASK_FOCUS_PARAM), "t1");
+  });
+
+  it("görev bildirimi (.../gorevler/{id}) ve düzenleme yolu o görevi açar", () => {
+    assert.equal(webHrefForActionTarget("/projeler/p1/gorevler/t1"), projectTaskHref("p1", "t1"));
+    assert.equal(webHrefForActionTarget("/projeler/p1/gorevler/t1/duzenle"), projectTaskHref("p1", "t1"));
   });
 });

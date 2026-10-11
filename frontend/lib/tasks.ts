@@ -19,6 +19,12 @@ export interface TaskUpdate {
   created_at: string;
 }
 
+/**
+ * Proje detayında tek görevi açan sorgu parametresi: ?tab=operasyon&gorev={id}
+ * (lib/dashboard.ts projectTaskHref yazar, OperationSections TaskRow okur).
+ */
+export const TASK_FOCUS_PARAM = "gorev";
+
 /** Sunucudaki sınır (service maxTaskUpdateRunes) ile aynı. */
 export const TASK_UPDATE_MAX_LENGTH = 2000;
 

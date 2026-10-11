@@ -1224,6 +1224,14 @@ export function budgetAdjustmentsHref(projectId: string): string {
   return `${projectHref(projectId, "maliyet")}&alt=butce#butce-revizyonlari`;
 }
 
+// Tek görev: Operasyon > Görevler'de o görevin satırı açılır (notlarıyla)
+// ve ekrana kaydırılır -- ?gorev= OperationSections.tsx TaskRow'da okunur
+// (bkz. lib/tasks.ts TASK_FOCUS_PARAM). Görev bildirimi (.../gorevler/{id})
+// ve ana sayfadaki görev satırları buraya açılır.
+export function projectTaskHref(projectId: string, taskId: string): string {
+  return `${projectHref(projectId, "operasyon")}&gorev=${encodeURIComponent(taskId)}`;
+}
+
 // Proje içindeki kayıt türü -> açılacak sekme (web'de kayıt başına sayfa yok).
 const PROJECT_TAB_BY_KIND: Record<string, ProjectTab> = {
   task: "operasyon",
@@ -1253,6 +1261,8 @@ export function webHrefFor(ref: Pick<DashboardRef, "kind" | "id" | "project_id" 
       return projectHref(ref.id, "maliyet");
     case "budget_adjustment":
       return ref.project_id ? budgetAdjustmentsHref(ref.project_id) : null;
+    case "task":
+      return ref.project_id ? projectTaskHref(ref.project_id, ref.id) : null;
     case "project_operations":
       return projectHref(ref.id, "operasyon");
     case "offer":
@@ -1287,12 +1297,13 @@ export function webHrefForActionTarget(path: string | null | undefined): string 
     if (seg[2] === "satin-alma") return projectHref(p, "satinalma");
     // Plan ataması bildirimi (service/project_notify.go) .../planlama/{id}
     // yazar; web'de Planlama, Operasyon sekmesindedir.
+    if (seg[2] === "gorevler" && seg[3]) return projectTaskHref(p, seg[3]);
     if (seg[2] === "gorevler" || seg[2] === "planlama") return projectHref(p, "operasyon");
     if (seg[2] === "taseronlar") return projectHref(p, "finans");
     // Bütçe revizyonu bildirimi .../maliyet/revizyonlar yazar (bkz.
     // budgetAdjustmentsHref). Ek iş kararı bildirimi .../ek-isler/{id}:
     // Finans sekmesindeki "Ek İşler".
-    if (seg[2] === "maliyet") return budgetAdjustmentsHref(p);
+    if (seg[2] === "maliyet") return seg[3] === "revizyonlar" ? budgetAdjustmentsHref(p) : projectHref(p, "maliyet");
     if (seg[2] === "ek-isler") return projectHref(p, "finans");
     if (seg.length === 2) {
       const grup = params.get("grup");

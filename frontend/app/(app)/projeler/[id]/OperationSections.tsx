@@ -1,8 +1,8 @@
 "use client";
 
 import { ChevronDown, ChevronRight, MessageSquare, Pencil } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Button } from "@/components/ui/Button";
@@ -17,6 +17,7 @@ import { apiClient, ApiError, fetchWithSession } from "@/lib/api";
 import { formatDateTimeTR } from "@/lib/format";
 import { SCHEDULE_STATUS, TASK_STATUS } from "@/lib/status";
 import {
+  TASK_FOCUS_PARAM,
   TASK_UPDATE_EMPTY_MESSAGE,
   TASK_UPDATE_MAX_LENGTH,
   taskEditDraft,
@@ -462,7 +463,9 @@ export function ScheduleSection({
 // ("Bilgi Ver" akışı) ve düzenleme. Mobil task_detail_screen.dart'ın web
 // karşılığı (web'de görev başına ayrı sayfa yok). Yazma düğmeleri
 // projects.tasks.update ister ve kapalı projede gizlenir; notlar herkese
-// (projects.tasks.read) açıktır.
+// (projects.tasks.read) açıktır. ?gorev={id} ile gelinen görev (bildirim,
+// ana sayfa -- bkz. lib/dashboard.ts projectTaskHref) açık başlar ve ekrana
+// kaydırılır.
 function TaskRow({
   project,
   task: t,
@@ -482,32 +485,55 @@ function TaskRow({
 }) {
   const { busy, error, run, setError } = useAction(locked);
   const toast = useToast();
-  const [expanded, setExpanded] = useState(false);
+  const focused = useSearchParams().get(TASK_FOCUS_PARAM) === t.id;
+  const rowRef = useRef<HTMLLIElement>(null);
+  const [expanded, setExpanded] = useState(focused);
+  // Aynı sayfadayken başka bir görev bağlantısına gelinirse satır yeniden
+  // kurulmaz: odak değişimi render sırasında yakalanır (effect'te setState
+  // yerine React'in önerdiği desen).
+  const [prevFocused, setPrevFocused] = useState(focused);
+  if (focused !== prevFocused) {
+    setPrevFocused(focused);
+    if (focused) setExpanded(true);
+  }
   const [mode, setMode] = useState<"view" | "note" | "edit">("view");
   const [updates, setUpdates] = useState<TaskUpdate[] | null>(null);
   const [updatesError, setUpdatesError] = useState<string | null>(null);
+  const [updatesAttempt, setUpdatesAttempt] = useState(0);
   const [noteBody, setNoteBody] = useState("");
   const [noteStatus, setNoteStatus] = useState<TaskStatus | null>(null);
   const [draft, setDraft] = useState<TaskEditDraft>(() => taskEditDraft(t));
   const writable = canUpdate && !locked;
   const base = `/api/v1/projects/${project.id}/tasks/${t.id}`;
+  const fieldId = `gorev-${t.id}`;
   const scheduleName = scheduleItems.find((s) => s.id === t.schedule_item_id)?.name;
 
-  async function loadUpdates() {
-    setUpdatesError(null);
-    try {
-      const res = await apiClient<{ updates: TaskUpdate[] }>(`${base}/updates`);
-      setUpdates(res.updates ?? []);
-    } catch (err) {
-      setUpdatesError(err instanceof ApiError ? err.message : "Bağlantı hatası");
-    }
-  }
+  // Notlar satır ilk açıldığında çekilir (N+1'i yalnızca açılan görev
+  // öder); hata olursa "Tekrar dene" updatesAttempt'i artırır.
+  useEffect(() => {
+    if (!expanded || updates !== null) return;
+    let cancelled = false;
+    apiClient<{ updates: TaskUpdate[] }>(`${base}/updates`)
+      .then((res) => {
+        if (cancelled) return;
+        setUpdatesError(null);
+        setUpdates(res.updates ?? []);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setUpdatesError(err instanceof ApiError ? err.message : "Bağlantı hatası");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [expanded, updates, updatesAttempt, base]);
 
-  function toggle() {
-    const next = !expanded;
-    setExpanded(next);
-    // Notlar ilk açılışta çekilir (N+1'i yalnızca açılan görev öder).
-    if (next && updates === null) void loadUpdates();
+  useEffect(() => {
+    if (focused) rowRef.current?.scrollIntoView({ block: "center" });
+  }, [focused]);
+
+  function retryUpdates() {
+    setUpdatesError(null);
+    setUpdatesAttempt((n) => n + 1);
   }
 
   function updateStatus(status: string) {
@@ -567,11 +593,14 @@ function TaskRow({
   }
 
   return (
-    <li className="rounded-md border border-border px-3 py-2">
+    <li
+      ref={rowRef}
+      className={`rounded-md border px-3 py-2 ${focused ? "border-gold" : "border-border"}`}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <button
           type="button"
-          onClick={toggle}
+          onClick={() => setExpanded(!expanded)}
           aria-expanded={expanded}
           className="flex min-w-0 items-center gap-1 text-left"
         >
@@ -621,7 +650,10 @@ function TaskRow({
         <div className="mt-2 flex flex-col gap-3 border-t border-border pt-2 text-sm">
           {mode === "edit" ? (
             <form onSubmit={saveEdit} className="flex flex-col gap-2">
+              {/* Etiketler görünür ve alana bağlı: aynı sayfada birden çok
+                  görev açılabildiği için id'ler görev kimliğiyle tekil. */}
               <Input
+                id={`${fieldId}-baslik`}
                 label="Başlık"
                 required
                 maxLength={200}
@@ -629,6 +661,7 @@ function TaskRow({
                 onChange={(e) => setDraft({ ...draft, title: e.target.value })}
               />
               <Textarea
+                id={`${fieldId}-aciklama`}
                 label="Açıklama (opsiyonel)"
                 className="min-h-16"
                 value={draft.description}
@@ -636,9 +669,10 @@ function TaskRow({
               />
               <div className="flex flex-wrap items-end gap-2">
                 <Select
+                  id={`${fieldId}-asama`}
+                  label="Aşama"
                   value={draft.schedule_item_id}
                   onChange={(e) => setDraft({ ...draft, schedule_item_id: e.target.value })}
-                  aria-label="Aşama"
                   className="w-44"
                 >
                   <option value="">Aşama (yok)</option>
@@ -649,18 +683,20 @@ function TaskRow({
                   ))}
                 </Select>
                 <Select
+                  id={`${fieldId}-atanan`}
+                  label="Atanan"
                   value={draft.assigned_employee_id}
                   onChange={(e) => setDraft({ ...draft, assigned_employee_id: e.target.value })}
-                  aria-label="Atanan"
                   className="w-44"
                 >
                   <option value="">Atanmadı</option>
                   {assigneeOptions(activeMembers, byId, { id: t.assigned_employee_id, name: t.assigned_name })}
                 </Select>
                 <Select
+                  id={`${fieldId}-oncelik`}
+                  label="Öncelik"
                   value={draft.priority}
                   onChange={(e) => setDraft({ ...draft, priority: e.target.value as TaskPriority })}
-                  aria-label="Öncelik"
                   className="w-32"
                 >
                   {Object.entries(TASK_PRIORITY_LABELS).map(([k, label]) => (
@@ -670,9 +706,10 @@ function TaskRow({
                   ))}
                 </Select>
                 <Select
+                  id={`${fieldId}-durum`}
+                  label="Durum"
                   value={draft.status}
                   onChange={(e) => setDraft({ ...draft, status: e.target.value as TaskStatus })}
-                  aria-label="Durum"
                   className="w-36"
                 >
                   {Object.entries(TASK_STATUS_LABELS).map(([k, label]) => (
@@ -682,9 +719,10 @@ function TaskRow({
                   ))}
                 </Select>
                 <DateInput
+                  id={`${fieldId}-termin`}
+                  label="Termin (opsiyonel)"
                   value={draft.due_date}
                   onChange={(e) => setDraft({ ...draft, due_date: e.target.value })}
-                  aria-label="Termin"
                 />
               </div>
               <div className="flex gap-2">
@@ -762,7 +800,7 @@ function TaskRow({
             {updatesError ? (
               <p className="text-xs text-danger">
                 {updatesError}{" "}
-                <button type="button" className="text-text-muted underline hover:text-text" onClick={loadUpdates}>
+                <button type="button" className="text-text-muted underline hover:text-text" onClick={retryUpdates}>
                   Tekrar dene
                 </button>
               </p>
