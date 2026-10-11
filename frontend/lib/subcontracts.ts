@@ -432,6 +432,14 @@ export function signedChangeOrderAmount(co: Pick<SubcontractChangeOrder, "amount
   return co.change_type === "deduction" ? -co.amount : co.amount;
 }
 
+/**
+ * Ödemenin bağlanabileceği hakedişler: yalnızca SERTİFİKALI olanlar (backend
+ * ErrSubcontractPaymentClaimInvalid; mobil ProgressClaim.isPayable).
+ */
+export function payableClaims<T extends { status: string }>(claims: readonly T[]): T[] {
+  return claims.filter((c) => c.status === "certified");
+}
+
 /** Bu hakedişe bağlı, iptal edilmemiş ödemelerin toplamı. */
 export function paidAgainstClaim(payments: readonly SubcontractPayment[], claimId: string): number {
   return round2(

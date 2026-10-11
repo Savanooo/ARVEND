@@ -346,7 +346,6 @@ export function SubcontractDetailView({
         <PaymentsPanel
           project={project}
           subcontract={sc}
-          value={value}
           payments={payments}
           claims={claims}
           perms={perms}

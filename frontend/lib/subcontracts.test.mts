@@ -18,6 +18,7 @@ import {
   emptySovDraft,
   latestCertifiedCumulative,
   paidAgainstClaim,
+  payableClaims,
   projectIsLocked,
   round2,
   signedChangeOrderAmount,
@@ -198,6 +199,17 @@ describe("ödeme iptali", () => {
     assert.equal(canVoidPayment({ voided_at: "2026-10-01T10:00:00Z" }, ALL, false), false);
     assert.equal(canVoidPayment({ voided_at: null }, PM, false), false);
     assert.equal(canVoidPayment({ voided_at: null }, ALL, true), false);
+  });
+
+  it("ödeme yalnızca sertifikalı hakedişe bağlanır", () => {
+    const claims = ["draft", "submitted", "certified", "rejected", "cancelled", "certified"].map((status, i) => ({
+      id: `h${i}`,
+      status,
+    }));
+    assert.deepEqual(
+      payableClaims(claims).map((c) => c.id),
+      ["h2", "h5"]
+    );
   });
 });
 

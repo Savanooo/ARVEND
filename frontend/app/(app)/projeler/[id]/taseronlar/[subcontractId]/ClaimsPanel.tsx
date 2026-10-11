@@ -161,7 +161,10 @@ function ClaimCard({
   const { confirm, dialog } = useConfirmDialog();
   const { askReason, dialog: reasonDialog } = useReasonDialog();
   const [expanded, setExpanded] = useState(focused);
-  const [items, setItems] = useState<ProgressClaimItem[] | null>(null);
+  // Kalemler hakedişin updated_at'iyle anahtarlanır: kayıt değişince
+  // (router.refresh) eski kalemler kullanılmaz, açıksa yeniden okunur.
+  const [loaded, setLoaded] = useState<{ at: string; items: ProgressClaimItem[] } | null>(null);
+  const items = loaded && loaded.at === claim.updated_at ? loaded.items : null;
   const ref = useRef<HTMLDivElement>(null);
   const actions = claimActions(claim.status, subcontract.status, perms, locked);
   const url = claimUrl(project.id, claim.id);
@@ -172,21 +175,20 @@ function ClaimCard({
 
   useEffect(() => {
     if (!expanded || items) return;
-    (async () => {
-      try {
-        const d = await apiClient<ClaimDetail>(url);
-        setItems(d.items);
-      } catch {
-        setItems([]);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded]);
-
-  // Kayıt değişince (router.refresh) kalemler yeniden okunsun.
-  useEffect(() => {
-    setItems(null);
-  }, [claim.updated_at]);
+    const at = claim.updated_at;
+    let stale = false;
+    apiClient<ClaimDetail>(url)
+      .then(
+        (d) => d.items,
+        () => [] as ProgressClaimItem[]
+      )
+      .then((list) => {
+        if (!stale) setLoaded({ at, items: list });
+      });
+    return () => {
+      stale = true;
+    };
+  }, [expanded, items, url, claim.updated_at]);
 
   async function submit() {
     if (!(await confirm({ title: "Hakedişi Gönder", message: `${claim.claim_number} sertifikasyon için gönderilsin mi?`, confirmLabel: "Gönder" })))
