@@ -269,6 +269,22 @@ func TestDashboardFinanceSection(t *testing.T) {
 			t.Errorf("%s = %v, beklenen %v", c.name, c.got, c.want)
 		}
 	}
+	// Tek kural: ana sayfanın gerçekleşen maliyeti (KDV dahil ve hariç),
+	// portföydeki projelerin (A, B; iptal edilen C hariç) finans özetlerindeki
+	// realized_cost / realized_cost_net toplamına kuruşu kuruşuna eşit.
+	var sumCost, sumCostNet float64
+	for _, id := range []string{pA.ID, pB.ID} {
+		fs, err := e.projectSvc.FinancialSummary(e.ctx, id, org)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sumCost += fs.RealizedCost
+		sumCostNet += fs.RealizedCostNet
+	}
+	if !approx(try.RealizedCost, sumCost) || !approx(try.RealizedCostNet, sumCostNet) {
+		t.Errorf("ana sayfa maliyeti finans özetlerinin toplamı olmalı: dahil %v/%v, hariç %v/%v",
+			try.RealizedCost, sumCost, try.RealizedCostNet, sumCostNet)
+	}
 	if try.CollectionPct == nil || !approx(*try.CollectionPct, 71.0) {
 		t.Errorf("collection_pct = %v, beklenen 71.0", try.CollectionPct)
 	}
