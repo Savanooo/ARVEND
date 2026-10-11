@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/errors/api_exception.dart';
+import '../../../core/errors/device_errors.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -105,9 +106,10 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
       }
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } on Exception catch (_) {
-      // Dosya yazılamadı / görüntüleyici eklentisi yok: çökme yok.
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF açılamadı.')));
+    } on Exception catch (e, s) {
+      // Dosya yazılamadı (ör. telefonda yer yok) / görüntüleyici eklentisi
+      // yok: çökme yok, sade bir mesaj.
+      if (mounted) showDeviceIssue(context, ref, e, s, DeviceAction.saveFile, where: 'Teklif PDF');
     } finally {
       if (mounted) setState(() => _downloadingPdf = false);
     }

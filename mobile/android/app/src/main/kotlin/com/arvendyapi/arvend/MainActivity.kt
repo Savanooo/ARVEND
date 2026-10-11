@@ -47,6 +47,25 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        // İzin reddedilince (ör. kamera) "Ayarlar" düğmesi: bu uygulamanın
+        // ayar sayfası (lib/core/platform/app_settings.dart).
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SETTINGS_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "openAppSettings" -> result.success(openAppSettings())
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    private fun openAppSettings(): Boolean {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
+        return try {
+            startActivity(intent)
+            true
+        } catch (e: ActivityNotFoundException) {
+            false
+        }
     }
 
     private fun canRequestPackageInstalls(): Boolean =
@@ -71,6 +90,8 @@ class MainActivity : FlutterActivity() {
     private companion object {
         // lib/core/update/apk_installer.dart'taki kanal adıyla BİREBİR aynı.
         const val UPDATE_CHANNEL = "com.arvendyapi.arvend/app_update"
+        // lib/core/platform/app_settings.dart'taki kanal adıyla BİREBİR aynı.
+        const val SETTINGS_CHANNEL = "com.arvendyapi.arvend/app_settings"
         const val NOTIFICATION_CHANNEL = "arvend_bildirimler"
     }
 }
