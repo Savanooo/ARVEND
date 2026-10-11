@@ -407,6 +407,24 @@ void main() {
       expect(shared.mimeType, 'application/pdf');
     });
 
+    testWidgets('360 dp ve büyük yazıda dosya satırı taşmaz; paylaş ve sil düğmeleri yerinde', (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 1.3;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await pumpProject(
+        tester,
+        group: 'dokumanlar',
+        size: const Size(360, 800),
+        files: [
+          fileJson('f1', name: '${'Ahmet Yılmaz villa projesi statik hesap ' * 3}.pdf', description: 'Revize ' * 20),
+        ],
+      );
+
+      expect(tester.takeException(), isNull, reason: 'RenderFlex taşması yok');
+      expect(find.byTooltip('Dosyayı paylaş'), findsOneWidget);
+      expect(find.byTooltip('Dosyayı sil'), findsOneWidget);
+      expect(find.text('Sözleşme'), findsOneWidget);
+    });
+
     testWidgets('fotoğraf görüntüleyiciden açıklamasıyla paylaşılır', (tester) async {
       final sharer = FakeFileSharer();
       await pumpProject(
