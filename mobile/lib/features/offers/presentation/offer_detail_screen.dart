@@ -53,6 +53,9 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
       invalidate(offerDetailProvider(offerId));
       invalidate(offersListProvider(''));
       invalidate(offerRevisionsProvider(offerId));
+      // "Gönderildi"ye geçiş önceki revizyonların linklerini sunucuda iptal
+      // eder: "Paylaşım Linkleri" onları hâlâ "Aktif" göstermesin.
+      invalidate(offerShareLinksProvider(offerId));
       invalidateOfferHistory(invalidate, offerId);
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
@@ -339,16 +342,22 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
     try {
       await ref.read(offersRepositoryProvider).sendEmail(offerId);
+      // Taslak gönderilince durum "gönderildi" olur ve önceki revizyonların
+      // linkleri iptal edilir: durum çipi, liste ve revizyon listesi tazelenir.
       invalidate(offerDetailProvider(offerId));
       invalidate(offersListProvider(''));
+      invalidate(offerRevisionsProvider(offerId));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('E-posta gönderildi')));
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
       // Başarısız gönderim de "Mail Geçmişi"ne (failed) düşer -- her iki
-      // durumda da geçmiş tazelenir.
+      // durumda da geçmiş tazelenir. Mailin taşıdığı paylaşım linki de
+      // gönderimden ÖNCE oluşturulur: "Paylaşım Linkleri" iki durumda da
+      // tazelenir.
       invalidateOfferHistory(invalidate, offerId);
+      invalidate(offerShareLinksProvider(offerId));
       if (mounted) setState(() => _sendingEmail = false);
     }
   }
