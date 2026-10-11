@@ -106,6 +106,11 @@ class CalcResultItem {
 
   bool get hasPriceWarning => priceWarning != null && priceWarning!.isNotEmpty;
 
+  /// Teklif miktarı 2 ondalıklıdır: miktarı 0 olan (ör. çevre girilmediği
+  /// için 0 dönen) ya da 0,01'in altında kalan satır teklife eklenemez --
+  /// teklif formu böyle bir satırı "Sıfırdan büyük olmalı" diye reddeder.
+  bool get hasOfferQuantity => ((double.tryParse(quantity) ?? 0) * 100).round() > 0;
+
   const CalcResultItem({
     required this.recipeItemId,
     required this.materialName,
@@ -232,7 +237,7 @@ String? validatePositiveIfPresent(String raw, String fieldLabel) {
 /// Ekle" ile eklerken AYNI şekilde kullanılır.
 List<OfferItem> buildOfferItemsFromCalcResult(CalcRunResult result, Set<String> selectedRecipeItemIds) {
   return result.items
-      .where((i) => selectedRecipeItemIds.contains(i.recipeItemId))
+      .where((i) => i.hasOfferQuantity && selectedRecipeItemIds.contains(i.recipeItemId))
       .map((i) => OfferItem(
             id: '',
             productId: i.productId,

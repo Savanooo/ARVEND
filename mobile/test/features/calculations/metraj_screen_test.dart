@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:arvend/core/api/api_providers.dart';
 import 'package:arvend/core/auth/auth_controller.dart';
+import 'package:arvend/core/widgets/app_list_card.dart';
 import 'package:arvend/features/calculations/domain/calc.dart';
 import 'package:arvend/features/calculations/presentation/metraj_screen.dart';
 
@@ -45,6 +46,21 @@ Map<String, dynamic> _run(String categoryId, String name) => {
       'total_cost': '50.00',
       'warnings': <Map<String, dynamic>>[],
     };
+
+/// Doğrudan Alan modunda çevre girilmeyince çevre bazlı kalem 0 döner.
+Map<String, dynamic> _runWithZeroLine() {
+  final json = _run('cat-alcipan', 'Alçıpan Tavan');
+  (json['items'] as List).add({
+    'recipe_item_id': 'r-kenar', 'material_name': 'Kenar Profili', 'unit': 'm', 'quantity': '0',
+    'product_id': 'p2', 'unit_price': '12.00', 'line_total': '0.00', 'group_name': '',
+    'calculation_type': 'perimeter_based', 'factor': '1', 'waste_percent': '0', 'rounding_type': 'none',
+    'price_source': 'product',
+  });
+  json['warnings'] = [
+    {'item_id': 'r-kenar', 'code': 'perimeter_missing', 'message': '"Kenar Profili" çevre bazlı hesaplanıyor ama çevre yok'},
+  ];
+  return json;
+}
 
 Future<void> _pump(WidgetTester tester, FakeHttpClientAdapter adapter) async {
   final client = await buildFakeApiClient(adapter);
@@ -130,5 +146,43 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Malzeme Listesi'), findsNothing);
     expect(find.textContaining('Teklife Ekle'), findsNothing);
+  });
+
+  testWidgets('miktarı 0 olan satır seçili gelmez ve seçilemez', (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/calculations/categories': [(status: 200, body: _catalog())],
+      '/calculations/run': [(status: 200, body: _runWithZeroLine())],
+    });
+    await _pump(tester, adapter);
+
+    await _pickGroup(tester, 'Alçıpan Asma Tavanlar');
+    await tester.tap(find.text('Alçıpan Tavan'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Alan (m²)'), '100');
+    await tester.tap(find.text('Hesapla'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Teklife Ekle (1)'), findsOneWidget);
+    expect(find.byKey(const ValueKey('metraj-zero-qty-r-kenar')), findsOneWidget);
+    expect(find.byKey(const ValueKey('metraj-zero-qty-r1')), findsNothing);
+    final zeroBox = tester.widget<Checkbox>(
+      find.descendant(of: find.ancestor(of: find.text('Kenar Profili'), matching: find.byType(AppListCard)), matching: find.byType(Checkbox)),
+    );
+    expect(zeroBox.value, isFalse);
+    expect(zeroBox.onChanged, isNull);
+
+    await tester.tap(find.text('Kenar Profili'));
+    await tester.pumpAndSettle();
+    expect(find.text('Teklife Ekle (1)'), findsOneWidget);
+  });
+
+  test('teklife aktarımda miktarı 0 olan satır seçili olsa bile atlanır', () {
+    final result = CalcRunResult.fromJson(_runWithZeroLine());
+    final items = buildOfferItemsFromCalcResult(result, {'r1', 'r-kenar'});
+    expect(items.map((i) => i.productName), ['Malzeme']);
+    expect(result.items.map((i) => i.hasOfferQuantity), [true, false]);
+    // 0,01'in altındaki miktar teklifte 0,00 olurdu; o da eklenemez.
+    final tiny = CalcResultItem.fromJson({...(_runWithZeroLine()['items'] as List).first as Map<String, dynamic>, 'quantity': '0.004'});
+    expect(tiny.hasOfferQuantity, isFalse);
   });
 }

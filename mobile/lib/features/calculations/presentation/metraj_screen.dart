@@ -126,9 +126,11 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
           );
       setState(() {
         _result = result;
+        // Miktarı 0 olan satırlar (ör. çevre girilmedi) seçili gelmez;
+        // teklife eklenemezler.
         _selectedForOffer
           ..clear()
-          ..addAll(result.items.map((e) => e.recipeItemId));
+          ..addAll(result.items.where((e) => e.hasOfferQuantity).map((e) => e.recipeItemId));
       });
     } on ApiException catch (e) {
       setState(() => _error = e.message);
@@ -441,19 +443,33 @@ class _ResultSection extends StatelessWidget {
         ));
       }
       lastGroup = group;
-      final isSelected = selected.contains(item.recipeItemId);
+      final addable = item.hasOfferQuantity;
+      final isSelected = addable && selected.contains(item.recipeItemId);
+      final footer = [
+        if (!addable)
+          Text(
+            'Miktar 0 olduğu için teklife eklenmez',
+            key: ValueKey('metraj-zero-qty-${item.recipeItemId}'),
+            style: AppTypography.helper,
+          ),
+        if (item.hasPriceWarning) _PriceWarningLine(item: item),
+      ];
       widgets.add(AppListCard(
         margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-        onTap: () => onToggle(item.recipeItemId, !isSelected),
+        onTap: addable ? () => onToggle(item.recipeItemId, !isSelected) : null,
         leading: Checkbox(
           value: isSelected,
-          onChanged: (v) => onToggle(item.recipeItemId, v ?? false),
+          onChanged: addable ? (v) => onToggle(item.recipeItemId, v ?? false) : null,
         ),
         title: item.materialName,
         subtitle: '${Formatters.quantityFromString(item.quantity)} ${item.unit} × '
             '${Formatters.moneyFromString(item.unitPrice)}',
         trailing: _lineTotalText(item.lineTotal),
-        footer: item.hasPriceWarning ? _PriceWarningLine(item: item) : null,
+        footer: footer.isEmpty
+            ? null
+            : footer.length == 1
+                ? footer.single
+                : Column(crossAxisAlignment: CrossAxisAlignment.start, children: footer),
       ));
     }
     return widgets;
