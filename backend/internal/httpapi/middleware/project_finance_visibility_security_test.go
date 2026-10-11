@@ -341,10 +341,77 @@ func TestProjectFinanceVisibilityMatrix(t *testing.T) {
 						t.Errorf("%s = %v, finans görünürlüğü %v olmalıydı", k, val, v.seesMoney)
 					}
 				}
+				// Gelir tarafına eklenecek yeni alanlar (ör. KDV hariç sözleşme
+				// bedeli/kâr) da aynı kapının arkasında kalmalı.
+				if !v.seesMoney {
+					for k, val := range summary {
+						if val != nil && (strings.HasPrefix(k, "contract_") || strings.HasPrefix(k, "forecast_")) {
+							t.Errorf("finans izni olmayana gelir alanı sızdı: %s=%v", k, val)
+						}
+					}
+				}
 			})
 		}
 		if rec, _ := rbacDo(t, d.router, http.MethodGet, "/api/v1/projects/"+p.ID+"/cost-control", fieldToken, ""); rec.Code != http.StatusForbidden {
 			t.Errorf("Saha maliyet kontrolünü açamamalı, geldi %d", rec.Code)
+		}
+	})
+
+	t.Run("change_order_record_decision_response", func(t *testing.T) {
+		// record-decision projects.change_orders.approve ile açılır (Sahip +
+		// Yönetici); finans okuması kaldırılmış Yönetici kararı kaydedebilir
+		// ama yanıtta ek işin tutarını, kalem fiyatlarını ya da müşteri
+		// paylaşım token'ını görmez.
+		base := "/api/v1/projects/" + p.ID + "/change-orders"
+		sentCO := func(t *testing.T) string {
+			t.Helper()
+			rec, body := rbacDo(t, d.router, http.MethodPost, base, ownerToken,
+				`{"change_type":"addition","title":"Finans görünürlüğü ek işi","vat_rate":0,"items":[{"description":"Kalem","quantity":1,"unit":"adet","unit_price":2345.5}]}`)
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("ek iş oluşturulamadı: %d %v", rec.Code, body)
+			}
+			id, _ := body["id"].(string)
+			if rec, body := rbacDo(t, d.router, http.MethodPost, base+"/"+id+"/send", ownerToken, ""); rec.Code != http.StatusOK {
+				t.Fatalf("ek iş gönderilemedi: %d %v", rec.Code, body)
+			}
+			return id
+		}
+		receiptKeys := map[string]bool{
+			"id": true, "project_id": true, "sequence_no": true, "change_order_no": true,
+			"change_type": true, "title": true, "status": true, "updated_at": true,
+			"responded_at": true, "approved_at": true, "rejected_at": true,
+			"decision_recorded_by": true, "decision_recorded_by_name": true, "decision_note": true,
+		}
+		for _, v := range []struct {
+			name      string
+			token     string
+			seesMoney bool
+		}{{"owner", ownerToken, true}, {"admin_with_finance_revoked", revokedToken, false}} {
+			t.Run(v.name, func(t *testing.T) {
+				coID := sentCO(t)
+				rec, body := rbacDo(t, d.router, http.MethodPost, base+"/"+coID+"/record-decision", v.token,
+					`{"decision":"approved","note":"telefonla onay"}`)
+				if rec.Code != http.StatusOK {
+					t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+				}
+				if body["id"] != coID || body["status"] != domain.ChangeOrderApproved || body["decision_note"] != "telefonla onay" {
+					t.Errorf("karar kaydı yanıtta görünmeli: %v", body)
+				}
+				if v.seesMoney {
+					if body["grand_total"] != 2345.5 {
+						t.Errorf("finans izinli kişi ek iş tutarını görmeli: %v", body)
+					}
+					return
+				}
+				for k, val := range body {
+					if !receiptKeys[k] {
+						t.Errorf("finans izni olmayana karar yanıtında %s döndü: %v", k, val)
+					}
+				}
+				if strings.Contains(rec.Body.String(), "2345") {
+					t.Errorf("ek iş tutarı karar yanıtında sızıyor: %s", rec.Body.String())
+				}
+			})
 		}
 	})
 }
