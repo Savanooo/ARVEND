@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { apiClient, ApiError } from "@/lib/api";
+import { duplicateCustomerFromError, type DuplicateCustomer } from "@/lib/customers";
 import type { Customer } from "@/lib/types";
+
+import { DuplicateCustomerDialog, type DuplicateCustomerChoice } from "../DuplicateCustomerDialog";
 
 export function EditCustomerForm({ customer, canManage }: { customer: Customer; canManage: boolean }) {
   const router = useRouter();
@@ -24,15 +27,14 @@ export function EditCustomerForm({ customer, canManage }: { customer: Customer; 
   const [saving, setSaving] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  // Vergi no/telefon başka bir müşteriyle çakışırsa backend 409 döner
-  // (müşteri uçlarında 409 yalnızca bu durumdur); kullanıcı bilerek
-  // "Yine de Kaydet" diyebilir.
-  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
+  // Vergi no/telefon başka bir müşteriyle çakışırsa backend 409
+  // duplicate_customer döner; pencere (mobildeki gibi) mevcut müşteriyi
+  // açmayı ya da bilerek "Yine de kaydet"i (allow_duplicate) sunar.
+  const [duplicate, setDuplicate] = useState<DuplicateCustomer | null>(null);
 
   async function save(allowDuplicate: boolean) {
     setSaving(true);
     setMessage(null);
-    setDuplicateWarning(null);
     try {
       await apiClient(`/api/v1/customers/${customer.id}`, {
         method: "PUT",
@@ -41,14 +43,23 @@ export function EditCustomerForm({ customer, canManage }: { customer: Customer; 
       setMessage("Kaydedildi.");
       router.refresh();
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        setDuplicateWarning(err.message);
+      const dup = allowDuplicate ? null : duplicateCustomerFromError(err);
+      if (dup) {
+        setDuplicate(dup);
       } else {
         setMessage(err instanceof ApiError ? err.message : "Bağlantı hatası");
       }
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleDuplicateChoice(choice: DuplicateCustomerChoice) {
+    const dup = duplicate;
+    setDuplicate(null);
+    if (!dup) return;
+    if (choice === "saveAnyway") void save(true);
+    else if (choice === "open") router.push(`/musteriler/${encodeURIComponent(dup.id)}`);
   }
 
   function handleSubmit(e: FormEvent) {
@@ -139,14 +150,6 @@ export function EditCustomerForm({ customer, canManage }: { customer: Customer; 
             Aktif
           </label>
           {message && <p className="text-xs text-text-muted">{message}</p>}
-          {duplicateWarning && (
-            <div className="flex flex-col gap-2 rounded-md border border-gold/40 bg-gold-soft p-3 text-xs">
-              <p>{duplicateWarning}. Yine de kaydetmek istiyor musunuz?</p>
-              <Button type="button" variant="secondary" className="w-fit" disabled={saving} onClick={() => save(true)}>
-                Yine de Kaydet
-              </Button>
-            </div>
-          )}
           {canManage && (
             <div className="flex items-center gap-3">
               <Button type="submit" disabled={saving}>
@@ -159,6 +162,8 @@ export function EditCustomerForm({ customer, canManage }: { customer: Customer; 
               )}
             </div>
           )}
+          {/* Yalnızca type="button" düğmeleri var: formu göndermez. */}
+          <DuplicateCustomerDialog duplicate={duplicate} onChoice={handleDuplicateChoice} />
         </form>
       </CardBody>
     </Card>

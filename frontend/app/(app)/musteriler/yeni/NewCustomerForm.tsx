@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardBody } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { apiClient, ApiError } from "@/lib/api";
+import { duplicateCustomerFromError, type DuplicateCustomer } from "@/lib/customers";
 import type { Customer } from "@/lib/types";
+
+import { DuplicateCustomerDialog, type DuplicateCustomerChoice } from "../DuplicateCustomerDialog";
 
 const EMPTY_FORM = {
   name: "",
@@ -24,28 +27,32 @@ const EMPTY_FORM = {
 // taslağı kaybolmasın diye orada sayfa değiştirilmez, oluşturulan müşteri
 // doğrudan seçilir).
 //
-// Aynı vergi no/telefonla kayıtlı bir müşteri varsa backend 409 döner
-// (müşteri uçlarında 409 YALNIZCA bu durumdur): mesajda mevcut müşterinin
-// adı yazar; kullanıcı "Yine de Kaydet" ile bilerek ikinci kaydı açabilir
-// (ör. aynı vergi numaralı iki şube).
+// Aynı vergi no/telefonla kayıtlı bir müşteri varsa backend 409
+// duplicate_customer döner: pencere çakışan müşteriyi gösterir ve mobildeki
+// gibi "Mevcut müşteriyi aç / Yine de kaydet (allow_duplicate) / Vazgeç"
+// sorar (ör. aynı vergi numaralı iki şube bilerek ayrı kaydedilebilir).
+//
+// openExistingInNewTab: teklif formundaki pencerede mevcut müşteri YENİ
+// SEKMEDE açılır -- teklif taslağı kaybolmasın.
 export function CustomerCreateForm({
   onCreated,
   onCancel,
   initialName = "",
+  openExistingInNewTab = false,
 }: {
   onCreated: (customer: Customer) => void;
   onCancel?: () => void;
   initialName?: string;
+  openExistingInNewTab?: boolean;
 }) {
+  const router = useRouter();
   const [form, setForm] = useState({ ...EMPTY_FORM, name: initialName });
   const [error, setError] = useState<string | null>(null);
-  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
+  const [duplicate, setDuplicate] = useState<DuplicateCustomer | null>(null);
   const [loading, setLoading] = useState(false);
 
   function update(patch: Partial<typeof EMPTY_FORM>) {
     setForm((prev) => ({ ...prev, ...patch }));
-    // Bilgi değişince eski çakışma uyarısı geçerliliğini yitirir.
-    setDuplicateWarning(null);
   }
 
   async function save(allowDuplicate: boolean) {
@@ -58,13 +65,27 @@ export function CustomerCreateForm({
       });
       onCreated(created);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        setDuplicateWarning(err.message);
+      const dup = allowDuplicate ? null : duplicateCustomerFromError(err);
+      if (dup) {
+        setDuplicate(dup);
       } else {
         setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
       }
     } finally {
       setLoading(false);
+    }
+  }
+
+  function handleDuplicateChoice(choice: DuplicateCustomerChoice) {
+    const dup = duplicate;
+    setDuplicate(null);
+    if (!dup) return;
+    if (choice === "saveAnyway") {
+      void save(true);
+    } else if (choice === "open") {
+      const href = `/musteriler/${encodeURIComponent(dup.id)}`;
+      if (openExistingInNewTab) window.open(href, "_blank", "noopener,noreferrer");
+      else router.push(href);
     }
   }
 
@@ -90,14 +111,6 @@ export function CustomerCreateForm({
       </div>
       <Input label="Not" value={form.notes} onChange={(e) => update({ notes: e.target.value })} />
       {error && <p className="text-xs text-danger">{error}</p>}
-      {duplicateWarning && (
-        <div className="flex flex-col gap-2 rounded-md border border-gold/40 bg-gold-soft p-3 text-xs">
-          <p>{duplicateWarning}. Yine de yeni bir müşteri kaydı açmak istiyor musunuz?</p>
-          <Button type="button" variant="secondary" className="w-fit" disabled={loading} onClick={() => save(true)}>
-            Yine de Kaydet
-          </Button>
-        </div>
-      )}
       <div className="flex items-center gap-2">
         <Button type="submit" disabled={loading}>
           {loading ? "Kaydediliyor…" : "Müşteri Ekle"}
@@ -108,6 +121,8 @@ export function CustomerCreateForm({
           </Button>
         )}
       </div>
+      {/* Yalnızca type="button" düğmeleri var: formu göndermez. */}
+      <DuplicateCustomerDialog duplicate={duplicate} onChoice={handleDuplicateChoice} />
     </form>
   );
 }
