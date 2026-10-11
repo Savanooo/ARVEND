@@ -15,6 +15,13 @@ final offersRepositoryProvider =
 /// bir günle ezilir.
 final offersTodayProvider = Provider.autoDispose<DateTime>((ref) => trackIstanbulDay(ref, istanbulToday));
 
+/// Firma teklif varsayılanları (GET /offers/defaults, offers.create). Teklif
+/// detayı süresiz bir taslağı gönderirken firmanın geçerlilik süresini
+/// hatırlatmak için okur; okunamazsa hatırlatma yok (gönderim engellenmez).
+final offerDefaultsProvider = FutureProvider.autoDispose<OfferDefaults>(
+  (ref) => ref.watch(offersRepositoryProvider).defaults(),
+);
+
 /// Teklif listesinin TAZELEME SİNYALİ (anahtar: '' = aktif, 'pasif').
 /// Teklif detay/oluşturma ekranları bir değişiklikten sonra
 /// `ref.invalidate(offersListProvider(''))` çağırır; Teklifler ekranının

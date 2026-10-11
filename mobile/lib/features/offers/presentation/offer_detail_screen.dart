@@ -74,12 +74,19 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     required String message,
     required String confirmLabel,
     bool danger = false,
+    String? note,
   }) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
-        content: Text(message),
+        content: note == null
+            ? Text(message)
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [Text(message), const SizedBox(height: AppSpacing.sm), _OpenEndedNote(note)],
+              ),
         actions: [
           TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
           TextButton(
@@ -176,8 +183,13 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
   /// Durum değiştirme yetkisi (offers.approve) olmayana yalnızca önizleme
   /// sunulur; sunucu da mark_sent'i bu izin olmadan reddeder.
   /// [expired]: geçerlilik tarihi geçmiş taslak gönderilemez (sunucu 409);
-  /// yalnızca önizleme linki sunulur ve nedeni söylenir.
-  Future<_DraftShareChoice?> _askDraftShareChoice({required bool canMarkSent, bool expired = false}) {
+  /// yalnızca önizleme linki sunulur ve nedeni söylenir. [openEndedNote]:
+  /// süresiz taslakta firma süresini hatırlatan not (bkz. [_openEndedText]).
+  Future<_DraftShareChoice?> _askDraftShareChoice({
+    required bool canMarkSent,
+    bool expired = false,
+    String? openEndedNote,
+  }) {
     final canSend = canMarkSent && !expired;
     return showDialog<_DraftShareChoice>(
       context: context,
@@ -209,6 +221,10 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                 style: AppTypography.metadata,
               ),
             ],
+            if (canSend && openEndedNote != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              _OpenEndedNote(openEndedNote),
+            ],
           ],
         ),
         actions: [
@@ -230,10 +246,19 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     );
   }
 
-  Future<void> _createShareLink(Offer offer, {required bool canMarkSent, bool expired = false}) async {
+  Future<void> _createShareLink(
+    Offer offer, {
+    required bool canMarkSent,
+    bool expired = false,
+    String? openEndedNote,
+  }) async {
     var markSent = false;
     if (offer.status == Offer.statusTaslak) {
-      final choice = await _askDraftShareChoice(canMarkSent: canMarkSent, expired: expired);
+      final choice = await _askDraftShareChoice(
+        canMarkSent: canMarkSent,
+        expired: expired,
+        openEndedNote: openEndedNote,
+      );
       if (choice == null || !mounted) return;
       markSent = choice == _DraftShareChoice.send;
     }
@@ -377,12 +402,20 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     }
   }
 
-  Future<void> _sendEmail() async {
+  /// [openEndedNote]: süresiz taslakta firma süresini hatırlatan not.
+  Future<void> _sendEmail({String? openEndedNote}) async {
+    const text = 'Teklif, kayıtlı müşteri e-posta adresine paylaşım linkiyle birlikte gönderilecek.';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Teklifi e-postayla gönder'),
-        content: const Text('Teklif, kayıtlı müşteri e-posta adresine paylaşım linkiyle birlikte gönderilecek.'),
+        content: openEndedNote == null
+            ? const Text(text)
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [const Text(text), const SizedBox(height: AppSpacing.sm), _OpenEndedNote(openEndedNote)],
+              ),
         actions: [
           TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
           FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Gönder')),
@@ -428,6 +461,16 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     final today = ref.watch(offersTodayProvider);
     final loaded = offerAsync.valueOrNull;
     final expired = loaded != null && !loaded.isPassive && loaded.validityExpiredOn(today);
+    // Süresiz taslak gönderilirken firmanın geçerlilik süresi varsa
+    // hatırlatılır: müşteri linkten aylar sonra bu fiyatla kabul edebilir.
+    // Firma süresi GET /offers/defaults'tan (offers.create); okunamazsa not yok.
+    final canCreate = user?.hasPermission(kPermOffersCreate) ?? false;
+    final openEndedDraft = loaded != null && loaded.isEditable && (loaded.validUntil ?? '').isEmpty;
+    final companyValidityDays = openEndedDraft && canCreate && (canUpdate || canApprove)
+        ? ref.watch(offerDefaultsProvider).valueOrNull?.validityDays
+        : null;
+    final openEndedNote =
+        companyValidityDays == null ? null : _openEndedText(companyValidityDays, canUpdate: canUpdate);
     // Yalnızca kabul edilmiş teklif dönüştürülebilir; /offers/{id}/project
     // de projects.read ister. Bu ikisi yoksa sorgu hiç atılmaz. projects.read
     // olmadan proje açabilen (özel rol) için karar sunucudadır: dönüştürülmüş
@@ -642,6 +685,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                             message: '${offer.offerNo} gönderildi olarak işaretlensin mi? Bu revizyon artık '
                                 'düzenlenemez; değişiklik için yeni bir revizyon gerekir.',
                             confirmLabel: 'İşaretle',
+                            note: openEndedNote,
                           ),
                 ),
               if (offer.status == Offer.statusGonderildi && canApprove)
@@ -743,13 +787,20 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                       icon: Icons.ios_share_outlined,
                       label: 'Paylaşım Linki',
                       loading: _creatingLink,
-                      onPressed: () => _createShareLink(offer, canMarkSent: canApprove, expired: expired),
+                      onPressed: () => _createShareLink(
+                        offer,
+                        canMarkSent: canApprove,
+                        expired: expired,
+                        openEndedNote: openEndedNote,
+                      ),
                     ),
                     SecondaryButton(
                       icon: Icons.mail_outline,
                       label: 'E-posta Gönder',
                       loading: _sendingEmail,
-                      onPressed: expired ? () => _explainExpired(offer, canUpdate: canUpdate) : _sendEmail,
+                      onPressed: expired
+                          ? () => _explainExpired(offer, canUpdate: canUpdate)
+                          : () => _sendEmail(openEndedNote: openEndedNote),
                     ),
                   ],
                 ],
@@ -780,6 +831,32 @@ String _expiredText(Offer offer, {required bool canUpdate}) {
           : '';
       return 'Geçerlilik tarihi geçti ($date); müşteri bu teklifi artık linkten kabul edemez ve teklif '
           'yeniden gönderilemez.$next';
+  }
+}
+
+/// Süresiz taslağı gönderirken gösterilen hatırlatma: firmanın geçerlilik
+/// süresi var ama bu teklifte tarih yok.
+String _openEndedText(int companyValidityDays, {required bool canUpdate}) {
+  final next = canUpdate ? ' Tarih eklemek için önce teklifi düzenle.' : '';
+  return 'Bu teklifin geçerlilik tarihi yok (süresiz): müşteri linkten istediği zaman bu fiyatla kabul '
+      'edebilir. Firma ayarı $companyValidityDays gün.$next';
+}
+
+class _OpenEndedNote extends StatelessWidget {
+  const _OpenEndedNote(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      key: const ValueKey('offer-open-ended-note'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.info_outline, size: 16, color: AppColors.warning),
+        const SizedBox(width: AppSpacing.xs),
+        Expanded(child: Text(text, style: AppTypography.metadata)),
+      ],
+    );
   }
 }
 

@@ -325,6 +325,9 @@ const kPermOffersInternalPricingRead = 'offers.internal_pricing.read';
 const kPermOffersInternalPricingManage = 'offers.internal_pricing.manage';
 const kPermOffersUpdate = 'offers.update';
 
+/// Yeni teklif ve firma teklif varsayılanları (GET /offers/defaults).
+const kPermOffersCreate = 'offers.create';
+
 /// Teklif durumunu değiştirme (PUT /offers/{id}/status). Paylaşım linkinde
 /// taslağı "gönderildi" yapmak (`mark_sent`) da bunu ister.
 const kPermOffersApprove = 'offers.approve';
