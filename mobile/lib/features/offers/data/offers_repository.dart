@@ -98,6 +98,7 @@ class OffersRepository {
     double? vatRate,
     required List<OfferItem> items,
     required bool includeInternalPricing,
+    bool itemIdsSent = false,
   }) =>
       {
         'customer_id': customerId,
@@ -109,6 +110,9 @@ class OffersRepository {
         'notes': notes,
         'vat_rate': vatRate,
         'items': items.map((e) => e.toJson(includeInternalPricing: includeInternalPricing)).toList(),
+        // Bkz. [update] `itemIdsSent`. Yalnızca true iken yazılır: eski sunucu
+        // bilinmeyen alanı 400 ile reddeder.
+        if (itemIdsSent) 'item_ids_sent': true,
       };
 
   Future<Offer> create({
@@ -142,6 +146,9 @@ class OffersRepository {
   }
 
   /// PUT /offers/{id} — yalnızca status=taslak iken (backend ErrOfferNotEditable).
+  /// [itemIdsSent]: kalemlerin hiçbiri id taşımıyor çünkü mevcut kalemlerin
+  /// hepsi silindi (yalnızca yeni satır var). Sunucu iç maliyetli taslakta
+  /// id'siz listeyi id göndermeyen eski uygulama sanıp 409 verirdi.
   Future<Offer> update(
     String id, {
     String? customerId,
@@ -154,6 +161,7 @@ class OffersRepository {
     double? vatRate,
     required List<OfferItem> items,
     bool includeInternalPricing = false,
+    bool itemIdsSent = false,
   }) async {
     final json = await _client.put<Map<String, dynamic>>(
       '/offers/$id',
@@ -168,6 +176,7 @@ class OffersRepository {
         vatRate: vatRate,
         items: items,
         includeInternalPricing: includeInternalPricing,
+        itemIdsSent: itemIdsSent,
       ),
     );
     return Offer.fromJson(json);

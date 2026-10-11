@@ -117,6 +117,96 @@ void main() {
 
     final items = _sentItems(adapter);
     expect(items.map((i) => i['id']), ['i2']);
+    expect(requestBodyFor(adapter, '/offers/o1').containsKey('item_ids_sent'), isFalse,
+        reason: 'kalan kalem id taşıyor; bayrak gerekmez');
+  });
+
+  testWidgets('mevcut kalemlerin hepsi silinip yalnızca yeni satır kalınca item_ids_sent gider', (tester) async {
+    // Sunucu iç maliyetli taslakta id'siz listeyi id göndermeyen eski
+    // uygulama sanıp 409 verirdi; bayrak "hepsini sildim" der.
+    final draft = _draft([_item('i1', 'Alçıpan', 3, 100)]);
+    final adapter = FakeHttpClientAdapter(
+      script: {
+        '/offers/o1': [(status: 200, body: draft), (status: 200, body: draft)],
+      },
+    );
+    final probe = await pumpRoutedForm(
+      tester,
+      adapter,
+      form: const OfferCreateScreen(offerId: 'o1'),
+      user: testUser({'offers.read', 'offers.update'}),
+    );
+
+    await tester.tap(find.text('Kalem Ekle'));
+    await tester.pumpAndSettle();
+    await tester.enterText(formField('Ürün / Hizmet Adı').at(1), 'Metraj Satırı');
+    await tester.enterText(formField('Miktar').at(1), '2');
+    await tester.enterText(formField('Birim Fiyat').at(1), '40');
+    // Eski (tek) kalemi sil.
+    await tester.tap(find.byIcon(Icons.close).first);
+    await tester.pumpAndSettle();
+    await tapButton(tester, 'Kaydet');
+
+    final body = requestBodyFor(adapter, '/offers/o1');
+    expect((body['items'] as List).single, isNot(contains('id')));
+    expect(body['item_ids_sent'], isTrue);
+    expect(probe.completed, isTrue);
+  });
+
+  testWidgets('iç fiyatlama yöneticisi hepsini yenilese de item_ids_sent göndermez', (tester) async {
+    final draft = _draft([_item('i1', 'Alçıpan', 3, 100)]);
+    final adapter = FakeHttpClientAdapter(
+      script: {
+        '/offers/o1': [(status: 200, body: draft), (status: 200, body: draft)],
+      },
+    );
+    await pumpRoutedForm(
+      tester,
+      adapter,
+      form: const OfferCreateScreen(offerId: 'o1'),
+      user: testUser({'offers.read', 'offers.update', kPermOffersInternalPricingManage}),
+    );
+
+    await tester.tap(find.text('Kalem Ekle'));
+    await tester.pumpAndSettle();
+    await tester.enterText(formField('Ürün / Hizmet Adı').at(1), 'Yeni');
+    await tester.enterText(formField('Miktar').at(1), '1');
+    await tester.enterText(formField('Birim Fiyat').at(1), '10');
+    await tester.tap(find.byIcon(Icons.close).first);
+    await tester.pumpAndSettle();
+    await tapButton(tester, 'Kaydet');
+
+    expect(requestBodyFor(adapter, '/offers/o1').containsKey('item_ids_sent'), isFalse);
+  });
+
+  testWidgets('bayat kalem (409) sunucunun açıklamasıyla formda kalır', (tester) async {
+    final draft = _draft([_item('i1', 'Alçıpan', 3, 100)]);
+    final adapter = FakeHttpClientAdapter(
+      script: {
+        '/offers/o1': [
+          (status: 200, body: draft),
+          (
+            status: 409,
+            body: {
+              'error': 'bu taslak sen düzenlerken başka biri tarafından kaydedildi; iç maliyetler silinmesin diye '
+                  'kayıt yapılmadı. Teklifi yeniden açıp değişikliğini tekrar yap',
+            },
+          ),
+        ],
+      },
+    );
+    final probe = await pumpRoutedForm(
+      tester,
+      adapter,
+      form: const OfferCreateScreen(offerId: 'o1'),
+      user: testUser({'offers.read', 'offers.update'}),
+    );
+
+    await tester.enterText(formField('Miktar').first, '4');
+    await tapButton(tester, 'Kaydet');
+
+    expect(find.textContaining('başka biri tarafından kaydedildi'), findsOneWidget);
+    expect(probe.completed, isFalse, reason: 'form açık kalır, girilenler kaybolmaz');
   });
 
   testWidgets('iç fiyatlama yöneticisi: id ve iç alanlar birlikte gider', (tester) async {

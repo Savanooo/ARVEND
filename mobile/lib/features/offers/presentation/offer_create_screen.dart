@@ -489,6 +489,10 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
           vatRate: vat,
           items: items,
           includeInternalPricing: _canManageInternal,
+          // Mevcut kalemlerin hepsi silinip yalnızca yeni satır kaldıysa:
+          // iç maliyetli taslakta sunucu id'siz listeyi eski uygulama sanıp
+          // reddederdi (iç fiyatlama yetkilisinin kaydında bu denetim yok).
+          itemIdsSent: !_canManageInternal && items.every((i) => i.id.isEmpty),
         );
       } else {
         offer = await repo.create(
