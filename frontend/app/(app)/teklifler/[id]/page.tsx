@@ -8,7 +8,7 @@ import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer, ApiError } from "@/lib/api";
 import { requirePagePermission } from "@/lib/auth";
-import { formatTL } from "@/lib/format";
+import { formatOfferMoney } from "@/lib/offers";
 import { hasPermission, PAGE_PERMISSIONS } from "@/lib/permissions";
 import { orNotFound } from "@/lib/server-data";
 import { OFFER_STATUS } from "@/lib/status";
@@ -126,15 +126,15 @@ export default async function TeklifDetayPage({
                   <Tr key={it.id}>
                     <Td className="font-medium">{it.product_name}</Td>
                     <Td className="text-right">{it.quantity}</Td>
-                    <Td className="text-right">{formatTL(it.unit_price)}</Td>
-                    <Td className="text-right font-medium">{formatTL(it.line_total)}</Td>
+                    <Td className="text-right">{formatOfferMoney(it.unit_price, offer)}</Td>
+                    <Td className="text-right font-medium">{formatOfferMoney(it.line_total, offer)}</Td>
                     {hasInternalPricing && (
                       <>
                         <Td className="text-right text-text-muted">
-                          {it.internal_pricing ? formatTL(it.internal_pricing.cost) : "—"}
+                          {it.internal_pricing ? formatOfferMoney(it.internal_pricing.cost, offer) : "—"}
                         </Td>
                         <Td className="text-right text-text-muted">
-                          {it.internal_pricing ? formatTL(it.internal_pricing.expected_profit) : "—"}
+                          {it.internal_pricing ? formatOfferMoney(it.internal_pricing.expected_profit, offer) : "—"}
                         </Td>
                       </>
                     )}
@@ -145,15 +145,15 @@ export default async function TeklifDetayPage({
             <CardBody className="flex flex-col items-end gap-1 border-t border-border">
               <div className="flex w-48 justify-between text-sm text-text-muted">
                 <span>Ara Toplam</span>
-                <span>{formatTL(offer.subtotal)}</span>
+                <span>{formatOfferMoney(offer.subtotal, offer)}</span>
               </div>
               <div className="flex w-48 justify-between text-sm text-text-muted">
                 <span>KDV (%{offer.vat_rate})</span>
-                <span>{formatTL(offer.vat_amount)}</span>
+                <span>{formatOfferMoney(offer.vat_amount, offer)}</span>
               </div>
               <div className="flex w-48 justify-between text-base font-bold">
                 <span>Genel Toplam</span>
-                <span>{formatTL(offer.grand_total)}</span>
+                <span>{formatOfferMoney(offer.grand_total, offer)}</span>
               </div>
             </CardBody>
           </Card>
@@ -219,7 +219,7 @@ export default async function TeklifDetayPage({
                         {new Date(rev.created_at).toLocaleString("tr-TR")}
                       </div>
                     </div>
-                    <div className="font-medium">{formatTL(rev.grand_total)}</div>
+                    <div className="font-medium">{formatOfferMoney(rev.grand_total, offer)}</div>
                   </Link>
                 ))}
               </CardBody>

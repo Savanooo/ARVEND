@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { apiClient, ApiError } from "@/lib/api";
-import { formatTL } from "@/lib/format";
+import { formatOfferMoney } from "@/lib/offers";
 import type { Offer, Project } from "@/lib/types";
 
 export function ConvertForm({ offer }: { offer: Offer }) {
@@ -117,7 +117,7 @@ export function ConvertForm({ offer }: { offer: Offer }) {
               <div className="text-xs uppercase tracking-widest text-text-muted">
                 Sözleşme Bedeli
               </div>
-              <div className="font-medium">{formatTL(offer.grand_total)}</div>
+              <div className="font-medium">{formatOfferMoney(offer.grand_total, offer)}</div>
             </div>
             <p className="border-t border-border pt-3 text-xs text-text-muted">
               Müşteri bilgileri ve sözleşme bedeli, kabul edilen revizyondan anlık görüntü olarak

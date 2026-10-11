@@ -15,7 +15,7 @@ import { SearchInput } from "@/components/ui/SearchInput";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { Tabs } from "@/components/ui/Tabs";
-import { formatTL } from "@/lib/format";
+import { formatOfferMoney } from "@/lib/offers";
 import { OFFER_STATUS } from "@/lib/status";
 import type { Offer, OfferStatus } from "@/lib/types";
 
@@ -152,7 +152,7 @@ export function OffersBoard({
                 <Td>
                   <StatusBadge status={o.status} registry={OFFER_STATUS} />
                 </Td>
-                <Td className="text-right font-medium">{formatTL(o.grand_total)}</Td>
+                <Td className="text-right font-medium">{formatOfferMoney(o.grand_total, o)}</Td>
                 <Td className="text-right">
                   <TeklifRowActions offer={o} confirm={confirm} />
                 </Td>

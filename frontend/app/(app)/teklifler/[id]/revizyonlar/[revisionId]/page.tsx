@@ -6,7 +6,7 @@ import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { apiServer } from "@/lib/api";
 import { requirePagePermission } from "@/lib/auth";
-import { formatTL } from "@/lib/format";
+import { formatOfferMoney } from "@/lib/offers";
 import { PAGE_PERMISSIONS } from "@/lib/permissions";
 import { OFFER_STATUS } from "@/lib/status";
 import type { OfferRevision } from "@/lib/types";
@@ -52,15 +52,15 @@ export default async function TeklifRevizyonDetayPage({
                   <Tr key={it.id}>
                     <Td className="font-medium">{it.product_name}</Td>
                     <Td className="text-right">{it.quantity}</Td>
-                    <Td className="text-right">{formatTL(it.unit_price)}</Td>
-                    <Td className="text-right font-medium">{formatTL(it.line_total)}</Td>
+                    <Td className="text-right">{formatOfferMoney(it.unit_price, revision)}</Td>
+                    <Td className="text-right font-medium">{formatOfferMoney(it.line_total, revision)}</Td>
                     {hasInternalPricing && (
                       <>
                         <Td className="text-right text-text-muted">
-                          {it.internal_pricing ? formatTL(it.internal_pricing.cost) : "—"}
+                          {it.internal_pricing ? formatOfferMoney(it.internal_pricing.cost, revision) : "—"}
                         </Td>
                         <Td className="text-right text-text-muted">
-                          {it.internal_pricing ? formatTL(it.internal_pricing.expected_profit) : "—"}
+                          {it.internal_pricing ? formatOfferMoney(it.internal_pricing.expected_profit, revision) : "—"}
                         </Td>
                       </>
                     )}
@@ -71,15 +71,15 @@ export default async function TeklifRevizyonDetayPage({
             <CardBody className="flex flex-col items-end gap-1 border-t border-border">
               <div className="flex w-48 justify-between text-sm text-text-muted">
                 <span>Ara Toplam</span>
-                <span>{formatTL(revision.subtotal)}</span>
+                <span>{formatOfferMoney(revision.subtotal, revision)}</span>
               </div>
               <div className="flex w-48 justify-between text-sm text-text-muted">
                 <span>KDV (%{revision.vat_rate})</span>
-                <span>{formatTL(revision.vat_amount)}</span>
+                <span>{formatOfferMoney(revision.vat_amount, revision)}</span>
               </div>
               <div className="flex w-48 justify-between text-base font-bold">
                 <span>Genel Toplam</span>
-                <span>{formatTL(revision.grand_total)}</span>
+                <span>{formatOfferMoney(revision.grand_total, revision)}</span>
               </div>
             </CardBody>
           </Card>

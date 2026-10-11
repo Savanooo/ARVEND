@@ -5,7 +5,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { PublicPageHeader } from "@/components/layout/PublicPageHeader";
 import { API_BASE, apiServer, ApiError } from "@/lib/api";
-import { formatTL } from "@/lib/format";
+import { formatOfferMoney } from "@/lib/offers";
 import type { Offer, OfferStatus } from "@/lib/types";
 
 import { RespondButtons } from "./RespondButtons";
@@ -124,8 +124,8 @@ export default async function PaylasPage({
                   <Tr key={it.id}>
                     <Td className="font-medium">{it.product_name}</Td>
                     <Td className="text-right">{it.quantity}</Td>
-                    <Td className="text-right">{formatTL(it.unit_price)}</Td>
-                    <Td className="text-right font-medium">{formatTL(it.line_total)}</Td>
+                    <Td className="text-right">{formatOfferMoney(it.unit_price, offer)}</Td>
+                    <Td className="text-right font-medium">{formatOfferMoney(it.line_total, offer)}</Td>
                   </Tr>
                 ))}
               </tbody>
@@ -133,15 +133,15 @@ export default async function PaylasPage({
             <CardBody className="flex flex-col items-end gap-1 border-t border-border">
               <div className="flex w-48 justify-between text-sm text-text-muted">
                 <span>Ara Toplam</span>
-                <span>{formatTL(offer.subtotal)}</span>
+                <span>{formatOfferMoney(offer.subtotal, offer)}</span>
               </div>
               <div className="flex w-48 justify-between text-sm text-text-muted">
                 <span>KDV (%{offer.vat_rate})</span>
-                <span>{formatTL(offer.vat_amount)}</span>
+                <span>{formatOfferMoney(offer.vat_amount, offer)}</span>
               </div>
               <div className="flex w-48 justify-between text-base font-bold">
                 <span>Genel Toplam</span>
-                <span>{formatTL(offer.grand_total)}</span>
+                <span>{formatOfferMoney(offer.grand_total, offer)}</span>
               </div>
             </CardBody>
           </Card>
