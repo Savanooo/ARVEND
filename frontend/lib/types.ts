@@ -337,7 +337,15 @@ export interface CalcSnapshot {
   price_at_calc: string;
   category_name?: string;
   group_name?: string;
+  // Fiyat ürün yerine reçete referansından geldiyse sonradan "bu fiyat
+  // nereden?" sorusu yanıtlanabilsin (mobil de kopyalıyor). Eski kalemlerde yok.
+  price_source?: CalcPriceSource;
 }
+
+// Metraj satırının birim fiyatının kaynağı (backend 2026-10-07): product =
+// ürün fiyatı; reference = ürün yok/0 TL, reçetenin referans fiyatı; none =
+// hiç fiyat yok (satır 0 TL).
+export type CalcPriceSource = "product" | "reference" | "none";
 
 export interface CalcWarning {
   item_id?: string;
@@ -358,6 +366,11 @@ export interface CalcResultItem {
   factor: string;
   waste_percent: string;
   rounding_type: RoundingType;
+  // Alanı göndermeyen eski sunucuda yok. price_warning: ürün fiyatı
+  // kullanılamadıysa kısa Türkçe sebep ("referans fiyat kullanıldı" /
+  // "fiyat yok"), aksi halde yok/null.
+  price_source?: CalcPriceSource;
+  price_warning?: string | null;
 }
 
 export interface CalcRunResult {
@@ -399,6 +412,9 @@ export interface Offer {
   vat_rate: number;
   vat_amount: number;
   grand_total: number;
+  // Teklifin para birimi (oluşturulurken firma varsayılanı, sonra
+  // değişmez); tüm tutarlar bu birimdedir.
+  currency: string;
   notes: string;
   status: OfferStatus;
   is_passive: boolean;
