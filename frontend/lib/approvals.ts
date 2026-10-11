@@ -68,6 +68,14 @@ export type ChangeOrderDecision = "approved" | "rejected";
 export const CHANGE_ORDER_DECISION_NOTE_MAX = 500;
 
 /**
+ * projects.finance.manage olmayan kişi (açık projede): oluştur/gönder/iptal
+ * düğmelerinin neden olmadığı -- mobil kChangeOrdersReadOnlyText ile aynı.
+ */
+export const CHANGE_ORDERS_READ_ONLY_TEXT =
+  "Ek işleri yalnızca görüntüleyebilirsin; oluşturmak, göndermek veya iptal etmek için rolünde " +
+  '"Proje finansal işlemlerini yönetme" izni olmalı.';
+
+/**
  * "Müşteri onayladı / reddetti olarak işaretle" görünür mü: yalnızca
  * GÖNDERİLMİŞ ek işte, projects.change_orders.approve ile, açık projede
  * (sunucu diğer durumlarda 409 döner).

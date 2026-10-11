@@ -15,6 +15,7 @@ import { useToast } from "@/components/ui/Toast";
 import { apiClient, ApiError } from "@/lib/api";
 import {
   CHANGE_ORDER_DECISION_NOTE_MAX,
+  CHANGE_ORDERS_READ_ONLY_TEXT,
   canRecordChangeOrderDecision,
   changeOrderDecisionLines,
   recordDecisionDialog,
@@ -659,6 +660,8 @@ export function ChangeOrdersSection({
         <Button type="button" variant="secondary" onClick={() => setOpen(true)} disabled={locked}>
           + Ek İş Oluştur
         </Button>
+      ) : !locked ? (
+        <p className="text-xs text-text-muted">{CHANGE_ORDERS_READ_ONLY_TEXT}</p>
       ) : null}
     </div>
   );
