@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/Input";
 import { apiClient, ApiError } from "@/lib/api";
@@ -33,13 +33,17 @@ type Status = "idle" | "loading" | "results" | "empty" | "offline" | "failed";
 export function OfferProductNameField({
   value,
   label,
+  ariaLabel,
   catalogEnabled,
   currency,
   onChange,
   onPick,
 }: {
   value: string;
+  // Görünen etiket yalnızca ilk satırda; diğer satırlarda alan yine
+  // ekran okuyucuya "Ürün / Hizmet" olarak okunur (ariaLabel).
   label?: string;
+  ariaLabel?: string;
   catalogEnabled: boolean;
   // Teklifin para birimi: TL değilse önerilerin üstünde kur uyarısı çıkar.
   currency: string;
@@ -50,6 +54,13 @@ export function OfferProductNameField({
   const [results, setResults] = useState<Product[]>([]);
   const [total, setTotal] = useState(0);
   const [active, setActive] = useState(-1);
+  // Erişilebilirlik: alan bir combobox'tır; öneri listesi aria-controls ile,
+  // klavyeyle gezilen öneri aria-activedescendant ile bağlanır (odak alanda
+  // kalır, ekran okuyucu seçili öneriyi okur).
+  const baseId = useId();
+  const inputId = `${baseId}-ad`;
+  const listId = `${baseId}-oneriler`;
+  const optionId = (i: number) => `${baseId}-oneri-${i}`;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inflight = useRef<AbortController | null>(null);
   // Her aramanın sırası: geç dönen eski bir yanıt yenisinin üstüne yazmasın.
@@ -145,15 +156,20 @@ export function OfferProductNameField({
 
   const currencyNote = catalogCurrencyNote(currency);
   const more = moreProductsNote(total, results.length);
+  const listOpen = status === "results" || (status === "loading" && results.length > 0);
 
   return (
     <div className="relative">
       <Input
+        id={inputId}
         label={label}
+        aria-label={label ? undefined : ariaLabel}
         value={value}
         autoComplete="off"
         role={catalogEnabled ? "combobox" : undefined}
-        aria-expanded={catalogEnabled ? status !== "idle" : undefined}
+        aria-expanded={catalogEnabled ? listOpen : undefined}
+        aria-controls={catalogEnabled && listOpen ? listId : undefined}
+        aria-activedescendant={catalogEnabled && listOpen && active >= 0 ? optionId(active) : undefined}
         aria-autocomplete={catalogEnabled ? "list" : undefined}
         onChange={(e) => handleChange(e.target.value)}
         onKeyDown={catalogEnabled ? handleKeyDown : undefined}
@@ -162,24 +178,30 @@ export function OfferProductNameField({
         placeholder={catalogEnabled ? "Katalogda arayın ya da serbest yazın" : "Ürün / hizmet adı"}
       />
       {catalogEnabled && status !== "idle" && (
-        <div className="absolute left-0 z-20 mt-1 w-full min-w-[22rem] overflow-hidden rounded-md border border-border bg-surface shadow-lg">
+        // Telefon genişliğinde alan satırın tamamını kaplar ve liste alanla
+        // aynı genişliktedir (sabit bir en küçük genişlik sayfayı yatay
+        // kaydırırdı); geniş ekranda dar sütunda ad/fiyat okunsun diye 22rem.
+        <div className="absolute left-0 z-20 mt-1 w-full overflow-hidden rounded-md border border-border bg-surface shadow-lg md:min-w-[22rem]">
           {status === "loading" && results.length === 0 && <Note>Katalogda aranıyor…</Note>}
           {status === "empty" && <Note>Katalogda eşleşen ürün yok. Yazdığınız ad serbest kalem olarak eklenir.</Note>}
           {status === "offline" && (
             <Note>Bağlantı yok: katalog önerileri gösterilemiyor. Yazdığınız ad serbest kalem olarak kalır.</Note>
           )}
           {status === "failed" && <Note>Katalog önerileri alınamadı. Yazdığınız ad serbest kalem olarak kalır.</Note>}
-          {(status === "results" || (status === "loading" && results.length > 0)) && (
+          {listOpen && (
             <>
               {currencyNote && <Note tone="warning">{currencyNote}</Note>}
-              <ul role="listbox" className="max-h-72 overflow-y-auto">
+              <ul id={listId} role="listbox" aria-label="Katalog önerileri" className="max-h-72 overflow-y-auto">
                 {results.map((p, i) => {
                   const meta = productSuggestionMeta(p);
                   return (
-                    <li key={p.id} className="border-t border-border first:border-t-0">
+                    <li key={p.id} role="none" className="border-t border-border first:border-t-0">
                       <button
+                        id={optionId(i)}
                         type="button"
                         role="option"
+                        // Tab ile listeye girilmez: odak alanda kalır, oklarla gezilir.
+                        tabIndex={-1}
                         aria-selected={i === active}
                         // onMouseDown: input blur olmadan seçim yapılsın.
                         onMouseDown={(e) => {

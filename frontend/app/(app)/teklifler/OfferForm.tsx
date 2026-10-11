@@ -195,6 +195,10 @@ export function OfferForm({
   // ezmesin -- yanıt geldiğinde okunur (state kapanışta bayat kalırdı).
   const touchedRef = useRef({ vatRate: false, validUntil: false });
   const [defaults, setDefaults] = useState<OfferDefaults | null>(null);
+  // Varsayılanlar okunamadı: form %20/TL ile açık kalır ama kayıtta para
+  // birimi ve geçerlilik firma ayarından uygulanır -- önizleme farklı
+  // olabilir, kullanıcı bilsin (kayıt engellenmez).
+  const [defaultsFailed, setDefaultsFailed] = useState(false);
   // Teklifin para birimi: düzenlemede teklifinki (değişmez), yenide firma
   // varsayılanı. Tüm tutarlar bu birimde gösterilir.
   const [currency, setCurrency] = useState(() => offerCurrency(offer));
@@ -237,7 +241,9 @@ export function OfferForm({
         if (patch.vatRate !== undefined) setVatRate(patch.vatRate);
         if (patch.validUntil !== undefined) setValidUntil(patch.validUntil);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setDefaultsFailed(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -518,11 +524,15 @@ export function OfferForm({
         <Card>
           <CardHeader>Kalemler</CardHeader>
           <CardBody className="flex flex-col gap-3">
+            {/* Telefon genişliğinde ad satırın tamamını kaplar, miktar/birim/
+                fiyat alt satıra, tutar ve sil düğmesi en alta iner (12 sütun
+                dar ekranda alanları okunmaz kılıyordu). */}
             {items.map((row, i) => (
               <div key={row.key} className="grid grid-cols-12 items-end gap-2">
-                <div className="col-span-5">
+                <div className="col-span-12 md:col-span-5">
                   <OfferProductNameField
                     label={i === 0 ? "Ürün / Hizmet" : undefined}
+                    ariaLabel="Ürün / Hizmet"
                     value={row.product_name}
                     catalogEnabled={canReadProducts}
                     currency={currency}
@@ -535,16 +545,17 @@ export function OfferForm({
                     </p>
                   )}
                 </div>
-                <div className="col-span-2">
+                <div className="col-span-4 md:col-span-2">
                   <Input
                     label={i === 0 ? "Miktar" : undefined}
+                    aria-label="Miktar"
                     type="number"
                     step="0.01"
                     value={row.quantity}
                     onChange={(e) => updateItem(i, { quantity: e.target.value })}
                   />
                 </div>
-                <div className="col-span-1">
+                <div className="col-span-4 md:col-span-1">
                   <Input
                     label={i === 0 ? "Birim" : undefined}
                     value={row.unit}
@@ -553,9 +564,10 @@ export function OfferForm({
                     aria-label="Birim"
                   />
                 </div>
-                <div className="col-span-2">
+                <div className="col-span-4 md:col-span-2">
                   <Input
                     label={i === 0 ? "Birim Fiyat" : undefined}
+                    aria-label="Birim Fiyat"
                     type="number"
                     step="0.01"
                     value={
@@ -567,7 +579,9 @@ export function OfferForm({
                     onChange={(e) => updateItem(i, { unit_price: e.target.value })}
                   />
                 </div>
-                <div className="col-span-1 text-right text-sm font-medium">{money(computedRows[i].lineTotal)}</div>
+                <div className="col-span-11 text-right text-sm font-medium md:col-span-1">
+                  {money(computedRows[i].lineTotal)}
+                </div>
                 <div className="col-span-1 text-right">
                   <IconButton
                     label="Satırı kaldır"
@@ -583,8 +597,8 @@ export function OfferForm({
                     <div className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-text-muted">
                       İç Maliyet / Müşteri Görmez
                     </div>
-                    <div className="grid grid-cols-12 items-end gap-2">
-                      <div className="col-span-3">
+                    <div className="grid grid-cols-2 items-end gap-2 md:grid-cols-12">
+                      <div className="md:col-span-3">
                         <Input
                           label="Taşeron Maliyeti"
                           type="number"
@@ -594,11 +608,11 @@ export function OfferForm({
                           placeholder="—"
                         />
                       </div>
-                      <div className="col-span-4">
+                      <div className="md:col-span-4">
                         <label className="mb-1.5 block text-xs font-semibold uppercase tracking-widest text-text-muted">
                           Fiyatlama
                         </label>
-                        <div className="flex items-center gap-4 pb-2 text-sm">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pb-2 text-sm">
                           <label className="flex items-center gap-1.5">
                             <input
                               type="radio"
@@ -620,7 +634,7 @@ export function OfferForm({
                         </div>
                       </div>
                       {row.pricing_mode === "markup" && (
-                        <div className="col-span-2">
+                        <div className="md:col-span-2">
                           <Input
                             label="Marj (%)"
                             type="number"
@@ -631,7 +645,7 @@ export function OfferForm({
                         </div>
                       )}
                       {row.internal_cost.trim() && (
-                        <div className="col-span-3 flex flex-col gap-0.5 text-right text-xs">
+                        <div className="flex flex-col gap-0.5 text-right text-xs md:col-span-3">
                           <span className="text-text-muted">
                             Müşteri Fiyatı:{" "}
                             <span className="font-medium text-text">
@@ -728,6 +742,12 @@ export function OfferForm({
             />
           </div>
           {currencyNote && <p className="text-xs text-text-muted">{currencyNote}</p>}
+          {defaultsFailed && (
+            <p role="status" className="text-xs text-text-muted">
+              Firma teklif ayarları alınamadı: KDV %20 varsayıldı. Para birimi ve geçerlilik kayıtta firma
+              ayarından uygulanır.
+            </p>
+          )}
           <div className="flex justify-between text-sm text-text-muted">
             <span>Ara Toplam</span>
             <span className="font-medium text-text">{money(subtotal)}</span>

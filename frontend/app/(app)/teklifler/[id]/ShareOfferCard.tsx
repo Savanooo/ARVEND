@@ -28,15 +28,24 @@ const EXPIRY_OPTIONS: { value: ExpiresIn; label: string }[] = [
 // oluştur" (mark_sent, offers.approve ister) / "Yalnızca önizleme linki" /
 // "Vazgeç". Durum değiştirme yetkisi olmayana yalnızca önizleme sunulur;
 // sunucu da mark_sent'i bu izin olmadan 403 ile reddeder.
+//
+// Link oluşturma, iptal ve mail uçları offers.update ister (router.go): izni
+// olmayana düğmeler gösterilip 403 ile geri çevrilmez, yalnızca mevcut
+// linkler kopyalanabilir. Pasif teklifte yeni link/mail sunulmaz (mobil ile
+// aynı); mevcut linkler yine iptal edilebilir.
 export function ShareOfferCard({
   offer,
   links,
   revisionNoById,
+  canUpdate = false,
   canApprove = false,
 }: {
   offer: Offer;
   links: OfferShareLink[];
   revisionNoById: Record<string, number>;
+  // offers.update: link oluştur / iptal et / mail gönder (yalnızca UX;
+  // gerçek sınır backend'de).
+  canUpdate?: boolean;
   // offers.approve: taslakta "Gönder ve link oluştur" seçeneği (yalnızca UX;
   // gerçek sınır backend'de).
   canApprove?: boolean;
@@ -59,6 +68,7 @@ export function ShareOfferCard({
 
   const activeLinks = links.filter((l) => l.is_active);
   const pastLinks = links.filter((l) => !l.is_active);
+  const canShare = canUpdate && !offer.is_passive;
 
   function shareUrl(token: string) {
     return `${window.location.origin}/paylas/${token}`;
@@ -201,43 +211,53 @@ export function ShareOfferCard({
                       </>
                     )}
                   </Button>
-                  <Button
-                    type="button"
-                    variant="danger"
-                    disabled={revokingId === link.id}
-                    onClick={() => handleRevoke(link)}
-                  >
-                    {revokingId === link.id ? "İptal ediliyor…" : "İptal Et"}
-                  </Button>
+                  {canUpdate && (
+                    <Button
+                      type="button"
+                      variant="danger"
+                      disabled={revokingId === link.id}
+                      onClick={() => handleRevoke(link)}
+                    >
+                      {revokingId === link.id ? "İptal ediliyor…" : "İptal Et"}
+                    </Button>
+                  )}
                 </div>
               </div>
             ))}
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-          <Select
-            value={expiresIn}
-            disabled={creating}
-            onChange={(e) => setExpiresIn(e.target.value as ExpiresIn)}
-            aria-label="Link süresi"
-            className="w-32"
-          >
-            {EXPIRY_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </Select>
-          <Button type="button" variant="secondary" disabled={creating} onClick={handleCreateClick}>
-            {creating ? "Oluşturuluyor…" : activeLinks.length === 0 ? "Link Oluştur" : "Yeni Link Oluştur"}
-          </Button>
-          <Button type="button" onClick={() => setShowMailForm((v) => !v)}>
-            Mail Gönder
-          </Button>
-        </div>
+        {canUpdate && offer.is_passive && (
+          <p className="border-t border-border pt-3 text-xs text-text-muted">
+            Pasif teklif için yeni link oluşturulamaz ve mail gönderilemez.
+          </p>
+        )}
 
-        {showMailForm && (
+        {canShare && (
+          <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+            <Select
+              value={expiresIn}
+              disabled={creating}
+              onChange={(e) => setExpiresIn(e.target.value as ExpiresIn)}
+              aria-label="Link süresi"
+              className="w-32"
+            >
+              {EXPIRY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+            <Button type="button" variant="secondary" disabled={creating} onClick={handleCreateClick}>
+              {creating ? "Oluşturuluyor…" : activeLinks.length === 0 ? "Link Oluştur" : "Yeni Link Oluştur"}
+            </Button>
+            <Button type="button" onClick={() => setShowMailForm((v) => !v)}>
+              Mail Gönder
+            </Button>
+          </div>
+        )}
+
+        {canShare && showMailForm && (
           <form onSubmit={handleSendMail} className="flex flex-col gap-3 border-t border-border pt-3">
             <Input
               label="Kime"

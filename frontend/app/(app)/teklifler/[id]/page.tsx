@@ -196,7 +196,13 @@ export default async function TeklifDetayPage({
             </CardBody>
           </Card>
 
-          <ShareOfferCard offer={offer} links={share_links} revisionNoById={revisionNoById} canApprove={canApprove} />
+          <ShareOfferCard
+            offer={offer}
+            links={share_links}
+            revisionNoById={revisionNoById}
+            canUpdate={canUpdate}
+            canApprove={canApprove}
+          />
 
           {revisions.length > 1 && (
             <Card className="h-fit">
