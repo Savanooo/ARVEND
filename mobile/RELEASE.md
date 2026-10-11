@@ -211,7 +211,12 @@ Gelecek sürümler için kural:
   fcm-service-account.json). Anahtar yoksa telefona gönderim kapalıdır,
   bildirimler zilde durur.
 - Telefon kaydı oturum açınca yapılır, çıkışta silinir
-  (`POST /push/devices[/unregister]`).
+  (`POST /push/devices[/unregister]`). Çıkışta telefonun kayıt anahtarı
+  (FCM token) sunucu kaydı silinemese de (zaman aşımı, 5xx) HER durumda
+  silinir; geçersizleşen anahtarın sunucu kaydını sunucu ilk gönderimde
+  kendisi siler. Anahtar silinemezse (ağ yok) bu kaydedilir ve oturum
+  yokken bir sonraki açılışta/öne gelişte yeniden denenir; bu arada biri
+  giriş yaptıysa anahtar onun adına kaydedilir, silinmez.
 - Android kanal: `arvend_bildirimler` (MainActivity) -- backend fcm.Send
   ile aynı ad.
 - Duyuru: firma yöneticisi (Diğer > Duyuru Gönder) ve Süper Admin (web
@@ -219,6 +224,7 @@ Gelecek sürümler için kural:
 - Öneri: herkes (Diğer > Öneri Gönder) -> Süper Admin /super-admin/oneriler.
 - Play "Veri güvenliği": **Cihaz veya diğer kimlikler** işaretlenmeli
   (FCM kayıt anahtarı; toplandı, paylaşılmadı, uygulama işlevselliği).
+  Crashlytics'in ekledikleri: §10.
 - `derle.sh play` AAB'de AD_ID izni görürse durur (Play beyanı: reklam
   kimliği yok).
 
@@ -320,16 +326,34 @@ kaynak olarak kullanılabilir.
 | Tedarikçi verisi (unvan, vergi no/dairesi, iletişim, adres) | Diğer > Tedarikçiler (1.3.0+4) | Ticari veri. IBAN yalnızca yazılır; okunamaz, ekranda yalnızca "IBAN kayıtlı / değil". |
 | Proje ekibi ve proje erişimi (personel adı/görevi, kullanıcı adı, proje rolü) | Proje > Operasyon > Ekip / Erişim (1.4.0+5) | Kullanıcı seçici (`/users`) yalnızca `projects.access.manage` ile, "Erişim Ver" açılınca çekilir. Maaş/yevmiye bu ekranlarda hiç yoktur. |
 | Ek İş / teklif mail alıcıları (müşteri e-postası) | Ek İş detayı "Mail Gönder", teklif "Mail Geçmişi" (1.4.0+5) | Alıcı adresi müşteri kaydından önerilir; cihazda saklanmaz. |
-| Uygulama içi bildirimler | Bildirim modülü | Yalnızca uygulama içinde, cihaz push token'ı YOK. |
+| Uygulama içi bildirimler | Bildirim modülü | Zil listesi; telefona bildirim (FCM kayıt anahtarı) için bkz. §6. |
+| Çökme ve hata raporları (Firebase Crashlytics) | Uygulama geneli, YALNIZCA release yapısı (debug/profile kapalı) | Yakalanmamış hata ya da çökme anında: hatanın türü ve mesajı, yığın izi, uygulama sürümü/derleme no, dağıtım kanalı (`dagitim`: play/sideload), cihaz üreticisi/modeli, Android sürümü, ekran yönü, boş bellek/disk, olay zamanı, Crashlytics kurulum kimliği (Firebase kurulum kimliği). Kullanıcı tanımlayıcısı olarak YALNIZCA iç kullanıcı kimliği (UUID, `setUserIdentifier`) ve firma kimliği (UUID, `firma_id`); ad, kullanıcı adı, e-posta, telefon GÖNDERİLMEZ, çıkışta ikisi de boşaltılır. Sunucunun hata metinleri (müşteri adı vb. içerebilir), isteklerdeki arama metni ve dosya hatalarındaki dosya yolu/adı ("Ahmet Yılmaz sözleşme.pdf" gibi) gönderilmeden çıkarılır (`redactForCrashReport`). Kodu: `lib/core/crash/`. Google, Firebase hizmet sağlayıcısı olarak işler; Firebase belgesine göre çökme kayıtları 90 gün saklanır (Play formunu doldururken güncel belgeyle teyit et). |
 
 ### Mobil uygulamanın TOPLAMADIĞI veriler (doğrulandı, tahmin değil)
 - **Hassas/arka plan konum** — `geolocator`/`location` gibi hiçbir paket
   YOK, `AndroidManifest.xml`'de `ACCESS_FINE_LOCATION`/
   `ACCESS_BACKGROUND_LOCATION` YOK.
 - **Kişiler** — kişi listesine erişim YOK.
-- **Reklam kimliği** — hiçbir reklam/analytics SDK'sı YOK (bkz. §13).
+- **Reklam kimliği** — hiçbir reklam/analytics SDK'sı YOK (bkz. §13;
+  Crashlytics reklam kimliği toplamaz, `derle.sh play` AD_ID iznini denetler).
 - **Mikrofon** — ses kaydı özelliği YOK, `RECORD_AUDIO` izni YOK.
 - **Push/cihaz token'ı** — bkz. §6.
+
+### Play "Veri güvenliği" formuna Crashlytics'in etkisi (2026-10)
+Crashlytics'li ilk sürüm Play'e yüklenmeden ÖNCE formda şunlar işaretlenmeli
+(hepsi: toplanıyor, paylaşılmıyor — Google hizmet sağlayıcı; aktarımda
+şifreli; kullanıcı kapatamaz):
+- **Uygulama bilgileri ve performans > Kilitlenme günlükleri** — amaç: Analiz
+  (hata ayıklama, uygulamanın kararlılığı).
+- **Uygulama bilgileri ve performans > Teşhis** (bellek/disk durumu, cihaz
+  modeli) — amaç: Analiz.
+- **Cihaz veya diğer kimlikler** — zaten işaretli (FCM, §6); amaçlara Analiz
+  eklenir (Crashlytics kurulum kimliği).
+- **Kişisel bilgiler > Kullanıcı kimlikleri** — iç kullanıcı kimliği rapora
+  bağlanıyor; amaçlara Analiz eklenir.
+- Gizlilik sayfası (`frontend/app/gizlilik/page.tsx`) "üçüncü taraf
+  analitik/izleme aracı yoktur" diyor: Crashlytics (çökme raporları, Google)
+  §2 ve §4'e eklenmeli. **Bu değişiklikle YAPILMADI** (web işi; bkz. §9).
 
 ---
 
@@ -341,7 +365,20 @@ kaynak olarak kullanılabilir.
   çıkarılmaz, yalnızca çerez header'ı olarak taşınır.
 - **Refresh**: tek-uçuş (single-flight) 401→refresh→retry akışı,
   backend'in tek-kullanımlık rotasyonlu refresh token'ıyla uyumlu
-  (`lib/core/api/api_client.dart`).
+  (`lib/core/api/api_client.dart`). Refresh ağ hatası ya da 5xx (ör. 503
+  `temporarily_unavailable`, veritabanı o an okunamadı) ile düşerse oturum
+  DÜŞMEZ: istek "oturum bitti" yerine o geçici hatayla döner.
+- **Çıkışta yerel veri**: oturum çerezleri silinir (`clearSession`), son
+  kullanıcı kaydı silinir, indirilen belgeler (`belgeler/`: teklif PDF'i,
+  proje dosyası, maaş dökümü), şantiye fotoğrafı önbelleği, paylaşım
+  kopyaları (`share_plus/`) ve seçicilerin kopyaları (kamerayla çekilen /
+  galeriden seçilen fotoğraf: image_picker'ın `<uuid>…`, `scaled_…` adları;
+  yüklenen dosya: `file_picker/`) silinir (`LocalUserFiles`, oturum süresi
+  dolduğunda da). Ortak telefonda sonraki kişi öncekinin dosyalarını bulmaz.
+- **Android yedeği kapalı**: `android:allowBackup="false"` (Android ≤ 11) ve
+  `res/xml/data_extraction_rules.xml` (Android 12+, Google yedeği ve
+  cihazdan cihaza aktarım): çerezler, tercih kayıtları ve belgeler başka bir
+  telefonda geri gelmez. Bütün iş verisi sunucuda.
 - **Oturum sona erme**: sınıflandırılamayan bir 401/403 refresh
   başarısızlığında `onSessionExpired` çağrılır, `AuthController` oturumu
   temizler, router `/giris`'e yönlendirir. AYRICA (FINAL entegrasyon fazı,
@@ -373,24 +410,41 @@ kaynak olarak kullanılabilir.
   App Store/Play Store'a giden build bu bayrağı asla taşımaz).
 - Sahte veri/demo modu/sandbox endpoint anahtarı YOK — tek bir
   `apiBaseUrl` kaynağı var (bkz. §3), koşullu "demo" dalı YOK.
-- Analytics/crash/telemetry paketi YOK (bkz. §13).
+- Analytics/telemetry paketi YOK. Çökme raporlama (Crashlytics) yalnızca
+  release yapısında toplar; debug ve profile yapısında kapalı (bkz. §13).
 
 ---
 
 ## 13. Crash / Analytics
 
-**Şu an hiçbir telemetri/analytics/crash-reporting servisi entegre
-DEĞİL** (`pubspec.yaml`'da `firebase_*`/`sentry_flutter`/benzeri hiçbir
-paket yok — doğrulandı).
+**Durum (2026-10): Firebase Crashlytics var, Analytics YOK.** Proje
+`arvend-8bc93` (bildirimle aynı, §6). Kod: `lib/core/crash/`.
 
-Bu bir EKSİKLİK olarak işaretlenmiyor, yalnızca bir GELECEK ÖNERİSİ
-olarak not ediliyor: üretimde crash görünürlüğü isteniyorsa (ör. Sentry
-veya Firebase Crashlytics), bu AYRI, açık bir ürün kararı olmalı —
-üçüncü taraf bir servise cihaz/hata verisi göndermek gizlilik
-politikasını ve Data Safety/App Privacy formlarını DEĞİŞTİRİR. Bu görev
-kapsamında hiçbir telemetri paketi EKLENMEDİ.
-
----
+- **Ne raporlanır:** yakalanmamış her hata — Flutter çerçevesinin hataları
+  (`FlutterError.onError`), çerçeve dışındaki yakalanmamış hatalar
+  (`PlatformDispatcher.onError`) ve `main`'in `runZonedGuarded` bölgesinden
+  kaçanlar (fatal olarak). Ekranların yakaladığı ama beklenmeyen bazı hatalar
+  (ör. Dökümanlar sekmesinde dosya seçici/disk hatası) fatal olmayan rapor
+  olarak gider. Native (Java/Kotlin) çökmeleri Crashlytics SDK'sı kendisi
+  yakalar.
+- **Ne zaman:** yalnızca release yapısında (`kReleaseMode`). Debug/profile
+  yapısında toplama kapalı: Dart tarafı `setCrashlyticsCollectionEnabled(false)`,
+  `src/debug` ve `src/profile` manifest'leri açılış anını da kapatır.
+- **Kim:** iç kullanıcı kimliği (UUID) ve `firma_id` (UUID); ad/kullanıcı
+  adı/e-posta/telefon asla. Sunucu hata metni, arama metni ve dosya
+  yolu/adı çıkarılır.
+  Envanter ve Play formu: §10.
+- **Gradle eklentisi YOK** (google-services eklentisi gibi; AGP 9 düzenine
+  dokunulmadı). Eklenti yalnızca R8 eşleme dosyalarını yükler: native
+  Java/Kotlin yığın izleri karışık (obfuscated) görünür; Dart yığın izleri
+  okunur kalır. Crashlytics'in "build ID" denetimini FlutterFire eklentisi
+  kendi `com.crashlytics.RequireBuildId=false` kaynağıyla kapatır, yani
+  eklenti olmadan açılışta çökme olmaz.
+- `derle.sh` `--obfuscate` KULLANMIYOR. Kullanılırsa Dart sembolleri
+  `firebase crashlytics:symbols:upload` ile yüklenmeden yığın izleri
+  okunamaz.
+- iOS'ta Firebase kurulmadığı için (§4) raporlama kapalı; iOS'a geçerken
+  `GoogleService-Info.plist` ve dSYM yükleme adımı eklenmeli.
 
 ## 14. Sürüm Sonrası Kontrol Listesi (özet)
 
@@ -522,6 +576,7 @@ bir bağlantı ~2 dakikada kesilir.
         ├── latest.json              644  API'nin okuduğu tek kayıt
         ├── arvend-<build>.apk       644  en yeni 3'ü saklanır
         ├── imza.sha256              644  son yayının imza sertifikası (yalnızca betik okur)
+        ├── play.json                644  Play sürümünün zorunlu güncelleme tabanı (§16, elle)
         └── .yayin.kilit             betiğin kilidi (aynı anda tek yayın)
 ```
 
@@ -708,9 +763,67 @@ düşürür (eklenti manifest'lerinden geleni de), `AppConfig.isPlayBuild` ise
 `updateSupportedProvider`'ı kapatır — Play sürümü sunucuya sürüm sormaz, APK
 indirmez. `derle.sh play` derleme sonrası AAB'de iznin olmadığını doğrular.
 
-**Play sürümünde zorunlu-güncelleme yok.** `min_build` barajı uzaktan
-güncellemeyle birlikte kapanıyor; Play'deki karşılığı In-App Updates API
-(henüz eklenmedi).
+### Play'de güncelleme ve zorunlu güncelleme (In-App Updates)
+
+Play sürümü kendini Play'in uygulama içi güncelleme API'siyle günceller
+(`lib/core/update/play_update.dart`, açılışta ve 6 saatte bir öne gelişte;
+Diğer > Hakkında > "Güncellemeleri denetle" elle):
+
+- **Normal yeni sürüm:** Play'in kendi penceresi açılır (esnek güncelleme),
+  indirme arka planda sürer, inince "Yeniden başlat" çubuğu çıkar. Otomatik
+  denetimde aynı sürüm **günde en fazla bir kez** önerilir (pencere açıldığı
+  an kaydedilir); elle denetim bunu beklemez, daha yeni bir sürüm de
+  beklemez.
+- **Zorunlu güncelleme:** kurulu build sunucudaki tabanın altındaysa Play'in
+  tam ekran güncellemesi açılır. Kullanıcı vazgeçerse ya da pencere
+  açılamazsa uygulama, kapatılamayan **"Güncelleme gerekli"** ekranında
+  bekler ("Güncelle" / "Google Play'de aç"); geri tuşu ekranı kapatmaz,
+  uygulamayı arka plana alır. Ekran açıkken öne gelişte Play'in penceresi
+  kendiliğinden yeniden açılmaz (Play'den her dönüşte açılsaydı döngü olurdu),
+  yalnızca zorunluluğun sürüp sürmediğine bakılır. Hakkında'daki elle
+  denetimden vazgeçilirse de ekran hemen çıkar. Play tam ekrana izin vermeyip
+  güncelleme arka planda indiyse (ya da indirme sürerken taban yükseldiyse)
+  "Yeniden başlat" beklenmez: inince hemen kurulur.
+- **Kilitlemeyen durumlar:** Play'e ulaşılamıyorsa (uygulama Play'den
+  kurulmamış, ör. `flutter run`/sideload; Play Hizmetleri yok; ağ yok),
+  sunucuya ulaşılamıyorsa ya da Play bu telefona henüz yeni sürüm
+  sunmuyorsa (kademeli dağıtım) hiçbir şey kilitlenmez.
+
+**Taban nereden gelir:** `GET /api/v1/mobile/app-version?platform=android`
+yanıtındaki `min_build`. Sideload yayını (`latest.json`) kapalı olduğundan
+taban ayrı, küçük bir dosyadadır ve APK gerektirmez:
+
+```
+/var/lib/arvend/app-releases/android/play.json     {"min_build": 25}
+```
+
+- Yazan: szutech2 (sudo GEREKMEZ, dizin onun; API yalnızca okur). API'yi
+  yeniden başlatmak gerekmez, bir sonraki istekte görünür.
+- Dosya yoksa ya da geçersizse taban 0'dır (zorunlu güncelleme yok) — bozuk
+  bir dosya kimseyi kilitlemez; reddedilen dosya logda
+  `UYARI: Play zorunlu güncelleme ...` satırıyla görünür.
+- `latest.json` da varsa (eski sideload kanalı) iki tabandan büyüğü döner.
+
+Zorunlu yapmak (ör. eski sürümleri bozan bir API değişikliği):
+
+1. Yeni sürümü Play'de **%100'e** yayınla ve Play'de göründüğünü doğrula
+   (taban, Play'in sunduğu sürümden büyük olamaz; olursa kimse kilitlenmez
+   ama zorunluluk da işlemez).
+2. Tabanı o sürümün build numarası yap (pubspec'teki `+N`):
+
+```bash
+ssh szutech2@192.168.77.77 'cd /var/lib/arvend/app-releases/android && \
+  printf "{\"min_build\": 25}\n" > play.json.tmp && mv play.json.tmp play.json'
+curl -s 'https://app.arvendyapi.com.tr/api/v1/mobile/app-version?platform=android'
+# -> {"platform":"android","build":0,"min_build":25}
+```
+
+Kaldırmak: `rm /var/lib/arvend/app-releases/android/play.json` (ya da
+`{"min_build": 0}`). Yeni bir uygulama sürümü gerekmez: In-App Updates'li her
+Play sürümü (1.5.8+14 ve sonrası) tabanı okur ve Play'in tam ekran
+güncellemesini açar. Vazgeçilince çıkan kapatılamayan ekran ise bu
+değişikliği içeren sürümden itibaren var; daha eskilerde güncelleme her öne
+gelişte yeniden açılır.
 
 ### Play App Signing — KARAR (2026-10-04): Google yeni anahtar üretir
 

@@ -29,10 +29,16 @@
          güncellemeyi yasaklar - Play Store'a yüklemeden önce bu izin ve
          güncelleme denetimi kaldırılmalıdır. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <!-- Yedekleme kapalı: oturum çerezleri, son kullanıcı kaydı ve indirilen
+         belgeler Google yedeğine ve yeni telefona aktarıma girmez (bütün iş
+         verisi sunucuda). allowBackup Android 11 ve öncesini, data_extraction_rules
+         Android 12+'yı (cihazdan cihaza aktarım dahil) kapatır. -->
     <application
         android:label="ARVEND"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:usesCleartextTraffic="false">
         <!-- Telefona bildirim (FCM): uygulama kapalıyken sistem bunları
              kullanarak çizer. Kanal MainActivity'de oluşturulur; ad

@@ -77,6 +77,21 @@ void main() {
       expect(state.valueOrNull, isNull);
     });
 
+    test('access token süresi dolmuş + refresh 503 (veritabanı koptu): giriş ekranına atılmaz', () async {
+      SharedPreferences.setMockInitialValues({LastUserStore.userKey: jsonEncode(_me())});
+      final c = await _container(FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 401, body: {'error': 'oturum geçersiz veya süresi dolmuş'})],
+        '/auth/refresh': [
+          (status: 503, body: {'error': 'sunucu şu anda yanıt veremiyor', 'code': 'temporarily_unavailable'}),
+        ],
+      }));
+
+      expect((await c.read(authControllerProvider.future))?.id, 'u1');
+      await _settle();
+      // Saklanan kullanıcı silinmedi: bir sonraki açılış da çevrimdışı yolu kullanır.
+      expect((await LastUserStore().read())?.id, 'u1');
+    });
+
     test('sunucu hatası (5xx) da oturumu düşürmez', () async {
       SharedPreferences.setMockInitialValues({LastUserStore.userKey: jsonEncode(_me())});
       final c = await _container(FakeHttpClientAdapter(script: {

@@ -433,3 +433,87 @@ func TestAppRelease_HashReusedOnlyForSameFile(t *testing.T) {
 		t.Fatal("APK değişmediği halde yeniden hashlendi")
 	}
 }
+
+// Play sürümünün zorunlu güncelleme tabanı (play.json): sideload yayınından
+// bağımsız, APK istemez; yoksa ya da bozuksa 0 -- hiçbir cihaz kilitlenmez.
+func TestPlayMinBuild(t *testing.T) {
+	dir := t.TempDir()
+	s, logs := newTestAppReleaseService(t, dir)
+	policy := filepath.Join(dir, "android", "play.json")
+
+	if got := s.PlayMinBuild("android"); got != 0 {
+		t.Fatalf("dosya yokken = %d, want 0", got)
+	}
+	if len(logs.warnings()) != 0 {
+		t.Fatalf("dosyanın olmaması normal, uyarı loglanmamalı: %v", logs.warnings())
+	}
+
+	writeFileAtomic(t, policy, []byte(`{"min_build": 25}`))
+	if got := s.PlayMinBuild("android"); got != 25 {
+		t.Fatalf("min_build 25 yazıldı, okunan %d", got)
+	}
+	// Yeniden başlatmadan değişiklik görünür (yeni inode).
+	writeFileAtomic(t, policy, []byte(`{"min_build": 27, "not": "API kırılması"}`))
+	if got := s.PlayMinBuild("android"); got != 27 {
+		t.Fatalf("güncellenen değer = %d, want 27", got)
+	}
+	// Sideload yayını olmadan da çalışır; bilinmeyen platform hep 0.
+	if _, err := s.Latest("android"); !errors.Is(err, ErrAppReleaseNotFound) {
+		t.Fatalf("sideload yayını beklenmiyordu: %v", err)
+	}
+	if got := s.PlayMinBuild("ios"); got != 0 {
+		t.Fatalf("bilinmeyen platform = %d, want 0", got)
+	}
+
+	for name, raw := range map[string]string{
+		"bozuk json":   `{"min_build":`,
+		"alan yok":     `{"build": 30}`,
+		"negatif":      `{"min_build": -1}`,
+		"metin":        `{"min_build": "30"}`,
+		"çok büyük":    `{"min_build": 2100000001}`,
+		"dev dosya":    `{"min_build": 30, "x": "` + strings.Repeat("a", 5000) + `"}`,
+		"ondalık sayı": `{"min_build": 30.5}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			writeFileAtomic(t, policy, []byte(raw))
+			before := len(logs.warnings())
+			if got := s.PlayMinBuild("android"); got != 0 {
+				t.Fatalf("geçersiz dosyada taban = %d, want 0 (kullanıcı kilitlenmemeli)", got)
+			}
+			// Aynı bozuk dosya her istekte yeniden loglanmaz.
+			s.PlayMinBuild("android")
+			if n := len(logs.warnings()) - before; n != 1 {
+				t.Fatalf("uyarı sayısı = %d, want 1", n)
+			}
+		})
+	}
+
+	t.Run("sembolik bağ reddedilir", func(t *testing.T) {
+		target := filepath.Join(t.TempDir(), "baska.json")
+		if err := os.WriteFile(target, []byte(`{"min_build": 40}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(policy); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, policy); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.PlayMinBuild("android"); got != 0 {
+			t.Fatalf("sembolik bağ = %d, want 0", got)
+		}
+	})
+
+	t.Run("dosya silinince taban 0", func(t *testing.T) {
+		writeFileAtomic(t, policy, []byte(`{"min_build": 25}`))
+		if got := s.PlayMinBuild("android"); got != 25 {
+			t.Fatalf("= %d, want 25", got)
+		}
+		if err := os.Remove(policy); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.PlayMinBuild("android"); got != 0 {
+			t.Fatalf("silindikten sonra = %d, want 0", got)
+		}
+	})
+}

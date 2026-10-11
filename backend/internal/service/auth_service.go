@@ -104,7 +104,13 @@ func (s *AuthService) Refresh(ctx context.Context, rawRefreshToken string) (*Ses
 	// uzatamaz.
 	userRow, err := s.q.GetUserByID(ctx, rt.UserID)
 	if err != nil {
-		return nil, domain.ErrInvalidToken
+		// Yalnızca "kullanıcı yok" oturumu bitirir. Geçici bir veritabanı
+		// hatası olduğu gibi döner (500): handler çerezleri silmez, istemci
+		// kesinti geçince yeniden yeniler.
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrInvalidToken
+		}
+		return nil, err
 	}
 	user := repository.ToDomainUser(userRow)
 	if !user.IsActive {

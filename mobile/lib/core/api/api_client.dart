@@ -42,12 +42,14 @@ class ApiClient {
 
   Dio get dio => _dio;
 
-  Completer<bool>? _refreshCompleter;
+  Completer<_RefreshOutcome>? _refreshCompleter;
 
   /// Refresh başarısız olduğunda (401/403 - token geçersiz, sınıflandırılamayan
   /// bir sebep) tetiklenir; AuthController bunu dinleyip oturumu temizler ve
   /// go_router'ın auth redirect'i /giris'e yönlendirir. Ağ hatası/5xx'te
-  /// TETİKLENMEZ (geçici kesintide oturum düşürülmez).
+  /// (ör. sunucunun 503 `temporarily_unavailable`'ı) TETİKLENMEZ: geçici
+  /// kesintide oturum düşürülmez, asıl istek de "oturum bitti" (401) yerine
+  /// refresh'in kendi geçici hatasıyla döner (bkz. _buildAuthRefreshInterceptor).
   void Function()? onSessionExpired;
 
   /// `classifyAccountAccessIssue` sabit imzalarından biri (tenant_context_
@@ -345,8 +347,14 @@ class ApiClient {
           return handler.next(error);
         }
 
-        final refreshed = await _refreshOnce();
-        if (!refreshed) {
+        final outcome = await _refreshOnce();
+        if (outcome.transientError case final transient?) {
+          // Sunucu/ağ o an yanıt vermedi: oturum bitmiş DEĞİL. Asıl istek
+          // 401 ile dönseydi ekranlar "oturumunuz sona erdi" der, açılıştaki
+          // /auth/me de kullanıcıyı giriş ekranına atardı.
+          return handler.next(transient);
+        }
+        if (!outcome.refreshed) {
           return handler.next(error);
         }
 
@@ -369,15 +377,15 @@ class ApiClient {
     );
   }
 
-  Future<bool> _refreshOnce() {
+  Future<_RefreshOutcome> _refreshOnce() {
     final existing = _refreshCompleter;
     if (existing != null) return existing.future;
 
-    final completer = Completer<bool>();
+    final completer = Completer<_RefreshOutcome>();
     _refreshCompleter = completer;
 
     _dio.post<dynamic>('/auth/refresh').then((_) {
-      completer.complete(true);
+      completer.complete(const (refreshed: true, transientError: null));
     }).catchError((Object err) {
       // `onError` interceptor'ı (yukarıda) BU isteğin cevabını da görür ve
       // sınıflandırılabilir bir organizasyon/kullanıcı engeli varsa
@@ -391,7 +399,14 @@ class ApiClient {
           (err.response?.statusCode == 401 || err.response?.statusCode == 403)) {
         onSessionExpired?.call();
       }
-      completer.complete(false);
+      // Yanıt hiç gelmedi (ağ, zaman aşımı) ya da 5xx: geçici. Backend 5xx'te
+      // çerezleri SİLMEZ; kesinti geçince aynı refresh token'la yenilenir.
+      DioException? transient;
+      if (err is DioException) {
+        final status = err.response?.statusCode;
+        if (status == null || status >= 500) transient = err;
+      }
+      completer.complete((refreshed: false, transientError: transient));
     }).whenComplete(() {
       _refreshCompleter = null;
     });
@@ -399,6 +414,10 @@ class ApiClient {
     return completer.future;
   }
 }
+
+/// Tek-uçuş refresh'in sonucu. [transientError]: refresh geçici bir hatayla
+/// (ağ, 5xx) düştü -- oturum bitmedi.
+typedef _RefreshOutcome = ({bool refreshed, DioException? transientError});
 
 /// [ApiClient.download]'ın `acceptHeaders`'ı yanıtı reddetti -- gövde
 /// indirilmedi, diske hiçbir şey kalmadı.

@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/errors/api_exception.dart';
+import '../../../core/errors/device_errors.dart';
+import '../../../core/files/file_share.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -40,6 +42,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
   bool _creatingLink = false;
   bool _sendingEmail = false;
   bool _downloadingPdf = false;
+  bool _sharingPdf = false;
 
   String get offerId => widget.offerId;
 
@@ -105,11 +108,32 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
       }
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } on Exception catch (_) {
-      // Dosya yazılamadı / görüntüleyici eklentisi yok: çökme yok.
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF açılamadı.')));
+    } on Exception catch (e, s) {
+      // Dosya yazılamadı (ör. telefonda yer yok) / görüntüleyici eklentisi
+      // yok: çökme yok, sade bir mesaj.
+      if (mounted) showDeviceIssue(context, ref, e, s, DeviceAction.saveFile, where: 'Teklif PDF');
     } finally {
       if (mounted) setState(() => _downloadingPdf = false);
+    }
+  }
+
+  /// Teklifin PDF'ini telefonun paylaşım menüsüyle (WhatsApp, e-posta...)
+  /// gönderir -- indirmeyle aynı izin (yalnızca okuma).
+  Future<void> _sharePdf(Offer offer) async {
+    if (_sharingPdf) return;
+    setState(() => _sharingPdf = true);
+    try {
+      final bytes = await ref.read(offersRepositoryProvider).pdfBytes(offer.id);
+      final error = await ref.read(fileSharerProvider).shareFile(offer.pdfFilename, bytes, mimeType: 'application/pdf');
+      if (error != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      }
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } on Exception catch (e, s) {
+      if (mounted) showDeviceIssue(context, ref, e, s, DeviceAction.saveFile, where: 'Teklif PDF paylaşımı');
+    } finally {
+      if (mounted) setState(() => _sharingPdf = false);
     }
   }
 
@@ -234,6 +258,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
       // kapat'a basana kadar) buton sonsuza dek "yükleniyor" görünmesin.
       setState(() => _creatingLink = false);
       final url = '${AppConfig.apiBaseUrl}/paylas/${link.token}';
+      final sharer = ref.read(fileSharerProvider);
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
@@ -241,13 +266,25 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
           content: SelectableText(url),
           actions: [
             TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Kapat')),
-            FilledButton.icon(
+            TextButton.icon(
               icon: const Icon(Icons.copy_outlined, size: 18),
               label: const Text('Kopyala'),
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: url));
                 Navigator.of(context).pop();
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Link kopyalandı')));
+              },
+            ),
+            // WhatsApp/e-posta: müşteriye hazır mesajla gider.
+            FilledButton.icon(
+              key: const ValueKey('offer-share-link-send'),
+              icon: const Icon(Icons.share_outlined, size: 18),
+              label: const Text('Paylaş'),
+              onPressed: () async {
+                final messenger = ScaffoldMessenger.of(context);
+                Navigator.of(context).pop();
+                final error = await sharer.shareText(offerShareLinkText(url));
+                if (error != null) messenger.showSnackBar(SnackBar(content: Text(error)));
               },
             ),
           ],
@@ -562,6 +599,13 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                     loading: _downloadingPdf,
                     onPressed: () => _downloadPdf(offer),
                   ),
+                  // WhatsApp/e-posta ile PDF'in kendisi -- indirmeyle aynı izin.
+                  SecondaryButton(
+                    icon: Icons.share_outlined,
+                    label: 'PDF Paylaş',
+                    loading: _sharingPdf,
+                    onPressed: () => _sharePdf(offer),
+                  ),
                   // Revize, paylaşım linki ve e-posta uçları offers.update ister
                   // (router.go): izni olmayana düğme gösterilip 403 ile
                   // geri çevrilmez.
@@ -591,9 +635,12 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
   }
 }
 
+/// Paylaşım menüsüyle (WhatsApp vb.) müşteriye giden hazır mesaj.
+String offerShareLinkText(String url) => 'Teklifimizi bu bağlantıdan inceleyebilirsiniz:\n$url';
+
 /// Web teklif detayındaki "Paylaşım" kartının karşılığı: oluşturulmuş
-/// linkler, kopyala ve iptal et. Hiç link yoksa bölüm görünmez (yeni link
-/// aşağıdaki "Paylaşım Linki" düğmesiyle oluşturulur).
+/// linkler, kopyala, paylaş ve iptal et. Hiç link yoksa bölüm görünmez (yeni
+/// link aşağıdaki "Paylaşım Linki" düğmesiyle oluşturulur).
 class _ShareLinksSection extends ConsumerStatefulWidget {
   const _ShareLinksSection({required this.offerId, required this.canRevoke});
   final String offerId;
@@ -608,6 +655,12 @@ class _ShareLinksSectionState extends ConsumerState<_ShareLinksSection> {
   bool _showPast = false;
 
   String _url(ShareLink l) => '${AppConfig.apiBaseUrl}/paylas/${l.token}';
+
+  Future<void> _shareLink(ShareLink l) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final error = await ref.read(fileSharerProvider).shareText(offerShareLinkText(_url(l)));
+    if (error != null) messenger.showSnackBar(SnackBar(content: Text(error)));
+  }
 
   Future<void> _revoke(ShareLink link) async {
     final ok = await showDialog<bool>(
@@ -681,24 +734,33 @@ class _ShareLinksSectionState extends ConsumerState<_ShareLinksSection> {
                   const SizedBox(height: AppSpacing.xs),
                   SelectableText(_url(l), style: AppTypography.body),
                   Text('Oluşturuldu: ${Formatters.dateTime(l.createdAt)}', style: AppTypography.helper),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton.icon(
-                        icon: const Icon(Icons.copy_outlined, size: 18),
-                        label: const Text('Kopyala'),
-                        onPressed: () {
-                          Clipboard.setData(ClipboardData(text: _url(l)));
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Link kopyalandı')));
-                        },
-                      ),
-                      if (widget.canRevoke)
-                        TextButton(
-                          onPressed: _revokingId == null ? () => _revoke(l) : null,
-                          style: TextButton.styleFrom(foregroundColor: AppColors.danger),
-                          child: Text(_revokingId == l.id ? 'İptal ediliyor…' : 'İptal Et'),
+                  // Dar ekranda / büyük yazıda düğmeler alt satıra geçer.
+                  SizedBox(
+                    width: double.infinity,
+                    child: Wrap(
+                      alignment: WrapAlignment.end,
+                      children: [
+                        TextButton.icon(
+                          icon: const Icon(Icons.copy_outlined, size: 18),
+                          label: const Text('Kopyala'),
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(text: _url(l)));
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Link kopyalandı')));
+                          },
                         ),
-                    ],
+                        TextButton.icon(
+                          icon: const Icon(Icons.share_outlined, size: 18),
+                          label: const Text('Paylaş'),
+                          onPressed: () => _shareLink(l),
+                        ),
+                        if (widget.canRevoke)
+                          TextButton(
+                            onPressed: _revokingId == null ? () => _revoke(l) : null,
+                            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+                            child: Text(_revokingId == l.id ? 'İptal ediliyor…' : 'İptal Et'),
+                          ),
+                      ],
+                    ),
                   ),
                 ],
               ),

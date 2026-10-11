@@ -41,6 +41,10 @@ dependencies:
   # olmadan güvenilir değildir) ne de mevcut hiçbir paket bunu karşılıyor;
   # bkz. projects_repository.dart fileBytes() + project_detail_screen.dart.
   open_filex: ^4.7.0
+  # Sistem paylaşım menüsü (WhatsApp, e-posta, Drive...): teklif PDF'i, proje
+  # dosyası ve fotoğrafı -- bkz. core/files/file_share.dart. 13.x win32 6
+  # istiyor, package_info_plus 8 win32 5'te -- ikisi birlikte yükseltilmeli.
+  share_plus: ^12.0.2
 
   # Basit local tercih (aktif sekme vb.) - hassas veri İÇİN DEĞİL
   shared_preferences: ^2.5.5
@@ -70,6 +74,9 @@ dependencies:
   # derleme düzenine dokunmadan. Analytics YOK (Play veri güvenliği formu).
   firebase_core: ^4.15.0
   firebase_messaging: ^16.7.0
+  # Çökme ve yakalanmamış hata raporlama (yalnızca release yapısında; bkz.
+  # core/crash/). Gradle eklentisi YOK; topladığı veriler: RELEASE.md §10.
+  firebase_crashlytics: ^5.4.0
 
   # Google Play sürümünde güncelleme: Play'in uygulama içi güncelleme API'si
   # (Play, Play dışından kendini güncellemeyi yasaklıyor; bkz.

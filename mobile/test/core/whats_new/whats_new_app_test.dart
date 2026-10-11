@@ -261,7 +261,9 @@ void main() {
       await pumpApp(tester, play: play, version: [(status: 200, body: releaseJson(build: 16, minBuild: 16))]);
 
       expect(play.calls, ['check', 'immediate']);
-      expect(find.byType(BottomNavigationBar), findsOneWidget);
+      // Vazgeçildi: uygulama "Güncelleme gerekli" ekranının arkasında bekler.
+      expect(find.text(kPlayUpdateRequiredTitle), findsOneWidget);
+      expect(find.byType(BottomNavigationBar, skipOffstage: false), findsOneWidget);
       expect(_sheet, findsNothing);
       // Taban yerinde, 15 görülmüş sayılmadı: güncellemeden sonra 16'nın
       // notlarıyla birlikte gelir.

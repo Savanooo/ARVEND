@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ yedekleme kuralları: uygulamanın HİÇBİR verisi Google
+     yedeğine (cloud-backup) ve yeni telefona aktarıma (device-transfer)
+     girmez. Oturum çerezleri (files/.cookies), son kullanıcı kaydı
+     (shared_prefs) ve indirilen belgeler başka bir telefonda geri gelmesin;
+     bütün iş verisi zaten sunucuda (mobil-genel-i4). Android 11 ve öncesini
+     manifest'teki android:allowBackup="false" kapatır. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+    </device-transfer>
+</data-extraction-rules>

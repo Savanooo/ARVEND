@@ -1,13 +1,11 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:open_filex/open_filex.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/auth/permissions.dart';
 import '../../../core/errors/api_exception.dart';
+import '../../../core/errors/device_errors.dart';
+import '../../../core/files/local_documents.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -53,26 +51,25 @@ class _PersonMonthScreenState extends ConsumerState<PersonMonthScreen> {
   late DateTime _month = widget.initialMonth;
   bool _pdfLoading = false;
 
-  /// Maaş dökümü: sunucu PDF'i üretir, geçici dizine yazılır ve telefonun
-  /// kendi PDF görüntüleyicisiyle açılır (oradan paylaşılır/kaydedilir) --
-  /// proje dosyalarıyla aynı yol.
+  /// Maaş dökümü: sunucu PDF'i üretir, telefonun belgeler dizinine yazılır
+  /// (çıkışta silinir) ve telefonun kendi PDF görüntüleyicisiyle açılır
+  /// (oradan paylaşılır/kaydedilir) -- proje dosyalarıyla aynı yol.
   Future<void> _openStatement() async {
     setState(() => _pdfLoading = true);
     try {
       final bytes = await ref.read(payrollRepositoryProvider).statementPdf(widget.employeeId, _key);
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/maas-dokumu-$_key-${widget.employeeId}.pdf');
-      await file.writeAsBytes(bytes, flush: true);
-      final result = await OpenFilex.open(file.path, type: 'application/pdf');
-      if (result.type != ResultType.done && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('PDF açılamadı: ${result.message}')));
+      final error = await ref.read(documentOpenerProvider)(
+        'maas-dokumu-$_key-${widget.employeeId}.pdf',
+        bytes,
+        mimeType: 'application/pdf',
+      );
+      if (error != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
       }
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-    } on Exception catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF açılamadı.')));
-      }
+    } on Exception catch (e, s) {
+      if (mounted) showDeviceIssue(context, ref, e, s, DeviceAction.saveFile, where: 'Maaş dökümü');
     } finally {
       if (mounted) setState(() => _pdfLoading = false);
     }

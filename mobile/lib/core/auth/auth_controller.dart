@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/auth/domain/user.dart';
 import '../api/api_providers.dart';
 import '../errors/api_exception.dart';
+import '../files/local_documents.dart';
 import '../push/push_messaging.dart';
 import 'last_user_store.dart';
 
@@ -27,6 +28,11 @@ class AuthController extends AsyncNotifier<User?> {
   /// Çevrimdışı açılışta son bilinen kullanıcıyla açıldıysa, bağlantı
   /// gelince oturumu sunucuda doğrulamak için tekrar deneme aralığı.
   static const revalidateInterval = Duration(seconds: 30);
+
+  /// Çıkıştaki bildirim adımlarının (anahtarı okuma, sunucu kaydını silme,
+  /// anahtarı silme) her biri en fazla bu kadar beklenir: yavaş sunucuda ya
+  /// da çekmeyen şantiyede çıkış takılmasın.
+  static const pushStepTimeout = Duration(seconds: 6);
 
   Timer? _revalidateTimer;
   Future<void>? _setupRecheck;
@@ -105,16 +111,7 @@ class AuthController extends AsyncNotifier<User?> {
     final client = ref.read(apiClientProvider);
     // Önce telefonun bildirim kaydı silinir (oturum hâlâ geçerliyken):
     // çıkış yapılmış telefona başkasının bildirimi düşmesin.
-    try {
-      final push = ref.read(pushMessagingProvider);
-      final token = await push.token();
-      if (token != null) {
-        await ref.read(pushRepositoryProvider).unregister(token);
-        await push.deleteToken();
-      }
-    } catch (_) {
-      // Bildirim kaydı silinemese de çıkış sürer.
-    }
+    await _releasePushToken();
     try {
       await ref.read(authRepositoryProvider).logout();
     } on ApiException {
@@ -123,8 +120,25 @@ class AuthController extends AsyncNotifier<User?> {
     await client.clearSession();
     _cancelRevalidate();
     _remember(null);
+    unawaited(ref.read(localUserFilesProvider).clear());
     ref.read(accountAccessIssueProvider.notifier).state = null;
     state = const AsyncData(null);
+  }
+
+  /// Telefonun bildirim kaydı: önce sunucudaki kayıt, sonra -- sunucu
+  /// kaydı silinemese de (zaman aşımı, 5xx) -- anahtarın KENDİSİ silinir
+  /// (mobil-genel-b3). Geçersizleşen anahtarın sunucu kaydını sunucu ilk
+  /// gönderimde kendisi siler (FCM "unregistered").
+  Future<void> _releasePushToken() async {
+    try {
+      final token = await ref.read(pushMessagingProvider).token().timeout(pushStepTimeout);
+      if (token != null) {
+        await ref.read(pushRepositoryProvider).unregister(token).timeout(pushStepTimeout);
+      }
+    } catch (_) {
+      // Sunucu kaydı silinemese de anahtar aşağıda silinir, çıkış sürer.
+    }
+    await _deletePushToken();
   }
 
   /// TEK yetkili oturum-sıfırlama yolu: token süresi doldu (sebep yok) VEYA
@@ -140,15 +154,51 @@ class AuthController extends AsyncNotifier<User?> {
     _cancelRevalidate();
     _remember(null);
     unawaited(_deletePushToken());
+    unawaited(ref.read(localUserFilesProvider).clear());
     state = const AsyncData(null);
   }
 
-  Future<void> _deletePushToken() async {
+  Future<void>? _pushTokenDeletion;
+
+  /// Süren bir anahtar silme (çıkış, oturum sonu, yeniden deneme) bitene
+  /// kadar bekler; hata fırlatmaz. PushWatcher yeni oturumun anahtarını
+  /// okumadan önce bunu bekler: silme, yeni kullanıcı eski anahtarla
+  /// kaydolduktan SONRA biterse o kullanıcıya bildirim hiç gitmezdi.
+  Future<void> get pushTokenSettled => _pushTokenDeletion ?? Future<void>.value();
+
+  /// Anahtar silinemezse (ağ yok, Play Hizmetleri yanıt vermedi) oturum yine
+  /// kapanır; silme kaydedilir ve bir sonraki açılışta/öne gelişte yeniden
+  /// denenir (bkz. [retryPendingPushCleanup]). Aynı anda tek silme sürer.
+  Future<void> _deletePushToken() =>
+      _pushTokenDeletion ??= _runPushTokenDeletion().whenComplete(() => _pushTokenDeletion = null);
+
+  Future<void> _runPushTokenDeletion() async {
+    final pending = ref.read(pushCleanupStoreProvider);
+    // Kayıt beklenmez: tercih deposu çıkışı geciktirmesin.
     try {
-      await ref.read(pushMessagingProvider).deleteToken();
+      await ref.read(pushMessagingProvider).deleteToken().timeout(pushStepTimeout);
+      unawaited(pending.clear());
     } catch (_) {
-      // Anahtar silinemese de oturum kapanır.
+      unawaited(pending.markPending());
     }
+  }
+
+  /// Çıkışta silinemeyen bildirim anahtarını yeniden siler -- YALNIZCA oturum
+  /// yokken. Bu arada biri giriş yaptıysa anahtar onun adına kaydedilmiştir
+  /// (sunucu kaydı yeni kullanıcıya geçer); silinmez, bekleyen iş unutulur.
+  /// PushWatcher açılışta ve öne gelişte çağırır. Hata fırlatmaz.
+  Future<void> retryPendingPushCleanup() async {
+    // Giriş sürüyorsa (ya da oturum geri yükleniyorsa) dokunulmaz: anahtar
+    // birazdan yeni oturumun adına kaydedilecek.
+    if (state.isLoading) return;
+    final pending = ref.read(pushCleanupStoreProvider);
+    if (!await pending.isPending()) return;
+    if (state.isLoading) return;
+    if (state.valueOrNull != null) {
+      await pending.clear();
+      return;
+    }
+    await _deletePushToken();
   }
 
   /// Oturum açıkken bir iş ucu "önce şifrenizi değiştirin" / "önce firma

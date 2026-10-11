@@ -1,13 +1,19 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image_picker/image_picker.dart' show ImageSource;
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:arvend/core/api/api_providers.dart';
 import 'package:arvend/core/auth/auth_controller.dart';
+import 'package:arvend/core/crash/crash_reporter.dart';
+import 'package:arvend/core/files/device_picker.dart';
+import 'package:arvend/core/files/file_share.dart';
+import 'package:arvend/core/files/local_documents.dart';
+import 'package:arvend/core/platform/app_settings.dart';
 import 'package:arvend/core/widgets/quick_action_button.dart';
 import 'package:arvend/features/auth/domain/user.dart';
 import 'package:arvend/features/projects/data/projects_providers.dart';
@@ -16,10 +22,39 @@ import 'package:arvend/features/projects/domain/project_lock_text.dart';
 import 'package:arvend/features/projects/presentation/project_detail_screen.dart';
 
 import '../../test_utils/fake_api_client.dart';
+import '../../test_utils/fake_file_sharer.dart';
 import '../contract_co/contract_co_test_support.dart' as cc;
 
 /// Proje > Dökümanlar (Dosyalar) ve Operasyon > Görevler: kilit durumu,
 /// fotoğraf ızgarası, dosya listesi.
+
+class _FakePicker implements DevicePicker {
+  _FakePicker({this.imageError, this.fileError});
+  final Object? imageError;
+  final Object? fileError;
+  final imageSources = <ImageSource>[];
+
+  @override
+  Future<PickedDeviceFile?> pickImage(ImageSource source) async {
+    imageSources.add(source);
+    if (imageError != null) throw imageError!;
+    return null;
+  }
+
+  @override
+  Future<PickedDeviceFile?> pickFile() async {
+    if (fileError != null) throw fileError!;
+    return null;
+  }
+}
+
+class _FakeCrash extends NoopCrashReporter {
+  final recorded = <Object>[];
+
+  @override
+  Future<void> recordError(Object error, StackTrace? stack, {String? reason, bool fatal = false}) async =>
+      recorded.add(error);
+}
 
 final _fieldManager = User.fromJson({
   'id': 'u1',
@@ -91,6 +126,7 @@ Future<FakeHttpClientAdapter> pumpProject(
   List<Map<String, dynamic>> files = const [],
   Map<String, List<ScriptedResponse>> extra = const {},
   Size size = const Size(400, 1400),
+  List<Override> overrides = const [],
 }) async {
   final adapter = FakeHttpClientAdapter(script: {
     '/projects/p1/photos': [for (var i = 0; i < 3; i++) (status: 200, body: {'photos': photos})],
@@ -112,6 +148,7 @@ Future<FakeHttpClientAdapter> pumpProject(
         // Widget testinin sahte zamanında gerçek dosya G/Ç'si tamamlanmaz;
         // cihaz önbelleği ayrı bir testte (gerçek zamanda) doğrulanır.
         projectPhotoCacheProvider.overrideWithValue(ProjectPhotoCache(directory: () async => null)),
+        ...overrides,
       ],
       child: MaterialApp(home: ProjectDetailScreen(projectId: 'p1', initialGroup: group, initialView: view)),
     ),
@@ -258,6 +295,157 @@ void main() {
 
       expect(adapter.calls, contains('/projects/p1/photos/ph1'));
       expect(find.text('Kırım öncesi banyo'), findsNothing);
+    });
+  });
+
+  group('cihaz hataları sessizce yutulmaz (mobil-genel-b2)', () {
+    testWidgets('kamera izni reddedildi: mesaj + "Ayarlar" uygulama ayarlarını açar', (tester) async {
+      final picker = _FakePicker(imageError: PlatformException(code: 'camera_access_denied'));
+      var settingsOpened = 0;
+      final crash = _FakeCrash();
+      await pumpProject(tester, group: 'dokumanlar', overrides: [
+        devicePickerProvider.overrideWithValue(picker),
+        appSettingsOpenerProvider.overrideWithValue(() async {
+          settingsOpened++;
+          return true;
+        }),
+        crashReporterProvider.overrideWithValue(crash),
+      ]);
+
+      await tester.tap(find.text('Fotoğraf Çek'));
+      await tester.pumpAndSettle();
+
+      expect(picker.imageSources, [ImageSource.camera]);
+      expect(find.textContaining('Kamera izni kapalı'), findsOneWidget);
+      await tester.tap(find.widgetWithText(SnackBarAction, 'Ayarlar'));
+      await tester.pumpAndSettle();
+      expect(settingsOpened, 1);
+      expect(crash.recorded, isEmpty, reason: 'izin reddi bir hata değil, raporlanmaz');
+    });
+
+    testWidgets('dosya seçici açılamadı: mesaj gösterilir ve ekibe raporlanır', (tester) async {
+      final crash = _FakeCrash();
+      await pumpProject(tester, group: 'dokumanlar', overrides: [
+        devicePickerProvider.overrideWithValue(_FakePicker(fileError: PlatformException(code: 'unknown_path'))),
+        crashReporterProvider.overrideWithValue(crash),
+      ]);
+
+      await tester.tap(find.text('Dosya Seç'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Dosya seçici açılamadı. Tekrar dene.'), findsOneWidget);
+      expect(crash.recorded, hasLength(1));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('telefonda yer yokken dosya açılamaz: ne yapacağı söylenir', (tester) async {
+      await pumpProject(
+        tester,
+        group: 'dokumanlar',
+        files: [fileJson('f1', name: 'kesif.pdf')],
+        extra: {
+          '/projects/p1/files/f1/download': [(status: 200, body: <int>[0x25, 0x50, 0x44, 0x46])],
+        },
+        overrides: [
+          documentOpenerProvider.overrideWithValue((filename, bytes, {mimeType}) async {
+            throw const FileSystemException('yazılamadı', '/cache/belgeler/kesif.pdf', OSError('No space left on device', 28));
+          }),
+        ],
+      );
+
+      await tester.tap(find.text('kesif.pdf'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Telefonda yer kalmadı. Biraz yer açıp tekrar dene.'), findsOneWidget);
+      // Dönen gösterge kalkar, satır yeniden dokunulabilir.
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+
+    testWidgets('açılan dosya adı ve türü görüntüleyiciye gider', (tester) async {
+      final opened = <(String, String?)>[];
+      await pumpProject(
+        tester,
+        group: 'dokumanlar',
+        files: [fileJson('f1', name: 'kesif.pdf')],
+        extra: {
+          '/projects/p1/files/f1/download': [(status: 200, body: <int>[0x25, 0x50, 0x44, 0x46])],
+        },
+        overrides: [
+          documentOpenerProvider.overrideWithValue((filename, bytes, {mimeType}) async {
+            opened.add((filename, mimeType));
+            return null;
+          }),
+        ],
+      );
+
+      await tester.tap(find.text('kesif.pdf'));
+      await tester.pumpAndSettle();
+      expect(opened, [('kesif.pdf', 'application/pdf')]);
+    });
+  });
+
+  group('paylaşım menüsü (mobil-genel-g4)', () {
+    testWidgets('dosya WhatsApp/e-posta için adı ve türüyle paylaşılır; silme yetkisi olmasa da', (tester) async {
+      final sharer = FakeFileSharer();
+      await pumpProject(
+        tester,
+        status: 'completed',
+        group: 'dokumanlar',
+        files: [fileJson('f1', name: 'kesif-raporu.pdf')],
+        extra: {
+          '/projects/p1/files/f1/download': [(status: 200, body: <int>[0x25, 0x50, 0x44, 0x46])],
+        },
+        overrides: [fileSharerProvider.overrideWithValue(sharer)],
+      );
+
+      await tester.tap(find.byTooltip('Dosyayı paylaş'));
+      await tester.pumpAndSettle();
+
+      final shared = sharer.files.single;
+      expect(shared.filename, 'kesif-raporu.pdf');
+      expect(shared.bytes, [0x25, 0x50, 0x44, 0x46]);
+      expect(shared.mimeType, 'application/pdf');
+    });
+
+    testWidgets('360 dp ve büyük yazıda dosya satırı taşmaz; paylaş ve sil düğmeleri yerinde', (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 1.3;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await pumpProject(
+        tester,
+        group: 'dokumanlar',
+        size: const Size(360, 800),
+        files: [
+          fileJson('f1', name: '${'Ahmet Yılmaz villa projesi statik hesap ' * 3}.pdf', description: 'Revize ' * 20),
+        ],
+      );
+
+      expect(tester.takeException(), isNull, reason: 'RenderFlex taşması yok');
+      expect(find.byTooltip('Dosyayı paylaş'), findsOneWidget);
+      expect(find.byTooltip('Dosyayı sil'), findsOneWidget);
+      expect(find.text('Sözleşme'), findsOneWidget);
+    });
+
+    testWidgets('fotoğraf görüntüleyiciden açıklamasıyla paylaşılır', (tester) async {
+      final sharer = FakeFileSharer();
+      await pumpProject(
+        tester,
+        group: 'dokumanlar',
+        photos: [photoJson('ph1', description: 'Kalıp sökümü bitti')],
+        extra: {
+          '/projects/p1/photos/ph1/content': [for (var i = 0; i < 3; i++) (status: 200, body: <int>[0xFF, 0xD8, 0xFF, 0xE0])],
+        },
+        overrides: [fileSharerProvider.overrideWithValue(sharer)],
+      );
+
+      await tester.tap(find.byKey(const ValueKey('proje-foto-ph1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Fotoğrafı paylaş'));
+      await tester.pumpAndSettle();
+
+      final shared = sharer.files.single;
+      expect(shared.filename, 'ph1.jpg');
+      expect(shared.mimeType, 'image/jpeg');
+      expect(shared.text, 'Kalıp sökümü bitti');
     });
   });
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"strconv"
@@ -159,7 +160,12 @@ func toUserResponse(u domain.User) userResponse {
 // taneli izin listesini taşır. authzSvc nil GEÇİLEBİLİR (ör. gelecekte
 // authzSvc'siz bir test/araç çağrısı) -- o durumda izin/rol alanları
 // sessizce boş kalır, çağıran KIRILMAZ.
-func toSessionResponse(ctx context.Context, authzSvc *service.AuthorizationService, session service.Session) userResponse {
+//
+// İzinler veritabanından OKUNAMAZSA (bağlantı koptu) hata döner: alanı boş
+// bırakmak "izin listesi yok" demektir ve istemciler bunu eski sunucu sayıp
+// her menüyü/düğmeyi açar (mobil permissions.isEmpty, son kullanıcı kaydına
+// da öyle yazılır). Çağıran 503 döner (hesap-yetki-b3).
+func toSessionResponse(ctx context.Context, authzSvc *service.AuthorizationService, session service.Session) (userResponse, error) {
 	resp := toUserResponse(session.User)
 	if session.Organization != nil {
 		resp.OrganizationName = session.Organization.Name
@@ -179,7 +185,9 @@ func toSessionResponse(ctx context.Context, authzSvc *service.AuthorizationServi
 	// hiç girmez, permissions/organization_role alanları BOŞ kalır (spec
 	// §3: platform rolü tenant izinlerine ASLA köprülenmez).
 	if authzSvc != nil && session.User.Role != domain.RoleSuperAdmin && session.User.OrganizationID != nil {
-		if authz, err := authzSvc.LoadAuthzContext(ctx, session.User.ID, *session.User.OrganizationID); err == nil {
+		authz, err := authzSvc.LoadAuthzContext(ctx, session.User.ID, *session.User.OrganizationID)
+		switch {
+		case err == nil:
 			resp.OrganizationRoleCode = authz.RoleCode
 			resp.OrganizationRoleName = authz.RoleName
 			perms := make([]string, 0, len(authz.Permissions))
@@ -187,9 +195,20 @@ func toSessionResponse(ctx context.Context, authzSvc *service.AuthorizationServi
 				perms = append(perms, code)
 			}
 			resp.Permissions = perms
+		case errors.Is(err, domain.ErrNotFound):
+			// Kimlik ayrıştırılamadı: eski davranış, izin alanları boş.
+		default:
+			return resp, err
 		}
 	}
-	return resp
+	return resp, nil
+}
+
+// writeSessionUnreadable: oturum doğrulandı ama izinleri okunamadı --
+// 503, oturum ve çerezler yerinde kalır.
+func writeSessionUnreadable(w http.ResponseWriter, err error) {
+	log.Printf("UYARI: oturum izinleri okunamadı: %v -- 503 dönüldü", err)
+	httpjson.TemporarilyUnavailable(w)
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -217,8 +236,15 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.loginLimiter.succeed(userKey)
+	// Yanıt çerezlerden ÖNCE hazırlanır: izinler okunamazsa giriş yarım
+	// kalmaz, kullanıcı birazdan yeniden dener.
+	resp, err := toSessionResponse(r.Context(), h.authzSvc, *session)
+	if err != nil {
+		writeSessionUnreadable(w, err)
+		return
+	}
 	h.setSessionCookies(w, session.AccessToken, session.RefreshToken)
-	httpjson.Write(w, http.StatusOK, toSessionResponse(r.Context(), h.authzSvc, *session))
+	httpjson.Write(w, http.StatusOK, resp)
 }
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
@@ -239,8 +265,18 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		h.writeAuthError(w, err)
 		return
 	}
+	// Refresh token bu noktada DÖNDÜRÜLDÜ: yeni çift her durumda yazılır
+	// (yazılmasa istemci, 30 sn'lik toleranstan sonra geçersiz olan eski
+	// token'la kalırdı). İzinler okunamazsa gövde yine de izinsiz dönmez:
+	// 503 -- istemciler refresh gövdesini kullanmıyor, yeni çerezlerle
+	// /auth/me'yi birazdan yeniden sorar.
 	h.setSessionCookies(w, session.AccessToken, session.RefreshToken)
-	httpjson.Write(w, http.StatusOK, toSessionResponse(r.Context(), h.authzSvc, *session))
+	resp, err := toSessionResponse(r.Context(), h.authzSvc, *session)
+	if err != nil {
+		writeSessionUnreadable(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, resp)
 }
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
@@ -259,10 +295,23 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	}
 	session, err := h.svc.Me(r.Context(), userID)
 	if err != nil {
-		httpjson.Error(w, http.StatusUnauthorized, "oturum geçersiz")
+		// 401 yalnızca kullanıcı/firma gerçekten yoksa: istemciler 401'de
+		// oturumu kapatır (web /giris'e atar). Okunamadıysa 503 -- oturum
+		// yerinde kalır.
+		if errors.Is(err, domain.ErrNotFound) || errors.Is(err, domain.ErrInvalidToken) {
+			httpjson.Error(w, http.StatusUnauthorized, "oturum geçersiz")
+			return
+		}
+		log.Printf("UYARI: /auth/me: oturum okunamadı: %v -- 503 dönüldü", err)
+		httpjson.TemporarilyUnavailable(w)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toSessionResponse(r.Context(), h.authzSvc, *session))
+	resp, err := toSessionResponse(r.Context(), h.authzSvc, *session)
+	if err != nil {
+		writeSessionUnreadable(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, resp)
 }
 
 // isSessionEndingError: writeAuthError'ın 401/403'e çevirdiği hatalar --
@@ -284,6 +333,11 @@ func (h *AuthHandler) writeAuthError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusForbidden, "firma askıya alınmış veya erişilemiyor")
 	case errors.Is(err, domain.ErrInvalidToken):
 		httpjson.Error(w, http.StatusUnauthorized, "oturum geçersiz veya süresi dolmuş")
+	case isInternalError(err):
+		// Veritabanına/ağa o an ulaşılamadı: oturum bitmedi, çerezler
+		// silinmedi (bkz. isSessionEndingError) -- istemci sonra yeniden dener.
+		log.Printf("UYARI: oturum işlemi: geçici hata: %v -- 503 dönüldü", err)
+		httpjson.TemporarilyUnavailable(w)
 	default:
 		httpjson.Error(w, http.StatusInternalServerError, "beklenmeyen bir hata oluştu")
 	}

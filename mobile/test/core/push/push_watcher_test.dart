@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:arvend/core/api/api_providers.dart';
 import 'package:arvend/core/auth/auth_controller.dart';
@@ -22,6 +23,16 @@ class _FakePush implements PushMessaging {
   PushMessage? initial;
   int permissionRequests = 0;
   int deletes = 0;
+  int deleteAttempts = 0;
+
+  /// Verilirse anahtar silinemez (ör. ağ yok).
+  Object? deleteError;
+
+  /// Verilirse silme bu tamamlanana kadar sürer (yavaş Play Hizmetleri).
+  Completer<void>? deleteGate;
+
+  /// Verilirse silmeden sonra Firebase'in vereceği yeni anahtar.
+  String? tokenAfterDelete;
   String? currentToken = 'fcm-token-${'x' * 40}';
 
   @override
@@ -41,7 +52,13 @@ class _FakePush implements PushMessaging {
   @override
   Future<PushMessage?> initialMessage() async => initial;
   @override
-  Future<void> deleteToken() async => deletes++;
+  Future<void> deleteToken() async {
+    deleteAttempts++;
+    if (deleteGate case final gate?) await gate.future;
+    if (deleteError != null) throw deleteError!;
+    deletes++;
+    if (tokenAfterDelete case final next?) currentToken = next;
+  }
 }
 
 class _Auth extends AuthController {
@@ -166,6 +183,108 @@ void main() {
     final push = _FakePush()..initial = const PushMessage(title: 'x', actionTarget: '/projeler/p1/gorevler/t1');
     await _pump(tester, push, user: _user());
     expect(find.text('görev ekranı'), findsOneWidget);
+  });
+
+  group('çıkışta bildirim anahtarı her durumda silinir (mobil-genel-b3)', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    Future<bool> pending(WidgetTester tester) async =>
+        (await tester.runAsync(() => PushCleanupStore().isPending()))!;
+
+    void resume(WidgetTester tester) {
+      for (final s in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(s);
+      }
+    }
+
+    testWidgets('sunucu kaydı silinemese de (503) anahtarın kendisi silinir, çıkış sürer', (tester) async {
+      final push = _FakePush();
+      final r = await _pump(tester, push, user: _user(), extra: {
+        '/push/devices/unregister': [
+          (status: 503, body: {'error': 'sunucu şu anda yanıt veremiyor', 'code': 'temporarily_unavailable'}),
+        ],
+        '/auth/logout': [(status: 200, body: {'ok': true})],
+      });
+      await tester.runAsync(() => r.container.read(authControllerProvider.notifier).logout());
+      await tester.pumpAndSettle();
+
+      expect(r.adapter.calls, contains('/push/devices/unregister'));
+      expect(push.deletes, 1);
+      expect(r.container.read(authControllerProvider).valueOrNull, isNull);
+      expect(await pending(tester), isFalse);
+    });
+
+    testWidgets('anahtar silinemezse (ağ yok) kaydedilir; oturum yokken öne gelişte yeniden silinir', (tester) async {
+      final push = _FakePush()..deleteError = Exception('SERVICE_NOT_AVAILABLE');
+      final r = await _pump(tester, push, user: _user(), extra: {
+        '/push/devices/unregister': [(status: 200, body: {'ok': true})],
+        '/auth/logout': [(status: 200, body: {'ok': true})],
+      });
+      await tester.runAsync(() => r.container.read(authControllerProvider.notifier).logout());
+      await tester.pumpAndSettle();
+      expect(push.deleteAttempts, greaterThanOrEqualTo(1));
+      expect(push.deletes, 0);
+      expect(await pending(tester), isTrue);
+
+      push.deleteError = null;
+      resume(tester);
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pumpAndSettle();
+
+      expect(push.deletes, 1);
+      expect(await pending(tester), isFalse);
+    });
+
+    testWidgets('eski anahtar silinirken başka biri girerse yeni anahtarla kaydolur (silinecek olanla değil)',
+        (tester) async {
+      final push = _FakePush()
+        ..deleteGate = Completer<void>()
+        ..tokenAfterDelete = 'fcm-token-yeni-${'z' * 40}';
+      final r = await _pump(tester, push, user: _user());
+      final auth = r.container.read(authControllerProvider.notifier) as _Auth;
+      final oldToken = push.currentToken;
+
+      // Oturum süresi doldu: anahtar siliniyor (yavaş), bu arada u2 giriş yaptı.
+      auth.sessionExpired();
+      await tester.pumpAndSettle();
+      auth.signIn(_user(id: 'u2'));
+      await tester.pumpAndSettle();
+      final registered = r.adapter.calls.where((c) => c == '/push/devices').length;
+      expect(registered, 1, reason: 'u2, silme bitmeden kaydolmaz');
+
+      push.deleteGate!.complete();
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pumpAndSettle();
+
+      final bodies = [
+        for (var i = 0; i < r.adapter.calls.length; i++)
+          if (r.adapter.calls[i] == '/push/devices') r.adapter.requestBodies[i] as Map,
+      ];
+      expect(bodies, hasLength(2));
+      expect(bodies.last['token'], push.tokenAfterDelete);
+      expect(bodies.last['token'], isNot(oldToken));
+    });
+
+    testWidgets('bekleyen silme varken biri giriş yaparsa anahtar silinmez, onun adına kaydedilir', (tester) async {
+      SharedPreferences.setMockInitialValues({PushCleanupStore.key: true});
+      final push = _FakePush();
+      final r = await _pump(tester, push, user: _user(id: 'u2'));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pumpAndSettle();
+
+      expect(push.deleteAttempts, 0);
+      expect(r.adapter.calls, contains('/push/devices'));
+      expect(await pending(tester), isFalse);
+    });
   });
 
   testWidgets('çıkışta telefonun kaydı silinir', (tester) async {

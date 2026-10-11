@@ -4,10 +4,15 @@ package middleware
 
 import (
 	"context"
+	"errors"
+	"log"
 	"net/http"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/Savanooo/ARVEND/backend/internal/auth"
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
+	"github.com/Savanooo/ARVEND/backend/internal/platform/httpjson"
 	"github.com/Savanooo/ARVEND/backend/internal/repository"
 	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
 )
@@ -54,6 +59,14 @@ func RequireAuth(issuer *auth.JWTIssuer, q *sqlc.Queries) func(http.Handler) htt
 					return
 				}
 				state, err := q.GetOrganizationStatus(r.Context(), orgUUID)
+				if isTransientDBError(err) {
+					// Firmanın durumu OKUNAMADI -- askıya alındığı anlamına
+					// gelmez. 403 "askıya alınmış" dönülseydi istemciler
+					// oturumu kapatıp "firmanızın erişimi kapalı" ekranını
+					// açardı (veritabanı kısa bir an koptuğunda bütün ekip).
+					writeTemporarilyUnavailable(w, "firma durumu okunamadı", err)
+					return
+				}
 				// Silme, status'ten BAĞIMSIZ bir erişim engelidir (bkz.
 				// migration 0043 başlık notu) -- AllowsAccess() true olsa
 				// bile deleted_at doluysa istek reddedilir.
@@ -83,4 +96,21 @@ func RoleFromContext(ctx context.Context) (domain.Role, bool) {
 func OrganizationIDFromContext(ctx context.Context) (string, bool) {
 	v, ok := ctx.Value(ctxOrganizationID).(string)
 	return v, ok
+}
+
+// isTransientDBError: sorgu sonuç vermek yerine HATA verdi (bağlantı koptu,
+// zaman aşımı, Postgres yeniden başlıyor). pgx.ErrNoRows bir sonuçtur
+// (kayıt yok) ve kendi kesin cevabını alır; nil de geçici değildir.
+func isTransientDBError(err error) bool {
+	return err != nil && !errors.Is(err, pgx.ErrNoRows)
+}
+
+// writeTemporarilyUnavailable: geçici veritabanı hatasında 503 -- oturum
+// düşürülmez (bkz. httpjson.TemporarilyUnavailable). İstemci bağlantıyı
+// kendisi kestiyse (context.Canceled) log kirletilmez.
+func writeTemporarilyUnavailable(w http.ResponseWriter, what string, err error) {
+	if !errors.Is(err, context.Canceled) {
+		log.Printf("UYARI: oturum denetimi: %s: %v -- 503 dönüldü", what, err)
+	}
+	httpjson.TemporarilyUnavailable(w)
 }

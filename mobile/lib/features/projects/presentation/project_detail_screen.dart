@@ -1,18 +1,20 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:open_filex/open_filex.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:image_picker/image_picker.dart' show ImageSource;
 
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/auth/permissions.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/errors/api_exception.dart';
+import '../../../core/errors/device_errors.dart';
+import '../../../core/files/device_picker.dart';
+import '../../../core/files/file_share.dart';
+import '../../../core/files/local_documents.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -1325,11 +1327,24 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
     return user == null || user.permissions.isEmpty || user.hasPermission('projects.operations.manage');
   }
 
+  /// Kamera/galeri/dosya seçici ve disk hataları: sade mesaj, izin kapalıysa
+  /// "Ayarlar" düğmesi (eskiden sessizce yutuluyordu, mobil-genel-b2).
+  void _showDeviceIssue(Object error, StackTrace stack, DeviceAction action) {
+    if (mounted) showDeviceIssue(context, ref, error, stack, action, where: 'Proje dökümanları');
+  }
+
   Future<void> _pickAndUploadPhoto(ImageSource source) async {
-    final picked = await ImagePicker().pickImage(source: source, imageQuality: 85);
-    if (picked == null) return;
-    final file = File(picked.path);
-    final size = await file.length();
+    final action = source == ImageSource.camera ? DeviceAction.camera : DeviceAction.gallery;
+    final PickedDeviceFile? picked;
+    final int size;
+    try {
+      picked = await ref.read(devicePickerProvider).pickImage(source);
+      if (picked == null) return;
+      size = picked.size ?? await File(picked.path).length();
+    } on Exception catch (e, s) {
+      _showDeviceIssue(e, s, action);
+      return;
+    }
     if (exceedsMaxUploadBytes(size, AppConfig.maxUploadBytes)) {
       _showError('Fotoğraf 25 MiB sınırını aşıyor (${Formatters.fileSize(size)}).');
       return;
@@ -1348,17 +1363,27 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
       ref.invalidate(projectPhotosProvider(projectId));
     } on ApiException catch (e) {
       _showError(e.message);
+    } on Exception catch (e, s) {
+      // Fotoğraf bu arada silindi/okunamadı.
+      _showDeviceIssue(e, s, action);
     } finally {
       if (mounted) setState(() => _uploading = false);
     }
   }
 
   Future<void> _pickAndUploadFile() async {
-    final result = await FilePicker.platform.pickFiles(withData: false);
-    final picked = result?.files.single;
-    if (picked == null || picked.path == null) return;
-    if (exceedsMaxUploadBytes(picked.size, AppConfig.maxUploadBytes)) {
-      _showError('Dosya 25 MiB sınırını aşıyor (${Formatters.fileSize(picked.size)}).');
+    final PickedDeviceFile? picked;
+    final int size;
+    try {
+      picked = await ref.read(devicePickerProvider).pickFile();
+      if (picked == null) return;
+      size = picked.size ?? await File(picked.path).length();
+    } on Exception catch (e, s) {
+      _showDeviceIssue(e, s, DeviceAction.pickFile);
+      return;
+    }
+    if (exceedsMaxUploadBytes(size, AppConfig.maxUploadBytes)) {
+      _showError('Dosya 25 MiB sınırını aşıyor (${Formatters.fileSize(size)}).');
       return;
     }
     final meta = await _promptFileMeta();
@@ -1367,7 +1392,7 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
     try {
       await ref.read(projectsRepositoryProvider).uploadFile(
             projectId,
-            filePath: picked.path!,
+            filePath: picked.path,
             fileName: picked.name,
             category: meta.category,
             description: meta.description,
@@ -1375,6 +1400,8 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
       ref.invalidate(projectFilesProvider(projectId));
     } on ApiException catch (e) {
       _showError(e.message);
+    } on Exception catch (e, s) {
+      _showDeviceIssue(e, s, DeviceAction.pickFile);
     } finally {
       if (mounted) setState(() => _uploading = false);
     }
@@ -1507,25 +1534,43 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
     ));
   }
 
-  /// Bayt indirilip geçici dizine yazılır, ardından OS'un kendi
-  /// görüntüleyicisiyle açılır (`open_filex`) -- `Image.network` sorununda
-  /// olduğu gibi, kimlik doğrulaması gerektiren bir uçtan `url_launcher`
-  /// ile doğrudan bir `file://`/uzak URL açmaya ÇALIŞILMAZ.
+  /// Bayt indirilip telefonun belgeler dizinine yazılır, ardından OS'un
+  /// kendi görüntüleyicisiyle açılır (bkz. core/files/local_documents.dart)
+  /// -- `Image.network` sorununda olduğu gibi, kimlik doğrulaması gerektiren
+  /// bir uçtan `url_launcher` ile doğrudan bir `file://`/uzak URL açmaya
+  /// ÇALIŞILMAZ.
   Future<void> _openFile(ProjectFile file) async {
     setState(() => _openingFileId = file.id);
     try {
       final bytes = await ref.read(projectsRepositoryProvider).fileBytes(projectId, file.id);
-      final dir = await getTemporaryDirectory();
-      final safeName = file.originalName.trim().isEmpty ? file.id : file.originalName.trim();
-      final localFile = File('${dir.path}/$safeName');
-      await localFile.writeAsBytes(bytes, flush: true);
       if (!mounted) return;
-      final result = await OpenFilex.open(localFile.path);
-      if (result.type != ResultType.done) {
-        _showError('Dosya açılamadı: ${result.message}');
-      }
+      final error = await ref.read(documentOpenerProvider)(_localName(file), bytes, mimeType: file.mimeType);
+      if (error != null) _showError(error);
     } on ApiException catch (e) {
       _showError(e.message);
+    } on Exception catch (e, s) {
+      // Telefonda yer yok, dosya yazılamadı.
+      _showDeviceIssue(e, s, DeviceAction.saveFile);
+    } finally {
+      if (mounted) setState(() => _openingFileId = null);
+    }
+  }
+
+  String _localName(ProjectFile file) => file.originalName.trim().isEmpty ? file.id : file.originalName.trim();
+
+  /// Dosyayı telefonun paylaşım menüsüyle (WhatsApp, e-posta...) gönderir.
+  /// İzin açmakla aynı: dosyayı açabilen paylaşabilir.
+  Future<void> _shareFile(ProjectFile file) async {
+    setState(() => _openingFileId = file.id);
+    try {
+      final bytes = await ref.read(projectsRepositoryProvider).fileBytes(projectId, file.id);
+      if (!mounted) return;
+      final error = await ref.read(fileSharerProvider).shareFile(_localName(file), bytes, mimeType: file.mimeType);
+      if (error != null) _showError(error);
+    } on ApiException catch (e) {
+      _showError(e.message);
+    } on Exception catch (e, s) {
+      _showDeviceIssue(e, s, DeviceAction.saveFile);
     } finally {
       if (mounted) setState(() => _openingFileId = null);
     }
@@ -1629,6 +1674,7 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
                           type: _fileType(f.originalName),
                           opening: _openingFileId == f.id,
                           onTap: _openingFileId != null ? null : () => _openFile(f),
+                          onShare: _openingFileId != null ? null : () => _shareFile(f),
                           onDelete: canManage ? () => _deleteFile(f) : null,
                         ),
                     ],
@@ -1688,13 +1734,14 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
 }
 
 /// Dosya satırı: ad, açıklama (varsa, 2 satıra kadar -- eskiden hiç
-/// gösterilmiyordu), tür · tarih · boyut, kategori rozeti ve silme.
+/// gösterilmiyordu), tür · tarih · boyut, kategori rozeti, paylaş ve silme.
 class _FileRow extends StatelessWidget {
   const _FileRow({
     required this.file,
     required this.type,
     required this.opening,
     required this.onTap,
+    required this.onShare,
     required this.onDelete,
   });
 
@@ -1702,6 +1749,7 @@ class _FileRow extends StatelessWidget {
   final String type;
   final bool opening;
   final VoidCallback? onTap;
+  final VoidCallback? onShare;
   final VoidCallback? onDelete;
 
   @override
@@ -1739,10 +1787,18 @@ class _FileRow extends StatelessWidget {
           ),
           const SizedBox(width: AppSpacing.sm),
           StatusRegistry.build(file.category, StatusRegistry.fileCategory),
+          // Sıkı düğmeler: 360 dp'de dosya adına yer kalsın.
+          IconButton(
+            icon: const Icon(Icons.share_outlined, size: 20),
+            tooltip: 'Dosyayı paylaş',
+            visualDensity: VisualDensity.compact,
+            onPressed: onShare,
+          ),
           if (onDelete != null)
             IconButton(
               icon: const Icon(Icons.delete_outline, size: 20),
               tooltip: 'Dosyayı sil',
+              visualDensity: VisualDensity.compact,
               onPressed: onDelete,
             ),
         ],
@@ -1847,9 +1903,25 @@ class _PhotoViewerScreen extends ConsumerWidget {
     }
   }
 
+  /// Fotoğrafı (açıklamasıyla) telefonun paylaşım menüsüyle gönderir --
+  /// görüntüleyebilen paylaşabilir.
+  Future<void> _share(BuildContext context, WidgetRef ref, Uint8List bytes) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final name = photo.originalName.trim().isEmpty ? '${photo.id}.jpg' : photo.originalName.trim();
+      final error = await ref
+          .read(fileSharerProvider)
+          .shareFile(name, bytes, mimeType: photo.mimeType, text: photo.description);
+      if (error != null) messenger.showSnackBar(SnackBar(content: Text(error)));
+    } on Exception catch (e, s) {
+      if (context.mounted) showDeviceIssue(context, ref, e, s, DeviceAction.saveFile, where: 'Proje fotoğrafı paylaşımı');
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final bytesAsync = ref.watch(projectPhotoBytesProvider((projectId: projectId, photoId: photo.id)));
+    final bytes = bytesAsync.valueOrNull;
     final description = photo.description.trim();
     return Scaffold(
       backgroundColor: Colors.black,
@@ -1858,6 +1930,12 @@ class _PhotoViewerScreen extends ConsumerWidget {
         foregroundColor: Colors.white,
         title: Text(photo.originalName, style: const TextStyle(fontSize: 14)),
         actions: [
+          if (bytes != null)
+            IconButton(
+              icon: const Icon(Icons.share_outlined),
+              tooltip: 'Fotoğrafı paylaş',
+              onPressed: () => _share(context, ref, bytes),
+            ),
           if (canManage)
             IconButton(
               icon: const Icon(Icons.delete_outline),

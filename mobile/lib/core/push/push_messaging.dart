@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/api_client.dart';
 import '../api/api_providers.dart';
@@ -100,3 +101,39 @@ class PushRepository {
 }
 
 final pushRepositoryProvider = Provider<PushRepository>((ref) => PushRepository(ref.watch(apiClientProvider)));
+
+/// Çıkışta silinemeyen (ör. ağ yoktu) bildirim anahtarının kaydı
+/// (SharedPreferences). Anahtar silinene kadar telefon eski kullanıcının
+/// bildirimlerini almaya devam ederdi; kayıt varsa bir sonraki açılışta ve
+/// öne gelişte (oturum yokken) silme yeniden denenir (bkz.
+/// AuthController.retryPendingPushCleanup).
+class PushCleanupStore {
+  PushCleanupStore({Future<SharedPreferences> Function()? prefs}) : _prefs = prefs ?? SharedPreferences.getInstance;
+
+  static const key = 'arvend.push.token_delete_pending';
+
+  final Future<SharedPreferences> Function() _prefs;
+
+  /// Okunamazsa (test ortamı) bekleyen silme yok sayılır.
+  Future<bool> isPending() async {
+    try {
+      return (await _prefs()).getBool(key) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> markPending() async {
+    try {
+      await (await _prefs()).setBool(key, true);
+    } catch (_) {}
+  }
+
+  Future<void> clear() async {
+    try {
+      await (await _prefs()).remove(key);
+    } catch (_) {}
+  }
+}
+
+final pushCleanupStoreProvider = Provider<PushCleanupStore>((ref) => PushCleanupStore());

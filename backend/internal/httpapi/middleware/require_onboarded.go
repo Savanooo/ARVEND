@@ -47,6 +47,11 @@ func RequireOnboarded(q *sqlc.Queries) func(http.Handler) http.Handler {
 				return
 			}
 			status, err := q.GetOnboardingGateStatus(r.Context(), uid)
+			if isTransientDBError(err) {
+				// bkz. RequireActiveUser: okunamayan satır geçersiz oturum değildir.
+				writeTemporarilyUnavailable(w, "kullanıcı durumu okunamadı", err)
+				return
+			}
 			if err != nil {
 				http.Error(w, `{"error":"oturum geçersiz veya süresi dolmuş"}`, http.StatusUnauthorized)
 				return

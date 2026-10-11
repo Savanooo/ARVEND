@@ -37,6 +37,10 @@ class AppConfig {
   /// API adresinden türetilmez: yerel geliştirme yapısı da gerçek metni açsın.
   static const String privacyPolicyUrl = 'https://app.arvendyapi.com.tr/gizlilik';
 
+  /// Uygulamanın Google Play sayfası -- zorunlu güncelleme ekranındaki
+  /// "Google Play'de aç" (Play'in kendi penceresi açılamazsa).
+  static const String playStoreUrl = 'https://play.google.com/store/apps/details?id=com.arvendyapi.arvend';
+
   /// 25 MiB - backend'in project_operations_handler.go'daki
   /// service.MaxUploadBytes ile birebir aynı sınır (bkz. mobile/API_CONTRACT.md).
   static const int maxUploadBytes = 25 * 1024 * 1024;

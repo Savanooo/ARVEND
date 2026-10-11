@@ -558,3 +558,54 @@ func TestAppDownload_ConcurrencyLimit(t *testing.T) {
 		t.Fatalf("400: status = %d, inFlight = %d", rec.Code, h.limiter.inFlight())
 	}
 }
+
+// Play sürümünün zorunlu güncelleme tabanı: sideload yayını (latest.json +
+// APK) yokken de min_build olarak döner -- Play'deki uygulama bunu okuyup
+// Play'in tam ekran güncellemesini açar (mobil-genel-b1).
+func TestAppVersion_PlayMinBuild(t *testing.T) {
+	writePolicy := func(t *testing.T, dir, raw string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(dir, "android"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "android", "play.json"), []byte(raw), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	version := func(t *testing.T, dir string) map[string]any {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		newTestAppReleaseHandler(dir).Version(rec, httptest.NewRequest(http.MethodGet, "/api/v1/mobile/app-version?platform=android", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		return decodeJSONMap(t, rec)
+	}
+
+	t.Run("sideload yayını yok, play.json var", func(t *testing.T) {
+		dir := t.TempDir()
+		writePolicy(t, dir, `{"min_build": 25}`)
+		want := map[string]any{"platform": "android", "build": float64(0), "min_build": float64(25)}
+		if body := version(t, dir); !reflect.DeepEqual(body, want) {
+			t.Fatalf("gövde = %v, want %v", body, want)
+		}
+	})
+
+	t.Run("bozuk play.json: alan yazılmaz (taban 0)", func(t *testing.T) {
+		dir := t.TempDir()
+		writePolicy(t, dir, `{"min_build": "yirmi beş"}`)
+		want := map[string]any{"platform": "android", "build": float64(0)}
+		if body := version(t, dir); !reflect.DeepEqual(body, want) {
+			t.Fatalf("gövde = %v, want %v", body, want)
+		}
+	})
+
+	t.Run("sideload yayını da varsa iki tabandan büyüğü", func(t *testing.T) {
+		dir := t.TempDir()
+		writeTestAppRelease(t, dir, 3, "") // latest.json min_build 2
+		writePolicy(t, dir, `{"min_build": 25}`)
+		if body := version(t, dir); body["min_build"] != float64(25) || body["build"] != float64(3) {
+			t.Fatalf("gövde = %v, want build 3 / min_build 25", body)
+		}
+	})
+}
