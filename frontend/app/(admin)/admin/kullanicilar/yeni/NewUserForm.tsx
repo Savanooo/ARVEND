@@ -104,6 +104,12 @@ export function NewUserForm({
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Bağlantı hatası");
       setLoading(false);
+      // Seçilen personel bu arada başka bir hesaba bağlandı (409) ya da
+      // silindi (400): bağlanabilecek personel listesi sunucudan tazelenir,
+      // seçici artık listede olmayan kaydı düşürür (form alanları korunur).
+      if (err instanceof ApiError && (err.status === 409 || err.status === 400) && personnel.body.employee_id) {
+        router.refresh();
+      }
     }
   }
 
