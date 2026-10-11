@@ -158,8 +158,12 @@ func (c *Client) Send(ctx context.Context, m Message) error {
 		return err
 	}
 	androidNotif := map[string]any{"channel_id": "arvend_bildirimler"}
+	// iOS (APNs): sesli uyarı; aynı etiketli bildirim öncekinin yerine geçer
+	// (Android'deki tag'in karşılığı apns-collapse-id).
+	apns := map[string]any{"payload": map[string]any{"aps": map[string]any{"sound": "default"}}}
 	if m.Tag != "" {
 		androidNotif["tag"] = m.Tag
+		apns["headers"] = map[string]string{"apns-collapse-id": m.Tag}
 	}
 	payload := map[string]any{
 		"message": map[string]any{
@@ -170,6 +174,7 @@ func (c *Client) Send(ctx context.Context, m Message) error {
 				"priority":     "high",
 				"notification": androidNotif,
 			},
+			"apns": apns,
 		},
 	}
 	buf, err := json.Marshal(payload)
