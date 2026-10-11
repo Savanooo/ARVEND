@@ -132,9 +132,9 @@ type CalcGeometry struct {
 	// bkz. ComputeRecipeQuantity.
 	Perimeter *decimal.Decimal
 	// PitchDeg, etkin alana GERÇEKTEN uygulanan çatı eğimidir; eğim
-	// verilmediyse ya da (0, 90) aralığı dışında olduğu için yok
-	// sayıldıysa nil -- teklife dondurulan calc_snapshot.pitch_deg bunu
-	// taşır.
+	// verilmediyse ya da 0 verildiyse nil (negatif ya da 90° ve üstü
+	// eğim ComputeGeometry'de reddedilir) -- teklife dondurulan
+	// calc_snapshot.pitch_deg bunu taşır.
 	PitchDeg *decimal.Decimal
 }
 
@@ -239,6 +239,13 @@ func ComputeGeometry(in CalcInput) (CalcGeometry, error) {
 	}
 	if in.Perimeter != nil && !in.Perimeter.IsPositive() {
 		return CalcGeometry{}, fmt.Errorf("'perimeter' 0'dan büyük olmalı")
+	}
+	// Eğim 0 = eğim yok (mevcut davranış, web "0" gönderebiliyor). Negatif
+	// ya da 90° ve üstü bir eğimde etkin alan tanımsızdır; eskiden sessizce
+	// yok sayılıyor, düz alan hesaplanıyor ve istemci girilen eğimi teklife
+	// yazıyordu.
+	if in.PitchDeg != nil && (in.PitchDeg.IsNegative() || !in.PitchDeg.LessThan(decimal.NewFromInt(90))) {
+		return CalcGeometry{}, fmt.Errorf("'pitch_deg' 0 ile 90 derece arasında olmalı")
 	}
 	haveWH := in.Width != nil && in.Height != nil
 

@@ -62,6 +62,13 @@ func TestCalcRun_ReportsSnapshotContext(t *testing.T) {
 	if flat.Geometry.PitchDeg != nil {
 		t.Errorf("eğim verilmediğinde PitchDeg nil olmalı, geldi %s", flat.Geometry.PitchDeg)
 	}
+
+	// 90° ve üstü eğim eskiden sessizce yok sayılıp düz alan dönüyordu.
+	if _, err := calcSvc.Run(ctx, org.ID, service.CalcRunInput{
+		CategoryID: cat.ID, CalcInput: domain.CalcInput{Area: dPtr("10"), PitchDeg: dPtr("95")},
+	}); err == nil || !strings.Contains(err.Error(), "pitch_deg") {
+		t.Errorf("pitch=95: hata = %v, 'pitch_deg' doğrulama hatası bekleniyordu", err)
+	}
 }
 
 // TestCalcToOffer_TotalsMatch: metrajdan teklife aktarılan kalemlerin

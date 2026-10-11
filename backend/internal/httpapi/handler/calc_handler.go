@@ -527,6 +527,14 @@ func (h *CalcHandler) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	httpjson.Write(w, http.StatusOK, toCalcRunResponse(result))
+}
+
+// toCalcRunResponse: /calculations/run yanıtı. input.pitch_deg anahtarı
+// her zaman bulunur (eğim uygulanmadıysa null) -- mobil, anahtarı hiç
+// göndermeyen eski sunucuyu bundan ayırt eder ve o zaman istekteki eğime
+// düşer.
+func toCalcRunResponse(result *domain.CalcResult) calcRunResponse {
 	items := make([]calcResultItemResponse, len(result.Items))
 	for i, it := range result.Items {
 		items[i] = calcResultItemResponse{
@@ -544,7 +552,7 @@ func (h *CalcHandler) Run(w http.ResponseWriter, r *http.Request) {
 		warnings[i] = calcWarningResponse{ItemID: wr.ItemID, Code: wr.Code, Message: wr.Message}
 	}
 
-	httpjson.Write(w, http.StatusOK, calcRunResponse{
+	return calcRunResponse{
 		Category: calcCategoryRefResponse{ID: result.Category.ID, Slug: result.Category.Slug, Name: result.Category.Name},
 		Input: calcInputResponse{
 			FootprintArea: result.Geometry.FootprintArea.String(),
@@ -553,7 +561,7 @@ func (h *CalcHandler) Run(w http.ResponseWriter, r *http.Request) {
 			PitchDeg:      decimalPtrString(result.Geometry.PitchDeg),
 		},
 		Items: items, TotalCost: result.TotalCost.StringFixed(2), Warnings: warnings,
-	})
+	}
 }
 
 // ---------- Yardımcılar ----------

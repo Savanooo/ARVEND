@@ -106,17 +106,31 @@ func TestComputeGeometry_ReportsAppliedPitchOnly(t *testing.T) {
 	if geo.PitchDeg == nil || !geo.PitchDeg.Equal(d("30")) {
 		t.Errorf("uygulanan eğim = %v, istenen 30", geo.PitchDeg)
 	}
-	for _, pitch := range []string{"0", "90", "120"} {
-		geo, err := domain.ComputeGeometry(domain.CalcInput{Area: dPtr("100"), PitchDeg: dPtr(pitch)})
-		if err != nil {
-			t.Fatalf("ComputeGeometry(pitch=%s): %v", pitch, err)
-		}
-		if geo.PitchDeg != nil {
-			t.Errorf("pitch=%s yok sayıldığı halde eğim bildirildi: %s", pitch, geo.PitchDeg)
-		}
+	// 0 = eğim yok: hata değil, eğim de bildirilmez.
+	zero, err := domain.ComputeGeometry(domain.CalcInput{Area: dPtr("100"), PitchDeg: dPtr("0")})
+	if err != nil {
+		t.Fatalf("ComputeGeometry(pitch=0): %v", err)
+	}
+	if zero.PitchDeg != nil || !zero.EffectiveArea.Equal(d("100")) {
+		t.Errorf("pitch=0: eğim %v, etkin alan %s; istenen eğim yok, 100", zero.PitchDeg, zero.EffectiveArea)
 	}
 	flat, _ := domain.ComputeGeometry(domain.CalcInput{Area: dPtr("100")})
 	if flat.PitchDeg != nil {
 		t.Errorf("eğim verilmediğinde PitchDeg nil olmalı, geldi %s", flat.PitchDeg)
+	}
+}
+
+// TestComputeGeometry_RejectsImpossiblePitch: negatif ya da 90° ve üstü
+// eğim eskiden sessizce yok sayılıyordu (düz alan); istemci ise girilen
+// eğimi teklife yazıyordu. Artık açık bir hata döner.
+func TestComputeGeometry_RejectsImpossiblePitch(t *testing.T) {
+	for _, pitch := range []string{"-5", "90", "90.0", "120"} {
+		_, err := domain.ComputeGeometry(domain.CalcInput{Area: dPtr("100"), PitchDeg: dPtr(pitch)})
+		if err == nil || !strings.Contains(err.Error(), "pitch_deg") {
+			t.Errorf("pitch=%s: hata = %v, 'pitch_deg' hatası bekleniyordu", pitch, err)
+		}
+	}
+	if _, err := domain.ComputeGeometry(domain.CalcInput{Area: dPtr("100"), PitchDeg: dPtr("89.9")}); err != nil {
+		t.Errorf("pitch=89.9 geçerli olmalı: %v", err)
 	}
 }
