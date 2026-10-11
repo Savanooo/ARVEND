@@ -260,6 +260,23 @@ class _BillingStepFormState extends State<BillingStepForm> {
   }
 }
 
+/// Firma varsayılan teklif para birimi seçenekleri.
+const kOfferCurrencyOptions = <String, String>{
+  'TRY': 'TRY (Türk Lirası)',
+  'USD': 'USD (Amerikan Doları)',
+  'EUR': 'EUR (Euro)',
+};
+
+/// Kayıtlı varsayılan para birimi seçicide gösterilecek koda çevrilir:
+/// "TL"/"₺" TRY sayılır (backend domain.NormalizeCurrency ile aynı); web'de
+/// serbest metinle girilmiş başka bir kod (ör. GBP) olduğu gibi kalır,
+/// seçiciye ayrıca eklenir -- kaydetmek onu sessizce değiştirmez.
+String normalizeOfferCurrency(String raw) {
+  final c = raw.trim().toUpperCase();
+  if (c.isEmpty || c == 'TL' || c == '₺') return 'TRY';
+  return c;
+}
+
 class OffersStepForm extends StatefulWidget {
   const OffersStepForm({
     super.key,
@@ -290,6 +307,10 @@ class _OffersStepFormState extends State<OffersStepForm> {
   late final _footer = TextEditingController(text: widget.initial.defaultOfferFooter);
   late final _paymentTerms = TextEditingController(text: widget.initial.defaultPaymentTerms);
   late final _deliveryTerms = TextEditingController(text: widget.initial.defaultDeliveryTerms);
+  // Eskiden formda para birimi yoktu ve her kayıt "TRY" gönderiyordu: web'de
+  // EUR yapılmış varsayılan, mobilde yalnızca alt not değiştirilince sessizce
+  // TRY'ye dönüyordu. Mevcut değer korunur, değiştirilebilir.
+  late String _currency = normalizeOfferCurrency(widget.initial.defaultCurrency);
   bool _submitting = false;
   String? _error;
 
@@ -312,6 +333,7 @@ class _OffersStepFormState extends State<OffersStepForm> {
     });
     try {
       final state = await widget.repository.saveOffers(
+        defaultCurrency: _currency,
         offerPrefix: _offerPrefix.text.trim(),
         offerValidityDays: int.parse(_validityDays.text.trim()),
         defaultVatRate: double.parse(_vatRate.text.trim().replaceAll(',', '.')),
@@ -367,6 +389,21 @@ class _OffersStepFormState extends State<OffersStepForm> {
                   ),
                 ),
               ]),
+              DropdownButtonFormField<String>(
+                key: const ValueKey('offer-default-currency'),
+                initialValue: _currency,
+                decoration: const InputDecoration(
+                  labelText: 'Varsayılan Para Birimi',
+                  helperText: 'Yeni teklifler bu para birimiyle açılır.',
+                ),
+                items: [
+                  for (final e in kOfferCurrencyOptions.entries)
+                    DropdownMenuItem(value: e.key, child: Text(e.value)),
+                  if (!kOfferCurrencyOptions.containsKey(_currency))
+                    DropdownMenuItem(value: _currency, child: Text(_currency)),
+                ],
+                onChanged: (v) => setState(() => _currency = v ?? _currency),
+              ),
             ],
           ),
           AppFormSection(
