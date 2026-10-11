@@ -443,6 +443,14 @@ kapsamında hiçbir telemetri paketi EKLENMEDİ.
 
 ## 15. Uzaktan güncelleme (Store öncesi)
 
+> **KAPANDI (2026-10-09, ürün sahibi kararı):** Dağıtım artık yalnızca
+> Google Play (ileride App Store). `derle.sh saha|sideload` + `yayinla.sh`
+> ile yayın yapılmaz. Sahadaki sideload kurulumlar kaldırıldı; sunucudaki
+> `latest.json` → `latest.json.kapali-20261009` yapıldı (uç `build: 0`
+> döner, eski uygulamalar güncelleme önermez). Web üst çubuğundaki
+> "Uygulamayı indir" bağlantısı kaldırıldı; Play sayfası herkese açılınca
+> Play bağlantısıyla geri gelir. Aşağısı kayıt için duruyor.
+
 Uygulama mağazalara çıkana kadar Android uygulaması kendini bizim
 sunucumuzdan günceller — eski BYZ uygulamasının yaptığının aynısı
 (`byz-app`: `/api/app-version`, `/api/app-download`, `mobile/yayinla.sh`).

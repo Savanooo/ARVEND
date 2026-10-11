@@ -2,8 +2,6 @@ import { Bell, Search } from "lucide-react";
 
 import { hasPermission } from "@/lib/permissions";
 import { PLATFORM_CONTEXT_LABEL, userRoleLabel, type User } from "@/lib/types";
-
-import { AppDownloadLink } from "./AppDownloadLink";
 import { NotificationBell } from "./NotificationBell";
 
 // Uygulama kabuğunun (AppShell) üst çubuğu -- sayfaya özel PageHeader'dan
@@ -33,8 +31,6 @@ export function Topbar({ user }: { user: User }) {
       </div>
 
       <div className="ml-auto flex min-w-0 items-center gap-3">
-        {/* İndirme ucu firma oturumu ister (requireTenant): Süper Admin'de yok. */}
-        {user.role !== "super_admin" && <AppDownloadLink />}
         {/* Bildirimler firma kullanıcısınındır (notifications.read tüm firma
             rollerinde); Süper Admin'in bildirim kutusu yok. */}
         {user.role !== "super_admin" && hasPermission(user.permissions, "notifications.read") ? (
