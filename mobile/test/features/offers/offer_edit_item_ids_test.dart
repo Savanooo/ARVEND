@@ -188,8 +188,9 @@ void main() {
           (
             status: 409,
             body: {
-              'error': 'bu taslak sen düzenlerken başka biri tarafından kaydedildi; iç maliyetler silinmesin diye '
-                  'kayıt yapılmadı. Teklifi yeniden açıp değişikliğini tekrar yap',
+              'error': 'bu taslak sen düzenlerken değişti (başka biri ya da yarıda kalan bir kayıt denemen kaydetmiş '
+                  'olabilir); iç maliyetler silinmesin diye kayıt yapılmadı. Teklifi yeniden açıp değişikliğini '
+                  'tekrar yap',
             },
           ),
         ],
@@ -205,7 +206,7 @@ void main() {
     await tester.enterText(formField('Miktar').first, '4');
     await tapButton(tester, 'Kaydet');
 
-    expect(find.textContaining('başka biri tarafından kaydedildi'), findsOneWidget);
+    expect(find.textContaining('sen düzenlerken değişti'), findsOneWidget);
     expect(probe.completed, isFalse, reason: 'form açık kalır, girilenler kaybolmaz');
   });
 

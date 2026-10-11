@@ -711,7 +711,7 @@ var ErrOfferInternalPricingUnmatched = errors.New("bu taslaktaki bazı kalemlerd
 // id'lerle yeniden yazar) ya da teklif yeni bir revizyona geçmiş. Kaydı
 // kabul etmek, eşleşmeyen satırların iç maliyetini sessizce silmek ve öteki
 // kişinin değişikliklerini ezmek olurdu.
-var ErrOfferItemsStale = errors.New("bu taslak sen düzenlerken başka biri tarafından kaydedildi; iç maliyetler silinmesin diye kayıt yapılmadı. Teklifi yeniden açıp değişikliğini tekrar yap")
+var ErrOfferItemsStale = errors.New("bu taslak sen düzenlerken değişti (başka biri ya da yarıda kalan bir kayıt denemen kaydetmiş olabilir); iç maliyetler silinmesin diye kayıt yapılmadı. Teklifi yeniden açıp değişikliğini tekrar yap")
 
 // carryOverInternalPricing, offers.internal_pricing.manage yetkisi OLMAYAN
 // bir düzenleyicinin gönderdiği kalemlere, mevcut revizyondaki karşılık

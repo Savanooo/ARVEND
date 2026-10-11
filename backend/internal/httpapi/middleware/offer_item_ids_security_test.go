@@ -115,8 +115,8 @@ func TestOfferUpdateItemIDsForEditorWithoutInternalPricing(t *testing.T) {
 			`{"id":"`+o.Items[1].ID+`","product_name":"Boya","quantity":1,"unit_price":100}]}`, http.StatusOK)
 		rec, _ := rbacDo(t, d.router, http.MethodPut, "/api/v1/offers/"+o.ID, salesToken,
 			`{"customer_name":"İç Maliyet Müşteri","items":[{"id":"`+stale+`","product_name":"Çatı","quantity":7,"unit_price":5000}]}`)
-		if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "başka biri tarafından kaydedildi") {
-			t.Fatalf("bayat id = %d %s, want 409 'başka biri tarafından kaydedildi'", rec.Code, rec.Body.String())
+		if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "sen düzenlerken değişti") {
+			t.Fatalf("bayat id = %d %s, want 409 'sen düzenlerken değişti'", rec.Code, rec.Body.String())
 		}
 		if c := costOf(t, o, "Çatı"); c == nil || *c != cost {
 			t.Errorf("reddedilen kayıt iç maliyeti silmemeli: %v", c)
