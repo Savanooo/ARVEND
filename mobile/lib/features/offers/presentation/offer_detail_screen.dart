@@ -520,7 +520,16 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   StatusRegistry.build(offer.status, StatusRegistry.offer),
-                  MoneyText(offer.grandTotal, currency: offer.currency, style: AppTypography.pageTitle),
+                  const SizedBox(width: AppSpacing.sm),
+                  // Dar telefonda büyük tutar ("Gönderildi" rozetiyle) satırı
+                  // taşırıyordu: tutar sığmazsa küçülür.
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: MoneyText(offer.grandTotal, currency: offer.currency, style: AppTypography.pageTitle),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: AppSpacing.sm),
