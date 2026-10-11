@@ -76,6 +76,36 @@ export function validUntilPayload(opts: { isEdit: boolean; validUntil: string; t
   return opts.validUntil.trim();
 }
 
+/**
+ * Geçerlilik tarihi alanının altındaki açıklama. Yeni teklifte kullanıcı
+ * tarihe dokunmadıysa kayıtta null gider ve süreyi sunucu uygular
+ * (validUntilPayload) -- metin bunu söyler; varsayılanlar henüz gelmediyse
+ * ya da okunamadıysa boş alan "süresiz" DEMEK DEĞİLDİR.
+ */
+export function validUntilHint(opts: {
+  isEdit: boolean;
+  touched: boolean;
+  defaults: Pick<OfferDefaults, "validity_days"> | null;
+}): string {
+  const base = "Müşteri bu tarihten sonra teklifi onaylayamaz.";
+  if (!opts.isEdit && !opts.touched) {
+    if (!opts.defaults) return `Tarih seçmezseniz firma ayarındaki geçerlilik süresi uygulanır. ${base}`;
+    if (opts.defaults.validity_days != null) {
+      return `Firma ayarı: ${opts.defaults.validity_days} gün. ${base} Silerseniz teklif süresiz olur.`;
+    }
+  }
+  return `${base} Boş bırakılırsa süresizdir.`;
+}
+
+/**
+ * Formdaki para birimi notu (TL dışı): yeni teklifte firma ayarından gelir,
+ * düzenlemede teklifin kendi birimidir ve değiştirilemez. TL'de not yok.
+ */
+export function offerCurrencyNote(currency: string, isEdit: boolean): string | null {
+  if (currencyLabel(currency) === "TL") return null;
+  return isEdit ? `Para birimi: ${currency} (teklifte değiştirilemez).` : `Para birimi: ${currency} (firma ayarı).`;
+}
+
 /** Kaydedilecek kalemlerden birim fiyatı 0 olanların sayısı (0 TL satır onayı). */
 export function countZeroPriced(items: readonly { unit_price: number }[]): number {
   return items.filter((it) => it.unit_price === 0).length;

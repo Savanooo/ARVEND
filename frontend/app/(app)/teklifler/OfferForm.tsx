@@ -1,37 +1,60 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { Trash2 } from "lucide-react";
 
 import { MetrajHesaplaPanel, type MetrajOfferItemDraft } from "@/components/calc/MetrajHesaplaPanel";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DateInput } from "@/components/ui/DateInput";
 import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { apiClient, ApiError } from "@/lib/api";
-import { formatTL } from "@/lib/format";
-import { fetchAllProducts, type ProductPage } from "@/lib/products";
+import { formatMoney } from "@/lib/format";
+import {
+  catalogLinkOf,
+  countZeroPriced,
+  OFFER_DEFAULTS_PATH,
+  offerCurrency,
+  offerCurrencyNote,
+  offerDefaultsPatch,
+  pickCatalogProduct,
+  renameCatalogItem,
+  validUntilHint,
+  validUntilPayload,
+  zeroPriceConfirmMessage,
+  type CatalogLink,
+  type OfferDefaults,
+} from "@/lib/offers";
 import type { CalcSnapshot, Customer, Offer, OfferItemPricingMode, Product } from "@/lib/types";
 
 import { CustomerCreateForm } from "../musteriler/yeni/NewCustomerForm";
+import { OfferProductNameField } from "./OfferProductNameField";
 
-interface ItemRow {
+// Kalemin katalog bağı (CatalogLink): product_id yalnızca ad, bağlandığı
+// ürünün adıyla aynıyken gönderilir -- katalogdan KİMLİKLE seçilir, ad sonra
+// değişirse bağ düşer (bkz. lib/offers.ts renameCatalogItem).
+interface ItemRow extends CatalogLink {
+  // Satırın istemci tarafı anahtarı (React key): ortadaki bir satır
+  // silinince öneri alanının durumu bir alttaki satıra kaymasın. Gönderilmez.
+  key: string;
   // Düzenlenen taslakta satırın karşılık geldiği mevcut kalemin id'si (yeni
   // satırlarda null). Backend, iç fiyatlama yetkisi olmayan düzenleyicinin
   // kaydında mevcut kalemlerin iç maliyetini bu id ile taşır -- id
   // gönderilmezse o maliyetleri silmemek için kaydı reddeder.
   id: string | null;
-  product_id: string | null;
   product_name: string;
   quantity: string;
   unit_price: string;
+  // Birim: katalogdan seçimde ürünün birimiyle dolar (mobil gibi), elle de
+  // yazılabilir. Eskiden formda alanı yoktu, kalem birimsiz kaydediliyordu.
+  unit: string;
   // Metraj Hesaplama entegrasyonu — serbest/elle eklenen satırlarda hepsi
   // boş/null kalır.
-  unit: string;
   section_label: string | null;
   calc_category_id: string | null;
   calc_snapshot: CalcSnapshot | null;
@@ -45,9 +68,13 @@ interface ItemRow {
   markup_percent: string;
 }
 
+let rowKeySeq = 0;
+const newRowKey = () => `satir-${++rowKeySeq}`;
+
 const emptyRow = (): ItemRow => ({
+  key: newRowKey(),
   id: null,
-  product_id: null,
+  ...catalogLinkOf(null, ""),
   product_name: "",
   quantity: "1",
   unit_price: "0",
@@ -63,8 +90,9 @@ const emptyRow = (): ItemRow => ({
 function offerToRows(offer?: Offer): ItemRow[] {
   if (!offer?.items?.length) return [emptyRow()];
   return offer.items.map((it) => ({
+    key: newRowKey(),
     id: it.id,
-    product_id: it.product_id,
+    ...catalogLinkOf(it.product_id, it.product_name),
     product_name: it.product_name,
     quantity: String(it.quantity),
     unit_price: String(it.unit_price),
@@ -81,8 +109,9 @@ function offerToRows(offer?: Offer): ItemRow[] {
 
 function draftToRow(draft: MetrajOfferItemDraft): ItemRow {
   return {
+    key: newRowKey(),
     id: null,
-    product_id: draft.product_id,
+    ...catalogLinkOf(draft.product_id, draft.product_name),
     product_name: draft.product_name,
     quantity: String(draft.quantity),
     unit_price: String(draft.unit_price),
@@ -141,7 +170,7 @@ export function OfferForm({
 }) {
   const router = useRouter();
   const isEdit = !!offer;
-  const [products, setProducts] = useState<Product[]>([]);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerId, setCustomerId] = useState<string | null>(offer?.customer_id ?? null);
   const [customer, setCustomer] = useState({
@@ -151,19 +180,32 @@ export function OfferForm({
     customer_address: offer?.customer_address ?? "",
     notes: offer?.notes ?? "",
   });
+  // Yeni teklifte KDV, geçerlilik ve para birimi firma varsayılanlarından
+  // (GET /offers/defaults, kurulumdaki "Teklif" adımı) gelir; okunamazsa
+  // form %20 ile açık kalır, kayıt engellenmez (mobil ile aynı).
   const [vatRate, setVatRate] = useState(String(offer?.vat_rate ?? 20));
-  // Geçerlilik tarihi: boş = süresiz. Kaydederken HER ZAMAN gönderilir
-  // ("" = temizle); backend, alanı hiç göndermeyen istemcilerde (mobil)
-  // mevcut tarihi korur.
+  // Geçerlilik tarihi: boş = süresiz. Düzenlemede kaydederken HER ZAMAN
+  // gönderilir ("" = temizle); yeni teklifte kullanıcı dokunmadıysa null
+  // gider ve firma süresini sunucu uygular (bkz. validUntilPayload).
   const [validUntil, setValidUntil] = useState(offer?.valid_until ?? "");
-  const [items, setItems] = useState<ItemRow[]>(offerToRows(offer));
+  const [validUntilTouched, setValidUntilTouched] = useState(false);
+  // Geç gelen varsayılan, kullanıcının o ana kadar elle değiştirdiği alanı
+  // ezmesin -- yanıt geldiğinde okunur (state kapanışta bayat kalırdı).
+  const touchedRef = useRef({ vatRate: false, validUntil: false });
+  const [defaults, setDefaults] = useState<OfferDefaults | null>(null);
+  // Teklifin para birimi: düzenlemede teklifinki (değişmez), yenide firma
+  // varsayılanı. Tüm tutarlar bu birimde gösterilir.
+  const [currency, setCurrency] = useState(() => offerCurrency(offer));
+  const [items, setItems] = useState<ItemRow[]>(() => offerToRows(offer));
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [metrajOpen, setMetrajOpen] = useState(false);
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
   const [suggestOpen, setSuggestOpen] = useState(false);
-  // Ürün/müşteri listesi yüklenemezse bunu söyleriz -- eskiden hata
+  // Müşteri listesi yüklenemezse bunu söyleriz -- eskiden hata
   // yutuluyordu ve kullanıcı boş öneri listesini "kayıt yok" sanıyordu.
+  // Ürün kataloğu artık topluca çekilmez: kalem adında yazdıkça aranır
+  // (OfferProductNameField, GET /products?q=…&limit=6).
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
 
   useEffect(() => {
@@ -171,17 +213,44 @@ export function OfferForm({
       const detail = err instanceof ApiError ? err.message : "bağlantı hatası";
       setLoadErrors((prev) => [...prev, `${what} yüklenemedi (${detail}). Sayfayı yenileyip tekrar deneyin.`]);
     };
-    if (canReadProducts) {
-      fetchAllProducts((path) => apiClient<ProductPage>(path))
-        .then(setProducts)
-        .catch(fail("Ürün listesi"));
-    }
     if (canReadCustomers) {
       apiClient<{ customers: Customer[] }>("/api/v1/customers?filter=aktif")
         .then((res) => setCustomers(res.customers))
         .catch(fail("Müşteri listesi"));
     }
-  }, [canReadCustomers, canReadProducts]);
+  }, [canReadCustomers]);
+
+  // Firma varsayılanları yalnızca yeni teklifte (düzenlemede teklifin kendi
+  // değerleri geçerli). Okunamazsa sessizce %20 ile devam: kayıtta
+  // dokunulmamış geçerlilik null gider, firma süresini sunucu yine uygular.
+  useEffect(() => {
+    if (isEdit) return;
+    let cancelled = false;
+    apiClient<OfferDefaults>(OFFER_DEFAULTS_PATH)
+      .then((d) => {
+        if (cancelled) return;
+        const patch = offerDefaultsPatch(d, touchedRef.current);
+        setDefaults(d);
+        setCurrency(patch.currency);
+        if (patch.vatRate !== undefined) setVatRate(patch.vatRate);
+        if (patch.validUntil !== undefined) setValidUntil(patch.validUntil);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isEdit]);
+
+  function handleVatRate(value: string) {
+    touchedRef.current.vatRate = true;
+    setVatRate(value);
+  }
+
+  function handleValidUntil(value: string) {
+    touchedRef.current.validUntil = true;
+    setValidUntilTouched(true);
+    setValidUntil(value);
+  }
 
   // Ad alanındaki metnin eşleştiği kayıtlı müşteriler (ad, telefon
   // rakamları, vergi no, e-posta) -- en çok 8 öneri.
@@ -239,13 +308,15 @@ export function OfferForm({
     });
   }
 
+  // Ad değişti: katalog bağı yalnızca ad bağlandığı adla aynıyken korunur
+  // (eskiden ürün ADLA eşleşiyordu -- aynı adlı iki üründen hep ilki).
   function handleProductName(index: number, name: string) {
-    const known = products.find((p) => p.name === name);
-    updateItem(index, {
-      product_name: name,
-      product_id: known?.id ?? null,
-      ...(known !== undefined ? { unit_price: String(known.unit_price) } : {}),
-    });
+    setItems((prev) => prev.map((row, i) => (i === index ? renameCatalogItem(row, name) : row)));
+  }
+
+  // Katalogdan seçildi: kimlikle bağlanır; ad, birim ve birim fiyat dolar.
+  function handleProductPick(index: number, product: Product) {
+    setItems((prev) => prev.map((row, i) => (i === index ? pickCatalogProduct(row, product) : row)));
   }
 
   // effectiveUnitPrice: markup modunda satış fiyatı maliyet*(1+markup/100)
@@ -278,41 +349,57 @@ export function OfferForm({
   const vatAmount = round2((subtotal * vat) / 100);
   const grandTotal = round2(subtotal + vatAmount);
   const customerIsLinked = customerId !== null;
+  const money = (value: number) => formatMoney(value, currency);
+  const currencyNote = offerCurrencyNote(currency, isEdit);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    const payloadItems = items
+      .filter((r) => r.product_name.trim() && parseNum(r.quantity) > 0)
+      .map((r) => ({
+        id: r.id,
+        product_id: r.product_id,
+        product_name: r.product_name.trim(),
+        quantity: parseNum(r.quantity),
+        unit_price: effectiveUnitPrice(r),
+        unit: r.unit.trim(),
+        section_label: r.section_label,
+        calc_category_id: r.calc_category_id,
+        calc_snapshot: r.calc_snapshot,
+        // İç Taşeron Fiyatlama — yalnızca bölüm görünürken (izin
+        // varken) VE kullanıcı bir maliyet girmişken gönderilir; sunucu
+        // izinsizse bunları YİNE DE sessizce temizler (tek gerçek
+        // sınır orada), burası yalnızca gereksiz alan göndermemek için.
+        ...(canManageInternalPricing && r.internal_cost.trim()
+          ? {
+              internal_subcontract_cost: parseNum(r.internal_cost),
+              pricing_mode: r.pricing_mode,
+              markup_percent: r.pricing_mode === "markup" ? parseNum(r.markup_percent) : null,
+            }
+          : {}),
+      }));
+    // 0 fiyatlı kalem geçerlidir (ikram/hediye) ama çoğunlukla fiyatı
+    // olmayan ürün ya da metraj satırıdır -- sessizce kaydedilmesin (mobil).
+    const zeroPriced = countZeroPriced(payloadItems);
+    if (
+      zeroPriced > 0 &&
+      !(await confirm({
+        title: "Fiyatı 0 olan kalem var",
+        message: zeroPriceConfirmMessage(zeroPriced, currency),
+        confirmLabel: "Yine de Kaydet",
+      }))
+    ) {
+      return;
+    }
     setLoading(true);
     try {
       const payload = {
         customer_id: customerId,
         ...customer,
         vat_rate: vat,
-        valid_until: validUntil,
-        items: items
-          .filter((r) => r.product_name.trim() && parseFloat(r.quantity) > 0)
-          .map((r) => ({
-            id: r.id,
-            product_id: r.product_id,
-            product_name: r.product_name.trim(),
-            quantity: parseNum(r.quantity),
-            unit_price: effectiveUnitPrice(r),
-            unit: r.unit,
-            section_label: r.section_label,
-            calc_category_id: r.calc_category_id,
-            calc_snapshot: r.calc_snapshot,
-            // İç Taşeron Fiyatlama — yalnızca bölüm görünürken (izin
-            // varken) VE kullanıcı bir maliyet girmişken gönderilir; sunucu
-            // izinsizse bunları YİNE DE sessizce temizler (tek gerçek
-            // sınır orada), burası yalnızca gereksiz alan göndermemek için.
-            ...(canManageInternalPricing && r.internal_cost.trim()
-              ? {
-                  internal_subcontract_cost: parseNum(r.internal_cost),
-                  pricing_mode: r.pricing_mode,
-                  markup_percent: r.pricing_mode === "markup" ? parseNum(r.markup_percent) : null,
-                }
-              : {}),
-          })),
+        valid_until: validUntilPayload({ isEdit, validUntil, touched: validUntilTouched }),
+        items: payloadItems,
       };
       const saved = isEdit
         ? await apiClient<Offer>(`/api/v1/offers/${offer!.id}`, {
@@ -429,25 +516,20 @@ export function OfferForm({
         <Card>
           <CardHeader>Kalemler</CardHeader>
           <CardBody className="flex flex-col gap-3">
-            <datalist id="urun-listesi">
-              {products.map((p) => (
-                <option key={p.id} value={p.name} />
-              ))}
-            </datalist>
             {items.map((row, i) => (
-              <div key={i} className="grid grid-cols-12 items-end gap-2">
-                <div className="col-span-6">
-                  <Input
+              <div key={row.key} className="grid grid-cols-12 items-end gap-2">
+                <div className="col-span-5">
+                  <OfferProductNameField
                     label={i === 0 ? "Ürün / Hizmet" : undefined}
-                    list="urun-listesi"
                     value={row.product_name}
-                    onChange={(e) => handleProductName(i, e.target.value)}
-                    placeholder="Ürün adı yazın veya seçin"
+                    catalogEnabled={canReadProducts}
+                    currency={currency}
+                    onChange={(name) => handleProductName(i, name)}
+                    onPick={(product) => handleProductPick(i, product)}
                   />
                   {row.calc_snapshot && (
                     <p className="mt-1 text-xs text-text-muted">
                       Metraj Hesapla{row.section_label ? ` · ${row.section_label}` : ""}
-                      {row.unit ? ` · ${row.unit}` : ""}
                     </p>
                   )}
                 </div>
@@ -458,6 +540,15 @@ export function OfferForm({
                     step="0.01"
                     value={row.quantity}
                     onChange={(e) => updateItem(i, { quantity: e.target.value })}
+                  />
+                </div>
+                <div className="col-span-1">
+                  <Input
+                    label={i === 0 ? "Birim" : undefined}
+                    value={row.unit}
+                    onChange={(e) => updateItem(i, { unit: e.target.value })}
+                    placeholder="adet"
+                    aria-label="Birim"
                   />
                 </div>
                 <div className="col-span-2">
@@ -474,9 +565,7 @@ export function OfferForm({
                     onChange={(e) => updateItem(i, { unit_price: e.target.value })}
                   />
                 </div>
-                <div className="col-span-1 text-right text-sm font-medium">
-                  {formatTL(computedRows[i].lineTotal)}
-                </div>
+                <div className="col-span-1 text-right text-sm font-medium">{money(computedRows[i].lineTotal)}</div>
                 <div className="col-span-1 text-right">
                   <IconButton
                     label="Satırı kaldır"
@@ -511,7 +600,7 @@ export function OfferForm({
                           <label className="flex items-center gap-1.5">
                             <input
                               type="radio"
-                              name={`pricing-mode-${i}`}
+                              name={`pricing-mode-${row.key}`}
                               checked={row.pricing_mode === "markup"}
                               onChange={() => updateItem(i, { pricing_mode: "markup" })}
                             />
@@ -520,7 +609,7 @@ export function OfferForm({
                           <label className="flex items-center gap-1.5">
                             <input
                               type="radio"
-                              name={`pricing-mode-${i}`}
+                              name={`pricing-mode-${row.key}`}
                               checked={row.pricing_mode === "manual"}
                               onChange={() => updateItem(i, { pricing_mode: "manual" })}
                             />
@@ -544,7 +633,7 @@ export function OfferForm({
                           <span className="text-text-muted">
                             Müşteri Fiyatı:{" "}
                             <span className="font-medium text-text">
-                              {formatTL(computedRows[i].effectivePrice)}
+                              {money(computedRows[i].effectivePrice)}
                             </span>
                           </span>
                           <span className="text-text-muted">
@@ -554,7 +643,7 @@ export function OfferForm({
                                 (computedRows[i].expectedProfit ?? 0) < 0 ? "text-danger" : "text-success"
                               }`}
                             >
-                              {formatTL(computedRows[i].expectedProfit ?? 0)}
+                              {money(computedRows[i].expectedProfit ?? 0)}
                             </span>
                           </span>
                         </div>
@@ -601,9 +690,12 @@ export function OfferForm({
             initialName={customerIsLinked ? "" : customer.customer_name}
             onCreated={handleCustomerCreated}
             onCancel={() => setNewCustomerOpen(false)}
+            openExistingInNewTab
           />
         )}
       </Modal>
+      {/* 0 TL kalem onayı -- formun DIŞINDA: düğmeleri formu göndermesin. */}
+      {confirmDialog}
 
       <Card className="h-fit w-full lg:w-72">
         <CardHeader>Özet</CardHeader>
@@ -613,10 +705,10 @@ export function OfferForm({
               label="Geçerlilik Tarihi"
               value={validUntil}
               min={todayISO()}
-              onChange={(e) => setValidUntil(e.target.value)}
+              onChange={(e) => handleValidUntil(e.target.value)}
             />
             <p className="text-xs text-text-muted">
-              Müşteri bu tarihten sonra teklifi onaylayamaz. Boş bırakılırsa süresizdir.
+              {validUntilHint({ isEdit, touched: validUntilTouched, defaults })}
             </p>
           </div>
           <div className="flex flex-col gap-1.5">
@@ -629,21 +721,22 @@ export function OfferForm({
               min={0}
               max={100}
               value={vatRate}
-              onChange={(e) => setVatRate(e.target.value)}
+              onChange={(e) => handleVatRate(e.target.value)}
               className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-gold"
             />
           </div>
+          {currencyNote && <p className="text-xs text-text-muted">{currencyNote}</p>}
           <div className="flex justify-between text-sm text-text-muted">
             <span>Ara Toplam</span>
-            <span className="font-medium text-text">{formatTL(subtotal)}</span>
+            <span className="font-medium text-text">{money(subtotal)}</span>
           </div>
           <div className="flex justify-between text-sm text-text-muted">
             <span>KDV Tutarı</span>
-            <span className="font-medium text-text">{formatTL(vatAmount)}</span>
+            <span className="font-medium text-text">{money(vatAmount)}</span>
           </div>
           <div className="flex justify-between border-t border-border pt-3 text-base font-bold">
             <span>Genel Toplam</span>
-            <span>{formatTL(grandTotal)}</span>
+            <span>{money(grandTotal)}</span>
           </div>
         </CardBody>
       </Card>

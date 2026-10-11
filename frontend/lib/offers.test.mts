@@ -11,6 +11,7 @@ import {
   moreProductsNote,
   normalizeCurrencyCode,
   offerCurrency,
+  offerCurrencyNote,
   offerDefaultsPatch,
   pickCatalogProduct,
   productSuggestionMeta,
@@ -19,6 +20,7 @@ import {
   renameCatalogItem,
   shareLinkBody,
   shareNeedsDraftChoice,
+  validUntilHint,
   validUntilPayload,
   zeroPriceConfirmMessage,
   type OfferDefaults,
@@ -73,6 +75,26 @@ describe("validUntilPayload", () => {
   });
 });
 
+describe("validUntilHint", () => {
+  it("yeni teklif, dokunulmamış: varsayılan gelmediyse sunucunun uygulayacağı söylenir", () => {
+    assert.match(validUntilHint({ isEdit: false, touched: false, defaults: null }), /^Tarih seçmezseniz firma ayarındaki/);
+  });
+
+  it("yeni teklif, firma süresi var: gün sayısı yazılır", () => {
+    assert.equal(
+      validUntilHint({ isEdit: false, touched: false, defaults: { validity_days: 15 } }),
+      "Firma ayarı: 15 gün. Müşteri bu tarihten sonra teklifi onaylayamaz. Silerseniz teklif süresiz olur."
+    );
+  });
+
+  it("firma süresi yok, dokunulmuş ya da düzenleme: boş = süresiz", () => {
+    const plain = "Müşteri bu tarihten sonra teklifi onaylayamaz. Boş bırakılırsa süresizdir.";
+    assert.equal(validUntilHint({ isEdit: false, touched: false, defaults: { validity_days: null } }), plain);
+    assert.equal(validUntilHint({ isEdit: false, touched: true, defaults: null }), plain);
+    assert.equal(validUntilHint({ isEdit: true, touched: false, defaults: null }), plain);
+  });
+});
+
 describe("0 TL kalem onayı", () => {
   it("yalnızca birim fiyatı 0 olan kalemler sayılır", () => {
     assert.equal(countZeroPriced([{ unit_price: 0 }, { unit_price: 12.5 }, { unit_price: 0 }]), 2);
@@ -101,6 +123,13 @@ describe("para birimi", () => {
     assert.equal(currencyLabel("TRY"), "TL");
     assert.equal(currencyLabel(""), "TL");
     assert.equal(currencyLabel("USD"), "USD");
+  });
+
+  it("formdaki para birimi notu yalnızca TL dışında", () => {
+    assert.equal(offerCurrencyNote("TRY", false), null);
+    assert.equal(offerCurrencyNote("", true), null);
+    assert.equal(offerCurrencyNote("USD", false), "Para birimi: USD (firma ayarı).");
+    assert.equal(offerCurrencyNote("EUR", true), "Para birimi: EUR (teklifte değiştirilemez).");
   });
 
   it("normalizeCurrencyCode backend NormalizeCurrency ile aynı", () => {
