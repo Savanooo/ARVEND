@@ -705,6 +705,14 @@ var ErrOfferNotEditable = errors.New("yalnızca taslak durumundaki teklifler dü
 // kabul etmek iç maliyetleri sessizce silmek olurdu -- bu yüzden reddedilir.
 var ErrOfferInternalPricingUnmatched = errors.New("bu taslaktaki bazı kalemlerde iç maliyet bilgisi var ve gönderilen kalemler mevcut kalemlerle eşleştirilemedi; iç maliyetlerin silinmemesi için kayıt yapılmadı. Uygulamayı güncelleyip tekrar deneyin ya da iç fiyatlama yetkisi olan bir kullanıcıdan düzenlemesini isteyin")
 
+// ErrOfferItemsStale: iç fiyatlama yetkisi olmayan düzenleyicinin gönderdiği
+// bir kalem id'si taslağın GÜNCEL kalemleri arasında yok -- form açıkken
+// taslak başka biri tarafından kaydedilmiş (her kayıt kalemleri yeni
+// id'lerle yeniden yazar) ya da teklif yeni bir revizyona geçmiş. Kaydı
+// kabul etmek, eşleşmeyen satırların iç maliyetini sessizce silmek ve öteki
+// kişinin değişikliklerini ezmek olurdu.
+var ErrOfferItemsStale = errors.New("bu taslak sen düzenlerken başka biri tarafından kaydedildi; iç maliyetler silinmesin diye kayıt yapılmadı. Teklifi yeniden açıp değişikliğini tekrar yap")
+
 // carryOverInternalPricing, offers.internal_pricing.manage yetkisi OLMAYAN
 // bir düzenleyicinin gönderdiği kalemlere, mevcut revizyondaki karşılık
 // gelen kalemin (istekteki id ile eşleşen) iç fiyatlama alanlarını taşır.
@@ -715,42 +723,57 @@ var ErrOfferInternalPricingUnmatched = errors.New("bu taslaktaki bazı kalemlerd
 //   - Varsa ama istekteki HİÇBİR kalem id taşımıyorsa (id göndermeyen eski
 //     istemci) eşleştirme güvenilir değildir -> ErrOfferInternalPricingUnmatched.
 //     İstek id taşıyorsa, hiçbir satırın işaret etmediği mevcut kalemler
-//     düzenleyicinin bilerek sildiği kalemlerdir.
+//     düzenleyicinin bilerek sildiği kalemlerdir. [idsSent] (istekte
+//     `item_ids_sent: true`) id gönderen istemcinin "mevcut kalemlerin
+//     hepsini sildim, hepsi yeni satır" dediğidir: id'siz liste o zaman
+//     reddedilmez (1.5.14 mobil bunu yalnızca hiçbir satır id taşımıyorsa
+//     gönderir).
+//   - İstekteki bir id güncel kalemlerin hiçbirine ait değilse form bayattır
+//     (bkz. ErrOfferItemsStale) -> reddedilir.
 //   - "markup" modundaki bir kalemin birim fiyatını düzenleyici değiştirdiyse
 //     kalem "manual"a çevrilir (maliyet korunur): aksi halde sunucu fiyatı
 //     maliyet × marjdan yeniden hesaplayıp düzenleyicinin -- iç maliyeti
 //     göremeyen kişinin -- girdiği fiyatı sessizce geri alırdı.
-func carryOverInternalPricing(items []OfferItemInput, existing []sqlc.OfferRevisionItem) ([]OfferItemInput, error) {
+func carryOverInternalPricing(items []OfferItemInput, existing []sqlc.OfferRevisionItem, idsSent bool) ([]OfferItemInput, error) {
 	withInternal := make(map[string]sqlc.OfferRevisionItem)
+	current := make(map[string]bool, len(existing))
 	for _, e := range existing {
+		current[e.ID.String()] = true
 		if e.InternalSubcontractCost.Valid {
 			withInternal[e.ID.String()] = e
 		}
 	}
 	out := make([]OfferItemInput, len(items))
-	anyID := false
+	anyID, stale := false, false
 	for i, it := range items {
 		it.InternalSubcontractCost, it.PricingMode, it.MarkupPercent = nil, "", nil
 		if it.ID != nil && strings.TrimSpace(*it.ID) != "" {
 			anyID = true
-			if uid, err := repository.StringToUUID(strings.TrimSpace(*it.ID)); err == nil {
-				if e, ok := withInternal[uid.String()]; ok {
-					it.InternalSubcontractCost = repository.NumericToFloat64Ptr(e.InternalSubcontractCost)
-					if e.PricingMode != nil {
-						it.PricingMode = *e.PricingMode
-					}
-					it.MarkupPercent = repository.NumericToFloat64Ptr(e.MarkupPercent)
-					if it.PricingMode == domain.OfferItemPricingModeMarkup &&
-						!decimal.NewFromFloat(it.UnitPrice).Round(2).Equal(repository.NumericToDecimal(e.UnitPrice)) {
-						it.PricingMode = domain.OfferItemPricingModeManual
-						it.MarkupPercent = nil
-					}
+			uid, err := repository.StringToUUID(strings.TrimSpace(*it.ID))
+			if err != nil || !current[uid.String()] {
+				stale = true
+			} else if e, ok := withInternal[uid.String()]; ok {
+				it.InternalSubcontractCost = repository.NumericToFloat64Ptr(e.InternalSubcontractCost)
+				if e.PricingMode != nil {
+					it.PricingMode = *e.PricingMode
+				}
+				it.MarkupPercent = repository.NumericToFloat64Ptr(e.MarkupPercent)
+				if it.PricingMode == domain.OfferItemPricingModeMarkup &&
+					!decimal.NewFromFloat(it.UnitPrice).Round(2).Equal(repository.NumericToDecimal(e.UnitPrice)) {
+					it.PricingMode = domain.OfferItemPricingModeManual
+					it.MarkupPercent = nil
 				}
 			}
 		}
 		out[i] = it
 	}
-	if len(withInternal) > 0 && !anyID {
+	if len(withInternal) == 0 {
+		return out, nil
+	}
+	if stale {
+		return nil, ErrOfferItemsStale
+	}
+	if !anyID && !idsSent {
 		return nil, ErrOfferInternalPricingUnmatched
 	}
 	return out, nil
@@ -771,7 +794,13 @@ type UpdateOfferInput struct {
 	Notes              string
 	VatRate            *float64 // nil = revizyonun mevcut oranı korunur
 	Items              []OfferItemInput
-	UserID             string
+	// ItemIDsSent: istemci kalan her mevcut kalemin id'sini gönderiyor
+	// (istekte `item_ids_sent: true`); id'siz satır yenidir. Böylece mevcut
+	// kalemlerin hepsini silip yalnızca yeni satır kaydeden düzenleyici, id
+	// göndermeyen eski istemciyle karıştırılmaz (bkz.
+	// carryOverInternalPricing).
+	ItemIDsSent bool
+	UserID      string
 	// CanManageInternalPricing: bkz. CreateOfferInput.
 	CanManageInternalPricing bool
 }
@@ -896,7 +925,7 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 		if err != nil {
 			return nil, err
 		}
-		if itemsIn, err = carryOverInternalPricing(in.Items, existing); err != nil {
+		if itemsIn, err = carryOverInternalPricing(in.Items, existing, in.ItemIDsSent); err != nil {
 			return nil, err
 		}
 		trustInternal = true
