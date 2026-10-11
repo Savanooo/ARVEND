@@ -30,6 +30,20 @@ var projectMoneyKeys = []string{
 	"change_order_net", "current_contract_value",
 }
 
+// projectPublicKeys: finans izni olmayana dolu dönebilecek TEK alanlar.
+// Proje yanıtına yeni bir alan eklenirse ya buraya (tutar değilse) eklenir
+// ya da finans kapısının (canSeeProjectFinance) arkasına konur -- yoksa bu
+// test, alan sızıntıya dönüşmeden önce kırılır.
+var projectPublicKeys = map[string]bool{
+	"id": true, "project_no": true, "name": true, "project_type": true,
+	"source_offer_id": true, "source_offer_no": true, "source_revision_id": true,
+	"source_revision_no": true, "customer_id": true, "customer_name": true,
+	"customer_phone": true, "customer_email": true, "customer_address": true,
+	"currency": true, "status": true, "start_date": true, "end_date": true,
+	"description": true, "internal_notes": true, "created_by": true,
+	"created_at": true, "updated_at": true,
+}
+
 // distinctiveCollection: yanıt gövdesinde metin olarak aranabilecek kadar
 // özgün bir tahsilat tutarı.
 const distinctiveCollection = 4321.5
@@ -140,6 +154,11 @@ func TestProjectFinanceVisibilityMatrix(t *testing.T) {
 		for _, k := range projectMoneyKeys {
 			if val, ok := proj[k]; ok && val != nil {
 				t.Errorf("finans izni olmayana %s sızdı: %v", k, val)
+			}
+		}
+		for k, val := range proj {
+			if val != nil && !projectPublicKeys[k] {
+				t.Errorf("finans izni olmayana tanınmayan dolu alan döndü: %s=%v (tutar değilse projectPublicKeys'e ekleyin)", k, val)
 			}
 		}
 	}
