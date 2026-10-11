@@ -109,7 +109,10 @@ class ApiClient {
         // aynı mertebede tutuluyor ki istemci backend'den önce vazgeçmesin.
         sendTimeout: const Duration(minutes: 5),
         receiveTimeout: const Duration(minutes: 5),
-        headers: {'Content-Type': 'application/json'},
+        // X-Arvend-Client: sunucu 1.5.14+ istemciyi eski sürümden ayırır
+        // (eski sürüme finans izni yoksa sözleşme bedeli null yerine 0
+        // gider; bkz. backend project_handler.go legacyMobileClient).
+        headers: {'Content-Type': 'application/json', 'X-Arvend-Client': 'mobile'},
         // Varsayılan validateStatus (yalnız 2xx başarılı) kasıtlı olarak
         // KORUNUYOR: 401 gibi durumların DioException olarak onError'a
         // düşmesi gerekiyor, aksi halde _buildAuthRefreshInterceptor hiç

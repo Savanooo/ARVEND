@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -96,6 +97,36 @@ type projectResponse struct {
 func canSeeProjectFinance(r *http.Request) bool {
 	authz, ok := middleware.AuthzContextFromRequest(r.Context())
 	return ok && authz.HasPermission(domain.PermProjectsFinanceRead)
+}
+
+// ArvendClientHeader: mobil 1.5.14 ve sonrası her istekte gönderir
+// ("mobile"). Play'deki 1.5.13 ve öncesi göndermez.
+const ArvendClientHeader = "X-Arvend-Client"
+
+// legacyMobileClient: başlığı göndermeyen Dart istemcisi -- Play'deki 1.5.13
+// ve öncesi. Bu sürümler contract_amount'u zorunlu bir sayı olarak okur ve
+// null'da proje listesini/detayını hiç açamaz. Web (Node fetch) ve yeni
+// mobil bu sınıfa girmez.
+func legacyMobileClient(r *http.Request) bool {
+	return r.Header.Get(ArvendClientHeader) == "" && strings.HasPrefix(r.UserAgent(), "Dart/")
+}
+
+// withLegacyContractAmount: finans izni olmayana giden null sözleşme
+// bedelini, eski mobil istemci için 0'a çevirir. Gerçek tutar yine gitmez
+// (sızıntı kapalı); eski uygulama çökmez, yalnızca müşteri kartında izin
+// kontrolü olmadan "0,00 TL" gösterebilir. Herkes 1.5.14+'a geçince
+// kaldırılabilir.
+func withLegacyContractAmount(r *http.Request, resp projectResponse) projectResponse {
+	if resp.ContractAmount == nil && legacyMobileClient(r) {
+		zero := 0.0
+		resp.ContractAmount = &zero
+	}
+	return resp
+}
+
+// projectResponseFor: tekil proje yanıtı -- finans kapısı + eski mobil uyumu.
+func projectResponseFor(r *http.Request, p domain.Project) projectResponse {
+	return withLegacyContractAmount(r, toProjectResponse(p, canSeeProjectFinance(r)))
 }
 
 // toProjectResponse: showFinance false ise (bkz. canSeeProjectFinance)
@@ -211,7 +242,7 @@ func (h *ProjectHandler) CreateFromOffer(authzSvc *service.AuthorizationService)
 			return
 		}
 		if created {
-			httpjson.Write(w, http.StatusCreated, toProjectResponse(*p, canSeeProjectFinance(r)))
+			httpjson.Write(w, http.StatusCreated, projectResponseFor(r, *p))
 			return
 		}
 		authz, ok := middleware.AuthzContextFromRequest(r.Context())
@@ -228,7 +259,7 @@ func (h *ProjectHandler) CreateFromOffer(authzSvc *service.AuthorizationService)
 			})
 			return
 		}
-		httpjson.Write(w, http.StatusOK, toProjectResponse(*p, canSeeProjectFinance(r)))
+		httpjson.Write(w, http.StatusOK, projectResponseFor(r, *p))
 	}
 }
 
@@ -269,7 +300,7 @@ func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
 	showFinance := canSeeProjectFinance(r)
 	projects := make([]projectResponse, len(result.Projects))
 	for i, p := range result.Projects {
-		projects[i] = toProjectResponse(p, showFinance)
+		projects[i] = withLegacyContractAmount(r, toProjectResponse(p, showFinance))
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"projects": projects, "total": result.Total})
 }
@@ -281,7 +312,7 @@ func (h *ProjectHandler) Get(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toProjectResponse(*p, canSeeProjectFinance(r)))
+	httpjson.Write(w, http.StatusOK, projectResponseFor(r, *p))
 }
 
 // GetByOffer, teklifin projeye dönüştürülüp dönüştürülmediğini söyler.
@@ -322,7 +353,7 @@ func (h *ProjectHandler) GetByOffer(authzSvc *service.AuthorizationService) http
 			})
 			return
 		}
-		httpjson.Write(w, http.StatusOK, toProjectResponse(*p, canSeeProjectFinance(r)))
+		httpjson.Write(w, http.StatusOK, projectResponseFor(r, *p))
 	}
 }
 
@@ -361,7 +392,7 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toProjectResponse(*p, canSeeProjectFinance(r)))
+	httpjson.Write(w, http.StatusOK, projectResponseFor(r, *p))
 }
 
 func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
