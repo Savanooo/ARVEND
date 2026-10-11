@@ -788,6 +788,7 @@ func (h *DashboardHandler) Get(w http.ResponseWriter, r *http.Request) {
   - a due_date equal to today is **not** overdue;
   - both payment tables count toward `realized_cost`;
   - `realized_cost_net` subtracts only the VAT inside approved expenses (pending/rejected expenses change no figure).
+  - `realized_cost` and `realized_cost_net` equal the sum of the financial summaries' fields of the same name over the portfolio's projects (one rule, checked against `GET /projects/{id}/financial-summary`).
 - **Offers:**
   - `is_passive` is excluded;
   - the 90-day decision uses the event date (an old `offer_date` with a recent `customer_accepted` counts);
