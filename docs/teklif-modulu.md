@@ -213,6 +213,13 @@ serbestçe silinebilir.
 `TogglePassive()`, `is_passive` bayrağını tersine çevirir — teklif
 silinmez, yalnızca listelerde "pasif" filtresine düşer. Aktif/pasif
 filtre parametresi liste uçlarında zorunludur (`?filter=aktif|pasif`).
+`POST /offers/{id}/toggle-passive` (`offers.approve`) gövdesiz çağrılırsa
+bayrağı tersine çevirir; `{"is_passive": true|false}` ile çağrılırsa
+(`SetPassive()`, mobil "Arşivle"/"Arşivden Çıkar") teklifi o duruma getirir,
+zaten öyleyse bir şey değiştirmez. Pasif teklifin paylaşım linkleri müşteriye
+açılmaz; arşivden çıkınca yeniden çalışır. Arşive giriş `offer_cancelled`,
+arşivden çıkış `offer_reactivated` olayı yazar (ikincisi 2026-10-11'den
+beri; önceden çıkış zaman çizelgesinde hiç görünmüyordu).
 
 ---
 

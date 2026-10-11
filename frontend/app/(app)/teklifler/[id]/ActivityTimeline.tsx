@@ -48,6 +48,7 @@ function label(e: OfferEvent, revNo: number | undefined): string {
     email_sent: rev ? `${rev} e-posta ile gönderildi` : L.email_sent,
     email_failed: rev ? `${rev} e-postası gönderilemedi` : L.email_failed,
     offer_cancelled: L.offer_cancelled,
+    offer_reactivated: L.offer_reactivated,
     project_created:
       typeof e.metadata?.project_no === "string"
         ? `Projeye dönüştürüldü (${e.metadata.project_no})`

@@ -167,4 +167,90 @@ func TestOfferInternalPricingCarryOver(t *testing.T) {
 			t.Errorf("iç maliyetsiz taslak id'siz düzenlenebilmeli: %v", err)
 		}
 	})
+
+	// Form açıkken taslak başka biri tarafından kaydedildi: her kayıt
+	// kalemleri yeni id'lerle yazar, formdaki id'ler artık hiçbir kaleme ait
+	// değil. Eskiden kayıt geçiyor, iç maliyetler sessizce siliniyordu
+	// (mobil 1.5.14 id göndermeye başlayınca bu yol mobile de açıldı).
+	t.Run("stale_ids_are_rejected_not_wiped", func(t *testing.T) {
+		o := newDraft(t)
+		staleA, staleM := idOf(o, "A"), idOf(o, "M")
+		// Başka biri (iç fiyatlama yetkili) kaydetti: kalem id'leri yenilendi.
+		if _, err := offerSvc.Update(ctx, o.ID, org.ID, service.UpdateOfferInput{
+			CustomerName: "Müşteri",
+			Items: []service.OfferItemInput{
+				{ProductName: "A", Quantity: 1, UnitPrice: 5000, InternalSubcontractCost: ptrFloat(3000), PricingMode: domain.OfferItemPricingModeManual},
+				{ProductName: "M", Quantity: 1, UnitPrice: 1, InternalSubcontractCost: ptrFloat(100), PricingMode: domain.OfferItemPricingModeMarkup, MarkupPercent: ptrFloat(20)},
+			},
+			CanManageInternalPricing: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		_, err := offerSvc.Update(ctx, o.ID, org.ID, service.UpdateOfferInput{
+			CustomerName: "Müşteri",
+			Items: []service.OfferItemInput{
+				{ID: staleA, ProductName: "A", Quantity: 9, UnitPrice: 5000},
+				{ID: staleM, ProductName: "M", Quantity: 1, UnitPrice: 120},
+			},
+		})
+		if !errors.Is(err, service.ErrOfferItemsStale) {
+			t.Fatalf("bayat id'li yetkisiz kayıt reddedilmeliydi, err=%v", err)
+		}
+		after, err := offerSvc.Get(ctx, o.ID, org.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a := byName(after)["A"]; a.InternalSubcontractCost == nil || *a.InternalSubcontractCost != 3000 || a.Quantity != 1 {
+			t.Errorf("reddedilen kayıt hiçbir şeyi değiştirmemeli: %+v", a)
+		}
+		// Uydurma (uuid olmayan) id de bayat sayılır.
+		bogus := "not-a-uuid"
+		if _, err := offerSvc.Update(ctx, o.ID, org.ID, service.UpdateOfferInput{
+			CustomerName: "Müşteri",
+			Items:        []service.OfferItemInput{{ID: &bogus, ProductName: "A", Quantity: 1, UnitPrice: 5000}},
+		}); !errors.Is(err, service.ErrOfferItemsStale) {
+			t.Errorf("geçersiz id reddedilmeliydi, err=%v", err)
+		}
+	})
+
+	// Bayatlık denetimi yalnızca korunacak iç maliyet varken: iç maliyetsiz
+	// taslakta eski davranış (son kayıt geçerli) sürer.
+	t.Run("stale_ids_without_internal_cost_still_save", func(t *testing.T) {
+		o, err := offerSvc.Create(ctx, service.CreateOfferInput{
+			OrganizationID: org.ID, CustomerName: "Müşteri",
+			Items: []service.OfferItemInput{{ProductName: "B", Quantity: 1, UnitPrice: 10}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		stale := "00000000-0000-0000-0000-000000000001"
+		if _, err := offerSvc.Update(ctx, o.ID, org.ID, service.UpdateOfferInput{
+			CustomerName: "Müşteri",
+			Items:        []service.OfferItemInput{{ID: &stale, ProductName: "B", Quantity: 2, UnitPrice: 10}},
+		}); err != nil {
+			t.Errorf("iç maliyetsiz taslak kaydedilebilmeli: %v", err)
+		}
+	})
+
+	// Mevcut kalemlerin hepsini silip yalnızca yeni satır kaydeden yetkisiz
+	// düzenleyici: id gönderen istemci bunu `item_ids_sent` ile söyler ve
+	// kayıt geçer (silinen kalemlerin iç maliyeti onlarla birlikte gider --
+	// tek tek silmede de öyle). Bayraksız id'siz liste eski istemcidir,
+	// yine reddedilir (unmatched_request_is_rejected_not_wiped).
+	t.Run("all_items_replaced_with_ids_sent_flag", func(t *testing.T) {
+		o := newDraft(t)
+		updated, err := offerSvc.Update(ctx, o.ID, org.ID, service.UpdateOfferInput{
+			CustomerName: "Müşteri",
+			Items: []service.OfferItemInput{
+				{ProductName: "Yeni", Quantity: 2, UnitPrice: 40, InternalSubcontractCost: ptrFloat(1), PricingMode: domain.OfferItemPricingModeManual},
+			},
+			ItemIDsSent: true,
+		})
+		if err != nil {
+			t.Fatalf("hepsi yeni satır olan kayıt geçmeli: %v", err)
+		}
+		if len(updated.Items) != 1 || updated.Items[0].ProductName != "Yeni" || updated.Items[0].InternalSubcontractCost != nil || updated.Subtotal != 80 {
+			t.Errorf("yalnızca yeni satır, iç maliyetsiz kalmalı: %+v", updated.Items)
+		}
+	})
 }

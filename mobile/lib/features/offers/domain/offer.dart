@@ -67,9 +67,13 @@ class OfferItem {
 
   /// Create/Update isteği gövdesi. [includeInternalPricing] false ise iç
   /// fiyat alanları GÖNDERİLMEZ (izin yokken sessizce temizlenmesi için
-  /// backend'e boş alan yollamak yerine hiç yollamamak daha net).
+  /// backend'e boş alan yollamak yerine hiç yollamamak daha net). `id`
+  /// yalnızca kayıtlı kalemde gider (web formu da gönderiyor): iç fiyatlama
+  /// yetkisi olmayan düzenleyicide sunucu iç maliyetleri kalem id'siyle
+  /// eşleyip korur.
   Map<String, dynamic> toJson({bool includeInternalPricing = false}) {
     final map = <String, dynamic>{
+      if (id.isNotEmpty) 'id': id,
       'product_id': productId,
       'product_name': productName,
       'quantity': quantity,
@@ -86,6 +90,14 @@ class OfferItem {
     }
     return map;
   }
+}
+
+/// 'YYYY-MM-DD' geçerlilik tarihi [today] itibarıyla geçti mi (bkz.
+/// [Offer.validityExpiredOn]); boş/okunamayan tarih süresizdir.
+bool offerValidityExpired(String? validUntil, DateTime today) {
+  final d = DateTime.tryParse(validUntil ?? '');
+  if (d == null) return false;
+  return DateTime.utc(d.year, d.month, d.day).isBefore(DateTime.utc(today.year, today.month, today.day));
 }
 
 /// Markup modunda istemci önizlemesi — sunucu otoriterdir; bu yalnızca UX.
@@ -147,6 +159,12 @@ class Offer {
   static const statusReddedildi = 'reddedildi';
 
   bool get isEditable => status == statusTaslak && !isPassive;
+
+  /// Geçerlilik tarihi [today] (İstanbul takvim günü) itibarıyla geçti mi --
+  /// backend `OfferValidityExpired` ile aynı kural: tarihin kendisi dahil
+  /// geçerlidir, tarihsiz teklif süresizdir. Süresi geçmiş teklif müşteriye
+  /// gönderilemez (409) ve linkten kabul edilemez.
+  bool validityExpiredOn(DateTime today) => offerValidityExpired(validUntil, today);
 
   bool get canRevise =>
       !isPassive && (status == statusGonderildi || status == statusReddedildi);
@@ -307,6 +325,9 @@ const kPermOffersInternalPricingRead = 'offers.internal_pricing.read';
 const kPermOffersInternalPricingManage = 'offers.internal_pricing.manage';
 const kPermOffersUpdate = 'offers.update';
 
+/// Yeni teklif ve firma teklif varsayılanları (GET /offers/defaults).
+const kPermOffersCreate = 'offers.create';
+
 /// Teklif durumunu değiştirme (PUT /offers/{id}/status). Paylaşım linkinde
 /// taslağı "gönderildi" yapmak (`mark_sent`) da bunu ister.
 const kPermOffersApprove = 'offers.approve';
@@ -315,6 +336,25 @@ const kPermOffersDelete = 'offers.delete';
 /// Teklif → proje dönüştürme, /projects/from-offer/{offerId} üzerinden
 /// bu izni ister (offers.* eksenine değil, projects.create'e bağlı).
 const kPermProjectsCreate = 'projects.create';
+
+/// `GET /offers/{id}/project` yanıtı projenin kendisidir: projects.read (ve
+/// proje erişimi) ister.
+const kPermProjectsRead = 'projects.read';
+
+/// `GET /offers/{id}/project` sonucu: teklifin dönüştüğü proje.
+class OfferProjectLink {
+  const OfferProjectLink({this.projectId, this.noAccess = false});
+
+  /// Henüz dönüştürülmemiş (404).
+  static const none = OfferProjectLink();
+
+  /// Dönüştürülmüş ve kişi projeyi görebiliyor: "Projeyi Görüntüle" buna gider.
+  final String? projectId;
+
+  /// Dönüştürülmüş ama kişi o projenin üyesi değil (403
+  /// `project_access_denied`): ne "Projeyi Görüntüle" ne "Projeye Dönüştür".
+  final bool noAccess;
+}
 
 const kOfferStatuses = ['taslak', 'gönderildi', 'kabul edildi', 'reddedildi'];
 

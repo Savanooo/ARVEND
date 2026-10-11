@@ -94,6 +94,36 @@ func TestOfferValidUntil(t *testing.T) {
 		}
 	})
 
+	// Süresi geçmiş taslak: kayıtlı tarih aynen geri gelirse (web formu,
+	// eski mobil) öteki alanlar kaydedilir; yeni bir geçmiş tarih yine
+	// reddedilir, gönderim de engelli kalır.
+	t.Run("expired_draft_saves_when_stored_date_is_resent", func(t *testing.T) {
+		o := newOffer(t, nil)
+		stored := istToday(-5)
+		setValidUntil(t, o.CurrentRevisionID, stored)
+
+		changed := []service.OfferItemInput{{ProductName: "Kalem", Quantity: 2, UnitPrice: 100}}
+		updated, err := offerSvc.Update(ctx, o.ID, org.ID, service.UpdateOfferInput{
+			CustomerName: "Müşteri", Items: changed, ValidUntil: &stored, ValidUntilProvided: true,
+		})
+		if err != nil {
+			t.Fatalf("kayıtlı tarih geri gönderilince taslak kaydedilmeli: %v", err)
+		}
+		if updated.Subtotal != 200 || !sameDay(updated.ValidUntil, stored) {
+			t.Errorf("kalemler kaydedilmeli, tarih aynı kalmalı: ara toplam=%v tarih=%v", updated.Subtotal, updated.ValidUntil)
+		}
+
+		otherPast := istToday(-2)
+		if _, err := offerSvc.Update(ctx, o.ID, org.ID, service.UpdateOfferInput{
+			CustomerName: "Müşteri", Items: changed, ValidUntil: &otherPast, ValidUntilProvided: true,
+		}); !errors.Is(err, service.ErrOfferValidUntilInPast) {
+			t.Errorf("yeni girilen geçmiş tarih reddedilmeli: %v", err)
+		}
+		if _, err := offerSvc.UpdateStatus(ctx, o.ID, org.ID, domain.OfferStatusGonderildi, ""); !errors.Is(err, service.ErrOfferSendExpired) {
+			t.Errorf("süresi geçmiş taslak hâlâ gönderilmemeli: %v", err)
+		}
+	})
+
 	t.Run("customer_cannot_respond_after_valid_until", func(t *testing.T) {
 		d := istToday(5)
 		o := newOffer(t, &d)
@@ -148,7 +178,55 @@ func TestOfferValidUntil(t *testing.T) {
 			t.Fatal(err)
 		}
 		if revised.ValidUntil != nil {
-			t.Errorf("süresi dolmuş tarih yeni revizyona taşınmamalı: %v", revised.ValidUntil)
+			t.Errorf("süresi dolmuş tarih yeni revizyona taşınmamalı (firma süresi yok -> süresiz): %v", revised.ValidUntil)
+		}
+	})
+
+	// Firma geçerlilik süresi tanımlıysa süresi dolmuş teklifin revizyonu
+	// süresiz açılmaz: yeni teklifteki gibi bugünden firma süresi işler.
+	// Süresi dolmamış tarih ise olduğu gibi taşınır.
+	t.Run("revise_of_expired_offer_applies_company_validity", func(t *testing.T) {
+		withDays := mustCreateOrg(t, ctx, orgSvc, pool, "Geçerlilik Süreli", "gecerlilik-sureli")
+		if _, err := pool.Exec(ctx, `INSERT INTO organization_commercial_settings
+			(organization_id, default_currency, default_vat_rate, offer_validity_days)
+			VALUES ($1, 'TRY', 20, 30)`, withDays.ID); err != nil {
+			t.Fatal(err)
+		}
+		create := func(t *testing.T) *domain.Offer {
+			t.Helper()
+			o, err := offerSvc.Create(ctx, service.CreateOfferInput{OrganizationID: withDays.ID, CustomerName: "Müşteri", Items: items})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := offerSvc.UpdateStatus(ctx, o.ID, withDays.ID, domain.OfferStatusGonderildi, ""); err != nil {
+				t.Fatal(err)
+			}
+			return o
+		}
+
+		expired := create(t)
+		setValidUntil(t, expired.CurrentRevisionID, istToday(-3))
+		revised, err := offerSvc.Revise(ctx, expired.ID, withDays.ID, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !sameDay(revised.ValidUntil, istToday(30)) {
+			t.Errorf("süresi dolmuş teklifin revizyonu bugün + 30 gün almalı, gelen: %v", revised.ValidUntil)
+		}
+		// Yeni revizyon bu tarihle gönderilebilir (süresiz değil, geçmiş de değil).
+		if _, err := offerSvc.UpdateStatus(ctx, expired.ID, withDays.ID, domain.OfferStatusGonderildi, ""); err != nil {
+			t.Errorf("revizyon firma süresiyle gönderilebilmeli: %v", err)
+		}
+
+		running := create(t)
+		keep := istToday(4)
+		setValidUntil(t, running.CurrentRevisionID, keep)
+		revised2, err := offerSvc.Revise(ctx, running.ID, withDays.ID, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !sameDay(revised2.ValidUntil, keep) {
+			t.Errorf("süresi dolmamış tarih revizyona aynen taşınmalı, gelen: %v", revised2.ValidUntil)
 		}
 	})
 }

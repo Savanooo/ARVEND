@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../../../core/api/api_client.dart';
+import '../../../core/errors/api_exception.dart';
 import '../domain/offer.dart';
 
 /// `GET /offers/` sayfası: bu sayfanın satırları + filtrenin gerçek toplamı
@@ -83,6 +84,9 @@ class OffersRepository {
     return OfferRevision.fromJson(json);
   }
 
+  /// [validUntil]: null = tarih değişmedi (sunucu düzenlemede kayıtlı tarihi
+  /// korur, yenide firma süresini uygular), '' = süresiz, 'YYYY-MM-DD' =
+  /// yeni tarih (bugünden önce olamaz).
   Map<String, dynamic> _offerBody({
     String? customerId,
     String customerName = '',
@@ -94,6 +98,7 @@ class OffersRepository {
     double? vatRate,
     required List<OfferItem> items,
     required bool includeInternalPricing,
+    bool itemIdsSent = false,
   }) =>
       {
         'customer_id': customerId,
@@ -105,6 +110,9 @@ class OffersRepository {
         'notes': notes,
         'vat_rate': vatRate,
         'items': items.map((e) => e.toJson(includeInternalPricing: includeInternalPricing)).toList(),
+        // Bkz. [update] `itemIdsSent`. Yalnızca true iken yazılır: eski sunucu
+        // bilinmeyen alanı 400 ile reddeder.
+        if (itemIdsSent) 'item_ids_sent': true,
       };
 
   Future<Offer> create({
@@ -138,6 +146,9 @@ class OffersRepository {
   }
 
   /// PUT /offers/{id} — yalnızca status=taslak iken (backend ErrOfferNotEditable).
+  /// [itemIdsSent]: kalemlerin hiçbiri id taşımıyor çünkü mevcut kalemlerin
+  /// hepsi silindi (yalnızca yeni satır var). Sunucu iç maliyetli taslakta
+  /// id'siz listeyi id göndermeyen eski uygulama sanıp 409 verirdi.
   Future<Offer> update(
     String id, {
     String? customerId,
@@ -150,6 +161,7 @@ class OffersRepository {
     double? vatRate,
     required List<OfferItem> items,
     bool includeInternalPricing = false,
+    bool itemIdsSent = false,
   }) async {
     final json = await _client.put<Map<String, dynamic>>(
       '/offers/$id',
@@ -164,6 +176,7 @@ class OffersRepository {
         vatRate: vatRate,
         items: items,
         includeInternalPricing: includeInternalPricing,
+        itemIdsSent: itemIdsSent,
       ),
     );
     return Offer.fromJson(json);
@@ -181,21 +194,37 @@ class OffersRepository {
 
   Future<void> delete(String id) => _client.delete<void>('/offers/$id');
 
-  /// Bir teklif zaten projeye dönüştürülmüş mü? 404 => dönüştürülmemiş (null).
-  /// Var olan projenin id'sini döner ki "Projeyi Görüntüle" doğrudan ona
-  /// gidebilsin -- yalnızca bool dönmek (eski `hasProject`) hedefi kaybettirirdi.
-  Future<String?> linkedProjectId(String offerId) async {
+  /// Teklifi arşive alır ([passive] true) ya da arşivden çıkarır
+  /// (offers.approve). Hedef durum açıkça gönderilir: ekrandaki durum bayatsa
+  /// (başka biri arşivlemişse) tersine çevirmek istenenin tersini yapardı;
+  /// teklif zaten o durumdaysa sunucu bir şey değiştirmez.
+  Future<void> setPassive(String id, {required bool passive}) =>
+      _client.post<void>('/offers/$id/toggle-passive', data: {'is_passive': passive});
+
+  /// Bir teklif zaten projeye dönüştürülmüş mü? 200 => projenin id'si
+  /// ("Projeyi Görüntüle" doğrudan ona gider), 404 => dönüştürülmemiş,
+  /// 403 `project_access_denied` => dönüştürülmüş ama kişi o projeyi
+  /// göremez. Diğer her hata (ağ, sunucu, izin) FIRLATILIR: eskiden hepsi
+  /// "dönüştürülmemiş" sayılıyordu -- bağlantı kopunca ya da proje erişimi
+  /// olmayan kişide zaten dönüştürülmüş teklifte "Projeye Dönüştür" çıkıyordu.
+  Future<OfferProjectLink> linkedProject(String offerId) async {
     try {
       final json = await _client.get<Map<String, dynamic>>('/offers/$offerId/project');
-      return json['id'] as String?;
-    } on Object {
-      return null;
+      return OfferProjectLink(projectId: json['id'] as String?);
+    } on ApiException catch (e) {
+      if (e.kind == ApiErrorKind.notFound) return OfferProjectLink.none;
+      if (e.kind == ApiErrorKind.forbidden && e.code == 'project_access_denied') {
+        return const OfferProjectLink(noAccess: true);
+      }
+      rethrow;
     }
   }
 
   /// Web'deki "Projeye Dönüştür" formuyla aynı alanlar. Boş ad/tip
   /// gönderilirse backend varsayılanı kullanır ("Müşteri - TeklifNo");
-  /// tarihler 'YYYY-MM-DD' ya da null.
+  /// tarihler 'YYYY-MM-DD' ya da null. Teklif zaten dönüştürülmüşse sunucu
+  /// yeni proje açmaz: mevcut projeyi görebilene onu döner, göremeyene 409
+  /// `offer_already_converted`.
   Future<Map<String, dynamic>> convertToProject(
     String offerId, {
     String name = '',

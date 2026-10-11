@@ -13,6 +13,7 @@ import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/access_notices.dart';
 import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_page_scaffold.dart';
@@ -44,6 +45,12 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
   bool _downloadingPdf = false;
   bool _sharingPdf = false;
 
+  /// Dönüştürme 409 `offer_already_converted` döndü (teklif erişimin
+  /// olmayan bir projeye dönüştürülmüş): sunucunun açıklaması. projects.read
+  /// olmayan kişide `GET /offers/{id}/project` sorulamadığı için tek bilgi
+  /// kaynağı budur -- "Projeye Dönüştür" bir daha sunulmaz.
+  String? _alreadyConvertedNote;
+
   String get offerId => widget.offerId;
 
   // Yazmalar kapsayıcının `invalidate`'ini ilk await'ten ÖNCE alır: istek
@@ -56,6 +63,9 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
       invalidate(offerDetailProvider(offerId));
       invalidate(offersListProvider(''));
       invalidate(offerRevisionsProvider(offerId));
+      // "Gönderildi"ye geçiş önceki revizyonların linklerini sunucuda iptal
+      // eder: "Paylaşım Linkleri" onları hâlâ "Aktif" göstermesin.
+      invalidate(offerShareLinksProvider(offerId));
       invalidateOfferHistory(invalidate, offerId);
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
@@ -73,12 +83,19 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     required String message,
     required String confirmLabel,
     bool danger = false,
+    String? note,
   }) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
-        content: Text(message),
+        content: note == null
+            ? Text(message)
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [Text(message), const SizedBox(height: AppSpacing.sm), _OpenEndedNote(note)],
+              ),
         actions: [
           TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
           TextButton(
@@ -161,17 +178,25 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
   /// dönüştürülüyordu.
   Future<void> _convert(Offer offer) async {
     final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
-    final result = await showAppSheet<Map<String, dynamic>>(
+    final result = await showAppSheet<_ConvertResult>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => _ConvertToProjectSheet(offer: offer),
     );
     if (result == null) return;
-    invalidate(offerLinkedProjectIdProvider(offerId));
+    invalidate(offerProjectLinkProvider(offerId));
     invalidateOfferHistory(invalidate, offerId);
     if (!mounted) return;
-    final projectId = result['id'] as String?;
+    final message = result.alreadyConvertedMessage;
+    if (message != null) {
+      // Teklif (başka biri tarafından) erişimin olmayan bir projeye
+      // dönüştürülmüş: proje açılmadı, düğme yerine açıklama gösterilir.
+      setState(() => _alreadyConvertedNote = message);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      return;
+    }
+    final projectId = result.project?['id'] as String?;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Proje oluşturuldu')));
     if (projectId != null) {
       context.go('/projeler/$projectId');
@@ -188,7 +213,15 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
   /// seçenek olarak kalır (müşteriye göndermeden kontrol etmek için).
   /// Durum değiştirme yetkisi (offers.approve) olmayana yalnızca önizleme
   /// sunulur; sunucu da mark_sent'i bu izin olmadan reddeder.
-  Future<_DraftShareChoice?> _askDraftShareChoice({required bool canMarkSent}) {
+  /// [expired]: geçerlilik tarihi geçmiş taslak gönderilemez (sunucu 409);
+  /// yalnızca önizleme linki sunulur ve nedeni söylenir. [openEndedNote]:
+  /// süresiz taslakta firma süresini hatırlatan not (bkz. [_openEndedText]).
+  Future<_DraftShareChoice?> _askDraftShareChoice({
+    required bool canMarkSent,
+    bool expired = false,
+    String? openEndedNote,
+  }) {
+    final canSend = canMarkSent && !expired;
     return showDialog<_DraftShareChoice>(
       context: context,
       builder: (context) => AlertDialog(
@@ -198,18 +231,30 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              canMarkSent
+              canSend
                   ? "Müşterinin linkten Kabul Et / Reddet yapabilmesi için teklif 'Gönderildi' olmalı. "
                       'Gönderildi olarak işaretleyip linki oluşturayım mı?'
                   : "Müşterinin linkten Kabul Et / Reddet yapabilmesi için teklif 'Gönderildi' olmalı.",
             ),
-            if (!canMarkSent) ...[
+            if (expired) ...[
+              const SizedBox(height: AppSpacing.sm),
+              const Text(
+                'Geçerlilik tarihi geçtiği için teklif gönderilemez; oluşturulacak link yalnızca önizlemedir. '
+                'Göndermek için önce teklifi düzenleyip tarihi güncelle.',
+                key: ValueKey('share-draft-expired-note'),
+                style: AppTypography.metadata,
+              ),
+            ] else if (!canMarkSent) ...[
               const SizedBox(height: AppSpacing.sm),
               const Text(
                 'Teklif durumunu değiştirme yetkiniz yok; oluşturulacak link yalnızca önizlemedir.',
                 key: ValueKey('share-draft-no-permission-note'),
                 style: AppTypography.metadata,
               ),
+            ],
+            if (canSend && openEndedNote != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              _OpenEndedNote(openEndedNote),
             ],
           ],
         ),
@@ -220,7 +265,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
             onPressed: () => Navigator.of(context).pop(_DraftShareChoice.preview),
             child: const Text('Yalnızca önizleme linki'),
           ),
-          if (canMarkSent)
+          if (canSend)
             FilledButton(
               key: const ValueKey('share-draft-send'),
               autofocus: true,
@@ -232,10 +277,19 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     );
   }
 
-  Future<void> _createShareLink(Offer offer, {required bool canMarkSent}) async {
+  Future<void> _createShareLink(
+    Offer offer, {
+    required bool canMarkSent,
+    bool expired = false,
+    String? openEndedNote,
+  }) async {
     var markSent = false;
     if (offer.status == Offer.statusTaslak) {
-      final choice = await _askDraftShareChoice(canMarkSent: canMarkSent);
+      final choice = await _askDraftShareChoice(
+        canMarkSent: canMarkSent,
+        expired: expired,
+        openEndedNote: openEndedNote,
+      );
       if (choice == null || !mounted) return;
       markSent = choice == _DraftShareChoice.send;
     }
@@ -318,6 +372,9 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     try {
       await ref.read(offersRepositoryProvider).delete(offerId);
       invalidate(offersListProvider(''));
+      // Arşivdeki teklif "Pasif" listesinden de silinir (açılan satır 404'e
+      // düşmesin).
+      invalidate(offersListProvider('pasif'));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${offer.offerNo} silindi')));
       context.go('/teklifler');
@@ -327,12 +384,85 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     }
   }
 
-  Future<void> _sendEmail() async {
+  /// Geçerlilik tarihi geçmiş teklif müşteriye gönderilemez (sunucu 409:
+  /// "göndermeden önce geçerlilik tarihini güncelleyin"). Gönderim düğmesine
+  /// basana nedenini ve ne yapacağını söyler; taslakta düzenlemeye götürür.
+  Future<void> _explainExpired(Offer offer, {required bool canUpdate}) async {
+    final canFix = offer.isEditable && canUpdate;
+    final edit = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const ValueKey('offer-expired-dialog'),
+        title: const Text('Geçerlilik tarihi geçmiş'),
+        content: Text(_expiredText(offer, canUpdate: canUpdate)),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: Text(canFix ? 'Vazgeç' : 'Tamam')),
+          if (canFix)
+            FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Tarihi Güncelle')),
+        ],
+      ),
+    );
+    if (edit == true && mounted) context.push('/teklifler/$offerId/duzenle');
+  }
+
+  /// Arşive alma / arşivden çıkarma (offers.approve). Arşivdeki teklif
+  /// "Pasif" listesine düşer, düzenlenemez, gönderilemez ve müşteri paylaşım
+  /// linkinden açamaz; arşivden çıkınca linkler yeniden çalışır. Eskiden bu
+  /// uç hiçbir arayüze bağlı değildi: vazgeçilen teklifi geri çekmenin tek
+  /// yolu silmekti (geçmişiyle birlikte).
+  Future<void> _setPassive(Offer offer, {required bool passive}) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(passive ? 'Teklifi Arşivle' : 'Arşivden Çıkar'),
+        content: Text(
+          passive
+              ? '${offer.offerNo} arşive alınsın mı? Teklif "Pasif" listesine taşınır; düzenlenemez, '
+                  'gönderilemez ve müşteri paylaşım linkinden açamaz. İstediğin zaman arşivden çıkarabilirsin.'
+              : '${offer.offerNo} arşivden çıkarılsın mı? Teklif yeniden aktif listede görünür; iptal '
+                  'edilmemiş paylaşım linkleri yeniden açılır.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
+          TextButton(
+            key: const ValueKey('offer-passive-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(passive ? 'Arşivle' : 'Arşivden Çıkar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
+    try {
+      await ref.read(offersRepositoryProvider).setPassive(offerId, passive: passive);
+      invalidate(offerDetailProvider(offerId));
+      invalidate(offersListProvider(''));
+      invalidate(offersListProvider('pasif'));
+      invalidateOfferHistory(invalidate, offerId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(passive ? '${offer.offerNo} arşivlendi' : '${offer.offerNo} arşivden çıkarıldı')),
+      );
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  /// [openEndedNote]: süresiz taslakta firma süresini hatırlatan not.
+  Future<void> _sendEmail({String? openEndedNote}) async {
+    const text = 'Teklif, kayıtlı müşteri e-posta adresine paylaşım linkiyle birlikte gönderilecek.';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Teklifi e-postayla gönder'),
-        content: const Text('Teklif, kayıtlı müşteri e-posta adresine paylaşım linkiyle birlikte gönderilecek.'),
+        content: openEndedNote == null
+            ? const Text(text)
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [const Text(text), const SizedBox(height: AppSpacing.sm), _OpenEndedNote(openEndedNote)],
+              ),
         actions: [
           TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
           FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Gönder')),
@@ -344,16 +474,22 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
     try {
       await ref.read(offersRepositoryProvider).sendEmail(offerId);
+      // Taslak gönderilince durum "gönderildi" olur ve önceki revizyonların
+      // linkleri iptal edilir: durum çipi, liste ve revizyon listesi tazelenir.
       invalidate(offerDetailProvider(offerId));
       invalidate(offersListProvider(''));
+      invalidate(offerRevisionsProvider(offerId));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('E-posta gönderildi')));
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
       // Başarısız gönderim de "Mail Geçmişi"ne (failed) düşer -- her iki
-      // durumda da geçmiş tazelenir.
+      // durumda da geçmiş tazelenir. Mailin taşıdığı paylaşım linki de
+      // gönderimden ÖNCE oluşturulur: "Paylaşım Linkleri" iki durumda da
+      // tazelenir.
       invalidateOfferHistory(invalidate, offerId);
+      invalidate(offerShareLinksProvider(offerId));
       if (mounted) setState(() => _sendingEmail = false);
     }
   }
@@ -368,12 +504,29 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     final canUpdate = user?.hasPermission(kPermOffersUpdate) ?? false;
     final canApprove = user?.hasPermission(kPermOffersApprove) ?? false;
     final canDelete = user?.hasPermission(kPermOffersDelete) ?? false;
-    // İzni olmayan VEYA henüz "kabul edildi" durumuna gelmemiş bir teklif
-    // İÇİN bu sorgu hiç atılmaz -- yalnızca kabul edilmiş teklifler
-    // dönüştürülebilir, gereksiz bir /offers/{id}/project isteği YOK.
-    final canHaveProject = canConvert && offerAsync.valueOrNull?.status == Offer.statusKabulEdildi;
-    final linkedProjectIdAsync =
-        canHaveProject ? ref.watch(offerLinkedProjectIdProvider(offerId)) : const AsyncValue<String?>.data(null);
+    // Geçerlilik tarihi geçmiş (arşivde olmayan) teklif müşteriye gönderilemez.
+    final today = ref.watch(offersTodayProvider);
+    final loaded = offerAsync.valueOrNull;
+    final expired = loaded != null && !loaded.isPassive && loaded.validityExpiredOn(today);
+    // Süresiz taslak gönderilirken firmanın geçerlilik süresi varsa
+    // hatırlatılır: müşteri linkten aylar sonra bu fiyatla kabul edebilir.
+    // Firma süresi GET /offers/defaults'tan (offers.create); okunamazsa not yok.
+    final canCreate = user?.hasPermission(kPermOffersCreate) ?? false;
+    final openEndedDraft = loaded != null && loaded.isEditable && (loaded.validUntil ?? '').isEmpty;
+    final companyValidityDays = openEndedDraft && canCreate && (canUpdate || canApprove)
+        ? ref.watch(offerDefaultsProvider).valueOrNull?.validityDays
+        : null;
+    final openEndedNote =
+        companyValidityDays == null ? null : _openEndedText(companyValidityDays, canUpdate: canUpdate);
+    // Yalnızca kabul edilmiş teklif dönüştürülebilir; /offers/{id}/project
+    // de projects.read ister. Bu ikisi yoksa sorgu hiç atılmaz. projects.read
+    // olmadan proje açabilen (özel rol) için karar sunucudadır: dönüştürülmüş
+    // teklifte "Projeye Dönüştür" 409 ile nedenini söyler.
+    final canReadProjects = user?.hasPermission(kPermProjectsRead) ?? false;
+    final accepted = offerAsync.valueOrNull?.status == Offer.statusKabulEdildi;
+    final projectLinkAsync = accepted && canReadProjects
+        ? ref.watch(offerProjectLinkProvider(offerId))
+        : const AsyncValue<OfferProjectLink>.data(OfferProjectLink.none);
 
     return AppPageScaffold(
       title: offerAsync.maybeWhen(data: (o) => Text(o.offerNo), orElse: () => const Text('Teklif')),
@@ -389,8 +542,10 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
           ),
           orElse: () => const SizedBox.shrink(),
         ),
+        // Düzenleme ucu (PUT /offers/{id}) offers.update ister: izni olmayan
+        // formu doldurup kaydederken 403 alıyordu.
         offerAsync.maybeWhen(
-          data: (o) => o.isEditable
+          data: (o) => o.isEditable && canUpdate
               ? IconButton(
                   tooltip: 'Düzenle',
                   icon: const Icon(Icons.edit_outlined),
@@ -399,30 +554,44 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
               : const SizedBox.shrink(),
           orElse: () => const SizedBox.shrink(),
         ),
-        // Kabul edilmiş teklif silinemez (backend ErrOfferAccepted) -- seçenek
-        // hiç sunulmaz; web'deki "Sil" düğmesinin karşılığı.
-        if (canDelete)
-          offerAsync.maybeWhen(
-            data: (o) => o.status == Offer.statusKabulEdildi
-                ? const SizedBox.shrink()
-                : PopupMenuButton<String>(
-                    tooltip: 'Diğer işlemler',
-                    onSelected: (v) {
-                      if (v == 'sil') _delete(o);
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(
-                        value: 'sil',
-                        child: ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(Icons.delete_outline, color: AppColors.danger),
-                          title: Text('Teklifi Sil', style: TextStyle(color: AppColors.danger)),
-                        ),
-                      ),
-                    ],
+        offerAsync.maybeWhen(
+          data: (o) {
+            // Kabul edilmiş teklif silinemez (backend ErrOfferAccepted) --
+            // seçenek hiç sunulmaz; web'deki "Sil" düğmesinin karşılığı.
+            final showDelete = canDelete && o.status != Offer.statusKabulEdildi;
+            // Arşivleme (toggle-passive) durum değiştirmektir: offers.approve.
+            final showArchive = canApprove;
+            if (!showDelete && !showArchive) return const SizedBox.shrink();
+            return PopupMenuButton<String>(
+              tooltip: 'Diğer işlemler',
+              onSelected: (v) {
+                if (v == 'arsiv') _setPassive(o, passive: !o.isPassive);
+                if (v == 'sil') _delete(o);
+              },
+              itemBuilder: (_) => [
+                if (showArchive)
+                  PopupMenuItem(
+                    value: 'arsiv',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(o.isPassive ? Icons.unarchive_outlined : Icons.archive_outlined),
+                      title: Text(o.isPassive ? 'Arşivden Çıkar' : 'Arşivle'),
+                    ),
                   ),
-            orElse: () => const SizedBox.shrink(),
-          ),
+                if (showDelete)
+                  const PopupMenuItem(
+                    value: 'sil',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.delete_outline, color: AppColors.danger),
+                      title: Text('Teklifi Sil', style: TextStyle(color: AppColors.danger)),
+                    ),
+                  ),
+              ],
+            );
+          },
+          orElse: () => const SizedBox.shrink(),
+        ),
       ],
       body: AsyncStateView<Offer>(
         value: offerAsync,
@@ -431,7 +600,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
           onRefresh: () async {
             ref.invalidate(offerDetailProvider(offerId));
             ref.invalidate(offerRevisionsProvider(offerId));
-            ref.invalidate(offerLinkedProjectIdProvider(offerId));
+            ref.invalidate(offerProjectLinkProvider(offerId));
             invalidateOfferHistory(ref.invalidate, offerId);
           },
           child: ListView(
@@ -441,11 +610,35 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   StatusRegistry.build(offer.status, StatusRegistry.offer),
-                  MoneyText(offer.grandTotal, currency: offer.currency, style: AppTypography.pageTitle),
+                  const SizedBox(width: AppSpacing.sm),
+                  // Dar telefonda büyük tutar ("Gönderildi" rozetiyle) satırı
+                  // taşırıyordu: tutar sığmazsa küçülür.
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: MoneyText(offer.grandTotal, currency: offer.currency, style: AppTypography.pageTitle),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: AppSpacing.sm),
               Text('Revizyon #${offer.revisionNo}', style: AppTypography.metadata),
+              if (offer.isPassive) ...[
+                const SizedBox(height: AppSpacing.md),
+                ReadOnlyNotice(
+                  'Bu teklif arşivde (Pasif): düzenlenemez, gönderilemez ve müşteri paylaşım linkinden açamaz.'
+                  '${canApprove ? ' Geri almak için sağ üstteki menüden "Arşivden Çıkar"ı kullan.' : ''}',
+                  key: const ValueKey('offer-passive-notice'),
+                ),
+              ],
+              if (expired && (offer.status == Offer.statusTaslak || offer.status == Offer.statusGonderildi)) ...[
+                const SizedBox(height: AppSpacing.md),
+                _ExpiredValidityNotice(
+                  text: _expiredText(offer, canUpdate: canUpdate),
+                  onFix: offer.isEditable && canUpdate ? () => context.push('/teklifler/$offerId/duzenle') : null,
+                ),
+              ],
               const SizedBox(height: AppSpacing.lg),
               AppCard(
                 child: Column(
@@ -530,13 +723,17 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
               if (offer.isEditable && canApprove)
                 PrimaryButton(
                   label: 'Gönderildi Olarak İşaretle',
-                  onPressed: () => _confirmAndSetStatus(
-                    Offer.statusGonderildi,
-                    title: 'Gönderildi Olarak İşaretle',
-                    message: '${offer.offerNo} gönderildi olarak işaretlensin mi? Bu revizyon artık '
-                        'düzenlenemez; değişiklik için yeni bir revizyon gerekir.',
-                    confirmLabel: 'İşaretle',
-                  ),
+                  // Süresi geçmiş taslak gönderilemez: onay yerine nedeni.
+                  onPressed: expired
+                      ? () => _explainExpired(offer, canUpdate: canUpdate)
+                      : () => _confirmAndSetStatus(
+                            Offer.statusGonderildi,
+                            title: 'Gönderildi Olarak İşaretle',
+                            message: '${offer.offerNo} gönderildi olarak işaretlensin mi? Bu revizyon artık '
+                                'düzenlenemez; değişiklik için yeni bir revizyon gerekir.',
+                            confirmLabel: 'İşaretle',
+                            note: openEndedNote,
+                          ),
                 ),
               if (offer.status == Offer.statusGonderildi && canApprove)
                 Row(
@@ -570,21 +767,53 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                     ),
                   ],
                 ),
-              if (offer.status == Offer.statusKabulEdildi && canConvert) ...[
+              if (offer.status == Offer.statusKabulEdildi && (canConvert || canReadProjects)) ...[
                 const SizedBox(height: AppSpacing.sm),
-                linkedProjectIdAsync.maybeWhen(
-                  data: (projectId) => projectId != null
-                      ? SecondaryButton(
-                          icon: Icons.business_center_outlined,
-                          label: 'Projeyi Görüntüle',
-                          onPressed: () => context.push('/projeler/$projectId'),
-                        )
-                      : PrimaryButton(
-                          icon: Icons.business_center_outlined,
-                          label: 'Projeye Dönüştür',
-                          onPressed: () => _convert(offer),
+                projectLinkAsync.when(
+                  data: (link) {
+                    final projectId = link.projectId;
+                    if (projectId != null) {
+                      return SecondaryButton(
+                        icon: Icons.business_center_outlined,
+                        label: 'Projeyi Görüntüle',
+                        onPressed: () => context.push('/projeler/$projectId'),
+                      );
+                    }
+                    if (link.noAccess) {
+                      return const ReadOnlyNotice(
+                        'Bu teklif bir projeye dönüştürülmüş; o projenin üyesi olmadığın için projeyi göremezsin.',
+                        key: ValueKey('offer-project-no-access'),
+                      );
+                    }
+                    final convertedNote = _alreadyConvertedNote;
+                    if (convertedNote != null) {
+                      return ReadOnlyNotice(convertedNote, key: const ValueKey('offer-project-no-access'));
+                    }
+                    if (!canConvert) return const SizedBox.shrink();
+                    return PrimaryButton(
+                      icon: Icons.business_center_outlined,
+                      label: 'Projeye Dönüştür',
+                      onPressed: () => _convert(offer),
+                    );
+                  },
+                  loading: () => const SizedBox.shrink(),
+                  // Eskiden her hata "dönüştürülmemiş" sayılıp "Projeye
+                  // Dönüştür" gösteriliyordu; tahmin yerine hata + tekrar dene.
+                  error: (_, _) => Row(
+                    key: const ValueKey('offer-project-link-error'),
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Teklifin projeye dönüştürülüp dönüştürülmediği okunamadı.',
+                          style: AppTypography.metadata,
                         ),
-                  orElse: () => const SizedBox.shrink(),
+                      ),
+                      TextButton(
+                        onPressed: () => ref.invalidate(offerProjectLinkProvider(offerId)),
+                        child: const Text('Tekrar Dene'),
+                      ),
+                    ],
+                  ),
                 ),
               ],
               // PDF her teklifte (pasif dahil) indirilebilir -- yalnızca okuma ister.
@@ -616,13 +845,20 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                       icon: Icons.ios_share_outlined,
                       label: 'Paylaşım Linki',
                       loading: _creatingLink,
-                      onPressed: () => _createShareLink(offer, canMarkSent: canApprove),
+                      onPressed: () => _createShareLink(
+                        offer,
+                        canMarkSent: canApprove,
+                        expired: expired,
+                        openEndedNote: openEndedNote,
+                      ),
                     ),
                     SecondaryButton(
                       icon: Icons.mail_outline,
                       label: 'E-posta Gönder',
                       loading: _sendingEmail,
-                      onPressed: _sendEmail,
+                      onPressed: expired
+                          ? () => _explainExpired(offer, canUpdate: canUpdate)
+                          : () => _sendEmail(openEndedNote: openEndedNote),
                     ),
                   ],
                 ],
@@ -637,6 +873,99 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
 
 /// Paylaşım menüsüyle (WhatsApp vb.) müşteriye giden hazır mesaj.
 String offerShareLinkText(String url) => 'Teklifimizi bu bağlantıdan inceleyebilirsiniz:\n$url';
+
+/// Süresi geçmiş teklifte ne olduğunu ve ne yapılacağını söyleyen metin
+/// (detaydaki uyarı ve gönderim düğmelerinin açıklaması).
+String _expiredText(Offer offer, {required bool canUpdate}) {
+  final date = Formatters.date(offer.validUntil);
+  switch (offer.status) {
+    case Offer.statusTaslak:
+      final next = canUpdate
+          ? 'Teklifi düzenleyip yeni bir tarih seç ya da süresiz yap.'
+          : 'Tarihi, teklif düzenleme yetkisi olan biri güncelleyebilir.';
+      return 'Geçerlilik tarihi geçti ($date); bu haliyle müşteriye gönderilemez. $next';
+    case Offer.statusKabulEdildi:
+      return 'Geçerlilik tarihi geçti ($date); teklif e-postayla yeniden gönderilemez.';
+    default:
+      final next = offer.canRevise && canUpdate
+          ? ' Yeni fiyat ve süreyle göndermek için "Revize Et ve Düzenle"yi kullan.'
+          : '';
+      return 'Geçerlilik tarihi geçti ($date); müşteri bu teklifi artık linkten kabul edemez ve teklif '
+          'yeniden gönderilemez.$next';
+  }
+}
+
+/// Süresiz taslağı gönderirken gösterilen hatırlatma: firmanın geçerlilik
+/// süresi var ama bu teklifte tarih yok.
+String _openEndedText(int companyValidityDays, {required bool canUpdate}) {
+  final next = canUpdate ? ' Tarih eklemek için önce teklifi düzenle.' : '';
+  return 'Bu teklifin geçerlilik tarihi yok (süresiz): müşteri linkten istediği zaman bu fiyatla kabul '
+      'edebilir. Firma ayarı $companyValidityDays gün.$next';
+}
+
+class _OpenEndedNote extends StatelessWidget {
+  const _OpenEndedNote(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      key: const ValueKey('offer-open-ended-note'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.info_outline, size: 16, color: AppColors.warning),
+        const SizedBox(width: AppSpacing.xs),
+        Expanded(child: Text(text, style: AppTypography.metadata)),
+      ],
+    );
+  }
+}
+
+/// Detayın üstündeki "geçerlilik tarihi geçti" uyarısı; taslakta (izin
+/// varsa) doğrudan düzenlemeye götüren "Tarihi Güncelle" düğmesiyle.
+class _ExpiredValidityNotice extends StatelessWidget {
+  const _ExpiredValidityNotice({required this.text, this.onFix});
+
+  final String text;
+  final VoidCallback? onFix;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('offer-expired-notice'),
+      padding: const EdgeInsets.fromLTRB(AppSpacing.md, 10, AppSpacing.md, 10),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(AppRadius.control),
+        border: Border.all(color: AppColors.warning.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.warning_amber_rounded, size: 18, color: AppColors.warning),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(text, style: AppTypography.helper.copyWith(color: AppColors.textPrimary, height: 1.35)),
+              ),
+            ],
+          ),
+          if (onFix != null)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                icon: const Icon(Icons.event_outlined, size: 18),
+                label: const Text('Tarihi Güncelle'),
+                onPressed: onFix,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
 
 /// Web teklif detayındaki "Paylaşım" kartının karşılığı: oluşturulmuş
 /// linkler, kopyala, paylaş ve iptal et. Hiç link yoksa bölüm görünmez (yeni
@@ -782,6 +1111,17 @@ class _ShareLinksSectionState extends ConsumerState<_ShareLinksSection> {
   }
 }
 
+/// Projeye dönüştürme formunun sonucu: açılan (ya da teklif zaten
+/// dönüştürülmüşse görme yetkisi olan kişiye dönen mevcut) proje, veya teklif
+/// erişimin olmayan bir projeye dönüştürülmüşse sunucunun açıklaması.
+class _ConvertResult {
+  const _ConvertResult.project(Map<String, dynamic> this.project) : alreadyConvertedMessage = null;
+  const _ConvertResult.alreadyConverted(String this.alreadyConvertedMessage) : project = null;
+
+  final Map<String, dynamic>? project;
+  final String? alreadyConvertedMessage;
+}
+
 class _ConvertToProjectSheet extends ConsumerStatefulWidget {
   const _ConvertToProjectSheet({required this.offer});
   final Offer offer;
@@ -849,8 +1189,14 @@ class _ConvertToProjectSheetState extends ConsumerState<_ConvertToProjectSheet> 
             endDate: _end == null ? null : _iso(_end!),
             description: _description.text.trim(),
           );
-      if (mounted) Navigator.of(context).pop(result);
+      if (mounted) Navigator.of(context).pop(_ConvertResult.project(result));
     } on ApiException catch (e) {
+      if (e.code == 'offer_already_converted') {
+        // Form açıkken teklif erişimin olmayan bir projeye dönüştürüldü:
+        // formda bekletmek yerine kapatılır, detay tazelenir.
+        if (mounted) Navigator.of(context).pop(_ConvertResult.alreadyConverted(e.message));
+        return;
+      }
       setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _saving = false);

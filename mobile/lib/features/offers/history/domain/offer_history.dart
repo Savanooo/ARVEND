@@ -157,6 +157,8 @@ String offerEventLabel(OfferEvent e, int? revNo) {
       return hasRev ? '$rev e-postası gönderilemedi' : base('email_failed');
     case 'offer_cancelled':
       return base('offer_cancelled');
+    case 'offer_reactivated':
+      return base('offer_reactivated');
     case 'project_created':
       final projectNo = e.metadata['project_no'];
       return projectNo is String ? 'Projeye dönüştürüldü ($projectNo)' : base('project_created');

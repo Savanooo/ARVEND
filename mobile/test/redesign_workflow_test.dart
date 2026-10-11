@@ -210,7 +210,7 @@ void main() {
     testWidgets('yetkili kullanıcı için "İç Fiyatlandırma" / "Müşteri görmez" kutusu görünür', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
         '/auth/me': [
-          (status: 200, body: _meJson(permissions: ['offers.internal_pricing.manage'])),
+          (status: 200, body: _meJson(permissions: ['offers.create', 'offers.internal_pricing.manage'])),
         ],
       });
       final client = await buildFakeApiClient(adapter);
@@ -232,7 +232,7 @@ void main() {
 
     testWidgets('yetkisiz kullanıcı için iç fiyatlandırma kutusu hiç gösterilmez', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
-        '/auth/me': [(status: 200, body: _meJson(permissions: ['offers.read']))],
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['offers.read', 'offers.create']))],
       });
       final client = await buildFakeApiClient(adapter);
 

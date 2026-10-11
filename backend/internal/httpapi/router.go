@@ -261,7 +261,7 @@ func NewRouter(d Deps) http.Handler {
 			// org-wide bir izindir (proje henüz yok). Bunların ALTINDAKİ
 			// TÜM /{id}/... rotaları projPerm (izin + proje üyeliği) kullanır.
 			r.With(perm(domain.PermProjectsRead)).Get("/", d.Projects.List)
-			r.With(perm(domain.PermProjectsCreate)).Post("/from-offer/{offerId}", d.Projects.CreateFromOffer)
+			r.With(perm(domain.PermProjectsCreate)).Post("/from-offer/{offerId}", d.Projects.CreateFromOffer(d.AuthorizationSvc))
 
 			r.Group(func(r chi.Router) {
 				r.Use(projPerm(domain.PermProjectsRead))

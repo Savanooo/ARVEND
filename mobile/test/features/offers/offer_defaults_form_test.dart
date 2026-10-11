@@ -10,9 +10,9 @@ import '../../test_utils/fake_api_client.dart';
 import '../projects/form_test_support.dart';
 
 /// Yeni teklif formu firma varsayılanlarını (GET /offers/defaults) kullanır:
-/// KDV önceden dolar ve düzenlenebilir, formda alanı olmayan geçerlilik sonu
-/// bilgi olarak görünür (kayıtta null gider, sunucu firma süresini yazar).
-/// Fiyatı 0 olan kalem sessizce kaydedilmez, onay istenir.
+/// KDV önceden dolar ve düzenlenebilir, geçerlilik tarihi alanı firma
+/// süresiyle dolar (dokunulmazsa kayıtta null gider, sunucu firma süresini
+/// yazar). Fiyatı 0 olan kalem sessizce kaydedilmez, onay istenir.
 
 final _user = testUser({'offers.read', 'offers.create', 'offers.update', 'customers.read'});
 
@@ -75,7 +75,8 @@ void main() {
     expect(currencyLabel('EUR'), 'EUR');
   });
 
-  testWidgets('KDV firma varsayılanıyla dolar, geçerlilik sonu bilgi olarak görünür; tarih gönderilmez', (tester) async {
+  testWidgets('KDV firma varsayılanıyla dolar, geçerlilik alanı firma süresiyle dolar; dokunulmayan tarih gönderilmez',
+      (tester) async {
     final adapter = FakeHttpClientAdapter(script: {
       '/offers/defaults': [_defaults],
       '/offers/': [(status: 201, body: _offer())],
@@ -83,14 +84,16 @@ void main() {
     await pumpRoutedForm(tester, adapter, form: const OfferCreateScreen(), user: _user);
 
     expect(_textField(tester, 'KDV Oranı (%)').controller!.text, '10');
-    expect(find.text('Geçerlilik sonu: 06.11.2026 (firma ayarı: 30 gün)'), findsOneWidget);
+    final validity = find.byKey(const ValueKey('offer-valid-until'));
+    expect(find.descendant(of: validity, matching: find.text('06.11.2026')), findsOneWidget);
+    expect(find.descendant(of: validity, matching: find.textContaining('Firma ayarı: 30 gün.')), findsOneWidget);
 
     await _fillOneItem(tester);
     await tapButton(tester, 'Teklifi Oluştur');
 
     final body = requestBodyFor(adapter, '/offers/');
     expect(body['vat_rate'], 10);
-    // Formda geçerlilik alanı yok: null gider, sunucu firma süresini uygular.
+    // Tarihe dokunulmadı: null gider, sunucu firma süresini uygular.
     expect(body['valid_until'], isNull);
     expect(body.containsKey('currency'), isFalse);
   });
@@ -118,6 +121,8 @@ void main() {
 
     expect(_textField(tester, 'KDV Oranı (%)').controller!.text, '20');
     expect(find.byKey(const ValueKey('offer-defaults-info')), findsNothing);
+    // Firma süresi okunamadı: "süresiz" denmez, sunucu ayarı uygular.
+    expect(find.text('Firma ayarına göre'), findsOneWidget);
     await _fillOneItem(tester);
     await tapButton(tester, 'Teklifi Oluştur');
     expect(requestBodyFor(adapter, '/offers/')['vat_rate'], 20);
@@ -171,7 +176,9 @@ void main() {
     await pumpRoutedForm(tester, adapter, form: const OfferCreateScreen(), user: _user);
 
     expect(find.text('Para birimi: USD (firma ayarı)'), findsOneWidget);
-    expect(find.textContaining('Geçerlilik sonu'), findsNothing);
+    // Firma süre tanımlamamış: teklif süresiz açılır.
+    expect(find.descendant(of: find.byKey(const ValueKey('offer-valid-until')), matching: find.text('Süresiz')),
+        findsOneWidget);
     await _fillOneItem(tester);
     await tester.pumpAndSettle();
     expect(find.text('Satır toplamı: ${Formatters.money(200, currency: 'USD')}'), findsOneWidget);

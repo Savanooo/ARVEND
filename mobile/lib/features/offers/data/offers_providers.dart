@@ -1,11 +1,26 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/api_providers.dart';
+import '../../projects/data/istanbul_day.dart';
+import '../../projects/finance_plan/domain/finance_dates.dart' show istanbulToday;
 import '../domain/offer.dart';
 import 'offers_repository.dart';
 
 final offersRepositoryProvider =
     Provider<OffersRepository>((ref) => OffersRepository(ref.watch(apiClientProvider)));
+
+/// İstanbul'un bugünü (sunucunun geçerlilik kuralıyla aynı gün): detaydaki
+/// "geçerlilik tarihi geçti" uyarısı ve gönderim kapıları, formdaki tarih
+/// seçicinin en erken günü. Gün değişince kendini yeniler; testlerde sabit
+/// bir günle ezilir.
+final offersTodayProvider = Provider.autoDispose<DateTime>((ref) => trackIstanbulDay(ref, istanbulToday));
+
+/// Firma teklif varsayılanları (GET /offers/defaults, offers.create). Teklif
+/// detayı süresiz bir taslağı gönderirken firmanın geçerlilik süresini
+/// hatırlatmak için okur; okunamazsa hatırlatma yok (gönderim engellenmez).
+final offerDefaultsProvider = FutureProvider.autoDispose<OfferDefaults>(
+  (ref) => ref.watch(offersRepositoryProvider).defaults(),
+);
 
 /// Teklif listesinin TAZELEME SİNYALİ (anahtar: '' = aktif, 'pasif').
 /// Teklif detay/oluşturma ekranları bir değişiklikten sonra
@@ -140,11 +155,12 @@ final offerRevisionDetailProvider = FutureProvider.autoDispose.family<OfferRevis
   (ref, key) => ref.watch(offersRepositoryProvider).getRevision(key.offerId, key.revisionId),
 );
 
-/// Teklif zaten bir projeye dönüştürülmüşse o projenin id'sini döner, aksi
-/// halde null -- "Projeye Dönüştür" ile "Projeyi Görüntüle" arasında karar
-/// vermek ve tekrar dönüştürmeyi (yinelenen proje) önlemek için kullanılır.
-final offerLinkedProjectIdProvider = FutureProvider.autoDispose.family<String?, String>(
-  (ref, id) => ref.watch(offersRepositoryProvider).linkedProjectId(id),
+/// Teklifin dönüştüğü proje (bkz. [OfferProjectLink]) -- "Projeye
+/// Dönüştür" ile "Projeyi Görüntüle" arasında karar vermek ve tekrar
+/// dönüştürmeyi (yinelenen proje) önlemek için. Okunamazsa hata durumunda
+/// kalır (tahmin yürütülmez).
+final offerProjectLinkProvider = FutureProvider.autoDispose.family<OfferProjectLink, String>(
+  (ref, id) => ref.watch(offersRepositoryProvider).linkedProject(id),
 );
 
 /// Teklifin paylaşım linkleri (aktif + iptal edilmiş/süresi dolmuş).

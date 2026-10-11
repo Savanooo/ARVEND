@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/auth/auth_controller.dart';
+import '../../../core/auth/permissions.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/utils/form_exit.dart';
 import '../../../core/theme/app_colors.dart';
@@ -10,6 +11,7 @@ import '../../../core/theme/app_shadows.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/access_notices.dart';
 import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_page_scaffold.dart';
@@ -20,7 +22,7 @@ import '../../calculations/presentation/metraj_screen.dart';
 import '../../products/domain/product.dart';
 import '../../products/presentation/products_paths.dart' show ProductsPermissions;
 import '../../projects/budget/domain/budget.dart' show formatTrDecimalInput, kMaxBudgetAmount, parseTrDecimal;
-import '../../projects/finance_plan/domain/finance_dates.dart' show parsePercentInput;
+import '../../projects/finance_plan/domain/finance_dates.dart' show apiDate, parsePercentInput;
 import '../data/offers_providers.dart';
 import '../domain/offer.dart';
 import 'customer_picker_sheet.dart';
@@ -56,9 +58,20 @@ String? _numError(
 
 double _round2(double v) => (v * 100).roundToDouble() / 100;
 
+const kOfferEditNoAccessText = 'Teklifi düzenleme yetkin yok. Yöneticinden rolüne "Teklif düzenleme/revize '
+    'etme/paylaşma" iznini eklemesini isteyebilirsin.';
+
+const kOfferCreateNoAccessText = 'Yeni teklif oluşturma yetkin yok. Yöneticinden rolüne "Teklif oluşturma" '
+    'iznini eklemesini isteyebilirsin.';
+
 class _DraftItem {
   _DraftItem();
 
+  /// Kayıtlı kalemin sunucudaki id'si (yeni satırda ve metrajdan gelen
+  /// satırda null). Düzenlemede geri gönderilir: iç fiyatlama yetkisi
+  /// olmayan düzenleyicide sunucu kalemlerin iç maliyetini bu id ile taşır;
+  /// id'siz kayıt iç maliyetli taslakta 409 ile reddediliyordu.
+  String? id;
   String productName = '';
   String quantity = '';
   String unitPrice = '';
@@ -83,6 +96,7 @@ class _DraftItem {
 
   factory _DraftItem.fromOfferItem(OfferItem item) {
     final d = _DraftItem()
+      ..id = item.id.isEmpty ? null : item.id
       ..productName = item.productName
       ..quantity = formatTrDecimalInput(item.quantity)
       ..unitPrice = formatTrDecimalInput(item.unitPrice)
@@ -198,10 +212,17 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
   final List<_DraftItem> _items = [];
   String? _customerId;
 
-  /// Formda geçerlilik tarihi alanı yok; mevcut teklifin tarihi düzenlemede
-  /// KORUNUR (PUT null gönderilirse sunucu tarihi silerdi). Yeni teklifte
-  /// null gider ve sunucu firma varsayılan süresini uygular.
+  /// Geçerlilik sonu ('YYYY-MM-DD'; null = süresiz). Düzenlemede teklifin
+  /// kendi tarihi, yenide firma varsayılanı (GET /offers/defaults) ile dolar.
   String? _validUntil;
+
+  /// Kullanıcı tarihi değiştirdi mi. Değişmeyen tarih GÖNDERİLMEZ (null):
+  /// sunucu düzenlemede kayıtlı tarihi korur, yenide firma süresini
+  /// uygular. Geçmiş tarih yalnızca yeni girilirse reddedildiği için süresi
+  /// geçmiş bir taslak da böylece kaydedilebilir (eskiden kayıtlı tarih
+  /// aynen geri gidiyor, her kayıt "geçerlilik tarihi bugünden önce olamaz"
+  /// ile reddediliyordu ve formda tarihi değiştirecek alan yoktu).
+  bool _validUntilChanged = false;
 
   /// Yeni teklifte firma varsayılanları (GET /offers/defaults). Okunamazsa
   /// null: form %20 ile açık kalır, kayıt engellenmez.
@@ -261,6 +282,7 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
         _defaults = d;
         _currency = d.currency;
         if (!_vatEdited) _vatRateController.text = formatTrDecimalInput(d.vatRate);
+        if (!_validUntilChanged) _validUntil = d.validUntil;
       });
     } catch (_) {
       // Varsayılan okunamadı (ağ/izin): %20 ile devam, kayıt yine mümkün.
@@ -314,6 +336,40 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
     _vatRateController.dispose();
     super.dispose();
   }
+
+  /// Takvimden geçerlilik sonu seçtirir. En erken gün bugündür (sunucu
+  /// geçmiş tarihi reddeder; web formuyla aynı kural). Mevcut tarih geçmişse
+  /// takvim firma varsayılanında ya da bugünde açılır.
+  Future<void> _pickValidUntil(DateTime today) async {
+    final first = DateTime(today.year, today.month, today.day);
+    DateTime? asLocal(String? iso) {
+      final d = DateTime.tryParse(iso ?? '');
+      return d == null ? null : DateTime(d.year, d.month, d.day);
+    }
+
+    var initial = asLocal(_validUntil) ?? asLocal(_defaults?.validUntil) ?? first;
+    if (initial.isBefore(first)) initial = asLocal(_defaults?.validUntil) ?? first;
+    if (initial.isBefore(first)) initial = first;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: first,
+      lastDate: DateTime(2100),
+      helpText: 'Geçerlilik tarihi',
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _validUntil = apiDate(picked);
+      _validUntilChanged = true;
+    });
+  }
+
+  /// Süresiz: kayıtta `valid_until: ""` gider (sunucu tarihi bilerek
+  /// temizler; null gönderseydi düzenlemede eski tarihi korurdu).
+  void _clearValidUntil() => setState(() {
+        _validUntil = null;
+        _validUntilChanged = true;
+      });
 
   /// Mevcut bir müşteriyi arayıp seçtirir ve alanları doldurur --
   /// müşteri modülünü İÇİNDE TEKRARLAMAZ, yalnızca zaten var olan
@@ -381,7 +437,7 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
       }
 
       out.add(OfferItem(
-        id: '',
+        id: i.id ?? '',
         productId: i.productId,
         productName: i.productName.trim(),
         quantity: qty,
@@ -412,6 +468,9 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
     if (zeroPriced > 0 && !await _confirmZeroPrices(zeroPriced)) return;
     if (!mounted) return;
     final vat = parsePercentInput(_vatRateController.text);
+    // null = alan gönderilmedi (sunucu korur / firma süresini uygular),
+    // "" = süresiz, aksi halde seçilen gün.
+    final validUntil = _validUntilChanged ? (_validUntil ?? '') : null;
 
     setState(() {
       _submitting = true;
@@ -428,11 +487,15 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
           customerPhone: _customerPhoneController.text.trim(),
           customerEmail: _customerEmailController.text.trim(),
           customerAddress: _customerAddressController.text.trim(),
-          validUntil: _validUntil,
+          validUntil: validUntil,
           notes: _notesController.text.trim(),
           vatRate: vat,
           items: items,
           includeInternalPricing: _canManageInternal,
+          // Mevcut kalemlerin hepsi silinip yalnızca yeni satır kaldıysa:
+          // iç maliyetli taslakta sunucu id'siz listeyi eski uygulama sanıp
+          // reddederdi (iç fiyatlama yetkilisinin kaydında bu denetim yok).
+          itemIdsSent: !_canManageInternal && items.every((i) => i.id.isEmpty),
         );
       } else {
         offer = await repo.create(
@@ -441,6 +504,7 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
           customerPhone: _customerPhoneController.text.trim(),
           customerEmail: _customerEmailController.text.trim(),
           customerAddress: _customerAddressController.text.trim(),
+          validUntil: validUntil,
           notes: _notesController.text.trim(),
           vatRate: vat,
           items: items,
@@ -476,9 +540,28 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Düzenleme rotası (/teklifler/:id/duzenle) doğrudan da açılabilir:
+    // offers.update yoksa form hiç gösterilmez (kayıt 403 alırdı). Yeni
+    // teklif rotası da (/teklifler/yeni) offers.create ister; girişleriyle
+    // (liste, metraj, müşteri, ana sayfa) aynı kural: izin kümesi boş eski
+    // oturumda form açılır, karar sunucunundur.
+    final auth = ref.watch(authControllerProvider);
+    if (widget.isEdit && !auth.isLoading && !auth.valueOrNull.canAccess(kPermOffersUpdate)) {
+      return const AppPageScaffold(
+        title: Text('Teklifi Düzenle'),
+        body: NoAccessView(message: kOfferEditNoAccessText),
+      );
+    }
+    if (!widget.isEdit && !auth.isLoading && !auth.valueOrNull.can(kPermOffersCreate)) {
+      return const AppPageScaffold(
+        title: Text('Yeni Teklif'),
+        body: NoAccessView(message: kOfferCreateNoAccessText),
+      );
+    }
     final canManageInternal = _canManageInternal;
     final canPickProducts = _canPickProducts;
     final linked = _customerId != null;
+    final today = ref.watch(offersTodayProvider);
     return AppPageScaffold(
       title: Text(widget.isEdit ? 'Teklifi Düzenle' : 'Yeni Teklif'),
       body: _loading
@@ -569,6 +652,19 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
                           },
                           onChanged: (_) => setState(() => _vatEdited = true),
                         ),
+                        const SizedBox(height: AppSpacing.md),
+                        _ValidUntilField(
+                          value: _validUntil,
+                          // Yeni teklifte varsayılan henüz okunmadıysa (ya da
+                          // okunamadıysa) "süresiz" demek yanlış olur: alan
+                          // gönderilmezse sunucu firma süresini uygular.
+                          followsCompanyDefault: !widget.isEdit && !_validUntilChanged && _defaults == null,
+                          validityDays: _defaults?.validityDays,
+                          expired: offerValidityExpired(_validUntil, today),
+                          isEdit: widget.isEdit,
+                          onPick: () => _pickValidUntil(today),
+                          onClear: _clearValidUntil,
+                        ),
                         if (_defaults != null) _DefaultsInfo(defaults: _defaults!),
                         const SizedBox(height: AppSpacing.xl),
                         const AppSectionHeader(title: 'Kalemler'),
@@ -634,22 +730,16 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
   }
 }
 
-/// Yeni teklifte formda alanı olmayan firma varsayılanları: geçerlilik sonu
-/// (sunucu kayıtta bugün + firma süresi yazar) ve TRY dışı para birimi.
-/// Kullanıcı teklifin süresiz ya da TL açılacağını sanmasın.
+/// Yeni teklifte formda alanı olmayan firma varsayılanı: TRY dışı para
+/// birimi. Kullanıcı teklifin TL açılacağını sanmasın. (Geçerlilik sonu
+/// artık kendi alanında, bkz. [_ValidUntilField].)
 class _DefaultsInfo extends StatelessWidget {
   const _DefaultsInfo({required this.defaults});
   final OfferDefaults defaults;
 
   @override
   Widget build(BuildContext context) {
-    final lines = <String>[
-      if (defaults.validUntil != null)
-        'Geçerlilik sonu: ${Formatters.date(defaults.validUntil)}'
-            '${defaults.validityDays != null ? ' (firma ayarı: ${defaults.validityDays} gün)' : ''}',
-      if (defaults.currency != 'TRY') 'Para birimi: ${defaults.currency} (firma ayarı)',
-    ];
-    if (lines.isEmpty) return const SizedBox.shrink();
+    if (defaults.currency == 'TRY') return const SizedBox.shrink();
     return Padding(
       key: const ValueKey('offer-defaults-info'),
       padding: const EdgeInsets.only(top: AppSpacing.xs),
@@ -658,9 +748,98 @@ class _DefaultsInfo extends StatelessWidget {
         children: [
           const Icon(Icons.info_outline, size: 14, color: AppColors.textMuted),
           const SizedBox(width: 4),
-          Expanded(child: Text(lines.join('\n'), style: AppTypography.helper)),
+          Expanded(child: Text('Para birimi: ${defaults.currency} (firma ayarı)', style: AppTypography.helper)),
         ],
       ),
+    );
+  }
+}
+
+/// Geçerlilik tarihi alanı (web formundaki "Geçerlilik Tarihi"nin
+/// karşılığı): dokununca takvim açılır, çarpı ile süresiz yapılır. Tarih
+/// geçmişse ne yapılacağını söyler -- süresi geçmiş taslak kaydedilebilir
+/// ama müşteriye gönderilemez.
+class _ValidUntilField extends StatelessWidget {
+  const _ValidUntilField({
+    required this.value,
+    required this.followsCompanyDefault,
+    required this.validityDays,
+    required this.expired,
+    required this.isEdit,
+    required this.onPick,
+    required this.onClear,
+  });
+
+  final String? value;
+  final bool followsCompanyDefault;
+  final int? validityDays;
+  final bool expired;
+  final bool isEdit;
+  final VoidCallback onPick;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = value != null
+        ? Formatters.date(value)
+        : followsCompanyDefault
+            ? 'Firma ayarına göre'
+            : 'Süresiz';
+    final helper = [
+      'Müşteri bu tarihten sonra teklifi onaylayamaz. Süresiz de bırakabilirsin.',
+      if (validityDays != null && !isEdit) 'Firma ayarı: $validityDays gün.',
+    ].join(' ');
+    return Column(
+      key: const ValueKey('offer-valid-until'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        InkWell(
+          onTap: onPick,
+          borderRadius: BorderRadius.circular(AppRadius.control),
+          child: InputDecorator(
+            decoration: InputDecoration(
+              labelText: 'Geçerlilik Tarihi',
+              helperText: helper,
+              helperMaxLines: 3,
+              suffixIcon: value == null
+                  ? const Icon(Icons.calendar_today_outlined, size: 18)
+                  : IconButton(
+                      key: const ValueKey('offer-valid-until-clear'),
+                      tooltip: 'Süresiz yap',
+                      icon: const Icon(Icons.close, size: 18),
+                      onPressed: onClear,
+                    ),
+            ),
+            child: Text(text, style: AppTypography.body),
+          ),
+        ),
+        if (expired) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Container(
+            key: const ValueKey('offer-valid-until-expired'),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.warning.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(AppRadius.control),
+              border: Border.all(color: AppColors.warning.withValues(alpha: 0.3)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.warning_amber_rounded, size: 18, color: AppColors.warning),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    'Bu tarih geçti. Bu haliyle kaydedebilirsin ama müşteriye gönderemezsin: '
+                    'yeni bir tarih seç ya da süresiz yap.',
+                    style: AppTypography.helper.copyWith(color: AppColors.textPrimary, height: 1.35),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
