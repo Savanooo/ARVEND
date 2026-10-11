@@ -6,6 +6,7 @@ import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:arvend/core/api/api_providers.dart';
 import 'package:arvend/core/auth/auth_controller.dart';
+import 'package:arvend/features/offers/data/offers_providers.dart';
 import 'package:arvend/features/offers/presentation/offer_detail_screen.dart';
 
 import '../../test_utils/fake_api_client.dart';
@@ -144,6 +145,45 @@ void main() {
     await _openMenu(tester);
     expect(find.text('Teklifi Sil'), findsOneWidget);
     expect(find.text('Arşivle'), findsNothing);
+  });
+
+  testWidgets('arşivdeki teklif silinince "Pasif" listesi de tazelenir', (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/offers/o1': [(status: 200, body: _offer(passive: true)), (status: 204, body: null)],
+      '/offers/o1/revisions': [for (var i = 0; i < 2; i++) (status: 200, body: {'revisions': <Object>[]})],
+      '/offers/o1/share-links': [(status: 200, body: {'share_links': <Object>[]})],
+    });
+    await tester.binding.setSurfaceSize(const Size(800, 2400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final container = ProviderContainer(overrides: [
+      apiClientProvider.overrideWithValue(await buildFakeApiClient(adapter)),
+      authControllerProvider.overrideWith(() => FakeAuth(testUser({'offers.read', 'offers.delete'}))),
+    ]);
+    addTearDown(container.dispose);
+    var passiveListRefreshes = 0;
+    container.listen(offersListProvider('pasif'), (_, _) => passiveListRefreshes++);
+    final router = GoRouter(
+      initialLocation: '/teklifler/o1',
+      routes: [
+        GoRoute(path: '/teklifler', builder: (c, s) => const Text('Teklif listesi')),
+        GoRoute(path: '/teklifler/:id', builder: (c, s) => OfferDetailScreen(offerId: s.pathParameters['id']!)),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pumpAndSettle();
+
+    await _openMenu(tester);
+    await tester.tap(find.text('Teklifi Sil'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sil'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Teklif listesi'), findsOneWidget);
+    expect(passiveListRefreshes, 1);
   });
 
   testWidgets('offers.approve yoksa arşiv notu geri alma yolunu önermez', (tester) async {

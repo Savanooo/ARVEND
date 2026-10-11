@@ -335,6 +335,9 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     try {
       await ref.read(offersRepositoryProvider).delete(offerId);
       invalidate(offersListProvider(''));
+      // Arşivdeki teklif "Pasif" listesinden de silinir (açılan satır 404'e
+      // düşmesin).
+      invalidate(offersListProvider('pasif'));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${offer.offerNo} silindi')));
       context.go('/teklifler');
