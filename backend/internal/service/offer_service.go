@@ -276,10 +276,19 @@ func computeOfferTotals(items []OfferItemInput, vatRateInput *float64, canManage
 // reddeder.
 var offerAmountLimit = decimal.New(1, 10)
 
+// ErrOfferCustomerInactive: pasif (arşivlenmiş) müşteri kartı YENİ bir
+// teklife bağlanamaz -- teklif formlarının müşteri seçicileri de yalnızca
+// aktifleri listeler; eskiden mobilde pasif müşterinin kartındaki "Yeni
+// Teklif" teklifi arşivdeki karta bağlıyordu. Zaten o karta bağlı bir
+// taslağın düzenlenmesi engellenmez.
+var ErrOfferCustomerInactive = errors.New("pasif müşteriye yeni teklif verilemez; önce müşteriyi aktifleştir")
+
 // resolveCustomerSnapshot, customerID doluysa o müşterinin o anki
 // bilgilerini döner (snapshot için); boşsa sıfır değerler döner ve
-// çağıran serbest-metin girdiyi kullanmaya devam eder.
-func resolveCustomerSnapshot(ctx context.Context, txq *sqlc.Queries, orgID pgtype.UUID, customerID *string) (pgtype.UUID, sqlc.Customer, error) {
+// çağıran serbest-metin girdiyi kullanmaya devam eder. [linked]: teklifin
+// ZATEN bağlı olduğu müşteri (yeni teklifte boş) -- pasif müşteri yalnızca
+// o ise kabul edilir.
+func resolveCustomerSnapshot(ctx context.Context, txq *sqlc.Queries, orgID pgtype.UUID, customerID *string, linked pgtype.UUID) (pgtype.UUID, sqlc.Customer, error) {
 	var custID pgtype.UUID
 	if customerID == nil || *customerID == "" {
 		return custID, sqlc.Customer{}, nil
@@ -291,6 +300,9 @@ func resolveCustomerSnapshot(ctx context.Context, txq *sqlc.Queries, orgID pgtyp
 	customer, err := txq.GetCustomerByID(ctx, sqlc.GetCustomerByIDParams{ID: cid, OrganizationID: orgID})
 	if err != nil {
 		return custID, sqlc.Customer{}, errors.New("geçersiz müşteri")
+	}
+	if !customer.IsActive && !(linked.Valid && linked == cid) {
+		return custID, sqlc.Customer{}, ErrOfferCustomerInactive
 	}
 	return cid, customer, nil
 }
@@ -460,7 +472,7 @@ func (s *OfferService) Create(ctx context.Context, in CreateOfferInput) (*domain
 		return nil, err
 	}
 
-	custID, customer, err := resolveCustomerSnapshot(ctx, txq, orgID, in.CustomerID)
+	custID, customer, err := resolveCustomerSnapshot(ctx, txq, orgID, in.CustomerID, pgtype.UUID{})
 	if err != nil {
 		return nil, err
 	}
@@ -860,18 +872,18 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 	// eskiden KDV'siz bir kayıt oranı sessizce %20'ye çeviriyordu).
 	validUntil := repository.TimePtrToDate(in.ValidUntil)
 	vatIn := in.VatRate
-	if !in.ValidUntilProvided || vatIn == nil {
-		currentRev, err := txq.GetOfferRevisionByID(ctx, sqlc.GetOfferRevisionByIDParams{ID: offerRow.CurrentRevisionID, OrganizationID: orgID})
-		if err != nil {
-			return nil, err
-		}
-		if !in.ValidUntilProvided {
-			validUntil = currentRev.ValidUntil
-		}
-		if vatIn == nil {
-			v := repository.NumericToFloat64(currentRev.VatRate)
-			vatIn = &v
-		}
+	// Mevcut revizyon: gönderilmeyen alanlar ondan korunur; bağlı müşteri
+	// kartı da (pasifleşmiş olsa bile taslak ona bağlı kalabilsin diye).
+	currentRev, err := txq.GetOfferRevisionByID(ctx, sqlc.GetOfferRevisionByIDParams{ID: offerRow.CurrentRevisionID, OrganizationID: orgID})
+	if err != nil {
+		return nil, err
+	}
+	if !in.ValidUntilProvided {
+		validUntil = currentRev.ValidUntil
+	}
+	if vatIn == nil {
+		v := repository.NumericToFloat64(currentRev.VatRate)
+		vatIn = &v
 	}
 
 	// İç fiyatlama yetkisi olmayan düzenleyici: istemcinin gönderdiği iç
@@ -896,7 +908,7 @@ func (s *OfferService) Update(ctx context.Context, id, organizationID string, in
 		return nil, err
 	}
 
-	custID, customer, err := resolveCustomerSnapshot(ctx, txq, orgID, in.CustomerID)
+	custID, customer, err := resolveCustomerSnapshot(ctx, txq, orgID, in.CustomerID, currentRev.CustomerID)
 	if err != nil {
 		return nil, err
 	}
