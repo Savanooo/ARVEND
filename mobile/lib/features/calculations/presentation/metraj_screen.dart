@@ -72,6 +72,17 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
     super.dispose();
   }
 
+  /// Eğim alanı yalnızca çatı gruplarında görünür; görünmediği yerde
+  /// içinde kalmış bir değer ne doğrulanır ne gönderilir (sunucu eğimi
+  /// kategoriye bakmadan uygular, gizli bir eğim tüm miktarları şişirirdi).
+  bool get _showPitch => _group?.looksLikeRoof ?? false;
+
+  /// Ölçü ya da mod değişince eski sonuç ekranda kalmaz: aksi halde
+  /// "Teklife Ekle" yeni ölçüleri değil eski hesabı teklife taşırdı.
+  void _invalidateResult() {
+    if (_result != null) setState(() => _result = null);
+  }
+
   /// Yalnızca daha hızlı geri bildirim için -- gerçek sınır her zaman
   /// backend'de (bkz. calc.dart validatePositiveIfPresent yorumu).
   String? _validateInputs() {
@@ -86,8 +97,10 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
     }
     final p = validatePositiveIfPresent(_perimeterController.text, 'Çevre');
     if (p != null) return p;
-    final pitch = validatePositiveIfPresent(_pitchController.text, 'Çatı Eğimi');
-    if (pitch != null) return pitch;
+    if (_showPitch) {
+      final pitch = validatePositiveIfPresent(_pitchController.text, 'Çatı Eğimi');
+      if (pitch != null) return pitch;
+    }
     return null;
   }
 
@@ -109,7 +122,7 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
             width: _useAreaDirectly ? null : _nonEmpty(_widthController.text),
             height: _useAreaDirectly ? null : _nonEmpty(_heightController.text),
             perimeter: _nonEmpty(_perimeterController.text),
-            pitchDeg: _nonEmpty(_pitchController.text),
+            pitchDeg: _showPitch ? _nonEmpty(_pitchController.text) : null,
           );
       setState(() {
         _result = result;
@@ -174,6 +187,9 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
                           _group = g;
                           _category = null;
                           _result = null;
+                          // Eğim yalnızca çatı grubuna ait; başka gruba
+                          // geçince gizlenen alanda değer kalmasın.
+                          _pitchController.clear();
                         }),
                       ),
                       if (_group != null) ...[
@@ -201,11 +217,15 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
                             ButtonSegment(value: false, label: Text('En × Boy')),
                           ],
                           selected: {_useAreaDirectly},
-                          onSelectionChanged: (s) => setState(() => _useAreaDirectly = s.first),
+                          onSelectionChanged: (s) => setState(() {
+                            _useAreaDirectly = s.first;
+                            _result = null;
+                          }),
                         ),
                         if (_useAreaDirectly)
                           TextField(
                             controller: _areaController,
+                            onChanged: (_) => _invalidateResult(),
                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             decoration: const InputDecoration(labelText: 'Alan (m²)'),
                           )
@@ -215,6 +235,7 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
                               Expanded(
                                 child: TextField(
                                   controller: _widthController,
+                                  onChanged: (_) => _invalidateResult(),
                                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                   decoration: const InputDecoration(labelText: 'En (m)'),
                                 ),
@@ -223,6 +244,7 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
                               Expanded(
                                 child: TextField(
                                   controller: _heightController,
+                                  onChanged: (_) => _invalidateResult(),
                                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                   decoration: const InputDecoration(labelText: 'Boy (m)'),
                                 ),
@@ -231,15 +253,17 @@ class _MetrajScreenState extends ConsumerState<MetrajScreen> {
                           ),
                         TextField(
                           controller: _perimeterController,
+                          onChanged: (_) => _invalidateResult(),
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
                           decoration: const InputDecoration(
                             labelText: 'Çevre (m) — opsiyonel',
                             helperText: 'Boş bırakılırsa En×Boy\'dan hesaplanır (yalnızca En×Boy modunda)',
                           ),
                         ),
-                        if (_group?.looksLikeRoof ?? false)
+                        if (_showPitch)
                           TextField(
                             controller: _pitchController,
+                            onChanged: (_) => _invalidateResult(),
                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             decoration: const InputDecoration(labelText: 'Çatı Eğimi (derece) — opsiyonel'),
                           ),
