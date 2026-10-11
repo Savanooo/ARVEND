@@ -8,11 +8,13 @@ import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:arvend/core/api/api_providers.dart';
 import 'package:arvend/core/auth/auth_controller.dart';
+import 'package:arvend/core/files/file_share.dart';
 import 'package:arvend/features/offers/domain/offer.dart';
 import 'package:arvend/features/offers/presentation/offer_detail_screen.dart';
 import 'package:arvend/features/offers/presentation/offer_pdf.dart';
 
 import '../../test_utils/fake_api_client.dart';
+import '../../test_utils/fake_file_sharer.dart';
 import '../projects/form_test_support.dart' show FakeAuth, testUser;
 
 /// Teklif detayından PDF: `GET /offers/{id}/pdf` ApiClient üzerinden
@@ -40,7 +42,12 @@ class _OpenCall {
   final Uint8List bytes;
 }
 
-Future<List<_OpenCall>> _pump(WidgetTester tester, FakeHttpClientAdapter adapter, {String? openError}) async {
+Future<List<_OpenCall>> _pump(
+  WidgetTester tester,
+  FakeHttpClientAdapter adapter, {
+  String? openError,
+  FakeFileSharer? sharer,
+}) async {
   await tester.binding.setSurfaceSize(const Size(800, 2400));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   final opened = <_OpenCall>[];
@@ -61,6 +68,7 @@ Future<List<_OpenCall>> _pump(WidgetTester tester, FakeHttpClientAdapter adapter
           opened.add(_OpenCall(filename, bytes));
           return openError;
         }),
+        if (sharer != null) fileSharerProvider.overrideWithValue(sharer),
       ],
       child: MaterialApp.router(routerConfig: router),
     ),
@@ -98,6 +106,44 @@ void main() {
     expect(adapter.calls, contains('/offers/o1/pdf'));
     expect(opened.single.filename, 'Teklif-TKL-2026-0042-R1.pdf');
     expect(opened.single.bytes, _pdfBytes);
+  });
+
+  testWidgets('"PDF Paylaş": PDF dosya adıyla telefonun paylaşım menüsüne gider (yalnızca okuma izni)', (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/offers/o1': [(status: 200, body: _offer())],
+      '/offers/o1/revisions': [(status: 200, body: {'revisions': <Object>[]})],
+      '/offers/o1/pdf': [(status: 200, body: _pdfBytes)],
+    });
+    final sharer = FakeFileSharer();
+    final opened = await _pump(tester, adapter, sharer: sharer);
+
+    final button = find.widgetWithText(OutlinedButton, 'PDF Paylaş');
+    await tester.ensureVisible(button);
+    await tester.pumpAndSettle();
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+
+    expect(opened, isEmpty, reason: 'paylaşmak görüntüleyiciyi açmaz');
+    final shared = sharer.files.single;
+    expect(shared.filename, 'Teklif-TKL-2026-0042-R1.pdf');
+    expect(shared.bytes, _pdfBytes);
+    expect(shared.mimeType, 'application/pdf');
+  });
+
+  testWidgets('paylaşım menüsü açılamazsa mesaj gösterilir', (tester) async {
+    final adapter = FakeHttpClientAdapter(script: {
+      '/offers/o1': [(status: 200, body: _offer())],
+      '/offers/o1/revisions': [(status: 200, body: {'revisions': <Object>[]})],
+      '/offers/o1/pdf': [(status: 200, body: _pdfBytes)],
+    });
+    await _pump(tester, adapter, sharer: FakeFileSharer(error: kShareFailedMessage));
+
+    final button = find.widgetWithText(OutlinedButton, 'PDF Paylaş');
+    await tester.ensureVisible(button);
+    await tester.pumpAndSettle();
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(find.text(kShareFailedMessage), findsOneWidget);
   });
 
   testWidgets('pasif teklifte de uygulama çubuğundan PDF indirilebilir', (tester) async {

@@ -11,6 +11,7 @@ import 'package:arvend/core/api/api_providers.dart';
 import 'package:arvend/core/auth/auth_controller.dart';
 import 'package:arvend/core/crash/crash_reporter.dart';
 import 'package:arvend/core/files/device_picker.dart';
+import 'package:arvend/core/files/file_share.dart';
 import 'package:arvend/core/files/local_documents.dart';
 import 'package:arvend/core/platform/app_settings.dart';
 import 'package:arvend/core/widgets/quick_action_button.dart';
@@ -21,6 +22,7 @@ import 'package:arvend/features/projects/domain/project_lock_text.dart';
 import 'package:arvend/features/projects/presentation/project_detail_screen.dart';
 
 import '../../test_utils/fake_api_client.dart';
+import '../../test_utils/fake_file_sharer.dart';
 import '../contract_co/contract_co_test_support.dart' as cc;
 
 /// Proje > Dökümanlar (Dosyalar) ve Operasyon > Görevler: kilit durumu,
@@ -379,6 +381,53 @@ void main() {
       await tester.tap(find.text('kesif.pdf'));
       await tester.pumpAndSettle();
       expect(opened, [('kesif.pdf', 'application/pdf')]);
+    });
+  });
+
+  group('paylaşım menüsü (mobil-genel-g4)', () {
+    testWidgets('dosya WhatsApp/e-posta için adı ve türüyle paylaşılır; silme yetkisi olmasa da', (tester) async {
+      final sharer = FakeFileSharer();
+      await pumpProject(
+        tester,
+        status: 'completed',
+        group: 'dokumanlar',
+        files: [fileJson('f1', name: 'kesif-raporu.pdf')],
+        extra: {
+          '/projects/p1/files/f1/download': [(status: 200, body: <int>[0x25, 0x50, 0x44, 0x46])],
+        },
+        overrides: [fileSharerProvider.overrideWithValue(sharer)],
+      );
+
+      await tester.tap(find.byTooltip('Dosyayı paylaş'));
+      await tester.pumpAndSettle();
+
+      final shared = sharer.files.single;
+      expect(shared.filename, 'kesif-raporu.pdf');
+      expect(shared.bytes, [0x25, 0x50, 0x44, 0x46]);
+      expect(shared.mimeType, 'application/pdf');
+    });
+
+    testWidgets('fotoğraf görüntüleyiciden açıklamasıyla paylaşılır', (tester) async {
+      final sharer = FakeFileSharer();
+      await pumpProject(
+        tester,
+        group: 'dokumanlar',
+        photos: [photoJson('ph1', description: 'Kalıp sökümü bitti')],
+        extra: {
+          '/projects/p1/photos/ph1/content': [for (var i = 0; i < 3; i++) (status: 200, body: <int>[0xFF, 0xD8, 0xFF, 0xE0])],
+        },
+        overrides: [fileSharerProvider.overrideWithValue(sharer)],
+      );
+
+      await tester.tap(find.byKey(const ValueKey('proje-foto-ph1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Fotoğrafı paylaş'));
+      await tester.pumpAndSettle();
+
+      final shared = sharer.files.single;
+      expect(shared.filename, 'ph1.jpg');
+      expect(shared.mimeType, 'image/jpeg');
+      expect(shared.text, 'Kalıp sökümü bitti');
     });
   });
 

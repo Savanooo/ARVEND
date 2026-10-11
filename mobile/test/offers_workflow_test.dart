@@ -7,6 +7,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:arvend/core/api/api_providers.dart';
 import 'package:arvend/core/config/app_config.dart';
 import 'package:arvend/core/errors/api_exception.dart';
+import 'package:arvend/core/files/file_share.dart';
 import 'package:arvend/features/offers/data/offers_providers.dart';
 import 'package:arvend/features/offers/data/offers_repository.dart';
 import 'package:arvend/features/offers/domain/offer.dart';
@@ -14,6 +15,7 @@ import 'package:arvend/features/offers/presentation/offer_create_screen.dart';
 import 'package:arvend/features/offers/presentation/offer_detail_screen.dart';
 
 import 'test_utils/fake_api_client.dart';
+import 'test_utils/fake_file_sharer.dart';
 
 Map<String, dynamic> _meJson({List<String> permissions = const []}) => {
       'id': 'u1',
@@ -85,11 +87,19 @@ Map<String, dynamic> _linkJson({
       'is_active': active,
     };
 
-Future<void> _pumpDetail(WidgetTester tester, FakeHttpClientAdapter adapter, String offerId) async {
+Future<void> _pumpDetail(
+  WidgetTester tester,
+  FakeHttpClientAdapter adapter,
+  String offerId, {
+  FakeFileSharer? sharer,
+}) async {
   final client = await buildFakeApiClient(adapter);
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [apiClientProvider.overrideWithValue(client)],
+      overrides: [
+        apiClientProvider.overrideWithValue(client),
+        if (sharer != null) fileSharerProvider.overrideWithValue(sharer),
+      ],
       child: MaterialApp.router(routerConfig: _buildDetailTestRouter(offerId)),
     ),
   );
@@ -528,6 +538,33 @@ void main() {
       expect(find.text('Paylaşım Linkleri', skipOffstage: false), findsOneWidget, reason: 'yeni link listede');
     });
 
+    testWidgets('the new share link goes to WhatsApp/e-mail through the share menu', (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['offers.read', 'offers.update']))],
+        '/offers/o1': [(status: 200, body: _offerJson(status: 'gönderildi'))],
+        '/offers/o1/revisions': [(status: 200, body: {'revisions': <dynamic>[]})],
+        '/offers/o1/share-links': [
+          (status: 200, body: {'share_links': <dynamic>[]}),
+          (status: 201, body: _linkJson()),
+          (status: 200, body: {'share_links': [_linkJson()]}),
+        ],
+      });
+      final sharer = FakeFileSharer();
+      await _pumpDetail(tester, adapter, 'o1', sharer: sharer);
+      await tester.scrollUntilVisible(find.text('Paylaşım Linki'), 300);
+      await tester.ensureVisible(find.text('Paylaşım Linki'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Paylaşım Linki'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('offer-share-link-send')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(sharer.texts.single, offerShareLinkText('${AppConfig.apiBaseUrl}/paylas/tok-abc'));
+      expect(sharer.texts.single, contains('${AppConfig.apiBaseUrl}/paylas/tok-abc'));
+    });
+
     testWidgets('an active share link can be revoked after confirmation (offers.update)', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
         '/auth/me': [(status: 200, body: _meJson(permissions: ['offers.read', 'offers.update']))],
@@ -589,6 +626,9 @@ void main() {
       });
       await _pumpDetail(tester, adapter, 'o1');
       await tester.scrollUntilVisible(find.text('E-posta Gönder'), 300);
+      // "PDF Paylaş" eklenince düğme ekranın alt kenarında kalabiliyor.
+      await tester.ensureVisible(find.text('E-posta Gönder'));
+      await tester.pumpAndSettle();
 
       await tester.tap(find.text('E-posta Gönder'));
       await tester.pumpAndSettle();
@@ -610,6 +650,9 @@ void main() {
       });
       await _pumpDetail(tester, adapter, 'o1');
       await tester.scrollUntilVisible(find.text('E-posta Gönder'), 300);
+      // "PDF Paylaş" eklenince düğme ekranın alt kenarında kalabiliyor.
+      await tester.ensureVisible(find.text('E-posta Gönder'));
+      await tester.pumpAndSettle();
 
       await tester.tap(find.text('E-posta Gönder'));
       await tester.pumpAndSettle();

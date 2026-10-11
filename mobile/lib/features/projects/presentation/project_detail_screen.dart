@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,6 +13,7 @@ import '../../../core/config/app_config.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/errors/device_errors.dart';
 import '../../../core/files/device_picker.dart';
+import '../../../core/files/file_share.dart';
 import '../../../core/files/local_documents.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
@@ -1556,6 +1558,24 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
 
   String _localName(ProjectFile file) => file.originalName.trim().isEmpty ? file.id : file.originalName.trim();
 
+  /// Dosyayı telefonun paylaşım menüsüyle (WhatsApp, e-posta...) gönderir.
+  /// İzin açmakla aynı: dosyayı açabilen paylaşabilir.
+  Future<void> _shareFile(ProjectFile file) async {
+    setState(() => _openingFileId = file.id);
+    try {
+      final bytes = await ref.read(projectsRepositoryProvider).fileBytes(projectId, file.id);
+      if (!mounted) return;
+      final error = await ref.read(fileSharerProvider).shareFile(_localName(file), bytes, mimeType: file.mimeType);
+      if (error != null) _showError(error);
+    } on ApiException catch (e) {
+      _showError(e.message);
+    } on Exception catch (e, s) {
+      _showDeviceIssue(e, s, DeviceAction.saveFile);
+    } finally {
+      if (mounted) setState(() => _openingFileId = null);
+    }
+  }
+
   void _showError(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
@@ -1654,6 +1674,7 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
                           type: _fileType(f.originalName),
                           opening: _openingFileId == f.id,
                           onTap: _openingFileId != null ? null : () => _openFile(f),
+                          onShare: _openingFileId != null ? null : () => _shareFile(f),
                           onDelete: canManage ? () => _deleteFile(f) : null,
                         ),
                     ],
@@ -1713,13 +1734,14 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
 }
 
 /// Dosya satırı: ad, açıklama (varsa, 2 satıra kadar -- eskiden hiç
-/// gösterilmiyordu), tür · tarih · boyut, kategori rozeti ve silme.
+/// gösterilmiyordu), tür · tarih · boyut, kategori rozeti, paylaş ve silme.
 class _FileRow extends StatelessWidget {
   const _FileRow({
     required this.file,
     required this.type,
     required this.opening,
     required this.onTap,
+    required this.onShare,
     required this.onDelete,
   });
 
@@ -1727,6 +1749,7 @@ class _FileRow extends StatelessWidget {
   final String type;
   final bool opening;
   final VoidCallback? onTap;
+  final VoidCallback? onShare;
   final VoidCallback? onDelete;
 
   @override
@@ -1764,10 +1787,18 @@ class _FileRow extends StatelessWidget {
           ),
           const SizedBox(width: AppSpacing.sm),
           StatusRegistry.build(file.category, StatusRegistry.fileCategory),
+          // Sıkı düğmeler: 360 dp'de dosya adına yer kalsın.
+          IconButton(
+            icon: const Icon(Icons.share_outlined, size: 20),
+            tooltip: 'Dosyayı paylaş',
+            visualDensity: VisualDensity.compact,
+            onPressed: onShare,
+          ),
           if (onDelete != null)
             IconButton(
               icon: const Icon(Icons.delete_outline, size: 20),
               tooltip: 'Dosyayı sil',
+              visualDensity: VisualDensity.compact,
               onPressed: onDelete,
             ),
         ],
@@ -1872,9 +1903,25 @@ class _PhotoViewerScreen extends ConsumerWidget {
     }
   }
 
+  /// Fotoğrafı (açıklamasıyla) telefonun paylaşım menüsüyle gönderir --
+  /// görüntüleyebilen paylaşabilir.
+  Future<void> _share(BuildContext context, WidgetRef ref, Uint8List bytes) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final name = photo.originalName.trim().isEmpty ? '${photo.id}.jpg' : photo.originalName.trim();
+      final error = await ref
+          .read(fileSharerProvider)
+          .shareFile(name, bytes, mimeType: photo.mimeType, text: photo.description);
+      if (error != null) messenger.showSnackBar(SnackBar(content: Text(error)));
+    } on Exception catch (e, s) {
+      if (context.mounted) showDeviceIssue(context, ref, e, s, DeviceAction.saveFile, where: 'Proje fotoğrafı paylaşımı');
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final bytesAsync = ref.watch(projectPhotoBytesProvider((projectId: projectId, photoId: photo.id)));
+    final bytes = bytesAsync.valueOrNull;
     final description = photo.description.trim();
     return Scaffold(
       backgroundColor: Colors.black,
@@ -1883,6 +1930,12 @@ class _PhotoViewerScreen extends ConsumerWidget {
         foregroundColor: Colors.white,
         title: Text(photo.originalName, style: const TextStyle(fontSize: 14)),
         actions: [
+          if (bytes != null)
+            IconButton(
+              icon: const Icon(Icons.share_outlined),
+              tooltip: 'Fotoğrafı paylaş',
+              onPressed: () => _share(context, ref, bytes),
+            ),
           if (canManage)
             IconButton(
               icon: const Icon(Icons.delete_outline),
