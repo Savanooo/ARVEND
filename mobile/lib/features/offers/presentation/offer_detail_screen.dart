@@ -42,6 +42,12 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
   bool _sendingEmail = false;
   bool _downloadingPdf = false;
 
+  /// Dönüştürme 409 `offer_already_converted` döndü (teklif erişimin
+  /// olmayan bir projeye dönüştürülmüş): sunucunun açıklaması. projects.read
+  /// olmayan kişide `GET /offers/{id}/project` sorulamadığı için tek bilgi
+  /// kaynağı budur -- "Projeye Dönüştür" bir daha sunulmaz.
+  String? _alreadyConvertedNote;
+
   String get offerId => widget.offerId;
 
   // Yazmalar kapsayıcının `invalidate`'ini ilk await'ten ÖNCE alır: istek
@@ -160,8 +166,9 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     if (!mounted) return;
     final message = result.alreadyConvertedMessage;
     if (message != null) {
-      // Teklif bu arada (başka biri tarafından) erişimin olmayan bir projeye
-      // dönüştürülmüş: proje açılmadı, düğmeler tazelenen bilgiye göre değişir.
+      // Teklif (başka biri tarafından) erişimin olmayan bir projeye
+      // dönüştürülmüş: proje açılmadı, düğme yerine açıklama gösterilir.
+      setState(() => _alreadyConvertedNote = message);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
       return;
     }
@@ -737,6 +744,10 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                         'Bu teklif bir projeye dönüştürülmüş; o projenin üyesi olmadığın için projeyi göremezsin.',
                         key: ValueKey('offer-project-no-access'),
                       );
+                    }
+                    final convertedNote = _alreadyConvertedNote;
+                    if (convertedNote != null) {
+                      return ReadOnlyNotice(convertedNote, key: const ValueKey('offer-project-no-access'));
                     }
                     if (!canConvert) return const SizedBox.shrink();
                     return PrimaryButton(

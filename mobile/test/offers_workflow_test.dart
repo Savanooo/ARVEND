@@ -598,6 +598,43 @@ void main() {
       expect(find.text('Projeye Dönüştür'), findsNothing);
       expect(find.byKey(const ValueKey('offer-project-no-access')), findsOneWidget);
     });
+
+    // projects.read olmadan proje açabilen özel rol: dönüştürülmüş mü diye
+    // sorulamaz, karar sunucunun 409'udur. Ondan sonra düğme bir daha
+    // sunulmaz (eskiden aynı 409'a tekrar tekrar basılabiliyordu).
+    testWidgets('projects.create without projects.read: 409 replaces the button with the server message',
+        (tester) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: _meJson(permissions: ['projects.create']))],
+        '/offers/o1': [(status: 200, body: _offerJson(status: 'kabul edildi'))],
+        '/offers/o1/revisions': [(status: 200, body: {'revisions': <dynamic>[]})],
+        '/projects/from-offer/o1': [
+          (
+            status: 409,
+            body: {
+              'error': 'Bu teklif zaten bir projeye dönüştürülmüş; o projeyi görme yetkin yok.',
+              'code': 'offer_already_converted',
+            },
+          ),
+        ],
+      });
+      await _pumpDetail(tester, adapter, 'o1');
+      expect(adapter.calls, isNot(contains('/offers/o1/project')), reason: 'projects.read yok: sorgu atılmaz');
+      await tester.scrollUntilVisible(find.text('Projeye Dönüştür'), 300);
+      await tester.tap(find.text('Projeye Dönüştür'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Projeyi Oluştur'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Projeye Dönüştür'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('offer-project-no-access')),
+          matching: find.text('Bu teklif zaten bir projeye dönüştürülmüş; o projeyi görme yetkin yok.'),
+        ),
+        findsOneWidget,
+      );
+    });
   });
 
   group('OfferDetailScreen — share link + send email actions', () {
