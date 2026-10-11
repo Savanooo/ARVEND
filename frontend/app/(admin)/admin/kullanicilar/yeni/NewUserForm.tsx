@@ -178,6 +178,7 @@ export function NewUserForm({
               {createEmployee && unlinkedEmployees && (
                 <div className="flex flex-col gap-1.5">
                   <Select
+                    id="employee_choice"
                     label="Personel kaydı"
                     value={
                       personnel.selected === null

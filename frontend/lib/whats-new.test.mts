@@ -92,13 +92,11 @@ describe("Yenilikler (web)", () => {
     const owner = whatsNewSince(null, everyone);
     assert.ok(owner && owner.items.length > 0 && owner.items.length <= WHATS_NEW_MAX_ITEMS);
     const field: WhatsNewViewer = {
-      can: (p) => ["projects.tasks.read", "projects.expenses.create"].includes(p),
+      can: (p) => ["projects.tasks.read", "projects.tasks.update", "projects.expenses.create"].includes(p),
       trialOwnerAdmin: false,
     };
     const titles = whatsNewSince(null, field)?.items.map((i) => i.title) ?? [];
-    assert.ok(titles.length > 0);
-    assert.ok(!titles.includes("Kişi tek kayıt"));
-    assert.ok(!titles.includes("Deneme süresi uyarısı"));
+    assert.deepEqual(titles, ["Masrafta KDV ve Masraflarım", "Görev notları"]);
   });
 
   it("görüldü kaydı kişi başına", () => {

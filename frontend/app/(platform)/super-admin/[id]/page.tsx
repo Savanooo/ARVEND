@@ -6,6 +6,7 @@ import { apiServer } from "@/lib/api";
 import { ORG_STATUS } from "@/lib/status";
 import type { AuditEvent, Organization, OrganizationRole, Plan, User } from "@/lib/types";
 
+import { TrialBadge } from "../TrialBadge";
 import { OrganizationDetailTabs } from "./OrganizationDetailTabs";
 
 export default async function FirmaDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -31,6 +32,7 @@ export default async function FirmaDetailPage({ params }: { params: Promise<{ id
           <span className="flex flex-wrap items-center gap-3">
             {organization.name}
             <StatusBadge status={organization.status} registry={ORG_STATUS} />
+            <TrialBadge org={organization} now={new Date()} />
             <span className="text-sm font-normal text-text-muted">{planName}</span>
           </span>
         }

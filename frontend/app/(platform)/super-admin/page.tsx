@@ -10,12 +10,11 @@ import { Pagination } from "@/components/ui/Pagination";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Table, Td, Th, Tr } from "@/components/ui/Table";
 import { apiServer } from "@/lib/api";
-import { formatDateTR } from "@/lib/format";
 import { ORG_STATUS } from "@/lib/status";
-import { orgTrialBadge } from "@/lib/trial";
 import type { Organization } from "@/lib/types";
 
 import { StatusFilterTabs, type OrgListFilter } from "./StatusFilterTabs";
+import { TrialBadge } from "./TrialBadge";
 
 const PAGE_SIZE = 20;
 
@@ -107,18 +106,5 @@ export default async function SuperAdminOrganizationsPage({
         />
       </div>
     </>
-  );
-}
-
-// Deneme rozeti (kalan gün / bitti, İstanbul günü -- bkz. lib/trial.ts).
-// Süre dolsa da firmanın erişimi kesilmez; kesmek Süper Admin'in firma
-// durumunu değiştirmesidir (firma detayı > Genel).
-function TrialBadge({ org, now }: { org: Organization; now: Date }) {
-  const trial = orgTrialBadge(org, now);
-  if (!trial) return null;
-  return (
-    <span title={`Deneme bitişi: ${formatDateTR(trial.endsOn)}`}>
-      <Badge tone={trial.tone}>{trial.label}</Badge>
-    </span>
   );
 }

@@ -32,9 +32,11 @@ import {
 // pencere + sidebar altındaki "Yenilikler" düğmesiyle tekrar açma (mobil
 // Diğer > Hakkında > Yenilikler karşılığı). İçerik ve kurallar
 // lib/whats-new.ts'te. "Görüldü" kaydı localStorage'da (kişi başına);
-// pencere kapatılınca yazılır. Hiçbir hata kabuğu bozmaz: kayıt okunamazsa
-// (gizli pencere, engellenmiş site verisi) pencere kendiliğinden açılmaz --
-// her sayfa yüklemesinde yeniden çıkmasındansa hiç çıkmaması yeğ.
+// mobildeki gibi pencere AÇILIR AÇILMAZ yazılır -- kapatmadan sayfa
+// yenilense de ikinci kez çıkmaz. Hiçbir hata kabuğu bozmaz: kayıt
+// okunamazsa (gizli pencere, engellenmiş site verisi) pencere
+// kendiliğinden açılmaz -- her sayfa yüklemesinde yeniden çıkmasındansa
+// hiç çıkmaması yeğ.
 
 const ICONS: Record<WhatsNewIcon, LucideIcon> = {
   subcontracts: HardHat,
@@ -50,23 +52,28 @@ const ICONS: Record<WhatsNewIcon, LucideIcon> = {
 // tarayıcıda, kayıt okunduktan sonra açılır.
 const LATEST_KEY = WHATS_NEW_RELEASES[0]?.key ?? null;
 
-const listeners = new Set<() => void>();
+// Sayfa yüklemesindeki ilk okuma (anahtar başına): kayıt pencere açılır
+// açılmaz yazıldığı için karar bu ilk değere göre verilir -- yoksa yazma
+// pencereyi anında kapatırdı. Pencere kapanınca "görüldü"ye çekilir ki
+// başka bir bölüme geçince (kabuk yeniden kurulur) tekrar açılmasın.
+const seenAtLoad = new Map<string, string | null>();
 
-function subscribe(onChange: () => void) {
-  listeners.add(onChange);
-  window.addEventListener("storage", onChange);
-  return () => {
-    listeners.delete(onChange);
-    window.removeEventListener("storage", onChange);
-  };
+function readSeenAtLoad(storageKey: string): string | null {
+  if (!seenAtLoad.has(storageKey)) {
+    let seen: string | null;
+    try {
+      seen = window.localStorage.getItem(storageKey);
+    } catch {
+      seen = LATEST_KEY;
+    }
+    seenAtLoad.set(storageKey, seen);
+  }
+  return seenAtLoad.get(storageKey) ?? null;
 }
 
-function readSeen(storageKey: string): string | null {
-  try {
-    return window.localStorage.getItem(storageKey);
-  } catch {
-    return LATEST_KEY;
-  }
+// Değer sayfa ömrü boyunca sabit: dinlenecek bir değişiklik yok.
+function subscribe() {
+  return () => {};
 }
 
 function writeSeen(storageKey: string) {
@@ -76,7 +83,6 @@ function writeSeen(storageKey: string) {
   } catch {
     // Yazılamazsa en kötü ihtimalle bir sonraki girişte yine gösterilir.
   }
-  listeners.forEach((l) => l());
 }
 
 export function WhatsNew({
@@ -99,24 +105,27 @@ export function WhatsNew({
   );
   const lastSeen = useSyncExternalStore(
     subscribe,
-    () => readSeen(storageKey),
+    () => readSeenAtLoad(storageKey),
     () => LATEST_KEY
   );
   const pending = useMemo(() => whatsNewSince(lastSeen, viewer), [lastSeen, viewer]);
   const latest = useMemo(() => latestWhatsNew(viewer), [viewer]);
   const [manual, setManual] = useState<WhatsNewNotes | null>(null);
+  const [dismissed, setDismissed] = useState(false);
 
-  // Yeni yayında kişinin görebileceği madde yoksa pencere açılmaz ama yayın
-  // "görüldü" yazılır -- her girişte aynı karar yeniden verilmesin.
+  // Görülmemiş yayın: pencere açılırken "görüldü" yazılır. Kişinin
+  // görebileceği madde yoksa pencere hiç açılmaz ama yayın yine yazılır --
+  // her girişte aynı karar yeniden verilmesin.
   useEffect(() => {
-    if (!pending && hasUnseenRelease(lastSeen)) writeSeen(storageKey);
-  }, [pending, lastSeen, storageKey]);
+    if (hasUnseenRelease(lastSeen)) writeSeen(storageKey);
+  }, [lastSeen, storageKey]);
 
-  const notes = manual ?? pending;
+  const notes = manual ?? (dismissed ? null : pending);
 
   function close() {
     setManual(null);
-    writeSeen(storageKey);
+    setDismissed(true);
+    seenAtLoad.set(storageKey, LATEST_KEY);
   }
 
   return (

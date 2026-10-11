@@ -82,7 +82,8 @@ export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
         icon: "task-notes",
         title: "Görev notları",
         body: "Görev detayında not bırakıp ekibi işin durumundan haberdar edebilirsin.",
-        permission: "projects.tasks.read",
+        // Not yazmak ("Bilgi Ver") görev güncelleme izniyle (Saha'da da var).
+        permission: "projects.tasks.update",
       },
       {
         icon: "trial",
