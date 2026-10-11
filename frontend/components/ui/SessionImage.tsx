@@ -15,6 +15,7 @@ import { fetchWithSession } from "@/lib/api";
  * fetchWithSession ile (401'de oturum yenilenir) blob olarak alınır ve
  * nesne URL'siyle gösterilir; tıklayınca aynı blob yeni sekmede açılır.
  * Görsel, görünür alana yaklaşınca yüklenir; bileşen kalkınca URL bırakılır.
+ * Yüklenemezse (ağ kesintisi vb.) kutucuğa tıklamak yeniden dener.
  */
 export function SessionImage({
   path,
@@ -29,6 +30,7 @@ export function SessionImage({
   const ref = useRef<HTMLDivElement>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const el = ref.current;
@@ -69,7 +71,7 @@ export function SessionImage({
       observer?.disconnect();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [path]);
+  }, [path, attempt]);
 
   return (
     <div ref={ref} className={className}>
@@ -79,14 +81,18 @@ export function SessionImage({
           <img src={url} alt={alt} className="h-full w-full object-cover" />
         </a>
       ) : failed ? (
-        <div
-          role="img"
-          aria-label={`${alt} (yüklenemedi)`}
-          title="Fotoğraf yüklenemedi"
-          className="flex h-full w-full items-center justify-center bg-surface-hover text-text-muted"
+        <button
+          type="button"
+          onClick={() => {
+            setFailed(false);
+            setAttempt((n) => n + 1);
+          }}
+          aria-label={`${alt} yüklenemedi, tekrar dene`}
+          title="Fotoğraf yüklenemedi — tekrar denemek için tıkla"
+          className="flex h-full w-full items-center justify-center bg-surface-hover text-text-muted hover:text-text"
         >
           <ImageOff size={20} strokeWidth={1.5} />
-        </div>
+        </button>
       ) : (
         <div aria-hidden className="h-full w-full animate-pulse bg-surface-hover" />
       )}
