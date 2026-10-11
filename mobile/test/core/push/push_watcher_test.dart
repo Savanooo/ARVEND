@@ -27,6 +27,12 @@ class _FakePush implements PushMessaging {
 
   /// Verilirse anahtar silinemez (ör. ağ yok).
   Object? deleteError;
+
+  /// Verilirse silme bu tamamlanana kadar sürer (yavaş Play Hizmetleri).
+  Completer<void>? deleteGate;
+
+  /// Verilirse silmeden sonra Firebase'in vereceği yeni anahtar.
+  String? tokenAfterDelete;
   String? currentToken = 'fcm-token-${'x' * 40}';
 
   @override
@@ -48,8 +54,10 @@ class _FakePush implements PushMessaging {
   @override
   Future<void> deleteToken() async {
     deleteAttempts++;
+    if (deleteGate case final gate?) await gate.future;
     if (deleteError != null) throw deleteError!;
     deletes++;
+    if (tokenAfterDelete case final next?) currentToken = next;
   }
 }
 
@@ -233,6 +241,37 @@ void main() {
 
       expect(push.deletes, 1);
       expect(await pending(tester), isFalse);
+    });
+
+    testWidgets('eski anahtar silinirken başka biri girerse yeni anahtarla kaydolur (silinecek olanla değil)',
+        (tester) async {
+      final push = _FakePush()
+        ..deleteGate = Completer<void>()
+        ..tokenAfterDelete = 'fcm-token-yeni-${'z' * 40}';
+      final r = await _pump(tester, push, user: _user());
+      final auth = r.container.read(authControllerProvider.notifier) as _Auth;
+      final oldToken = push.currentToken;
+
+      // Oturum süresi doldu: anahtar siliniyor (yavaş), bu arada u2 giriş yaptı.
+      auth.sessionExpired();
+      await tester.pumpAndSettle();
+      auth.signIn(_user(id: 'u2'));
+      await tester.pumpAndSettle();
+      final registered = r.adapter.calls.where((c) => c == '/push/devices').length;
+      expect(registered, 1, reason: 'u2, silme bitmeden kaydolmaz');
+
+      push.deleteGate!.complete();
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pumpAndSettle();
+
+      final bodies = [
+        for (var i = 0; i < r.adapter.calls.length; i++)
+          if (r.adapter.calls[i] == '/push/devices') r.adapter.requestBodies[i] as Map,
+      ];
+      expect(bodies, hasLength(2));
+      expect(bodies.last['token'], push.tokenAfterDelete);
+      expect(bodies.last['token'], isNot(oldToken));
     });
 
     testWidgets('bekleyen silme varken biri giriş yaparsa anahtar silinmez, onun adına kaydedilir', (tester) async {

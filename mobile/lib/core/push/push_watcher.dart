@@ -144,6 +144,11 @@ class _PushWatcherState extends ConsumerState<PushWatcher> {
   Future<void> _registerCurrent() async {
     try {
       await _push.requestPermission();
+      // Önceki oturumun anahtarı hâlâ siliniyorsa (ör. oturum süresi doldu,
+      // hemen başka biri girdi) bitmesi beklenir: yeni oturum silinecek
+      // anahtarla değil, yenisiyle kaydolur.
+      await ref.read(authControllerProvider.notifier).pushTokenSettled;
+      if (!mounted) return;
       final token = await _push.token();
       if (token != null) await _register(token);
     } catch (e) {

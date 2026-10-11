@@ -158,10 +158,21 @@ class AuthController extends AsyncNotifier<User?> {
     state = const AsyncData(null);
   }
 
+  Future<void>? _pushTokenDeletion;
+
+  /// Süren bir anahtar silme (çıkış, oturum sonu, yeniden deneme) bitene
+  /// kadar bekler; hata fırlatmaz. PushWatcher yeni oturumun anahtarını
+  /// okumadan önce bunu bekler: silme, yeni kullanıcı eski anahtarla
+  /// kaydolduktan SONRA biterse o kullanıcıya bildirim hiç gitmezdi.
+  Future<void> get pushTokenSettled => _pushTokenDeletion ?? Future<void>.value();
+
   /// Anahtar silinemezse (ağ yok, Play Hizmetleri yanıt vermedi) oturum yine
   /// kapanır; silme kaydedilir ve bir sonraki açılışta/öne gelişte yeniden
-  /// denenir (bkz. [retryPendingPushCleanup]).
-  Future<void> _deletePushToken() async {
+  /// denenir (bkz. [retryPendingPushCleanup]). Aynı anda tek silme sürer.
+  Future<void> _deletePushToken() =>
+      _pushTokenDeletion ??= _runPushTokenDeletion().whenComplete(() => _pushTokenDeletion = null);
+
+  Future<void> _runPushTokenDeletion() async {
     final pending = ref.read(pushCleanupStoreProvider);
     // Kayıt beklenmez: tercih deposu çıkışı geciktirmesin.
     try {
