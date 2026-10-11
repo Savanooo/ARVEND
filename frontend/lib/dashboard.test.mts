@@ -411,7 +411,7 @@ describe("webHrefFor", () => {
     progress_claim: `/projeler/${P}?tab=finans`,
     subcontract_change_order: `/projeler/${P}?tab=finans`,
     change_order: `/projeler/${P}?tab=finans`,
-    budget_adjustment: `/projeler/${P}?tab=maliyet`,
+    budget_adjustment: `/projeler/${P}?tab=maliyet&alt=butce#butce-revizyonlari`,
     contract: `/projeler/${P}?tab=finans`,
     payment_plan_item: `/projeler/${P}?tab=finans`,
     invoice: `/projeler/${P}?tab=finans`,
