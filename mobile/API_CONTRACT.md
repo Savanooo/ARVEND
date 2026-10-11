@@ -64,6 +64,7 @@ Mobile never does financial arithmetic — all totals come from the backend as-i
 - `POST /auth/refresh` no body (reads refresh_token cookie) → 200 `User` + new cookies. ANY non-200 clears both cookies server-side — treat as full logout (see account-access-issue table for the three classifiable 403 causes; a plain invalid/expired/reused refresh token is 401 `oturum geçersiz veya süresi dolmuş` and is NOT one of the three).
 - `POST /auth/logout` no body → revokes refresh token.
 - `GET /auth/me` → `User`. Subject to the SAME organization-status/user-active checks as any other authenticated route (i.e. it can also 403 with the org/user-blocked signatures above, not just a bare "not logged in" 401).
+- Permission refresh (mobile, since 2026-10-11): permissions change on the web while the Android process can live for days, so `AuthController.recheckPermissions` re-reads `/auth/me` when the app comes to the foreground, every 5 minutes while it is open (`PermissionRefreshWatcher`, stopped in the background) and after any 403 `code: "permission_denied"` (`ApiClient.onPermissionDenied`). At most one call per 30 s (`permissionRecheckInterval`); an unchanged user is not written back to the state.
 - `PATCH /users/me/password` `{current_password, new_password}` → `{ok:true}`. New password >= 8 chars.
 - `POST /users/me/set-initial-password` `{new_password}` → the `must_change_password=true` flow (mobile "Yeni Şifre Belirleyin" screen) — does NOT require `current_password` (the user is already authenticated via a temporary password issued by an admin).
 
@@ -149,6 +150,7 @@ Server: `backend/internal/service/app_release_service.go`; client:
 - Status enum (exact, Turkish): `taslak`, `gönderildi`, `kabul edildi`, `reddedildi`. Once `kabul edildi`, locked forever (no further status change, no delete).
 - Item fields: `product_id`(nullable), `product_name`, `quantity`(number), `unit_price`(number), `line_total`(number, server-computed), `unit`, `section_label`, `calc_category_id`, `calc_snapshot`(opaque JSON) — last 4 `omitempty`.
 - Create validation: >=1 item after dropping blank-name/qty<=0/price<0 rows; `customer_id` OR free-text `customer_name` required. **Company defaults (since 2026-10-07):** on create, omitted/null `vat_rate` → the firm's default VAT (onboarding "Teklif" step; 20% if never saved), omitted/null `currency` → firm default currency (TRY if never saved; must be a 3-letter code, `TL` is read as TRY, otherwise 400), omitted/null `valid_until` → Istanbul today + firm validity days (stays null if the firm has none); `valid_until: ""` = deliberately open-ended. Explicit values (incl. VAT 0) are always kept. On `PUT`, omitted `vat_rate` keeps the revision's current rate (it used to reset to 20%); `currency` is not editable. Offer responses now carry `currency`.
+- Passive customer (since 2026-10-11): `customer_id` of an archived customer (`is_active=false`) → 400 `pasif müşteriye yeni teklif verilemez; önce müşteriyi aktifleştir` on create, and on `PUT` when the draft is not already linked to that customer (a draft linked before the customer was archived stays editable). Mobile hides "Yeni Teklif" on a passive customer's card.
 - `GET /offers/defaults` (`offers.create`) → `{vat_rate, currency, validity_days|null, valid_until|null ("YYYY-MM-DD", today Istanbul + days), payment_terms, delivery_terms, footer}` — never bank/IBAN data. Mobile pre-fills KDV from it in the new-offer form and shows the default validity end as info (the form has no date field and sends `valid_until: null`). Mobile asks for confirmation before saving an offer with any 0-priced line.
 - **Conversion to project is NOT under `/offers`** — it's `POST /projects/from-offer/{offerId}`, requires current revision `status == kabul edildi`, idempotent. Check-if-converted: `GET /offers/{id}/project` (404 = not yet).
 - Notifications (since 2026-10-07, `backend/internal/service/customer_link_notify.go`; `entity_type` `offer`, `action_target` `/teklifler/{id}`, no `project_id`): `offer_accepted` / `offer_rejected` when the customer decides on the share link ("Müşteri teklifi kabul etti" / "Müşteri teklifi reddetti") or staff sets the status ("Teklif kabul edildi" / "Teklif reddedildi", body ends with "· Kaydeden: {name}"; only on a real status change). Recipients, deduplicated, actor excluded, all must hold `offers.read`: the offer's creator, every Owner/Admin, and `offers.update` holders except the legacy "Eski Sistem" role. `offer_viewed` ("Müşteri teklifi açtı"): the FIRST open of a revision while it awaits the customer's decision (current revision, `gönderildi`) — once per revision, not on refresh/second link/draft preview/after the decision; to the creator only, or every Owner/Admin when there is no creator who can still read offers. Body: `TKL-… · {customer} · 1.250.000 TL` (a later revision's open says `TKL-… (Revizyon N)`). The first open is marked in `GET /offers/{id}/events` as a `customer_viewed` row with metadata `first_open: true`. Link-preview fetches (WhatsApp, mail scanners) can't be told apart from the customer: the public page is server-rendered and the API never sees the browser's User-Agent.
@@ -304,6 +306,7 @@ repository below.
 ## Customers (`requireAuth`, no admin gate)
 - `GET /customers?filter=aktif|pasif&q=` — `q` matches **name only** (not phone/email). No pagination.
 - `GET/POST/PUT/DELETE(soft)` — `customerResponse`: id,name,phone,email,address,tax_office,tax_number,notes,is_active. Phone/email always `""` not null — check non-empty for call/email actions.
+- Customer card (mobile): Teklifler = `GET /offers/?customer_id=`, Projeler = `GET /projects?customer_id=` (amounts only with `projects.finance.read`). "Finansal Özet" sums the list rows' `current_contract_value`/`collected_amount`/`remaining_receivable` per currency with the dashboard's open-receivable rule (since 2026-10-11): `cancelled` projects are skipped, each project's remaining is clamped at 0, over-collection is a separate "Fazla Tahsilat" row. Pull-to-refresh, returning from an opened offer/project and offer/collection/change-order writes refresh the sections.
 - Duplicate guard: `POST`/`PUT` answer **409** `{error, code:"duplicate_customer", field:"tax_number"|"phone", existing_customer:{id,name,is_active}}` when another customer has the same tax number or phone; resend with `allow_duplicate: true` to save anyway. Mobile's customer form shows a dialog (Mevcut müşteriyi aç / Yine de kaydet / Vazgeç). `ApiException` now carries `code` and the raw JSON `body` for such cases.
 
 ## Products (`requireAuth`; read = `products.read`, write = `products.manage`) — mobile since 1.3.0+4 (`lib/features/products/`)
@@ -327,6 +330,12 @@ repository below.
 - Linking a login that is already linked to ANOTHER personnel record: if that other record was auto-created together with the login and never used (no edits, wage, attendance, payments, team, task or plan), it is deleted and the link moves (the admin's explicit choice wins). Otherwise 409 `bu kullanıcı hesabı zaten "<ad>" personel kaydına bağlı; …`.
 - `GET /employees/link-suggestions` (`employees.manage` + `organization.users.read`) → `{suggestions:[{user_id, username, user_full_name, employee_id, employee_full_name, employee_position}]}`: logins without personnel vs. unlinked active personnel with exactly the same normalized name (unique on both sides). Never links by itself.
 - Attendance is **pure manual entry, no GPS/geofence, no separate check-in/out calls**: `GET /attendance?month=YYYY-MM`, `POST/PUT /attendance` `{employee_id, date, check_in, check_out, work_hours(number), status, note}`. Status ∈ `geldi|yarım gün|gelmedi|izinli`. One record per employee+date (409 on dup).
+- Payroll (`/payroll`, migration 0048) needs only `payroll.read` / `payroll.manage` — no `attendance.*`. Mobile (since 2026-10-11): a payroll-only user gets Diğer > "Maaş" (same screen, `/diger/mesai`), the list is built from `GET /payroll?month=` (worked days/hours from the summary) and `/attendance` + `/employees` are never called. A failed `/payroll` shows "Maaş bilgisi alınamadı" + Tekrar Dene (it used to be swallowed: no card, "Bu aya ait ödeme yok").
+
+## Notifications (`notifications.read`; always the caller's own rows)
+- `GET /notifications?page=&limit=` → `{notifications, total}` (created_at DESC, `created_at` RFC3339 to the second); `GET /notifications/unread-count` → `{unread_count}`; `POST /notifications/{id}/read`.
+- `POST /notifications/read-all` — optional body `{before: "<RFC3339>"}` (since 2026-10-11): only notifications created up to that second are marked, so one that arrived after the list was opened (or a grouped one that was bumped since) stays unread. No body = every unread (older clients, web today). Mobile sends the newest `created_at` of the list it shows and does nothing when the list is empty. An older server ignores the body.
+- The home "Okunmamış bildirim" tile reads `unreadNotificationCountProvider` (the bell's counter); the dashboard snapshot's `notifications.unread` is only the fallback.
 
 ## Users, Roles & Permissions (`requireAdmin` (coarse role) **plus** RBAC) — mobile since 1.3.0+4 (`lib/features/access/`)
 Every endpoint here needs coarse `role=admin` in addition to the permission, so mobile gates with the strict `canAccess` (`core/auth/permissions.dart`, `kAdminRoleOnlyPermissions`).
@@ -348,7 +357,10 @@ Every endpoint here needs coarse `role=admin` in addition to the permission, so 
   `lib/features/suppliers/`). Writes (`.manage`): `POST /`, `PUT /{id}`,
   `DELETE /{id}` (archive), `POST /{id}/reactivate`. `code` is immutable
   after create. Supplier `iban` is write-only (response has `iban_set`);
-  omit the key to keep the stored IBAN. Supplier PUT overwrites
+  omit the key to keep the stored IBAN, `""` clears it. Since 2026-10-11 a
+  non-empty IBAN is normalized (spaces dropped, upper-cased) and validated
+  (ISO 13616 mod-97, TR = 26 chars) — invalid → 400 `IBAN geçersiz: …`
+  (the same rule as mobile's `isValidIban`). Supplier PUT overwrites
   `specialty` with whatever is sent — always send it back.
 - `GET /organization/settings` + `PUT /organization/settings/{company,
   billing,offers,finance,business}` — `requireAdmin`. This is a **different**
@@ -357,7 +369,10 @@ Every endpoint here needs coarse `role=admin` in addition to the permission, so 
   the first-run onboarding wizard (`basePath: '/onboarding'`, same
   sub-resource shape) and the post-onboarding "Firma Ayarları" screen
   (`basePath: '/organization/settings'`) off the identical request/response
-  shape — only the base path differs.
+  shape — only the base path differs. `PUT …/offers` writes
+  `default_currency` as sent (empty → TRY): mobile always sends the current
+  value (TRY/USD/EUR picker, any other stored code kept) — before
+  2026-10-11 it always sent TRY and silently overwrote a web choice.
 - `GET /organization/roles`, `GET /organization/permissions` — consumed
   since 1.3.0+4 by the organization-admin screens (see "Users, Roles &
   Permissions" above). Platform (Super Admin) management stays web-only.
