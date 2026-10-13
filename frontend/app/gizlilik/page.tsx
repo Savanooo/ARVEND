@@ -200,9 +200,14 @@ export default function GizlilikPage() {
       </Section>
 
       <Section id="hesap-silme" title="6. Hesabınızı ve verilerinizi silme">
-        <p>Hesabınızın ve kişisel verilerinizin silinmesini iki yoldan isteyebilirsiniz:</p>
+        <p>Hesabınızı ve kişisel verilerinizi şu yollarla sildirebilirsiniz:</p>
         <List
           items={[
+            <>
+              Mobil uygulamada <strong>Profil → Hesabımı Sil</strong>: şifrenizle onaylayınca hesabınız hemen ve kalıcı
+              olarak silinir. Firmanın tek sahibi bu yolu kullanamaz; önce başka bir kullanıcıyı sahip yapmalı ya da
+              firmayı kapatmak için bize yazmalıdır.
+            </>,
             <>Firmanızın yöneticisi, uygulamadaki Kullanıcılar ekranından hesabınızı kapatabilir.</>,
             <>
               Ya da {mail} adresine &quot;Hesap silme&quot; konulu bir e-posta gönderin; kullanıcı adınızı ve
