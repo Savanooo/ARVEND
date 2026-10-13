@@ -202,6 +202,40 @@ func (h *UserHandler) ChangeOwnPassword(w http.ResponseWriter, r *http.Request) 
 	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+type deleteOwnAccountRequest struct {
+	Password string `json:"password"`
+}
+
+// DeleteOwnAccount: POST /users/me/delete -- kullanıcı kendi hesabını siler
+// (bkz. UserService.DeleteOwnAccount). Başarıda oturum zaten kapanmıştır;
+// istemci yerel oturumunu temizler.
+func (h *UserHandler) DeleteOwnAccount(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		httpjson.Error(w, http.StatusUnauthorized, "oturum bulunamadı")
+		return
+	}
+	var req deleteOwnAccountRequest
+	if err := httpjson.Decode(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	if err := h.svc.DeleteOwnAccount(r.Context(), userID, orgID, req.Password); err != nil {
+		switch {
+		case errors.Is(err, domain.ErrInvalidCredentials):
+			httpjson.Error(w, http.StatusBadRequest, "şifre hatalı")
+		case errors.Is(err, domain.ErrLastOwner):
+			httpjson.Error(w, http.StatusConflict,
+				"firmanın tek sahibi olduğun için hesabını silemezsin; önce başka bir kullanıcıyı Sahip yap ya da firmayı kapatmak için destekle iletişime geç")
+		default:
+			h.writeUserError(w, err)
+		}
+		return
+	}
+	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 type setInitialPasswordRequest struct {
 	NewPassword string `json:"new_password"`
 }

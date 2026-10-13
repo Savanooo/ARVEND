@@ -11,6 +11,38 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const anonymizeDeletedUser = `-- name: AnonymizeDeletedUser :execrows
+UPDATE users
+SET username = $1, full_name = $2, password_hash = $3
+WHERE id = $4 AND organization_id = $5 AND deleted_at IS NOT NULL
+`
+
+type AnonymizeDeletedUserParams struct {
+	Username       string      `json:"username"`
+	FullName       string      `json:"full_name"`
+	PasswordHash   string      `json:"password_hash"`
+	ID             pgtype.UUID `json:"id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+}
+
+// Kullanıcı KENDİ hesabını sildiğinde (UserService.DeleteOwnAccount):
+// kullanıcı adı, ad ve şifre özeti geri dönüşsüz değiştirilir. Satır kalır
+// -- teklif/proje/masraf kayıtları kimin girdiğini id ile tutar, o kayıtlar
+// firmanındır. Yalnızca önce yumuşak silinmiş satırda çalışır.
+func (q *Queries) AnonymizeDeletedUser(ctx context.Context, arg AnonymizeDeletedUserParams) (int64, error) {
+	result, err := q.db.Exec(ctx, anonymizeDeletedUser,
+		arg.Username,
+		arg.FullName,
+		arg.PasswordHash,
+		arg.ID,
+		arg.OrganizationID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const countActiveUsers = `-- name: CountActiveUsers :one
 SELECT count(*) FROM users WHERE organization_id = $1 AND is_active = true AND deleted_at IS NULL
 `

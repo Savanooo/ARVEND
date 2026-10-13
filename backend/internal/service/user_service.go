@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
@@ -418,6 +420,79 @@ func (s *UserService) ChangeOwnPassword(ctx context.Context, id, organizationID,
 	}
 	if err := revokeOtherSessions(ctx, txq, uid, keepRefreshToken); err != nil {
 		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// DeletedUserFullName: kendi hesabını silen kullanıcının yerine kalan ad --
+// firmanın kayıtlarında (teklif, proje, masraf) kimin girdiği böyle görünür.
+const DeletedUserFullName = "Silinmiş kullanıcı"
+
+// DeleteOwnAccount: kullanıcının kendi hesabını uygulamadan silmesi. App
+// Store kuralı (5.1.1(v)): hesap açılabilen uygulamada silme de uygulamanın
+// içinden başlatılabilmeli; KVKK'da da kişisel verinin silinmesini istemek
+// kullanıcının hakkı. Şifreyle onaylanır.
+//
+// Yöneticinin silmesiyle (deleteUser) aynı yumuşak silme yapılır: hesap
+// pasifleşir, açık oturumlar ve telefon kayıtları kapanır. Üstüne kullanıcı
+// adı, ad ve şifre özeti geri dönüşsüz değiştirilir; hesap geri yüklenemez,
+// kullanıcı adı başkasına verilebilir. Teklif, proje, masraf gibi firma
+// kayıtları kalır, girenin adı DeletedUserFullName görünür. Bağlı personel
+// kaydı firmanın özlük kaydıdır, ona dokunulmaz.
+//
+// Firmanın tek aktif Sahibi kendini silemez (domain.ErrLastOwner): firma
+// sahipsiz kalırdı. Önce başka birini Sahip yapmalı ya da firmayı kapatmak
+// için destek istemeli.
+func (s *UserService) DeleteOwnAccount(ctx context.Context, id, organizationID, password string) error {
+	uid, err := repository.StringToUUID(id)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	row, err := s.q.GetUserByIDInOrg(ctx, sqlc.GetUserByIDInOrgParams{ID: uid, OrganizationID: orgID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrNotFound
+		}
+		return err
+	}
+	if !auth.CheckPassword(row.PasswordHash, password) {
+		return domain.ErrInvalidCredentials
+	}
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		return err
+	}
+	hash, err := auth.HashPassword(hex.EncodeToString(secret))
+	if err != nil {
+		return err
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+	if _, err := deleteUser(ctx, txq, id, organizationID, id); err != nil {
+		return err
+	}
+	rows, err := txq.AnonymizeDeletedUser(ctx, sqlc.AnonymizeDeletedUserParams{
+		ID:             uid,
+		OrganizationID: orgID,
+		// varchar(50): "silinmis-" + 32 onaltılık hane, kimlikten türediği için tekil.
+		Username:     "silinmis-" + hex.EncodeToString(uid.Bytes[:]),
+		FullName:     DeletedUserFullName,
+		PasswordHash: hash,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrNotFound
 	}
 	return tx.Commit(ctx)
 }

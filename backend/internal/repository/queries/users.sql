@@ -170,6 +170,15 @@ UPDATE users
 SET deleted_at = now(), deleted_by = $3, is_active = false
 WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL;
 
+-- name: AnonymizeDeletedUser :execrows
+-- Kullanıcı KENDİ hesabını sildiğinde (UserService.DeleteOwnAccount):
+-- kullanıcı adı, ad ve şifre özeti geri dönüşsüz değiştirilir. Satır kalır
+-- -- teklif/proje/masraf kayıtları kimin girdiğini id ile tutar, o kayıtlar
+-- firmanındır. Yalnızca önce yumuşak silinmiş satırda çalışır.
+UPDATE users
+SET username = sqlc.arg(username), full_name = sqlc.arg(full_name), password_hash = sqlc.arg(password_hash)
+WHERE id = sqlc.arg(id) AND organization_id = sqlc.arg(organization_id) AND deleted_at IS NOT NULL;
+
 -- name: RestoreUser :execrows
 -- Yalnızca silme durumunu geri alır -- is_active BİLİNÇLİ OLARAK
 -- dokunulmadan false kalır (bkz. service/user_lifecycle.go restoreUser

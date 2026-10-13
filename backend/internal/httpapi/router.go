@@ -132,6 +132,8 @@ func NewRouter(d Deps) http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(requireOnboarded)
 				r.Patch("/me/password", d.Users.ChangeOwnPassword)
+				// Kendi hesabını silme (App Store 5.1.1(v), KVKK) -- şifreyle onaylı.
+				r.Post("/me/delete", d.Users.DeleteOwnAccount)
 
 				r.Group(func(r chi.Router) {
 					// requireAdmin KORUNUR (super_admin'in tenant kullanıcı
