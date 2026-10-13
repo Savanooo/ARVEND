@@ -147,6 +147,80 @@ void main() {
     });
   });
 
+  group('Hesabımı Sil', () {
+    Future<(FakeHttpClientAdapter, ProviderContainer)> pumpWithDelete(
+      WidgetTester tester, {
+      required ({int status, Object body}) deleteResponse,
+      Map<String, dynamic>? meJson,
+    }) async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/auth/me': [(status: 200, body: meJson ?? _meJson())],
+        '/users/me/delete': [deleteResponse],
+      });
+      final client = await buildFakeApiClient(adapter);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [apiClientProvider.overrideWithValue(client)],
+          child: const MaterialApp(home: ProfileScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(tester.element(find.byType(ProfileScreen)));
+      return (adapter, container);
+    }
+
+    Future<void> fillAndConfirm(WidgetTester tester, String password) async {
+      final tile = find.byKey(const ValueKey('profile-delete-account'));
+      await tester.ensureVisible(tile);
+      await tester.tap(tile);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const ValueKey('delete-account-password')), password);
+      await tester.tap(find.byKey(const ValueKey('delete-account-submit')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('delete-account-confirm')));
+      // pumpAndSettle değil: oturum kapanınca ekran (router'sız test) sonsuz
+      // dönen yükleme göstergesine düşer, hiç "durulmaz".
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+
+    testWidgets('şifre ve onayla hesap silinir, yerel oturum kapanır (sunucuya çıkış isteği atılmaz)', (tester) async {
+      final (adapter, container) = await pumpWithDelete(
+        tester,
+        deleteResponse: (status: 200, body: {'ok': true}),
+      );
+
+      await fillAndConfirm(tester, 'GeciciSifre123!');
+
+      expect(adapter.calls, contains('/users/me/delete'));
+      expect(adapter.calls, isNot(contains('/auth/logout')));
+      expect(container.read(authControllerProvider).valueOrNull, isNull);
+    });
+
+    testWidgets('yanlış şifrede sunucunun mesajı gösterilir, oturum açık kalır', (tester) async {
+      final (_, container) = await pumpWithDelete(
+        tester,
+        deleteResponse: (status: 400, body: {'error': 'şifre hatalı'}),
+      );
+
+      await fillAndConfirm(tester, 'yanlis');
+
+      expect(find.text('şifre hatalı'), findsOneWidget);
+      expect(container.read(authControllerProvider).valueOrNull, isNotNull);
+    });
+
+    testWidgets('Süper Admin\'de görünmez', (tester) async {
+      await pumpWithDelete(
+        tester,
+        deleteResponse: (status: 200, body: {'ok': true}),
+        meJson: _meJson(role: 'super_admin')..['organization_name'] = '',
+      );
+
+      expect(find.byKey(const ValueKey('profile-delete-account')), findsNothing);
+    });
+  });
+
   group('OtherMenuScreen', () {
     testWidgets('Hakkında sekmesi her zaman görünür', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {'/auth/me': [(status: 200, body: _meJson())]});

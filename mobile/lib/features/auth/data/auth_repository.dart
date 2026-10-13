@@ -51,6 +51,15 @@ class AuthRepository {
         data: {'current_password': currentPassword, 'new_password': newPassword},
       );
 
+  /// Kullanıcı kendi hesabını kalıcı olarak siler (App Store 5.1.1(v),
+  /// KVKK). Şifreyle onaylanır; firmanın tek Sahibi silemez (409). Başarıda
+  /// sunucu oturumları ve telefon kayıtlarını kapatmıştır -- çağıran
+  /// AuthController.accountDeleted ile yalnızca yerel temizlik yapar.
+  Future<void> deleteOwnAccount(String password) => _client.post<void>(
+        '/users/me/delete',
+        data: {'password': password},
+      );
+
   /// "Şifre belirle" (must_change_password) akışı -- mevcut şifreyi
   /// İSTEMEZ (changePassword'ün aksine): kullanıcı Super Admin'in verdiği
   /// geçici şifreyle zaten oturum açmış durumda, yalnızca requireAuth

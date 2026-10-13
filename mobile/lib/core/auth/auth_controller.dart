@@ -135,6 +135,20 @@ class AuthController extends AsyncNotifier<User?> {
     state = const AsyncData(null);
   }
 
+  /// Kullanıcı kendi hesabını sildi (bkz. AuthRepository.deleteOwnAccount):
+  /// sunucu hesabı, oturumları ve telefon kayıtlarını zaten kapattı. Burada
+  /// yalnızca yerel temizlik yapılır; sunucuya çıkış ya da kayıt silme
+  /// isteği atılmaz (oturum artık geçersiz, 401 -> refresh döngüsüne girerdi).
+  Future<void> accountDeleted() async {
+    await _deletePushToken();
+    await ref.read(apiClientProvider).clearSession();
+    _cancelRevalidate();
+    _remember(null);
+    unawaited(ref.read(localUserFilesProvider).clear());
+    ref.read(accountAccessIssueProvider.notifier).state = null;
+    state = const AsyncData(null);
+  }
+
   /// Telefonun bildirim kaydı: önce sunucudaki kayıt, sonra -- sunucu
   /// kaydı silinemese de (zaman aşımı, 5xx) -- anahtarın KENDİSİ silinir
   /// (mobil-genel-b3). Geçersizleşen anahtarın sunucu kaydını sunucu ilk

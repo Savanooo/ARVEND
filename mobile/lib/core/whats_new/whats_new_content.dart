@@ -44,6 +44,18 @@ class WhatsNewRelease {
 
 /// En yeni sürüm en üstte.
 const kWhatsNewReleases = <WhatsNewRelease>[
+  // App Store incelemesi (5.1.1(v)): hesap uygulamanın içinden silinebilmeli.
+  WhatsNewRelease(
+    build: 21,
+    version: '1.5.15',
+    items: [
+      WhatsNewItem(
+        icon: Icons.person_remove_outlined,
+        title: 'Hesap silme',
+        body: 'Profil > Hesabımı Sil ile hesabını şifrenle onaylayıp kalıcı olarak silebilirsin.',
+      ),
+    ],
+  ),
   // Mobil düzeltme sürümü: paylaşım menüsü, teklif geçerlilik tarihi,
   // metraj ve müşteri kartı düzeltmeleri, anlık yetki tazeleme.
   WhatsNewRelease(
