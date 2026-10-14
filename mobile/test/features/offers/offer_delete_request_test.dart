@@ -109,8 +109,8 @@ void main() {
     expect(find.textContaining('Silme talebi gönderildi'), findsOneWidget);
     expect(find.byKey(const ValueKey('offer-delete-request-notice')), findsOneWidget);
     // Kendi talebini geri çekebilir, karar veremez.
-    expect(find.byKey(const ValueKey('offer-delete-withdraw')), findsOneWidget);
-    expect(find.byKey(const ValueKey('offer-delete-approve')), findsNothing);
+    expect(find.byKey(const ValueKey('delete-request-withdraw')), findsOneWidget);
+    expect(find.byKey(const ValueKey('delete-request-approve')), findsNothing);
     // Bekleyen talep varken yeni talep sunulmaz (başka seçenek de yoksa menü
     // hiç görünmez).
     expect(find.byTooltip('Diğer işlemler'), findsNothing);
@@ -127,9 +127,9 @@ void main() {
     );
     expect(find.textContaining('Satış Personeli bu teklifin silinmesini istedi'), findsOneWidget);
     expect(find.textContaining('Neden: yanlış müşteri'), findsOneWidget);
-    expect(find.byKey(const ValueKey('offer-delete-withdraw')), findsNothing);
+    expect(find.byKey(const ValueKey('delete-request-withdraw')), findsNothing);
 
-    await tester.tap(find.byKey(const ValueKey('offer-delete-approve')));
+    await tester.tap(find.byKey(const ValueKey('delete-request-approve')));
     await tester.pumpAndSettle();
     expect(adapter.calls, isNot(contains('/offers/o1/delete-request/approve')), reason: 'onaydan önce istek yok');
     await tester.tap(find.byKey(const ValueKey('offer-delete-approve-confirm')));
@@ -151,7 +151,7 @@ void main() {
         '/offers/o1/delete-request/reject': [(status: 200, body: {'ok': true})],
       },
     );
-    await tester.tap(find.byKey(const ValueKey('offer-delete-reject')));
+    await tester.tap(find.byKey(const ValueKey('delete-request-reject')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const ValueKey('offer-delete-reject-note')), 'müşteri düşünüyor');
     await tester.tap(find.byKey(const ValueKey('offer-delete-reject-note-confirm')));
@@ -169,8 +169,8 @@ void main() {
       offerResponses: [(status: 200, body: _offer(deleteRequest: _request(requestedBy: 'u2')))],
     );
     expect(find.byKey(const ValueKey('offer-delete-request-notice')), findsOneWidget);
-    expect(find.byKey(const ValueKey('offer-delete-withdraw')), findsNothing);
-    expect(find.byKey(const ValueKey('offer-delete-approve')), findsNothing);
-    expect(find.byKey(const ValueKey('offer-delete-reject')), findsNothing);
+    expect(find.byKey(const ValueKey('delete-request-withdraw')), findsNothing);
+    expect(find.byKey(const ValueKey('delete-request-approve')), findsNothing);
+    expect(find.byKey(const ValueKey('delete-request-reject')), findsNothing);
   });
 }

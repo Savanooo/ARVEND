@@ -118,6 +118,12 @@ final projectDetailProvider = FutureProvider.autoDispose.family<Project, String>
   (ref, id) => ref.watch(projectsRepositoryProvider).get(id),
 );
 
+/// Onay bekleyen proje silme talepleri (backend migration 0070) -- yalnızca
+/// projects.delete sahibinde istenir (proje listesinin üstündeki kart).
+final projectDeleteRequestsProvider = FutureProvider.autoDispose<List<ProjectDeleteRequest>>(
+  (ref) => ref.watch(projectsRepositoryProvider).projectDeleteRequests(),
+);
+
 /// Müşteri detay ekranının "Projeler" bölümü için -- backend'in zaten
 /// var olan `GET /projects?customer_id=` filtresini kullanır (bkz. backend
 /// Phase 1 doğrulaması: `projects.customer_id` gerçek, canlı sorgulanabilir

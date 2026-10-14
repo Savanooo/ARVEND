@@ -200,6 +200,28 @@ to backend enforcement)
 - Status machine: `planned→{active,paused,cancelled}`, `active→{paused,completed,cancelled}`, `paused→{active,completed,cancelled}`, `completed→active only`, `cancelled` terminal.
 - No plain POST/DELETE on projects.
 
+### Project delete (since 2026-10-14, migration 0070; mobile 1.5.17)
+
+**Who can delete**
+- `projects.delete` is held by owner and admin. Custom roles can be given it; legacy users do not get it.
+- `DELETE /projects/{id}` (`projects.delete` + project access) → `{ok:true}`.
+
+**What blocks a delete**
+- Any expense, collection, legacy or contract subcontractor payment, invoice, purchase request, RFQ, purchase order or subcontract. Voided rows count too.
+- A blocked delete returns 409 with a message that counts what blocks it. The user should set the project to İptal instead.
+
+**What a delete removes**
+- Tasks, notes, files, photos (including storage objects), payment plan, change orders, budget, WBS, contract, team and events.
+- The source offer can be converted again. Its timeline gets `project_deleted`.
+
+**Delete requests** (same shape as offer delete requests, keyed by `project_id`)
+- `POST /projects/{id}/delete-request` `{reason?}` (`projects.update`) → 201. Blocked by the same records (409); a duplicate request → 409.
+- `DELETE /projects/{id}/delete-request` withdraws it. Only the requester can.
+- `POST .../delete-request/approve` and `.../reject {note?}` (`projects.delete`).
+- `GET /projects/delete-requests` (`projects.delete`) → `{data: [... + project_no, project_name, customer_name]}`.
+- `GET /projects/{id}` carries `delete_request` while one is pending.
+- Notifications: `project_delete_requested|approved|rejected`. Home attention code: `project_delete_approval` (ref kind `project`).
+
 ### Finance sub-resources (all under `/projects/{id}/...`)
 - `payment-plan` (GET/POST/PUT/DELETE-soft), `collections` (GET/POST/void), `expenses` (GET/POST/PUT/void), `invoices` (GET/POST/PUT status), `subcontractors` + `subcontractor-payments` (GET/POST/PUT/void).
 - Expense create `{category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, idempotency_key, change_order_id, cost_code_id, budget_line_id}` (links optional, empty string = none; when a budget line is chosen the server takes the cost code from the line). `category` ∈ `material|personnel|transport|accommodation|food|equipment|other`. Void via `POST .../{id}/void {reason}`.

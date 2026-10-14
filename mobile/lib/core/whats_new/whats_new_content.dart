@@ -44,6 +44,19 @@ class WhatsNewRelease {
 
 /// En yeni sürüm en üstte.
 const kWhatsNewReleases = <WhatsNewRelease>[
+  // Proje silme (backend 0070).
+  WhatsNewRelease(
+    build: 23,
+    version: '1.5.17',
+    items: [
+      WhatsNewItem(
+        icon: Icons.delete_outline,
+        title: 'Proje silme',
+        body: 'Yanlış açılan projeyi sağ üstteki menüden silebilir ya da yöneticine silme talebi gönderebilirsin.',
+        permission: 'projects.update',
+      ),
+    ],
+  ),
   // Ürün sahibinin istekleri (2026-10-14): teklif silme onayı, projesiz
   // masraf ve tek Masraflar listesi, Taşeronlar.
   WhatsNewRelease(

@@ -211,6 +211,47 @@ func buildDashProjects(ctx context.Context, r *dashRun) (*sectionPayload, error)
 		g.Items = firstRecords(pastEnd)
 		payload.groups = append(payload.groups, g)
 	}
+	// Proje silme talepleri (migration 0070): yalnızca silme yetkilisine ve
+	// erişebildiği projelerden (üyelikle sınırlı rolde üyesi olduğu).
+	if r.wantsAttention(domain.AttnProjectDeleteApproval) {
+		reqs, err := r.q.ListPendingProjectDeleteRequests(ctx, r.orgID)
+		if err != nil {
+			return nil, err
+		}
+		var visible []sqlc.ListPendingProjectDeleteRequestsRow
+		for _, it := range reqs {
+			if r.restrict.Valid {
+				ok, err := r.q.ProjectUserExists(ctx, sqlc.ProjectUserExistsParams{ProjectID: it.ProjectID, UserID: r.restrict, OrganizationID: r.orgID})
+				if err != nil {
+					return nil, err
+				}
+				if !ok {
+					continue
+				}
+			}
+			visible = append(visible, it)
+		}
+		if len(visible) > 0 {
+			var oldest pgtype.Date
+			for _, it := range visible {
+				oldest = minDate(oldest, r.date(it.CreatedAt.Time.In(istanbulLocation)))
+			}
+			g := DashboardAttentionInput{Code: domain.AttnProjectDeleteApproval, Count: len(visible),
+				OldestDays: r.daysSince(oldest)}
+			for i, it := range visible {
+				if i == 3 {
+					break
+				}
+				since := r.date(it.CreatedAt.Time.In(istanbulLocation))
+				g.Items = append(g.Items, domain.AttentionRecord{
+					Ref:   dashProjectRef(domain.RefKindProject, it.ProjectID),
+					Label: dashJoin(it.ProjectNo, it.ProjectName), ProjectName: dashStr(it.ProjectName),
+					Date: dashDateStr(since), Days: r.daysSince(since),
+				})
+			}
+			payload.groups = append(payload.groups, g)
+		}
+	}
 	payload.apply = func(s *domain.DashboardSections) { s.Projects = sec }
 	return payload, nil
 }

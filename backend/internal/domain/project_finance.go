@@ -98,9 +98,14 @@ func ValidSubcontractorStatus(s string) bool { return validSubcontractorStatuses
 
 // Proje olay tipleri (project_events).
 const (
-	ProjectEventCreated                  = "project_created"
-	ProjectEventUpdated                  = "project_updated"
-	ProjectEventStatusChanged            = "project_status_changed"
+	ProjectEventCreated       = "project_created"
+	ProjectEventUpdated       = "project_updated"
+	ProjectEventStatusChanged = "project_status_changed"
+	// Proje silme talebi (migration 0070). Onay projeyi sildiği için
+	// "onaylandı" olayı yazılmaz (organization_events'e project_deleted).
+	ProjectEventDeleteRequested          = "project_delete_requested"
+	ProjectEventDeleteRejected           = "project_delete_rejected"
+	ProjectEventDeleteWithdrawn          = "project_delete_withdrawn"
 	ProjectEventPaymentPlanCreated       = "payment_plan_created"
 	ProjectEventPaymentPlanUpdated       = "payment_plan_updated"
 	ProjectEventPaymentPlanCancelled     = "payment_plan_cancelled"

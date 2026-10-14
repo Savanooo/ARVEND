@@ -162,3 +162,24 @@ func (p Project) RealizedCostNet() float64 { return CostNet(p.RealizedCost(), p.
 func (p Project) RealizedGrossProfitNet() float64 {
 	return p.contractVATBasis().ProfitNet(p.RealizedCost(), p.RealizedCostNet())
 }
+
+// ProjectDeleteRequest: projeyi düzenleyebilen ama silme izni olmayan
+// kişinin açtığı, projects.delete sahibinin kararını bekleyen talep
+// (migration 0070). Onaylanınca projeyle birlikte silinir.
+type ProjectDeleteRequest struct {
+	ID              string
+	ProjectID       string
+	RequestedBy     *string
+	RequestedByName string
+	Reason          string
+	CreatedAt       time.Time
+
+	// Liste görünümü için proje özeti.
+	ProjectNo    string
+	ProjectName  string
+	CustomerName string
+}
+
+// ProjectDeleted: proje silindiğinde (organization_events) ve kaynak
+// teklifin zaman çizelgesinde yazılan olay.
+const OrgEventProjectDeleted = "project_deleted"

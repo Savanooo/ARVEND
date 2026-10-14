@@ -92,11 +92,16 @@ const (
 	NotificationOfferDeleteRequested = "offer_delete_requested"
 	NotificationOfferDeleteApproved  = "offer_delete_approved"
 	NotificationOfferDeleteRejected  = "offer_delete_rejected"
+	// Proje silme talebi (migration 0070): aynı akış.
+	NotificationProjectDeleteRequested = "project_delete_requested"
+	NotificationProjectDeleteApproved  = "project_delete_approved"
+	NotificationProjectDeleteRejected  = "project_delete_rejected"
 )
 
 // Varlık türleri -- mobil/web istemcinin ActionTarget'ı yorumlamadan,
 // EntityType'a bakarak doğru simge/liste filtresini seçebilmesi için.
 const (
+	NotificationEntityProject                = "project"
 	NotificationEntityTask                   = "task"
 	NotificationEntityOffer                  = "offer"
 	NotificationEntityChangeOrder            = "change_order"

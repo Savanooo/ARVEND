@@ -674,6 +674,19 @@ type ProjectCounter struct {
 	Seq            int32       `json:"seq"`
 }
 
+type ProjectDeleteRequest struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	RequestedBy    pgtype.UUID        `json:"requested_by"`
+	Reason         string             `json:"reason"`
+	Status         string             `json:"status"`
+	DecidedBy      pgtype.UUID        `json:"decided_by"`
+	DecidedAt      pgtype.Timestamptz `json:"decided_at"`
+	DecisionNote   string             `json:"decision_note"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type ProjectEvent struct {
 	ID             pgtype.UUID        `json:"id"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`

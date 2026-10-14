@@ -30,6 +30,9 @@ const (
 	EventOfferDeleteRequested = "offer_delete_requested"
 	EventOfferDeleteRejected  = "offer_delete_rejected"
 	EventOfferDeleteWithdrawn = "offer_delete_withdrawn"
+	// EventProjectDeleted: tekliften dönüştürülen proje silindi (migration
+	// 0070) -- teklif yeniden projeye dönüştürülebilir.
+	EventProjectDeleted = "project_deleted"
 )
 
 // OfferEvent, bir teklifle ilgili değişmez bir denetim (audit) kaydıdır.

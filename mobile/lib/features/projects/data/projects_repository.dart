@@ -39,6 +39,32 @@ class ProjectsRepository {
     return FinancialSummary.fromJson(json);
   }
 
+  /// Proje silme (backend migration 0070). projects.delete direkt siler;
+  /// para hareketi olan projede sunucu 409 ile nedenini söyler.
+  Future<void> deleteProject(String projectId) => _client.delete<void>('/projects/$projectId');
+
+  /// Silme izni olmayanın talebi.
+  Future<void> requestProjectDelete(String projectId, {String reason = ''}) =>
+      _client.post<void>('/projects/$projectId/delete-request', data: {'reason': reason});
+
+  Future<void> withdrawProjectDeleteRequest(String projectId) =>
+      _client.delete<void>('/projects/$projectId/delete-request');
+
+  Future<void> approveProjectDeleteRequest(String projectId) =>
+      _client.post<void>('/projects/$projectId/delete-request/approve');
+
+  Future<void> rejectProjectDeleteRequest(String projectId, {String note = ''}) =>
+      _client.post<void>('/projects/$projectId/delete-request/reject', data: {'note': note});
+
+  /// Onay bekleyen proje silme talepleri (projects.delete), en eskisi önce.
+  Future<List<ProjectDeleteRequest>> projectDeleteRequests() async {
+    final json = await _client.get<Map<String, dynamic>>('/projects/delete-requests');
+    return (json['data'] as List<dynamic>? ?? [])
+        .cast<Map<String, dynamic>>()
+        .map(ProjectDeleteRequest.fromJson)
+        .toList();
+  }
+
   Future<List<Expense>> expenses(String projectId) async {
     final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/expenses');
     return (json['expenses'] as List).cast<Map<String, dynamic>>().map(Expense.fromJson).toList();

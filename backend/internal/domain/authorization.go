@@ -71,9 +71,12 @@ func ValidProjectRole(r string) bool { return validProjectRoles[r] }
 // bir izin eklerken hem burada hem migration'daki permissions seed'inde
 // KARŞILIĞI olmalıdır (bkz. docs/authorization.md "yeni izin ekleme").
 const (
-	PermProjectsRead             = "projects.read"
-	PermProjectsCreate           = "projects.create"
-	PermProjectsUpdate           = "projects.update"
+	PermProjectsRead   = "projects.read"
+	PermProjectsCreate = "projects.create"
+	PermProjectsUpdate = "projects.update"
+	// PermProjectsDelete: para hareketi olmayan projeyi silme (migration
+	// 0070) -- yalnızca Sahip/Yönetici; diğerleri silme talebi açar.
+	PermProjectsDelete           = "projects.delete"
 	PermProjectsFinanceRead      = "projects.finance.read"
 	PermProjectsFinanceManage    = "projects.finance.manage"
 	PermProjectsTasksRead        = "projects.tasks.read"

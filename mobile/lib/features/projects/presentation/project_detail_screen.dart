@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart' show ImageSource;
 
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/auth/permissions.dart';
+import 'project_delete.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../../core/errors/device_errors.dart';
@@ -299,6 +300,11 @@ class ProjectDetailScreen extends ConsumerWidget {
             tooltip: 'Aktivite Geçmişi',
             onPressed: () => context.push(projectActivityPath(projectId)),
           ),
+          // Proje silme / silme talebi (backend 0070).
+          projectAsync.maybeWhen(
+            data: (p) => ProjectDeleteMenu(project: p),
+            orElse: () => const SizedBox.shrink(),
+          ),
         ],
         bottom: TabBar(
           isScrollable: true,
@@ -311,24 +317,35 @@ class ProjectDetailScreen extends ConsumerWidget {
         body: AsyncStateView(
           value: projectAsync,
           onRetry: () async => ref.invalidate(projectDetailProvider(projectId)),
-          data: (context, project) => TabBarView(
+          data: (context, project) => Column(
             children: [
-              // Sayfalar canlı tutulur: TabBarView (PageView) ekran dışındaki
-              // grubu atar; seçili alt görünüm çipi ve liste kaydırma konumu
-              // gruplar arasında gidip gelince kaybolmasın (ör. Finans > Ek
-              // İşler -> Operasyon -> geri Finans yine Ek İşler'de açılır).
-              for (final g in visibleGroups)
-                _KeepAlivePage(
-                  key: ValueKey('proje-grup-${g.label}'),
-                  child: g.isOverview
-                      ? _OverviewTab(projectId: projectId, project: project)
-                      : _SubViewGroupTab(
-                          projectId: projectId,
-                          project: project,
-                          views: g.views,
-                          initialView: g.label == requestedLabel ? initialView : null,
-                        ),
+              if (project.deleteRequest != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, 0),
+                  child: ProjectDeleteRequestBanner(project: project),
                 ),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    // Sayfalar canlı tutulur: TabBarView (PageView) ekran dışındaki
+                    // grubu atar; seçili alt görünüm çipi ve liste kaydırma konumu
+                    // gruplar arasında gidip gelince kaybolmasın (ör. Finans > Ek
+                    // İşler -> Operasyon -> geri Finans yine Ek İşler'de açılır).
+                    for (final g in visibleGroups)
+                      _KeepAlivePage(
+                        key: ValueKey('proje-grup-${g.label}'),
+                        child: g.isOverview
+                            ? _OverviewTab(projectId: projectId, project: project)
+                            : _SubViewGroupTab(
+                                projectId: projectId,
+                                project: project,
+                                views: g.views,
+                                initialView: g.label == requestedLabel ? initialView : null,
+                              ),
+                      ),
+                  ],
+                ),
+              ),
             ],
           ),
         ),

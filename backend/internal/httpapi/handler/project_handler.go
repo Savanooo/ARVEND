@@ -86,6 +86,8 @@ type projectResponse struct {
 	CurrentContractValueNet *float64 `json:"current_contract_value_net,omitempty"`
 	RealizedCostNet         *float64 `json:"realized_cost_net,omitempty"`
 	RealizedGrossProfitNet  *float64 `json:"realized_gross_profit_net,omitempty"`
+	// Bekleyen silme talebi (migration 0070) -- yalnızca proje detayında.
+	DeleteRequest *projectDeleteRequestResponse `json:"delete_request,omitempty"`
 }
 
 // canSeeProjectFinance: proje yanıtlarındaki para alanları (sözleşme bedeli,
@@ -312,7 +314,16 @@ func (h *ProjectHandler) Get(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, projectResponseFor(r, *p))
+	resp := projectResponseFor(r, *p)
+	req, err := h.svc.PendingProjectDeleteRequest(r.Context(), p.ID, orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	if req != nil {
+		resp.DeleteRequest = toProjectDeleteRequestResponse(*req, false)
+	}
+	httpjson.Write(w, http.StatusOK, resp)
 }
 
 // GetByOffer, teklifin projeye dönüştürülüp dönüştürülmediğini söyler.
@@ -404,6 +415,13 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusNotFound, notFound.Error())
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "proje bulunamadı")
+	case errors.Is(err, service.ErrProjectHasRecords),
+		errors.Is(err, service.ErrProjectDeleteAlreadyRequested),
+		errors.Is(err, service.ErrProjectDeleteRequestNotFound),
+		errors.Is(err, service.ErrSubcontractorCardArchived):
+		httpjson.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrProjectDeleteRequestNotOwn):
+		httpjson.Error(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, service.ErrPaymentExceedsContract),
 		errors.Is(err, service.ErrPaymentExceedsClaim):
 		// Metin rakamları ve ne yapılacağını içerir (bkz. PaymentExceedsContractError).

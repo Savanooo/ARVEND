@@ -45,7 +45,7 @@ var (
 	}
 	// permsAll: Sahip/Yönetici -- kayıt defterindeki bütün izinler.
 	permsAll = []string{
-		domain.PermProjectsRead, domain.PermProjectsCreate, domain.PermProjectsUpdate,
+		domain.PermProjectsRead, domain.PermProjectsCreate, domain.PermProjectsUpdate, domain.PermProjectsDelete,
 		domain.PermProjectsFinanceRead, domain.PermProjectsFinanceManage,
 		domain.PermProjectsTasksRead, domain.PermProjectsTasksCreate, domain.PermProjectsTasksUpdate,
 		domain.PermProjectsOperationsRead, domain.PermProjectsOperationsManage,
@@ -183,6 +183,7 @@ func TestDashboardAttentionLanesPerRole(t *testing.T) {
 			domain.AttnOfferExpiredAwaiting:      "",
 			domain.AttnOfferAcceptedNotConverted: "",
 			domain.AttnOfferDeleteApproval:       "",
+			domain.AttnProjectDeleteApproval:     "",
 			domain.AttnProjectPastEnd:            "",
 			domain.AttnMyTaskOverdue:             "",
 			domain.AttnMyTaskDueToday:            "",

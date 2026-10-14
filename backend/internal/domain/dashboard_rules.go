@@ -42,6 +42,8 @@ const (
 	AttnExpenseApproval = "expense_approval"
 	// Teklif silme talebi (migration 0067): yalnızca silme yetkilisine.
 	AttnOfferDeleteApproval = "offer_delete_approval"
+	// Proje silme talebi (migration 0070): yalnızca silme yetkilisine.
+	AttnProjectDeleteApproval = "project_delete_approval"
 )
 
 // AttentionRule, bir dikkat kodunun sabit tanımıdır.
@@ -113,6 +115,8 @@ var AttentionRules = map[string]AttentionRule{
 		Visible: []string{PermProjectsContractsRead}, Act: []string{PermProjectsContractsLifecycle}, WhenCannotAct: LaneWatching},
 	AttnActiveWithoutContract: {Module: DashSectionContracts, Severity: SeverityAction,
 		Visible: []string{PermProjectsContractsRead}, Act: []string{PermProjectsContractsManage}, WhenCannotAct: ""},
+	AttnProjectDeleteApproval: {Module: DashSectionProjects, Severity: SeverityAction,
+		Visible: []string{PermProjectsRead}, Act: []string{PermProjectsDelete}, WhenCannotAct: ""},
 	AttnProjectPastEnd: {Module: DashSectionProjects, Severity: SeverityDanger,
 		Visible: []string{PermProjectsRead}, Act: []string{PermProjectsUpdate}, WhenCannotAct: ""},
 	AttnMyTaskOverdue: {Module: DashSectionTasks, Severity: SeverityDanger,
@@ -150,6 +154,10 @@ var ActivityEventPermissions = map[string]string{
 	ProjectEventCreated:       PermProjectsRead,
 	ProjectEventUpdated:       PermProjectsRead,
 	ProjectEventStatusChanged: PermProjectsRead,
+	// Proje silme talebi (migration 0070).
+	ProjectEventDeleteRequested: PermProjectsRead,
+	ProjectEventDeleteRejected:  PermProjectsRead,
+	ProjectEventDeleteWithdrawn: PermProjectsRead,
 
 	ProjectEventCollectionReceived:       PermProjectsFinanceRead,
 	ProjectEventCollectionVoided:         PermProjectsFinanceRead,

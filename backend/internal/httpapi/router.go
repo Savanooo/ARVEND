@@ -287,6 +287,22 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/{id}/events", d.Projects.ListEvents)
 			})
 			r.With(projPerm(domain.PermProjectsUpdate)).Put("/{id}", d.Projects.Update)
+			// Proje silme (migration 0070): projects.delete direkt siler ve
+			// talebe karar verir; projeyi düzenleyebilen talep açar. Para
+			// hareketi olan proje serviste reddedilir (409). Statik
+			// /delete-requests, /{id}'den önce eşleşir.
+			r.With(perm(domain.PermProjectsDelete)).Get("/delete-requests", d.Projects.ListProjectDeleteRequests)
+			r.With(projPerm(domain.PermProjectsDelete)).Delete("/{id}", d.Projects.DeleteProject)
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsUpdate))
+				r.Post("/{id}/delete-request", d.Projects.RequestProjectDelete)
+				r.Delete("/{id}/delete-request", d.Projects.WithdrawProjectDeleteRequest)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsDelete))
+				r.Post("/{id}/delete-request/approve", d.Projects.ApproveProjectDeleteRequest)
+				r.Post("/{id}/delete-request/reject", d.Projects.RejectProjectDeleteRequest)
+			})
 
 			r.Group(func(r chi.Router) {
 				r.Use(projPerm(domain.PermProjectsFinanceRead))

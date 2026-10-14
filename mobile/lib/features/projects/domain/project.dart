@@ -39,6 +39,10 @@ class Project {
   final double? collectedAmount;
   final double? remainingReceivable;
 
+  /// Bekleyen silme talebi (backend migration 0070) -- yalnızca proje
+  /// detayında gelir; yoksa null.
+  final ProjectDeleteRequest? deleteRequest;
+
   const Project({
     required this.id,
     required this.projectNo,
@@ -63,6 +67,7 @@ class Project {
     this.currentContractValue,
     this.collectedAmount,
     this.remainingReceivable,
+    this.deleteRequest,
   });
 
   factory Project.fromJson(Map<String, dynamic> json) => Project(
@@ -89,6 +94,50 @@ class Project {
         currentContractValue: (json['current_contract_value'] as num?)?.toDouble(),
         collectedAmount: (json['collected_amount'] as num?)?.toDouble(),
         remainingReceivable: (json['remaining_receivable'] as num?)?.toDouble(),
+        deleteRequest: json['delete_request'] is Map<String, dynamic>
+            ? ProjectDeleteRequest.fromJson(json['delete_request'] as Map<String, dynamic>)
+            : null,
+      );
+}
+
+/// Projeyi düzenleyebilen ama silme izni olmayan kişinin açtığı, silme
+/// yetkilisinin (projects.delete) kararını bekleyen talep. Onay listesinde
+/// (GET /projects/delete-requests) proje özetiyle gelir.
+class ProjectDeleteRequest {
+  const ProjectDeleteRequest({
+    required this.id,
+    required this.projectId,
+    required this.requestedBy,
+    required this.requestedByName,
+    required this.reason,
+    required this.createdAt,
+    this.projectNo = '',
+    this.projectName = '',
+    this.customerName = '',
+  });
+
+  final String id;
+  final String projectId;
+  final String? requestedBy;
+  final String requestedByName;
+  final String reason;
+
+  /// RFC3339.
+  final String createdAt;
+  final String projectNo;
+  final String projectName;
+  final String customerName;
+
+  factory ProjectDeleteRequest.fromJson(Map<String, dynamic> json) => ProjectDeleteRequest(
+        id: json['id'] as String,
+        projectId: json['project_id'] as String? ?? '',
+        requestedBy: json['requested_by'] as String?,
+        requestedByName: json['requested_by_name'] as String? ?? '',
+        reason: json['reason'] as String? ?? '',
+        createdAt: json['created_at'] as String? ?? '',
+        projectNo: json['project_no'] as String? ?? '',
+        projectName: json['project_name'] as String? ?? '',
+        customerName: json['customer_name'] as String? ?? '',
       );
 }
 

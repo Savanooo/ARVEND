@@ -8,12 +8,15 @@ import '../../../app/app_shell.dart';
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/auth/permissions.dart';
 import '../../../core/errors/api_exception.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_filter_bar.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../data/projects_providers.dart';
+import 'project_delete.dart' show kProjectDeletePermission;
 import 'project_list_card.dart';
 
 class ProjectsScreen extends ConsumerStatefulWidget {
@@ -68,6 +71,7 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
 
   Future<void> _refresh() async {
     ref.invalidate(projectsListProvider(_listQuery));
+    ref.invalidate(projectDeleteRequestsProvider);
     try {
       await ref.read(projectsListProvider(_listQuery).future);
     } catch (_) {
@@ -87,7 +91,8 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
     final projectsAsync = ref.watch(projectsListProvider(_listQuery));
     // Sözleşme bedeli ve tahsilat yüzdesi yalnızca finans görüntüleme
     // iznine (detay ekranıyla aynı kural, bkz. _OverviewTab).
-    final showFinance = ref.watch(authControllerProvider).valueOrNull.can('projects.finance.read');
+    final user = ref.watch(authControllerProvider).valueOrNull;
+    final showFinance = user.can('projects.finance.read');
 
     return Scaffold(
       appBar: buildAppBar('Projeler'),
@@ -165,6 +170,7 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: kScreenPadding,
                     children: [
+                      if (user.canAccess(kProjectDeletePermission)) const _PendingProjectDeletes(),
                       for (final p in page.projects)
                         ProjectListCard(
                           project: p,
@@ -182,6 +188,54 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Onay bekleyen proje silme talepleri (backend migration 0070): listenin
+/// üstünde kart; talep yoksa (ya da okunamazsa) hiç görünmez.
+class _PendingProjectDeletes extends ConsumerWidget {
+  const _PendingProjectDeletes();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final requests = ref.watch(projectDeleteRequestsProvider).valueOrNull ?? const [];
+    if (requests.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      key: const ValueKey('project-delete-requests-card'),
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.delete_outline, size: 18, color: AppColors.danger),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text('${requests.length} proje silme onayı bekliyor', style: AppTypography.cardTitle),
+                ),
+              ],
+            ),
+            for (final r in requests)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: Text('${r.projectNo} · ${r.projectName}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text(
+                  [
+                    if (r.requestedByName.isNotEmpty) 'Talep eden: ${r.requestedByName}',
+                    if (r.reason.isNotEmpty) r.reason,
+                  ].join(' · '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/projeler/${r.projectId}'),
+              ),
+          ],
+        ),
       ),
     );
   }
