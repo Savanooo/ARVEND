@@ -693,7 +693,14 @@ func (s *OfferService) Get(ctx context.Context, id, organizationID string) (*dom
 		}
 		return nil, err
 	}
-	return s.loadOfferWithCurrentRevision(ctx, offerRow, orgID)
+	o, err := s.loadOfferWithCurrentRevision(ctx, offerRow, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if o.DeleteRequest, err = s.pendingDeleteRequest(ctx, uid, orgID); err != nil {
+		return nil, err
+	}
+	return o, nil
 }
 
 // loadOfferWithCurrentRevision, offerRow'un current_revision_id'sini okuyup

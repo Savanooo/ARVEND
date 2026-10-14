@@ -24,6 +24,12 @@ const (
 	// dönüştürüldüğünde teklifin zaman çizelgesine yazılır (bkz.
 	// ProjectService.CreateFromOffer).
 	EventProjectCreated = "project_created"
+	// Silme talebi (migration 0067): silme izni olmayan kişi talep açar,
+	// offers.delete sahibi reddeder ya da onaylar (onayda teklif silinir,
+	// olay kaydı da onunla gider). Talep eden geri çekebilir.
+	EventOfferDeleteRequested = "offer_delete_requested"
+	EventOfferDeleteRejected  = "offer_delete_rejected"
+	EventOfferDeleteWithdrawn = "offer_delete_withdrawn"
 )
 
 // OfferEvent, bir teklifle ilgili değişmez bir denetim (audit) kaydıdır.

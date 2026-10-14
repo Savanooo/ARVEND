@@ -141,6 +141,28 @@ type Offer struct {
 	Currency        string
 	Notes           string
 	Items           []OfferItem
+
+	// DeleteRequest: bekleyen silme talebi (migration 0067), yoksa nil.
+	// Yalnızca tekil okumada (Get) doldurulur.
+	DeleteRequest *OfferDeleteRequest
+}
+
+// OfferDeleteRequest: silme izni olmayan kişinin açtığı, offers.delete
+// sahibinin kararını bekleyen talep. Onaylanınca teklifle birlikte silinir.
+type OfferDeleteRequest struct {
+	ID              string
+	OfferID         string
+	RequestedBy     *string
+	RequestedByName string
+	Reason          string
+	Status          string
+	CreatedAt       time.Time
+
+	// Liste görünümü (ListPendingDeleteRequests) için teklif özeti.
+	OfferNo      string
+	CustomerName string
+	GrandTotal   float64
+	Currency     string
 }
 
 // OfferRevision, bir teklifin belirli bir andaki değişmez anlık

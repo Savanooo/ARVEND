@@ -75,6 +75,28 @@ func RequirePermission(code string) func(http.Handler) http.Handler {
 	}
 }
 
+// RequireAnyPermission: RequirePermission'ın "kodlardan EN AZ BİRİ"
+// varyantı (proje üyeliği yok) -- ör. teklif silme talebini teklifi
+// oluşturabilen de düzenleyebilen de açabilir. Hiç kod verilmezse herkes
+// reddedilir.
+func RequireAnyPermission(codes ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if rejectPlatformAccount(w, r) {
+				return
+			}
+			authz, ok := AuthzContextFromRequest(r.Context())
+			for _, code := range codes {
+				if ok && authz.HasPermission(code) {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			writePermissionDenied(w)
+		})
+	}
+}
+
 // RequireProjectPermission, RequirePermission'ın proje-üyeliği-farkında
 // varyantıdır -- URL'nin proje kimliği ("id" route param'ı, tüm proje
 // alt-kaynak rotalarının ORTAK sözleşmesi, bkz. router.go) hem izin HEM

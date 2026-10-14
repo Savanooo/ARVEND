@@ -194,6 +194,29 @@ class OffersRepository {
 
   Future<void> delete(String id) => _client.delete<void>('/offers/$id');
 
+  /// Onay bekleyen silme talepleri (offers.delete), en eskisi önce.
+  Future<List<OfferDeleteRequest>> deleteRequests() async {
+    final json = await _client.get<Map<String, dynamic>>('/offers/delete-requests');
+    return (json['data'] as List<dynamic>? ?? [])
+        .cast<Map<String, dynamic>>()
+        .map(OfferDeleteRequest.fromJson)
+        .toList();
+  }
+
+  /// Silme izni olmayan kişinin talebi (backend migration 0067).
+  Future<void> requestDelete(String id, {String reason = ''}) =>
+      _client.post<void>('/offers/$id/delete-request', data: {'reason': reason});
+
+  /// Talebi açan kişi vazgeçer.
+  Future<void> withdrawDeleteRequest(String id) => _client.delete<void>('/offers/$id/delete-request');
+
+  /// Silme yetkilisi onaylar -- teklif kalıcı olarak silinir.
+  Future<void> approveDeleteRequest(String id) => _client.post<void>('/offers/$id/delete-request/approve');
+
+  /// Silme yetkilisi reddeder -- teklif kalır.
+  Future<void> rejectDeleteRequest(String id, {String note = ''}) =>
+      _client.post<void>('/offers/$id/delete-request/reject', data: {'note': note});
+
   /// Teklifi arşive alır ([passive] true) ya da arşivden çıkarır
   /// (offers.approve). Hedef durum açıkça gönderilir: ekrandaki durum bayatsa
   /// (başka biri arşivlemişse) tersine çevirmek istenenin tersini yapardı;

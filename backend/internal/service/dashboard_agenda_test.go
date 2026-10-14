@@ -182,6 +182,7 @@ func TestDashboardAttentionLanesPerRole(t *testing.T) {
 			domain.AttnChangeOrderAwaitingCust:   domain.LaneWatching,
 			domain.AttnOfferExpiredAwaiting:      "",
 			domain.AttnOfferAcceptedNotConverted: "",
+			domain.AttnOfferDeleteApproval:       "",
 			domain.AttnProjectPastEnd:            "",
 			domain.AttnMyTaskOverdue:             "",
 			domain.AttnMyTaskDueToday:            "",

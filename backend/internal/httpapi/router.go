@@ -87,6 +87,7 @@ func NewRouter(d Deps) http.Handler {
 	// middleware/require_permission.go).
 	loadAuthorization := appmw.LoadAuthorization(d.AuthorizationSvc)
 	perm := func(code string) func(http.Handler) http.Handler { return appmw.RequirePermission(code) }
+	anyPerm := func(codes ...string) func(http.Handler) http.Handler { return appmw.RequireAnyPermission(codes...) }
 	projPerm := func(code string) func(http.Handler) http.Handler {
 		return appmw.RequireProjectPermission(d.AuthorizationSvc, code)
 	}
@@ -253,6 +254,21 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/toggle-passive", d.Offers.TogglePassive)
 			})
 			r.With(perm(domain.PermOffersDelete)).Delete("/{id}", d.Offers.Delete)
+			// Silme talebi (migration 0067): silme izni olmayan, teklifi
+			// oluşturabilen/düzenleyebilen kişi talep açar; offers.delete
+			// sahibi onaylar (teklif silinir) ya da reddeder. Statik
+			// /delete-requests, /{id}'den önce eşleşir.
+			r.With(perm(domain.PermOffersDelete)).Get("/delete-requests", d.Offers.ListDeleteRequests)
+			r.Group(func(r chi.Router) {
+				r.Use(anyPerm(domain.PermOffersCreate, domain.PermOffersUpdate))
+				r.Post("/{id}/delete-request", d.Offers.RequestDelete)
+				r.Delete("/{id}/delete-request", d.Offers.WithdrawDeleteRequest)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermOffersDelete))
+				r.Post("/{id}/delete-request/approve", d.Offers.ApproveDeleteRequest)
+				r.Post("/{id}/delete-request/reject", d.Offers.RejectDeleteRequest)
+			})
 		})
 
 		r.Route("/projects", func(r chi.Router) {

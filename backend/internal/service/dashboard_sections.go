@@ -564,6 +564,35 @@ func buildDashOffers(ctx context.Context, r *dashRun) (*sectionPayload, error) {
 		}
 		payload.groups = append(payload.groups, g)
 	}
+	if r.wantsAttention(domain.AttnOfferDeleteApproval) {
+		reqs, err := r.q.ListPendingOfferDeleteRequests(ctx, r.orgID)
+		if err != nil {
+			return nil, err
+		}
+		if len(reqs) > 0 {
+			sums := newCurrencySums()
+			var oldest pgtype.Date
+			for _, it := range reqs {
+				sums.add(it.Currency, dashDec(it.GrandTotal))
+				oldest = minDate(oldest, r.date(it.CreatedAt.Time.In(istanbulLocation)))
+			}
+			g := DashboardAttentionInput{Code: domain.AttnOfferDeleteApproval, Count: len(reqs),
+				Amounts: sums.amounts(r.primary), OldestDays: r.daysSince(oldest)}
+			for i, it := range reqs {
+				if i == 3 {
+					break
+				}
+				since := r.date(it.CreatedAt.Time.In(istanbulLocation))
+				g.Items = append(g.Items, domain.AttentionRecord{
+					Ref:    dashRef(domain.RefKindOffer, it.OfferID, pgtype.UUID{}, pgtype.UUID{}, domain.RefActionOpen),
+					Label:  offerLabel(it.OfferNo, it.CustomerName),
+					Amount: dashMoneyPtr(it.Currency, it.GrandTotal),
+					Date:   dashDateStr(since), Days: r.daysSince(since),
+				})
+			}
+			payload.groups = append(payload.groups, g)
+		}
+	}
 	upcoming, err := r.q.DashboardUpcomingOfferExpiries(ctx, sqlc.DashboardUpcomingOfferExpiriesParams{
 		OrgID: r.orgID, StatusSent: domain.OfferStatusGonderildi, Today: today, Plus13: r.date(r.clk.Plus13),
 	})

@@ -389,6 +389,104 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     }
   }
 
+  /// Silme izni olmayan kişi: talep açar, silme yetkilisi karar verir
+  /// (backend migration 0067). Gerekçe isteğe bağlı.
+  Future<void> _requestDelete(Offer offer) async {
+    final reason = await _askNote(
+      title: 'Silme Talebi Gönder',
+      message: '${offer.offerNo} (${offer.customerName}) için silme talebi yöneticiye gider. '
+          'Onaylanırsa teklif kalıcı olarak silinir.',
+      label: 'Neden silinsin? (isteğe bağlı)',
+      confirm: 'Talep Gönder',
+      keyName: 'offer-delete-request-reason',
+    );
+    if (reason == null || !mounted) return;
+    await _runDeleteRequestAction(
+      () => ref.read(offersRepositoryProvider).requestDelete(offerId, reason: reason),
+      success: 'Silme talebi gönderildi. Yönetici onaylayınca teklif silinir.',
+    );
+  }
+
+  Future<void> _withdrawDeleteRequest() => _runDeleteRequestAction(
+        () => ref.read(offersRepositoryProvider).withdrawDeleteRequest(offerId),
+        success: 'Silme talebi geri çekildi',
+      );
+
+  Future<void> _rejectDeleteRequest(Offer offer) async {
+    final note = await _askNote(
+      title: 'Silme Talebini Reddet',
+      message: '${offer.offerNo} silinmeyecek; talep eden kişiye bildirim gider.',
+      label: 'Gerekçe (isteğe bağlı)',
+      confirm: 'Reddet',
+      keyName: 'offer-delete-reject-note',
+    );
+    if (note == null || !mounted) return;
+    await _runDeleteRequestAction(
+      () => ref.read(offersRepositoryProvider).rejectDeleteRequest(offerId, note: note),
+      success: 'Silme talebi reddedildi',
+    );
+  }
+
+  Future<void> _approveDeleteRequest(Offer offer) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Teklifi Sil'),
+        content: Text('${offer.offerNo} (${offer.customerName}) silinsin mi? Bu işlem geri alınamaz.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
+          TextButton(
+            key: const ValueKey('offer-delete-approve-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            child: const Text('Onayla ve Sil'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final invalidate = ProviderScope.containerOf(context, listen: false).invalidate;
+    try {
+      await ref.read(offersRepositoryProvider).approveDeleteRequest(offerId);
+      invalidate(offersListProvider(''));
+      invalidate(offersListProvider('pasif'));
+      invalidate(offerDeleteRequestsProvider);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${offer.offerNo} silindi')));
+      context.go('/teklifler');
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  Future<void> _runDeleteRequestAction(Future<void> Function() action, {required String success}) async {
+    try {
+      await action();
+      ref.invalidate(offerDetailProvider(offerId));
+      ref.invalidate(offerDeleteRequestsProvider);
+      invalidateOfferHistory(ref.invalidate, offerId);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(success)));
+    } on ApiException catch (e) {
+      // Zaten bekleyen talep / karar verilmiş talep (409) -- ekranı tazele.
+      ref.invalidate(offerDetailProvider(offerId));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
+  /// Not/gerekçe soran onay penceresi; vazgeçilirse null, onaylanırsa
+  /// (boş olabilen) metin.
+  Future<String?> _askNote({
+    required String title,
+    required String message,
+    required String label,
+    required String confirm,
+    required String keyName,
+  }) =>
+      showDialog<String>(
+        context: context,
+        builder: (context) => _NoteDialog(title: title, message: message, label: label, confirm: confirm, keyName: keyName),
+      );
+
   /// Geçerlilik tarihi geçmiş teklif müşteriye gönderilemez (sunucu 409:
   /// "göndermeden önce geçerlilik tarihini güncelleyin"). Gönderim düğmesine
   /// basana nedenini ve ne yapacağını söyler; taslakta düzenlemeye götürür.
@@ -509,6 +607,7 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
     final canUpdate = user?.hasPermission(kPermOffersUpdate) ?? false;
     final canApprove = user?.hasPermission(kPermOffersApprove) ?? false;
     final canDelete = user?.hasPermission(kPermOffersDelete) ?? false;
+    final canRequestDelete = (user?.hasPermission(kPermOffersCreate) ?? false) || (user?.hasPermission(kPermOffersUpdate) ?? false);
     // Geçerlilik tarihi geçmiş (arşivde olmayan) teklif müşteriye gönderilemez.
     final today = ref.watch(offersTodayProvider);
     final loaded = offerAsync.valueOrNull;
@@ -564,14 +663,22 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
             // Kabul edilmiş teklif silinemez (backend ErrOfferAccepted) --
             // seçenek hiç sunulmaz; web'deki "Sil" düğmesinin karşılığı.
             final showDelete = canDelete && o.status != Offer.statusKabulEdildi;
+            // Silme izni olmayan ama teklifle çalışan kişi silme talebi açar
+            // (backend migration 0067); bekleyen talep varsa yenisi açılmaz.
+            final showRequest = !canDelete &&
+                canRequestDelete &&
+                o.status != Offer.statusKabulEdildi &&
+                o.deleteRequest == null;
             // Arşivleme (toggle-passive) durum değiştirmektir: offers.approve.
             final showArchive = canApprove;
-            if (!showDelete && !showArchive) return const SizedBox.shrink();
+            if (!showDelete && !showArchive && !showRequest) return const SizedBox.shrink();
             return PopupMenuButton<String>(
+              key: const ValueKey('offer-more-menu'),
               tooltip: 'Diğer işlemler',
               onSelected: (v) {
                 if (v == 'arsiv') _setPassive(o, passive: !o.isPassive);
                 if (v == 'sil') _delete(o);
+                if (v == 'sil-talep') _requestDelete(o);
               },
               itemBuilder: (_) => [
                 if (showArchive)
@@ -590,6 +697,16 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(Icons.delete_outline, color: AppColors.danger),
                       title: Text('Teklifi Sil', style: TextStyle(color: AppColors.danger)),
+                    ),
+                  ),
+                if (showRequest)
+                  const PopupMenuItem(
+                    key: ValueKey('offer-delete-request-item'),
+                    value: 'sil-talep',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.delete_outline, color: AppColors.danger),
+                      title: Text('Silme Talebi Gönder', style: TextStyle(color: AppColors.danger)),
                     ),
                   ),
               ],
@@ -629,6 +746,17 @@ class _OfferDetailScreenState extends ConsumerState<OfferDetailScreen> {
               ),
               const SizedBox(height: AppSpacing.sm),
               Text('Revizyon #${offer.revisionNo}', style: AppTypography.metadata),
+              if (offer.deleteRequest != null) ...[
+                const SizedBox(height: AppSpacing.md),
+                _DeleteRequestNotice(
+                  request: offer.deleteRequest!,
+                  onApprove: canDelete ? () => _approveDeleteRequest(offer) : null,
+                  onReject: canDelete ? () => _rejectDeleteRequest(offer) : null,
+                  onWithdraw: !canDelete && user != null && offer.deleteRequest!.requestedBy == user.id
+                      ? _withdrawDeleteRequest
+                      : null,
+                ),
+              ],
               if (offer.isPassive) ...[
                 const SizedBox(height: AppSpacing.md),
                 ReadOnlyNotice(
@@ -928,6 +1056,142 @@ class _OpenEndedNote extends StatelessWidget {
 
 /// Detayın üstündeki "geçerlilik tarihi geçti" uyarısı; taslakta (izin
 /// varsa) doğrudan düzenlemeye götüren "Tarihi Güncelle" düğmesiyle.
+/// Gerekçe/not soran onay penceresi; denetleyiciyi kendisi tutar (kapanış
+/// animasyonu bitmeden atılırsa alan çöküyordu). Vazgeç -> null, onay ->
+/// (boş olabilen) metin.
+class _NoteDialog extends StatefulWidget {
+  const _NoteDialog({
+    required this.title,
+    required this.message,
+    required this.label,
+    required this.confirm,
+    required this.keyName,
+  });
+
+  final String title;
+  final String message;
+  final String label;
+  final String confirm;
+  final String keyName;
+
+  @override
+  State<_NoteDialog> createState() => _NoteDialogState();
+}
+
+class _NoteDialogState extends State<_NoteDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.message),
+            const SizedBox(height: AppSpacing.md),
+            TextField(
+              key: ValueKey(widget.keyName),
+              controller: _controller,
+              maxLength: 500,
+              maxLines: 3,
+              minLines: 1,
+              decoration: InputDecoration(labelText: widget.label),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Vazgeç')),
+        TextButton(
+          key: ValueKey('${widget.keyName}-confirm'),
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: Text(widget.confirm),
+        ),
+      ],
+    );
+  }
+}
+
+/// Bekleyen silme talebi: kim, ne zaman, neden. Silme yetkilisi onaylar ya
+/// da reddeder; talebi açan geri çekebilir; diğerleri yalnızca görür.
+class _DeleteRequestNotice extends StatelessWidget {
+  const _DeleteRequestNotice({required this.request, this.onApprove, this.onReject, this.onWithdraw});
+
+  final OfferDeleteRequest request;
+  final VoidCallback? onApprove;
+  final VoidCallback? onReject;
+  final VoidCallback? onWithdraw;
+
+  @override
+  Widget build(BuildContext context) {
+    final who = request.requestedByName.isEmpty ? 'Bir kullanıcı' : request.requestedByName;
+    final when = request.createdAt.isEmpty ? '' : ' (${Formatters.dateTime(request.createdAt)})';
+    return Container(
+      key: const ValueKey('offer-delete-request-notice'),
+      padding: const EdgeInsets.fromLTRB(AppSpacing.md, 10, AppSpacing.md, 10),
+      decoration: BoxDecoration(
+        color: AppColors.danger.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(AppRadius.control),
+        border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.delete_outline, size: 18, color: AppColors.danger),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  'Silme onayı bekliyor: $who bu teklifin silinmesini istedi$when.'
+                  '${request.reason.isEmpty ? '' : '\nNeden: ${request.reason}'}',
+                  style: AppTypography.helper.copyWith(color: AppColors.textPrimary, height: 1.35),
+                ),
+              ),
+            ],
+          ),
+          if (onApprove != null || onReject != null || onWithdraw != null)
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: AppSpacing.sm,
+              children: [
+                if (onWithdraw != null)
+                  TextButton(
+                    key: const ValueKey('offer-delete-withdraw'),
+                    onPressed: onWithdraw,
+                    child: const Text('Talebi Geri Çek'),
+                  ),
+                if (onReject != null)
+                  TextButton(
+                    key: const ValueKey('offer-delete-reject'),
+                    onPressed: onReject,
+                    child: const Text('Reddet'),
+                  ),
+                if (onApprove != null)
+                  TextButton(
+                    key: const ValueKey('offer-delete-approve'),
+                    onPressed: onApprove,
+                    style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+                    child: const Text('Onayla ve Sil'),
+                  ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ExpiredValidityNotice extends StatelessWidget {
   const _ExpiredValidityNotice({required this.text, this.onFix});
 

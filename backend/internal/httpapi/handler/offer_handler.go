@@ -132,6 +132,36 @@ type offerResponse struct {
 	Status          string              `json:"status"`
 	IsPassive       bool                `json:"is_passive"`
 	Items           []offerItemResponse `json:"items,omitempty"`
+	// Bekleyen silme talebi (migration 0067) -- yalnızca teklif detayında;
+	// yoksa alan hiç gelmez.
+	DeleteRequest *offerDeleteRequestResponse `json:"delete_request,omitempty"`
+}
+
+// offerDeleteRequestResponse: teklif detayında bekleyen talep; onay listesinde
+// (GET /offers/delete-requests) teklif özetiyle birlikte.
+type offerDeleteRequestResponse struct {
+	ID              string   `json:"id"`
+	OfferID         string   `json:"offer_id"`
+	RequestedBy     *string  `json:"requested_by"`
+	RequestedByName string   `json:"requested_by_name"`
+	Reason          string   `json:"reason"`
+	CreatedAt       string   `json:"created_at"`
+	OfferNo         string   `json:"offer_no,omitempty"`
+	CustomerName    string   `json:"customer_name,omitempty"`
+	GrandTotal      *float64 `json:"grand_total,omitempty"`
+	Currency        string   `json:"currency,omitempty"`
+}
+
+func toOfferDeleteRequestResponse(r domain.OfferDeleteRequest, withOffer bool) *offerDeleteRequestResponse {
+	resp := &offerDeleteRequestResponse{
+		ID: r.ID, OfferID: r.OfferID, RequestedBy: r.RequestedBy, RequestedByName: r.RequestedByName,
+		Reason: r.Reason, CreatedAt: r.CreatedAt.Format(time.RFC3339),
+	}
+	if withOffer {
+		total := r.GrandTotal
+		resp.OfferNo, resp.CustomerName, resp.GrandTotal, resp.Currency = r.OfferNo, r.CustomerName, &total, r.Currency
+	}
+	return resp
 }
 
 const dateLayout = "2006-01-02"
@@ -155,6 +185,9 @@ func toOfferResponse(o domain.Offer) offerResponse {
 		Notes:           o.Notes,
 		Status:          o.Status,
 		IsPassive:       o.IsPassive,
+	}
+	if o.DeleteRequest != nil {
+		resp.DeleteRequest = toOfferDeleteRequestResponse(*o.DeleteRequest, false)
 	}
 	if o.ValidUntil != nil {
 		s := o.ValidUntil.Format(dateLayout)
@@ -662,6 +695,96 @@ func (h *OfferHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// --- Silme talebi (migration 0067) ---
+
+type offerDeleteNoteRequest struct {
+	Reason string `json:"reason"`
+	Note   string `json:"note"`
+}
+
+// decodeOptionalBody: gövde boş olabilir (gerekçe isteğe bağlı).
+func decodeOptionalBody(r *http.Request, v any) error {
+	if r.ContentLength == 0 {
+		return nil
+	}
+	return httpjson.Decode(r, v)
+}
+
+// RequestDelete: POST /offers/{id}/delete-request {"reason"} -- silme izni
+// olmayan kişinin talebi (offers.create ya da offers.update).
+func (h *OfferHandler) RequestDelete(w http.ResponseWriter, r *http.Request) {
+	var req offerDeleteNoteRequest
+	if err := decodeOptionalBody(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	out, err := h.svc.RequestDelete(r.Context(), chi.URLParam(r, "id"), orgID, userID, req.Reason)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusCreated, toOfferDeleteRequestResponse(*out, false))
+}
+
+// WithdrawDeleteRequest: DELETE /offers/{id}/delete-request -- talebi açan
+// kişi vazgeçer.
+func (h *OfferHandler) WithdrawDeleteRequest(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	if err := h.svc.WithdrawDeleteRequest(r.Context(), chi.URLParam(r, "id"), orgID, userID); err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// ApproveDeleteRequest: POST /offers/{id}/delete-request/approve (offers.delete)
+// -- teklif silinir.
+func (h *OfferHandler) ApproveDeleteRequest(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	if err := h.svc.ApproveDeleteRequest(r.Context(), chi.URLParam(r, "id"), orgID, userID); err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// RejectDeleteRequest: POST /offers/{id}/delete-request/reject {"note"}
+// (offers.delete) -- teklif kalır.
+func (h *OfferHandler) RejectDeleteRequest(w http.ResponseWriter, r *http.Request) {
+	var req offerDeleteNoteRequest
+	if err := decodeOptionalBody(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	if err := h.svc.RejectDeleteRequest(r.Context(), chi.URLParam(r, "id"), orgID, userID, req.Note); err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// ListDeleteRequests: GET /offers/delete-requests (offers.delete) -- onay
+// bekleyen talepler, en eskisi önce.
+func (h *OfferHandler) ListDeleteRequests(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	rows, err := h.svc.ListPendingDeleteRequests(r.Context(), orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	out := make([]*offerDeleteRequestResponse, len(rows))
+	for i, row := range rows {
+		out[i] = toOfferDeleteRequestResponse(row, true)
+	}
+	httpjson.Write(w, http.StatusOK, map[string]any{"data": out})
+}
+
 type sendOfferEmailRequest struct {
 	To      string `json:"to"`
 	Subject string `json:"subject"`
@@ -864,8 +987,12 @@ func (h *OfferHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrOfferLocked),
 		errors.Is(err, service.ErrOfferCannotReturnToDraft),
 		errors.Is(err, service.ErrOfferSendExpired),
-		errors.Is(err, service.ErrOfferNotRevisable):
+		errors.Is(err, service.ErrOfferNotRevisable),
+		errors.Is(err, service.ErrOfferDeleteAlreadyRequested),
+		errors.Is(err, service.ErrOfferDeleteRequestNotFound):
 		httpjson.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrOfferDeleteRequestNotOwn):
+		httpjson.Error(w, http.StatusForbidden, err.Error())
 	case isInternalError(err):
 		writeInternalError(w, err)
 	default:

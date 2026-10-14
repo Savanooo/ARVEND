@@ -40,6 +40,8 @@ const (
 	AttnUsersWithoutProject       = "users_without_project"
 	// Masraf onayı (migration 0060): yalnızca onaylayabilene gösterilir.
 	AttnExpenseApproval = "expense_approval"
+	// Teklif silme talebi (migration 0067): yalnızca silme yetkilisine.
+	AttnOfferDeleteApproval = "offer_delete_approval"
 )
 
 // AttentionRule, bir dikkat kodunun sabit tanımıdır.
@@ -74,6 +76,10 @@ var AttentionRules = map[string]AttentionRule{
 		Visible: []string{PermProjectsFinanceRead}, Act: nil, WhenCannotAct: LaneWatching},
 	AttnOfferExpiredAwaiting: {Module: DashSectionOffers, Severity: SeverityDanger,
 		Visible: []string{PermOffersRead}, Act: []string{PermOffersUpdate}, WhenCannotAct: LaneWatching},
+	// Talep eden kendi talebini teklifte "Silme bekliyor" olarak görür;
+	// gündemde yalnızca karar verebilene çıkar.
+	AttnOfferDeleteApproval: {Module: DashSectionOffers, Severity: SeverityAction,
+		Visible: []string{PermOffersRead}, Act: []string{PermOffersDelete}, WhenCannotAct: ""},
 	AttnOfferAcceptedNotConverted: {Module: DashSectionOffers, Severity: SeverityAction,
 		Visible: []string{PermOffersRead}, Act: []string{PermProjectsCreate}, WhenCannotAct: LaneWatching},
 	AttnPurchaseRequestApproval: {Module: DashSectionProcurement, Severity: SeverityAction,

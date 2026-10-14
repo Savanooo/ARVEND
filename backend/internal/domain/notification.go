@@ -86,6 +86,12 @@ const (
 	NotificationExpensePendingApproval = "expense_pending_approval"
 	NotificationExpenseApproved        = "expense_approved"
 	NotificationExpenseRejected        = "expense_rejected"
+	// Teklif silme talebi (migration 0067): talep firmanın silme yetkililerine
+	// (Sahip/Yönetici ve Eski Sistem dışı offers.delete sahipleri), karar
+	// talep edene.
+	NotificationOfferDeleteRequested = "offer_delete_requested"
+	NotificationOfferDeleteApproved  = "offer_delete_approved"
+	NotificationOfferDeleteRejected  = "offer_delete_rejected"
 )
 
 // Varlık türleri -- mobil/web istemcinin ActionTarget'ı yorumlamadan,

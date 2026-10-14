@@ -131,6 +131,10 @@ class Offer {
   final List<OfferItem> items;
   final String currency;
 
+  /// Bekleyen silme talebi (backend migration 0067) -- yalnızca teklif
+  /// detayında gelir; yoksa null.
+  final OfferDeleteRequest? deleteRequest;
+
   const Offer({
     required this.id,
     required this.offerNo,
@@ -151,6 +155,7 @@ class Offer {
     required this.isPassive,
     required this.items,
     this.currency = 'TRY',
+    this.deleteRequest,
   });
 
   static const statusTaslak = 'taslak';
@@ -208,6 +213,52 @@ class Offer {
             .cast<Map<String, dynamic>>()
             .map(OfferItem.fromJson)
             .toList(),
+        currency: json['currency'] as String? ?? 'TRY',
+        deleteRequest: json['delete_request'] is Map<String, dynamic>
+            ? OfferDeleteRequest.fromJson(json['delete_request'] as Map<String, dynamic>)
+            : null,
+      );
+}
+
+/// Silme izni olmayan kişinin açtığı, silme yetkilisinin (offers.delete)
+/// kararını bekleyen talep. Onay listesinde (GET /offers/delete-requests)
+/// teklif özetiyle gelir; teklif detayında özet alanları boştur.
+class OfferDeleteRequest {
+  const OfferDeleteRequest({
+    required this.id,
+    required this.offerId,
+    required this.requestedBy,
+    required this.requestedByName,
+    required this.reason,
+    required this.createdAt,
+    this.offerNo = '',
+    this.customerName = '',
+    this.grandTotal,
+    this.currency = 'TRY',
+  });
+
+  final String id;
+  final String offerId;
+  final String? requestedBy;
+  final String requestedByName;
+  final String reason;
+  /// RFC3339 (Formatters.dateTime ile gösterilir).
+  final String createdAt;
+  final String offerNo;
+  final String customerName;
+  final double? grandTotal;
+  final String currency;
+
+  factory OfferDeleteRequest.fromJson(Map<String, dynamic> json) => OfferDeleteRequest(
+        id: json['id'] as String,
+        offerId: json['offer_id'] as String? ?? '',
+        requestedBy: json['requested_by'] as String?,
+        requestedByName: json['requested_by_name'] as String? ?? '',
+        reason: json['reason'] as String? ?? '',
+        createdAt: json['created_at'] as String? ?? '',
+        offerNo: json['offer_no'] as String? ?? '',
+        customerName: json['customer_name'] as String? ?? '',
+        grandTotal: (json['grand_total'] as num?)?.toDouble(),
         currency: json['currency'] as String? ?? 'TRY',
       );
 }

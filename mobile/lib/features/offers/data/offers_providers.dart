@@ -136,6 +136,12 @@ final offerDetailProvider = FutureProvider.autoDispose.family<Offer, String>(
   (ref, id) => ref.watch(offersRepositoryProvider).get(id),
 );
 
+/// Onay bekleyen teklif silme talepleri (backend migration 0067) -- yalnızca
+/// offers.delete sahibinde istenir (teklif listesinin üstündeki kart).
+final offerDeleteRequestsProvider = FutureProvider.autoDispose<List<OfferDeleteRequest>>(
+  (ref) => ref.watch(offersRepositoryProvider).deleteRequests(),
+);
+
 /// Müşteri detay ekranının "Teklifler" bölümü için -- backend'in yeni
 /// eklenen (bkz. bu modülün backend değişikliği) `GET /offers?customer_id=`
 /// filtresini kullanır. `offer_revisions.customer_id` yalnızca teklif bir

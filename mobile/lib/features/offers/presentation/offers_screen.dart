@@ -7,9 +7,11 @@ import 'package:go_router/go_router.dart';
 import '../../../app/app_shell.dart';
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/errors/api_exception.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_filter_bar.dart';
 import '../../../core/widgets/app_list_card.dart';
 import '../../../core/widgets/async_state_view.dart';
@@ -59,6 +61,7 @@ class _OffersScreenState extends ConsumerState<OffersScreen> {
   Future<void> _refresh() async {
     final query = _listQuery;
     ref.invalidate(offersPagedProvider(query));
+    ref.invalidate(offerDeleteRequestsProvider);
     try {
       await ref.read(offersPagedProvider(query).future);
     } catch (_) {
@@ -80,6 +83,10 @@ class _OffersScreenState extends ConsumerState<OffersScreen> {
     final counts = offersAsync.valueOrNull;
     final user = ref.watch(authControllerProvider).valueOrNull;
     final canCreateOffer = user == null || user.permissions.isEmpty || user.hasPermission('offers.create');
+    // Silme talepleri yalnızca karar verebilene (offers.delete) gösterilir.
+    final pendingDeletes = user?.hasPermission('offers.delete') ?? false
+        ? const _PendingDeleteRequests()
+        : const SizedBox.shrink();
 
     String chipLabel(String label, int? count) => count == null ? label : '$label ($count)';
 
@@ -141,9 +148,11 @@ class _OffersScreenState extends ConsumerState<OffersScreen> {
                   if (page.offers.isEmpty) {
                     return ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
-                      children: const [
-                        SizedBox(height: AppSpacing.xxl),
-                        EmptyStateView(message: 'Teklif bulunamadı.', icon: Icons.description_outlined),
+                      padding: kScreenPadding,
+                      children: [
+                        pendingDeletes,
+                        const SizedBox(height: AppSpacing.xxl),
+                        const EmptyStateView(message: 'Teklif bulunamadı.', icon: Icons.description_outlined),
                       ],
                     );
                   }
@@ -153,6 +162,7 @@ class _OffersScreenState extends ConsumerState<OffersScreen> {
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: kScreenPadding.copyWith(bottom: 88),
                       children: [
+                        pendingDeletes,
                         Padding(
                           padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                           child: Text('${page.total} teklif', style: AppTypography.metadata),
@@ -188,6 +198,54 @@ class _OffersScreenState extends ConsumerState<OffersScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Onay bekleyen silme talepleri (backend migration 0067): listenin
+/// üstünde kart; talep yoksa (ya da okunamazsa) hiç görünmez.
+class _PendingDeleteRequests extends ConsumerWidget {
+  const _PendingDeleteRequests();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final requests = ref.watch(offerDeleteRequestsProvider).valueOrNull ?? const [];
+    if (requests.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      key: const ValueKey('offer-delete-requests-card'),
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.delete_outline, size: 18, color: AppColors.danger),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text('${requests.length} teklif silme onayı bekliyor', style: AppTypography.cardTitle),
+                ),
+              ],
+            ),
+            for (final r in requests)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: Text('${r.offerNo} · ${r.customerName}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text(
+                  [
+                    if (r.requestedByName.isNotEmpty) 'Talep eden: ${r.requestedByName}',
+                    if (r.reason.isNotEmpty) r.reason,
+                  ].join(' · '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/teklifler/${r.offerId}'),
+              ),
+          ],
+        ),
       ),
     );
   }
