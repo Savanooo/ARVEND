@@ -93,6 +93,12 @@ func rbacCleanupOrg(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		// CASCADE'siz FK taşır -- ondan ÖNCE (tenant_isolation_test.go ile aynı).
 		"DELETE FROM subcontract_payments WHERE organization_id = $1",
 		"DELETE FROM project_subcontracts WHERE organization_id = $1",
+		// Taşeronlar (migration 0069): basit proje taşeronları karta
+		// (suppliers) bağlı, proje dışı ödemeler kartın kendisinde --
+		// suppliers'tan ÖNCE.
+		"DELETE FROM project_subcontractor_payments WHERE organization_id = $1",
+		"DELETE FROM project_subcontractors WHERE organization_id = $1",
+		"DELETE FROM subcontractor_direct_payments WHERE organization_id = $1",
 		"DELETE FROM suppliers WHERE organization_id = $1",
 		"DELETE FROM projects WHERE organization_id = $1",
 		// current_revision_id, offer_revisions'a FK taşır -- satırı
