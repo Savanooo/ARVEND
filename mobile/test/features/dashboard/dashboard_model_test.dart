@@ -547,10 +547,10 @@ void main() {
         permissions: const {'attendance.manage'},
       );
       expect(quickActionsFor(onlyAttendance), isEmpty);
-      // 0066 masraf girme iznini ÖZEL roller dahil her role verdi; proje
-      // seçici (GET /dashboard/project-options) projects.read ister. Projeleri
-      // göremeyen özel rol "Masraf Gir"e basıp her seferinde hata alıyordu;
-      // kendi masraflarının listesi (Masraf Takibi) ise çalışır.
+      // 0066 masraf girme iznini ÖZEL roller dahil her role verdi. Proje
+      // seçici (GET /dashboard/project-options) projects.read ister; 1.5.17'den
+      // beri projeleri göremeyen özel rol de "Masraf Gir" ile genel (projesiz)
+      // masraf girer (backend 0068), proje seçimi sorulmaz.
       final salesOnly = User(
         id: 's',
         username: 's',
@@ -562,7 +562,7 @@ void main() {
         onboardingStep: 'completed',
         permissions: const {'offers.read', 'offers.create', 'projects.expenses.create'},
       );
-      expect(quickActionsFor(salesOnly).map((a) => a.label), ['Teklif Oluştur', 'Masraf Takibi']);
+      expect(quickActionsFor(salesOnly).map((a) => a.label), ['Teklif Oluştur', 'Masraf Gir', 'Masraf Takibi']);
       // İzin kümesi boşsa (eski oturum) fail-open.
       expect(quickActionsFor(null), hasLength(QuickActionKey.values.length));
     });

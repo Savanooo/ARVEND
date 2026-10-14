@@ -10,7 +10,7 @@ import '../../../../core/widgets/quick_action_button.dart';
 import '../../../customers/presentation/customer_form_sheet.dart';
 import '../../../projects/finance_ledger/data/finance_ledger_providers.dart' show invalidateProjectLedger;
 import '../../../projects/presentation/collection_form_sheet.dart';
-import '../../../projects/presentation/expense_form_sheet.dart';
+import '../../../projects/my_expenses/presentation/add_expense_flow.dart';
 import '../../../projects/presentation/note_form_sheet.dart';
 import '../../data/dashboard_providers.dart';
 import '../../domain/dashboard_registry.dart';
@@ -124,8 +124,12 @@ Future<void> _runQuickAction(
       );
       invalidate();
       return;
-    case QuickActionKey.collection:
     case QuickActionKey.expense:
+      // Genel (projesiz) ya da projeye masraf (backend 0068) -- Masraflar
+      // ekranındaki "Masraf Ekle" ile aynı akış.
+      if (await startAddExpense(context, onLoading: onLoading)) invalidate();
+      return;
+    case QuickActionKey.collection:
     case QuickActionKey.purchaseRequest:
     case QuickActionKey.task:
     case QuickActionKey.note:
@@ -142,15 +146,6 @@ Future<void> _runQuickAction(
         invalidate();
         // Projenin Finans ekranı başka sekmede açık kalmış olabilir: yeni
         // tahsilat orada da görünsün (addProjectCollection ile aynı tazeleme).
-        invalidateProjectLedger(container.invalidate, project.id);
-      }
-    case QuickActionKey.expense:
-      final label = formProjectLabel(project.projectNo, project.name);
-      if (await showExpenseFormSheet(context, project.id, currency: project.currency, projectLabel: label) != null) {
-        invalidate();
-        // Masraflarım'ın "+"ı da buradan geçer: projenin Finans ekranı başka
-        // sekmede açık kalmış olabilir, yeni masraf orada da görünsün
-        // (proje ekranındaki addProjectExpense ile aynı tazeleme).
         invalidateProjectLedger(container.invalidate, project.id);
       }
     case QuickActionKey.note:

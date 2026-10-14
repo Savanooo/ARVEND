@@ -364,6 +364,9 @@ void main() {
 
       await tester.tap(find.byTooltip('Masraf Ekle'));
       await tester.pumpAndSettle();
+      // 1.5.17: önce genel mi projeye mi diye sorulur (backend 0068).
+      await tester.tap(find.byKey(const ValueKey('masraf-hedef-proje')));
+      await tester.pumpAndSettle();
       await tester.enterText(find.widgetWithText(TextFormField, 'Açıklama'), 'Çivi');
       await tester.enterText(find.widgetWithText(TextFormField, 'Tutar (TRY)'), '1.250');
       final button = find.widgetWithText(ElevatedButton, 'Kaydet');
@@ -380,14 +383,20 @@ void main() {
       expect(ledgerGets, hasLength(2), reason: 'kayıttan sonra proje defteri yeniden istenir');
     });
 
-    testWidgets('projeleri göremeyen (özel rol): liste var, "+" yok (proje seçici projects.read ister)', (tester) async {
+    testWidgets('projeleri göremeyen (özel rol): "+" doğrudan genel masraf formunu açar', (tester) async {
+      // Proje seçici projects.read ister; 1.5.17'den beri genel (projesiz)
+      // masraf girebildiği için "+" görünür ve seçim sorulmadan genel forma
+      // gider (backend 0068).
       await _pumpScreen(
         tester,
         user: cc.buildUser(id: 'field', roleCode: 'satis', permissions: const {'offers.read', 'projects.expenses.create'}),
         script: {'/expenses/mine': [mineResponse()]},
       );
       expect(find.byKey(const ValueKey('masrafim-m1')), findsOneWidget);
-      expect(find.byTooltip('Masraf Ekle'), findsNothing);
+      await tester.tap(find.byTooltip('Masraf Ekle'));
+      await tester.pumpAndSettle();
+      expect(find.text('Masraf nereye girilsin?'), findsNothing);
+      expect(find.text('Genel masraf (projesiz)'), findsOneWidget);
     });
 
     testWidgets('masraf girme izni yoksa açıklama, istek yok', (tester) async {

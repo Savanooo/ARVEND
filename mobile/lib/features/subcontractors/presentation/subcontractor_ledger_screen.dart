@@ -59,7 +59,12 @@ class SubcontractorLedgerScreen extends ConsumerWidget {
     Future<void> refresh() async {
       ref.invalidate(subcontractorLedgerProvider(subcontractorId));
       ref.invalidate(subcontractorCardsProvider);
-      await ref.read(subcontractorLedgerProvider(subcontractorId).future).catchError((_) => ledger!);
+      try {
+        await ref.read(subcontractorLedgerProvider(subcontractorId).future);
+      } catch (_) {
+        // Hata ekranda gösterilir (AsyncStateView); ilk yükleme de başarısız
+        // olduysa önceki kopya yoktur.
+      }
     }
 
     return AppPageScaffold(

@@ -11,20 +11,15 @@ import '../../../../core/widgets/access_notices.dart';
 import '../../../../core/widgets/app_card.dart';
 import '../../../../core/widgets/app_filter_bar.dart';
 import '../../../../core/widgets/app_page_scaffold.dart';
-import '../../../../core/widgets/app_sheet.dart';
 import '../../../../core/widgets/async_state_view.dart';
 import '../../../../core/widgets/status_badge.dart';
-import '../../../dashboard/domain/dashboard_registry.dart' show QuickActionKey;
-import '../../../dashboard/presentation/widgets/project_picker_sheet.dart' show showProjectPickerSheet;
 import '../../domain/expense_actions.dart';
 import '../../domain/project.dart';
-import '../../finance_ledger/data/finance_ledger_providers.dart' show invalidateProjectLedger;
 import '../../finance_ledger/presentation/ledger_entry_sheet.dart';
 import '../../finance_ledger/presentation/ledger_ui.dart' show isLedgerLocked;
-import '../../presentation/expense_form_sheet.dart';
-import '../../presentation/form_project_banner.dart' show formProjectLabel;
 import '../data/my_expenses_repository.dart';
 import '../domain/my_expense.dart';
+import 'add_expense_flow.dart';
 import 'my_expenses_screen.dart' show kMyExpensesNoAccessText;
 
 /// "Masraflar" (Diğer > İş Araçları, backend migration 0068): projeli ve
@@ -87,63 +82,8 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
     );
   }
 
-  /// "+": genel masraf mı, bir projeye mi? Proje seçimi projects.read ister
-  /// (ana sayfadaki "Masraf Gir" ile aynı kapı); izni yoksa doğrudan genel.
-  Future<void> _addExpense() async {
-    final user = ref.read(authControllerProvider).valueOrNull;
-    final canPickProject = user.canAll(QuickActionKey.expense.permissions);
-    var general = true;
-    if (canPickProject) {
-      final choice = await showAppSheet<bool>(
-        context: context,
-        useSafeArea: true,
-        builder: (context) => SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, AppSpacing.sm),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('Masraf nereye girilsin?', style: AppTypography.sectionTitle),
-                ),
-              ),
-              ListTile(
-                key: const ValueKey('masraf-hedef-genel'),
-                leading: const Icon(Icons.business_outlined),
-                title: const Text('Genel masraf (projesiz)'),
-                subtitle: const Text('Ofis, yakıt, yemek gibi firma giderleri'),
-                onTap: () => Navigator.of(context).pop(true),
-              ),
-              ListTile(
-                key: const ValueKey('masraf-hedef-proje'),
-                leading: const Icon(Icons.apartment_outlined),
-                title: const Text('Bir projeye'),
-                subtitle: const Text('Projenin maliyetine işlenir'),
-                onTap: () => Navigator.of(context).pop(false),
-              ),
-              const SizedBox(height: AppSpacing.md),
-            ],
-          ),
-        ),
-      );
-      if (choice == null || !mounted) return;
-      general = choice;
-    }
-    if (general) {
-      await showExpenseFormSheet(context, '', currency: 'TRY', projectLabel: 'Genel masraf (projesiz)');
-      return;
-    }
-    final project = await showProjectPickerSheet(context);
-    if (project == null || !mounted) return;
-    final created = await showExpenseFormSheet(
-      context,
-      project.id,
-      currency: project.currency,
-      projectLabel: formProjectLabel(project.projectNo, project.name),
-    );
-    if (created != null) invalidateProjectLedger(ref.invalidate, project.id);
-  }
+  /// "+": genel masraf mı, bir projeye mi (bkz. startAddExpense).
+  Future<void> _addExpense() => startAddExpense(context);
 
   @override
   Widget build(BuildContext context) {

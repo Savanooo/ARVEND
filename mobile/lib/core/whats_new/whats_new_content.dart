@@ -44,9 +44,10 @@ class WhatsNewRelease {
 
 /// En yeni sürüm en üstte.
 const kWhatsNewReleases = <WhatsNewRelease>[
-  // Proje silme (backend 0070).
+  // Proje silme (backend 0070); Ana Sayfa "Masraf Gir" genel masrafı da
+  // sorar. Build 23 yalnızca TestFlight'a gitti, mağazaya 24 çıkar.
   WhatsNewRelease(
-    build: 23,
+    build: 24,
     version: '1.5.17',
     items: [
       WhatsNewItem(
@@ -54,6 +55,12 @@ const kWhatsNewReleases = <WhatsNewRelease>[
         title: 'Proje silme',
         body: 'Yanlış açılan projeyi sağ üstteki menüden silebilir ya da yöneticine silme talebi gönderebilirsin.',
         permission: 'projects.update',
+      ),
+      WhatsNewItem(
+        icon: Icons.receipt_long_outlined,
+        title: 'Ana Sayfa\'dan genel masraf',
+        body: 'Ana Sayfa\'daki "Masraf Gir" artık proje seçtirmeden genel masraf da girer.',
+        permission: 'projects.expenses.create',
       ),
     ],
   ),

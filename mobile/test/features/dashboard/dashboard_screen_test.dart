@@ -811,6 +811,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(action);
       await tester.pumpAndSettle();
+      // 1.5.17: önce genel mi projeye mi diye sorulur (backend 0068).
+      expect(find.text('Masraf nereye girilsin?'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('masraf-hedef-proje')));
+      await tester.pumpAndSettle();
 
       expect(find.text('Proje seç'), findsNothing, reason: 'tek proje: seçici atlanır');
       expect(find.text('Masraf Ekle'), findsOneWidget);
