@@ -22,6 +22,17 @@ class MyExpensesRepository {
         .map(MyExpense.fromJson)
         .toList();
   }
+
+  /// `GET /expenses?kind=&status=` (backend migration 0068): "Masraflar"
+  /// ekranı -- finans okuma izni olan herkesin projeli ve genel masraflarını
+  /// toplamlarla görür, olmayan yalnızca kendi girdiklerini.
+  Future<ExpensesPage> listAll({String kind = '', String status = ''}) async {
+    final json = await _client.get<Map<String, dynamic>>(
+      '/expenses',
+      query: {if (kind.isNotEmpty) 'kind': kind, if (status.isNotEmpty) 'status': status},
+    );
+    return ExpensesPage.fromJson(json);
+  }
 }
 
 final myExpensesRepositoryProvider =
@@ -32,4 +43,10 @@ final myExpensesRepositoryProvider =
 /// invalidateProjectLedger ve masraf formu.
 final myExpensesProvider = FutureProvider.autoDispose.family<List<MyExpense>, String?>(
   (ref, projectId) => ref.watch(myExpensesRepositoryProvider).list(projectId: projectId),
+);
+
+/// "Masraflar" listesi; masraf yazan her yol bunu da tazeler (bkz.
+/// invalidateProjectLedger).
+final allExpensesProvider = FutureProvider.autoDispose.family<ExpensesPage, ExpensesQuery>(
+  (ref, q) => ref.watch(myExpensesRepositoryProvider).listAll(kind: q.kind, status: q.status),
 );

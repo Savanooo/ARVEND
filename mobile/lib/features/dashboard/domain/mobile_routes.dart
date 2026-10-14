@@ -78,6 +78,9 @@ String? mobileRouteFor(DashRef ref) {
       return '/diger/urunler/$id';
     case 'user':
       return '/diger/kullanicilar/$id';
+    case 'expenses':
+      // Genel (projesiz) masraf onayı (backend 0068) -- "Masraflar" ekranı.
+      return '/diger/masraflar?durum=pending';
     case 'price_source':
       // Web /admin/urunler'deki kaynak kartları; mobilde kaynak durumu,
       // senkron ve kâr oranı ayrı "Fiyat Kaynakları" ekranındadır.

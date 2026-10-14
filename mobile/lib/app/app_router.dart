@@ -39,6 +39,7 @@ import '../features/projects/contract_co/contract_co_routes.dart' show contractC
 import '../features/projects/finance_plan/finance_plan_routes.dart' show financePlanRoutes;
 import '../features/projects/ops_team/ops_team_routes.dart' show opsTeamRoutes;
 import '../features/projects/my_expenses/presentation/my_expenses_screen.dart';
+import '../features/projects/my_expenses/presentation/expenses_screen.dart';
 import '../features/projects/presentation/project_detail_screen.dart';
 import '../features/projects/projects_routes.dart';
 import '../features/projects/presentation/projects_screen.dart';
@@ -463,6 +464,13 @@ final routerProvider = Provider<GoRouter>((ref) {
                     projectId: state.uri.queryParameters['proje'],
                     initialExpenseId: state.uri.queryParameters['masraf'],
                   ),
+                ),
+                // Masraflar (backend 0068): projeli + genel masraflar tek
+                // listede; ?durum=pending onay bekleyenlerle açar.
+                GoRoute(
+                  path: 'masraflar',
+                  builder: (context, state) =>
+                      ExpensesScreen(initialStatus: state.uri.queryParameters['durum'] ?? ''),
                 ),
                 GoRoute(path: 'profil', builder: (context, state) => const ProfileScreen()),
                 GoRoute(

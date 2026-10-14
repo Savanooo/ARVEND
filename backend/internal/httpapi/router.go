@@ -606,8 +606,31 @@ func NewRouter(d Deps) http.Handler {
 		// projeler arası (?project_id= ile tek proje). Finans okuma izni
 		// gerekmez -- yalnızca created_by = çağıran döner; proje üyeliği
 		// süzgeci handler'da (ListMyTasks ile aynı).
-		r.With(requireAuth, requireTenant, requireOnboarded, loadAuthorization, perm(domain.PermProjectsExpensesCreate)).
-			Get("/expenses/mine", d.Projects.ListMyExpenses)
+		//
+		// Genel (projesiz) masraf ve "Masraflar" listesi (migration 0068):
+		// giriş herkese açık (projects.expenses.create, onay bekler);
+		// düzenleme/iptal projeli masrafla aynı iki kapsamla (finance.manage
+		// her masrafta, expenses.create yalnızca kendi bekleyen/reddedilen
+		// masrafında -- ayrım handler'da); karar projects.expenses.approve.
+		r.Route("/expenses", func(r chi.Router) {
+			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermProjectsExpensesCreate))
+				r.Get("/mine", d.Projects.ListMyExpenses)
+				r.Get("/", d.Projects.ListAllExpenses)
+				r.Post("/general", d.Projects.CreateGeneralExpense)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(anyPerm(domain.PermProjectsFinanceManage, domain.PermProjectsExpensesCreate))
+				r.Put("/general/{expenseId}", d.Projects.UpdateGeneralExpense)
+				r.Post("/general/{expenseId}/void", d.Projects.VoidGeneralExpense)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermProjectsExpensesApprove))
+				r.Post("/general/{expenseId}/approve", d.Projects.ApproveGeneralExpense)
+				r.Post("/general/{expenseId}/reject", d.Projects.RejectGeneralExpense)
+			})
+		})
 
 		// Cross-project "benim gorevlerim" -- proje dongusu yerine tek sorgu.
 		// Org-seviyesinde projects.tasks.read; proje uyelik filtresi handler icinde.

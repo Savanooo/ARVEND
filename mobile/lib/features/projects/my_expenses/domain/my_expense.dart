@@ -20,8 +20,13 @@ class MyExpense {
 
   String get projectId => expense.projectId;
 
-  /// "PRJ-2026-001 · Ataşehir Konut" -- numara yoksa yalnızca ad.
-  String get projectLabel => projectNo.isEmpty ? projectName : '$projectNo · $projectName';
+  /// Genel (projesiz) masraf (backend migration 0068).
+  bool get isGeneral => expense.projectId.isEmpty;
+
+  /// "PRJ-2026-001 · Ataşehir Konut" -- numara yoksa yalnızca ad; genel
+  /// masrafta "Genel masraf".
+  String get projectLabel =>
+      isGeneral ? 'Genel masraf' : (projectNo.isEmpty ? projectName : '$projectNo · $projectName');
 
   factory MyExpense.fromJson(Map<String, dynamic> json) => MyExpense(
         expense: Expense.fromJson(json),
@@ -49,3 +54,61 @@ enum MyExpenseFilter {
         MyExpenseFilter.approved => !e.isVoided && e.isApproved,
       };
 }
+
+/// "Masraflar" ekranı satırı (`GET /expenses`, backend migration 0068):
+/// projeli ya da genel masraf + giren kişi.
+class ListedExpense {
+  const ListedExpense({required this.row, required this.createdByName});
+
+  final MyExpense row;
+  final String createdByName;
+
+  Expense get expense => row.expense;
+
+  factory ListedExpense.fromJson(Map<String, dynamic> json) => ListedExpense(
+        row: MyExpense.fromJson(json),
+        createdByName: json['created_by_name'] as String? ?? '',
+      );
+}
+
+/// Para birimi başına onaylı ve bekleyen toplam (iptal/ret hariç).
+class ExpenseTotals {
+  const ExpenseTotals({required this.currency, required this.approved, required this.pending});
+
+  final String currency;
+  final double approved;
+  final double pending;
+
+  factory ExpenseTotals.fromJson(Map<String, dynamic> json) => ExpenseTotals(
+        currency: json['currency'] as String? ?? 'TRY',
+        approved: (json['approved'] as num?)?.toDouble() ?? 0,
+        pending: (json['pending'] as num?)?.toDouble() ?? 0,
+      );
+}
+
+/// `GET /expenses` yanıtı. [canSeeAll]: kişi herkesin masrafını görüyor
+/// (finans okuma izni); değilse yalnızca kendi girdikleri, toplam yok.
+class ExpensesPage {
+  const ExpensesPage({required this.rows, required this.canSeeAll, required this.totals, required this.truncated});
+
+  final List<ListedExpense> rows;
+  final bool canSeeAll;
+  final List<ExpenseTotals> totals;
+  final bool truncated;
+
+  factory ExpensesPage.fromJson(Map<String, dynamic> json) => ExpensesPage(
+        rows: (json['expenses'] as List? ?? const [])
+            .cast<Map<String, dynamic>>()
+            .map(ListedExpense.fromJson)
+            .toList(),
+        canSeeAll: json['can_see_all'] as bool? ?? false,
+        totals: (json['totals'] as List? ?? const [])
+            .cast<Map<String, dynamic>>()
+            .map(ExpenseTotals.fromJson)
+            .toList(),
+        truncated: json['truncated'] as bool? ?? false,
+      );
+}
+
+/// Masraflar süzgeci: tür (hepsi / genel / projeli) ve durum.
+typedef ExpensesQuery = ({String kind, String status});

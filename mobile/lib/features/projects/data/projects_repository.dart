@@ -44,6 +44,13 @@ class ProjectsRepository {
     return (json['expenses'] as List).cast<Map<String, dynamic>>().map(Expense.fromJson).toList();
   }
 
+  /// Masraf yazım uçlarının kökü: [projectId] boşsa genel (projesiz)
+  /// masraf (backend migration 0068) -- `/expenses/general`. Projeli ve
+  /// genel masraf aynı gövde ve kurallarla yazılır; formlar ve ayrıntı
+  /// sayfası bu yüzden ikisinde de aynı çalışır.
+  static String _expensesBase(String projectId) =>
+      projectId.isEmpty ? '/expenses/general' : '/projects/$projectId/expenses';
+
   Future<Expense> createExpense(
     String projectId, {
     required String category,
@@ -60,7 +67,7 @@ class ProjectsRepository {
     double? vatRate,
     String? idempotencyKey,
   }) async {
-    final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/expenses', data: {
+    final json = await _client.post<Map<String, dynamic>>(_expensesBase(projectId), data: {
       'category': category,
       'description': description,
       'amount': amount,
@@ -100,7 +107,7 @@ class ProjectsRepository {
     required String budgetLineId,
     required double? vatRate,
   }) async {
-    final json = await _client.put<Map<String, dynamic>>('/projects/$projectId/expenses/$expenseId', data: {
+    final json = await _client.put<Map<String, dynamic>>('${_expensesBase(projectId)}/$expenseId', data: {
       'category': category,
       'description': description,
       'amount': amount,
@@ -125,16 +132,16 @@ class ProjectsRepository {
       vatRate == null ? const {} : {'vat_rate': vatRate};
 
   Future<void> voidExpense(String projectId, String expenseId, {String reason = ''}) => _client
-      .post<void>('/projects/$projectId/expenses/$expenseId/void', data: {'reason': reason});
+      .post<void>('${_expensesBase(projectId)}/$expenseId/void', data: {'reason': reason});
 
   /// Onay bekleyen masrafı onaylar (`projects.expenses.approve`; kapalı
   /// projede 409, zaten karar verilmişse 409).
   Future<void> approveExpense(String projectId, String expenseId) =>
-      _client.post<void>('/projects/$projectId/expenses/$expenseId/approve');
+      _client.post<void>('${_expensesBase(projectId)}/$expenseId/approve');
 
   /// Onay bekleyen masrafı reddeder; gerekçe ZORUNLU (sunucu boşta 400).
   Future<void> rejectExpense(String projectId, String expenseId, {required String reason}) =>
-      _client.post<void>('/projects/$projectId/expenses/$expenseId/reject', data: {'reason': reason});
+      _client.post<void>('${_expensesBase(projectId)}/$expenseId/reject', data: {'reason': reason});
 
   Future<List<Collection>> collections(String projectId) async {
     final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/collections');

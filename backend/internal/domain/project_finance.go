@@ -246,10 +246,21 @@ type Expense struct {
 // projede Düzenle/Geri çek göstermemesi içindir (sunucu yine reddeder).
 type MyExpense struct {
 	Expense
+	// Genel (projesiz) masrafta (migration 0068) proje alanları boştur.
 	ProjectName   string
 	ProjectNo     string
 	ProjectStatus string
+	// CreatedByName: "Masraflar" listesinde (GET /expenses) masrafı giren.
+	CreatedByName string
 }
+
+// IsGeneral: projeye bağlı olmayan (firma genel gideri) masraf.
+func (e Expense) IsGeneral() bool { return e.ProjectID == "" }
+
+// ExpensesListLimit: "Masraflar" ekranı (GET /expenses) en fazla bu kadar
+// satır döner; toplamlar bu satırlardan hesaplanır (limit dolduysa yanıt
+// "truncated" der).
+const ExpensesListLimit = 500
 
 // MyExpensesLimit: "Masraflarım" en yeni bu kadar girişi döner -- kişinin
 // takip ettiği şey son girdikleridir; eski, kapanmış kayıtlar Finans'ta.

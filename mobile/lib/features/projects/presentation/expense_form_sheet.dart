@@ -138,8 +138,9 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
     });
     final repo = ref.read(projectsRepositoryProvider);
     final user = ref.read(authControllerProvider).valueOrNull;
-    // Bağ yazma yetkisi yoksa üçü de boş gider (bkz. sınıf notu).
-    final canLink = user.can(kExpenseFinanceManagePermission);
+    // Bağ yazma yetkisi yoksa üçü de boş gider (bkz. sınıf notu). Genel
+    // (projesiz) masrafta bağ yoktur -- hepsi projeye aittir.
+    final canLink = widget.projectId.isNotEmpty && user.can(kExpenseFinanceManagePermission);
     String link(String? id) => canLink ? (id ?? '') : '';
     final description = _descriptionController.text.trim();
     // Türkçe giriş: "64.000" = altmış dört bin, "1.250,50" kabul edilir.
@@ -190,7 +191,10 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
       // Özeti, ana sayfa hızlı işlemi, masraf ayrıntısı) aynı şeyi göstersin.
       // "Masraflarım" her giriş yerinden (hızlı işlem dahil) yeni masrafı
       // göstersin; düzenleme ayrıntı sayfasından gelir ve o tazeler.
-      if (initial == null) ref.invalidate(myExpensesProvider);
+      if (initial == null) {
+        ref.invalidate(myExpensesProvider);
+        ref.invalidate(allExpensesProvider);
+      }
       final messenger = ScaffoldMessenger.maybeOf(context);
       Navigator.of(context).pop(expense);
       messenger?.showSnackBar(
@@ -214,7 +218,7 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
     final user = ref.watch(authControllerProvider).valueOrNull;
     // Bağlar maliyetin nereye yazılacağı kararıdır: yalnızca finans
     // yöneticisi seçer (backend 0066); diğerinde seçici yüklenmez bile.
-    final canLink = user != null && user.can(kExpenseFinanceManagePermission);
+    final canLink = widget.projectId.isNotEmpty && user != null && user.can(kExpenseFinanceManagePermission);
     bool allowed(String code) => canLink && user.can(code);
 
     final changeOrders = allowed('projects.finance.read')

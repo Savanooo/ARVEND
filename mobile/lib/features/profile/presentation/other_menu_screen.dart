@@ -65,12 +65,14 @@ class OtherMenuScreen extends ConsumerWidget {
     bool canSee(String code) => noPermissionData || user.hasPermission(code);
 
     final toolItems = [
-      // Herkes masraf girer (backend 0066); kendi masraflarının durumu burada.
+      // Herkes masraf girer (backend 0066); genel (projesiz) ve projeli
+      // masraflar tek yerde (backend 0068). Finans okuma izni olan herkesinkini,
+      // olmayan kendi girdiklerini görür.
       if (canSee('projects.expenses.create'))
         _MenuItem(
           icon: Icons.receipt_long_outlined,
-          label: 'Masraflarım',
-          onTap: () => context.push('/diger/masraflarim'),
+          label: 'Masraflar',
+          onTap: () => context.push('/diger/masraflar'),
         ),
       if (canSee('customers.read'))
         _MenuItem(

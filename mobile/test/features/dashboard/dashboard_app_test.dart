@@ -132,6 +132,7 @@ void main() {
       ref('product', project: null),
       ref('user', project: null),
       ref('price_source', project: null),
+      ref('expenses', project: null),
       for (final persona in kDashboardPersonas) ..._fixtureRefs(Dashboard.fromJson(fixtureJson(persona))),
     ];
     final paths = <String>{
@@ -143,7 +144,13 @@ void main() {
           QuickActionKey.attendance => ['/diger/mesai'],
           QuickActionKey.calc => ['/diger/metraj'],
           // Masraflarım + masraf kararı bildiriminin hedefi (backend 0066).
-          QuickActionKey.myExpenses => ['/diger/masraflarim', '/diger/masraflarim?masraf=e1&proje=p1'],
+          // Masraflar (backend 0068) + eski Masraflarım derin bağlantısı.
+          QuickActionKey.myExpenses => [
+            '/diger/masraflar',
+            '/diger/masraflar?durum=pending',
+            '/diger/masraflarim',
+            '/diger/masraflarim?masraf=e1&proje=p1',
+          ],
           QuickActionKey.purchaseRequest => ['/projeler/p1/satin-alma/talepler/yeni'],
           QuickActionKey.task => ['/projeler/p1/gorevler/yeni'],
           _ => const <String>[],

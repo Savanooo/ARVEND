@@ -38,6 +38,7 @@ void invalidateProjectLedger(void Function(ProviderOrFamily provider) invalidate
   invalidate(customerProjectsProvider);
   invalidate(projectExpensesProvider(projectId));
   invalidate(myExpensesProvider);
+  invalidate(allExpensesProvider);
   invalidate(projectCollectionsProvider(projectId));
   invalidate(projectFinancialSummaryProvider(projectId));
   invalidate(projectPaymentPlanProvider(projectId));

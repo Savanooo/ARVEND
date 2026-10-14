@@ -381,6 +381,18 @@ func buildDashFinance(ctx context.Context, r *dashRun) (*sectionPayload, error) 
 		agg := dashTotals(totals, func(t sqlc.DashboardPendingExpensesTotalsRow) (string, int32, pgtype.Numeric, pgtype.Date) {
 			return t.Currency, t.Cnt, t.Amount, t.Oldest
 		})
+		// Genel (projesiz) masraflar da aynı onay grubundadır (migration 0068).
+		general, err := r.q.DashboardPendingGeneralExpenses(ctx, sqlc.DashboardPendingGeneralExpensesParams{
+			OrgID: r.orgID, ExcludeCreatedBy: exclude,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, it := range general {
+			agg.count++
+			agg.sums.add(it.Currency, dashDec(it.Amount))
+			agg.oldest = minDate(agg.oldest, it.SinceDate)
+		}
 		if g, ok := r.aggGroup(domain.AttnExpenseApproval, agg); ok {
 			items, err := r.q.DashboardPendingExpensesTop(ctx, sqlc.DashboardPendingExpensesTopParams{
 				OrgID: r.orgID, RestrictToUserID: r.restrict, ExcludeCreatedBy: exclude,
@@ -388,14 +400,35 @@ func buildDashFinance(ctx context.Context, r *dashRun) (*sectionPayload, error) 
 			if err != nil {
 				return nil, err
 			}
+			type pendingRec struct {
+				rec   domain.AttentionRecord
+				since pgtype.Date
+			}
+			var recs []pendingRec
 			for _, it := range items {
 				// Masrafın kendi ekranı yok: satır projenin Finans görünümünü açar.
-				g.Items = append(g.Items, domain.AttentionRecord{
+				recs = append(recs, pendingRec{domain.AttentionRecord{
 					Ref:   dashProjectRef(domain.RefKindProjectFinance, it.ProjectID),
 					Label: it.Description, ProjectName: dashStr(it.ProjectName),
 					Amount: dashMoneyPtr(it.Currency, it.Amount),
 					Date:   dashDateStr(it.SinceDate), Days: r.daysSince(it.SinceDate),
-				})
+				}, it.SinceDate})
+			}
+			for _, it := range general {
+				// Genel masraf "Masraflar" ekranında onaylanır.
+				recs = append(recs, pendingRec{domain.AttentionRecord{
+					Ref:    dashRef(domain.RefKindExpenses, it.ID, pgtype.UUID{}, pgtype.UUID{}, domain.RefActionOpen),
+					Label:  it.Description,
+					Amount: dashMoneyPtr(it.Currency, it.Amount),
+					Date:   dashDateStr(it.SinceDate), Days: r.daysSince(it.SinceDate),
+				}, it.SinceDate})
+			}
+			sort.SliceStable(recs, func(i, j int) bool { return recs[i].since.Time.Before(recs[j].since.Time) })
+			for i, x := range recs {
+				if i == 3 {
+					break
+				}
+				g.Items = append(g.Items, x.rec)
 			}
 			payload.groups = append(payload.groups, g)
 		}

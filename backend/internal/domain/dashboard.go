@@ -79,6 +79,8 @@ const (
 	RefKindProduct                = "product"
 	RefKindUser                   = "user"
 	RefKindPriceSource            = "price_source"
+	// RefKindExpenses: "Masraflar" ekranı (genel masraf onayı, migration 0068).
+	RefKindExpenses = "expenses"
 )
 
 const (

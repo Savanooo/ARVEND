@@ -354,3 +354,22 @@ func ToDomainProjectEvent(e sqlc.ProjectEvent) domain.ProjectEvent {
 	}
 	return de
 }
+
+// ToDomainListedExpense: "Masraflar" satırı (GET /expenses) -- projeli ya
+// da genel masraf, proje bilgisi ve gireniyle.
+func ToDomainListedExpense(r sqlc.ListExpensesFilteredRow) domain.MyExpense {
+	return domain.MyExpense{
+		Expense: ToDomainExpense(sqlc.ProjectExpense{
+			ID: r.ID, OrganizationID: r.OrganizationID, ProjectID: r.ProjectID,
+			Category: r.Category, Description: r.Description, Amount: r.Amount, Currency: r.Currency,
+			ExpenseDate: r.ExpenseDate, SupplierName: r.SupplierName, InvoiceNo: r.InvoiceNo, Notes: r.Notes,
+			CreatedBy: r.CreatedBy, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+			VoidedAt: r.VoidedAt, VoidedBy: r.VoidedBy, VoidReason: r.VoidReason, IdempotencyKey: r.IdempotencyKey,
+			ChangeOrderID: r.ChangeOrderID, CostCodeID: r.CostCodeID, BudgetLineID: r.BudgetLineID,
+			ApprovalStatus: r.ApprovalStatus, DecidedBy: r.DecidedBy, DecidedAt: r.DecidedAt, DecisionNote: r.DecisionNote,
+			VatRate: r.VatRate, VatAmount: r.VatAmount,
+		}),
+		ProjectName: r.ProjectName, ProjectNo: r.ProjectNo, ProjectStatus: r.ProjectStatus,
+		CreatedByName: r.CreatedByName,
+	}
+}

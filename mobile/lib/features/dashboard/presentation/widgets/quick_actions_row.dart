@@ -113,7 +113,7 @@ Future<void> _runQuickAction(
       openPage('/diger/metraj', refresh: false);
       return;
     case QuickActionKey.myExpenses:
-      openPage('/diger/masraflarim', refresh: false);
+      openPage('/diger/masraflar', refresh: false);
       return;
     case QuickActionKey.customer:
       await showAppSheet<void>(
