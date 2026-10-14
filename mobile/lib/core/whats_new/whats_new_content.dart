@@ -44,6 +44,32 @@ class WhatsNewRelease {
 
 /// En yeni sürüm en üstte.
 const kWhatsNewReleases = <WhatsNewRelease>[
+  // Ürün sahibinin istekleri (2026-10-14): teklif silme onayı, projesiz
+  // masraf ve tek Masraflar listesi, Taşeronlar.
+  WhatsNewRelease(
+    build: 22,
+    version: '1.5.16',
+    items: [
+      WhatsNewItem(
+        icon: Icons.engineering_outlined,
+        title: 'Taşeronlar sayfası',
+        body: 'Taşeronu bir kez gir, projelerde listeden seç; proje içi ve proje dışı bütün ödemeleri tek sayfada gör.',
+        permission: 'organization.suppliers.read',
+      ),
+      WhatsNewItem(
+        icon: Icons.receipt_long_outlined,
+        title: 'Projesiz masraf',
+        body: 'Ofis, yakıt gibi genel giderleri proje seçmeden gir; bütün masrafların Diğer > Masraflar\'da.',
+        permission: 'projects.expenses.create',
+      ),
+      WhatsNewItem(
+        icon: Icons.delete_outline,
+        title: 'Teklif silme onayı',
+        body: 'Silme yetkin yoksa teklifi silme talebiyle yöneticine onaya gönderirsin.',
+        permission: 'offers.update',
+      ),
+    ],
+  ),
   // App Store incelemesi (5.1.1(v)): hesap uygulamanın içinden silinebilmeli.
   WhatsNewRelease(
     build: 21,
