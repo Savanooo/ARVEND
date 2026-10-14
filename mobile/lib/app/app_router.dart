@@ -40,6 +40,8 @@ import '../features/projects/finance_plan/finance_plan_routes.dart' show finance
 import '../features/projects/ops_team/ops_team_routes.dart' show opsTeamRoutes;
 import '../features/projects/my_expenses/presentation/my_expenses_screen.dart';
 import '../features/projects/my_expenses/presentation/expenses_screen.dart';
+import '../features/subcontractors/presentation/subcontractor_ledger_screen.dart';
+import '../features/subcontractors/presentation/subcontractors_screen.dart';
 import '../features/projects/presentation/project_detail_screen.dart';
 import '../features/projects/projects_routes.dart';
 import '../features/projects/presentation/projects_screen.dart';
@@ -471,6 +473,18 @@ final routerProvider = Provider<GoRouter>((ref) {
                   path: 'masraflar',
                   builder: (context, state) =>
                       ExpensesScreen(initialStatus: state.uri.queryParameters['durum'] ?? ''),
+                ),
+                // Taşeronlar (backend 0069): firma geneli taşeron kartları;
+                // kartın sayfası projelerdeki işleri ve bütün ödemeleri.
+                GoRoute(
+                  path: 'taseronlar',
+                  builder: (context, state) => const SubcontractorsScreen(),
+                  routes: [
+                    GoRoute(
+                      path: ':id',
+                      builder: (context, state) => SubcontractorLedgerScreen(subcontractorId: state.pathParameters['id']!),
+                    ),
+                  ],
                 ),
                 GoRoute(path: 'profil', builder: (context, state) => const ProfileScreen()),
                 GoRoute(

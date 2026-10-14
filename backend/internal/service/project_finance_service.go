@@ -1138,7 +1138,11 @@ type SubcontractorInput struct {
 	// ProfitPercent: kâr payımız (%), 0-1000. Oluştururken nil = girilmedi;
 	// düzenlerken nil = mevcut değer korunur (alanı bilmeyen eski istemciler).
 	ProfitPercent *float64
-	UserID        string
+	// SupplierID: Taşeronlar'daki kart (migration 0069). Boşsa aynı adlı
+	// kart bulunur ya da açılır (bkz. resolveSubcontractorCard); ad boşsa
+	// karttan gelir. Düzenlemede boş = mevcut bağ korunur.
+	SupplierID string
+	UserID     string
 }
 
 // ErrInvalidProfitPercent: kâr payı aralık dışı.
@@ -1157,7 +1161,7 @@ func (s *ProjectService) CreateSubcontractor(ctx context.Context, projectID, org
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	if strings.TrimSpace(in.Name) == "" {
+	if strings.TrimSpace(in.Name) == "" && strings.TrimSpace(in.SupplierID) == "" {
 		return nil, errors.New("taşeron adı zorunludur")
 	}
 	if !validProfitPercent(in.ProfitPercent) {
@@ -1193,6 +1197,23 @@ func (s *ProjectService) CreateSubcontractor(ctx context.Context, projectID, org
 	if err != nil {
 		return nil, err
 	}
+	// Her basit taşeron kaydı bir Taşeronlar kartına bağlanır (migration 0069).
+	card, err := resolveSubcontractorCard(ctx, txq, orgID, in.SupplierID, in.Name, in.CompanyName, in.Phone, in.Email, actorUUID(in.UserID))
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(in.Name) == "" {
+		in.Name = card.LegalName
+	}
+	if strings.TrimSpace(in.CompanyName) == "" {
+		in.CompanyName = card.TradeName
+	}
+	if strings.TrimSpace(in.Phone) == "" {
+		in.Phone = card.Phone
+	}
+	if strings.TrimSpace(in.Email) == "" {
+		in.Email = card.Email
+	}
 
 	row, err := txq.CreateSubcontractor(ctx, sqlc.CreateSubcontractorParams{
 		OrganizationID:  orgID,
@@ -1216,6 +1237,12 @@ func (s *ProjectService) CreateSubcontractor(ctx context.Context, projectID, org
 	if err != nil {
 		return nil, err
 	}
+	if err := txq.SetProjectSubcontractorSupplier(ctx, sqlc.SetProjectSubcontractorSupplierParams{
+		SupplierID: card.ID, ID: row.ID, OrganizationID: orgID,
+	}); err != nil {
+		return nil, err
+	}
+	row.SupplierID = card.ID
 	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventSubcontractorAdded, actorUUID(in.UserID),
 		map[string]any{"subcontractor_id": row.ID.String(), "name": in.Name, "contract_amount": in.ContractAmount}); err != nil {
 		return nil, err
@@ -1314,6 +1341,19 @@ func (s *ProjectService) UpdateSubcontractor(ctx context.Context, projectID, sub
 			return nil, domain.ErrNotFound
 		}
 		return nil, err
+	}
+	// Kart değiştirildiyse yeniden bağlanır (boş = bağ korunur).
+	if strings.TrimSpace(in.SupplierID) != "" {
+		card, err := resolveSubcontractorCard(ctx, txq, orgID, in.SupplierID, "", "", "", "", actorUUID(in.UserID))
+		if err != nil {
+			return nil, err
+		}
+		if err := txq.SetProjectSubcontractorSupplier(ctx, sqlc.SetProjectSubcontractorSupplierParams{
+			SupplierID: card.ID, ID: row.ID, OrganizationID: orgID,
+		}); err != nil {
+			return nil, err
+		}
+		row.SupplierID = card.ID
 	}
 	if err := logProjectEvent(ctx, txq, orgID, row.ProjectID, domain.ProjectEventSubcontractorUpdated, actorUUID(in.UserID),
 		map[string]any{"subcontractor_id": subcontractorID}); err != nil {

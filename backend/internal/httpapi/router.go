@@ -803,6 +803,26 @@ func NewRouter(d Deps) http.Handler {
 			})
 		})
 
+		// Taşeronlar (migration 0069): taşeron kartı = tedarikçi kataloğundaki
+		// kayıt (is_subcontractor). Liste/kart tedarikçi izinleriyle; ödeme
+		// defteri finans okuma, proje dışı ödeme finans yönetme izniyle.
+		r.Route("/subcontractors", func(r chi.Router) {
+			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
+			r.With(perm(domain.PermOrganizationSuppliersRead)).Get("/", d.Suppliers.ListSubcontractorCards)
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermOrganizationSuppliersManage))
+				r.Post("/", d.Suppliers.CreateSubcontractorCard)
+				r.Post("/{id}/mark", d.Suppliers.MarkAsSubcontractor)
+			})
+			r.With(perm(domain.PermOrganizationSuppliersRead), perm(domain.PermProjectsFinanceRead)).
+				Get("/{id}/ledger", d.Suppliers.GetSubcontractorLedger)
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermProjectsFinanceManage))
+				r.Post("/{id}/payments", d.Suppliers.CreateDirectPayment)
+				r.Post("/{id}/payments/{paymentId}/void", d.Suppliers.VoidDirectPayment)
+			})
+		})
+
 		r.Route("/organization/permissions", func(r chi.Router) {
 			r.Use(requireAuth, requireTenant, requireOnboarded, requireAdmin, loadAuthorization, perm(domain.PermOrganizationRolesRead))
 			r.Get("/", d.Authorization.ListPermissions)

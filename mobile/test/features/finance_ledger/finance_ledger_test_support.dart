@@ -251,6 +251,7 @@ class FakeFinanceLedgerRepository implements FinanceLedgerRepository {
     String companyName = '',
     String workDescription = '',
     double? profitPercent,
+    String supplierId = '',
   }) async {
     calls.add('createSubcontractor');
     createdSubcontractors.add({

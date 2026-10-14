@@ -233,6 +233,7 @@ func ToDomainSubcontractor(r sqlc.ListSubcontractorsRow) domain.Subcontractor {
 		s := r.CostCodeID.String()
 		sub.CostCodeID = &s
 	}
+	sub.SupplierID = nullableUUIDToPtr(r.SupplierID)
 	return sub
 }
 
@@ -269,6 +270,7 @@ func ToDomainSubcontractorRow(s sqlc.ProjectSubcontractor) domain.Subcontractor 
 		v := s.CostCodeID.String()
 		sub.CostCodeID = &v
 	}
+	sub.SupplierID = nullableUUIDToPtr(s.SupplierID)
 	return sub
 }
 

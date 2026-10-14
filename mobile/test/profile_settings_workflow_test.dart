@@ -291,8 +291,10 @@ void main() {
       // Alt gezinmede 'Diğer' sekmesine geç.
       await tester.tap(find.text('Diğer'));
       await tester.pumpAndSettle();
+      // Menü uzadı (Taşeronlar, 1.5.16): satır ekranın altında kalabilir.
+      await tester.scrollUntilVisible(find.text('Hakkında'), 200, scrollable: find.byType(Scrollable).last);
+      await tester.pumpAndSettle();
       expect(find.text('Hakkında'), findsOneWidget);
-
       await tester.tap(find.text('Hakkında'));
       await tester.pumpAndSettle();
 

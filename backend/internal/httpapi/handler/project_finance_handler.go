@@ -631,6 +631,8 @@ type subcontractorResponse struct {
 	Notes           string  `json:"notes"`
 	ChangeOrderID   *string `json:"change_order_id,omitempty"`
 	CostCodeID      *string `json:"cost_code_id,omitempty"`
+	// SupplierID: bağlı Taşeronlar kartı (migration 0069).
+	SupplierID *string `json:"supplier_id"`
 	// Kâr payı girilmişse: yüzde, kârımız ve müşteriye yansıyan tutar
 	// (sunucuda hesaplanır; web ve mobil aynı rakamı gösterir).
 	ProfitPercent  *float64 `json:"profit_percent"`
@@ -645,7 +647,7 @@ func toSubcontractorResponse(s domain.Subcontractor) subcontractorResponse {
 		PaidAmount: s.PaidAmount, RemainingAmount: s.RemainingAmount, Currency: s.Currency,
 		StartDate: dateStrPtr(s.StartDate), EndDate: dateStrPtr(s.EndDate),
 		Status: s.Status, Notes: s.Notes, ChangeOrderID: s.ChangeOrderID, CostCodeID: s.CostCodeID,
-		ProfitPercent: s.ProfitPercent,
+		ProfitPercent: s.ProfitPercent, SupplierID: s.SupplierID,
 	}
 	if profit, customer, ok := s.SubcontractorProfit(); ok {
 		resp.ProfitAmount, resp.CustomerAmount = &profit, &customer
@@ -672,6 +674,9 @@ type subcontractorRequest struct {
 	// ProfitPercent: kâr payımız (%). Gönderilmezse (null) düzenlemede
 	// mevcut değer korunur.
 	ProfitPercent *float64 `json:"profit_percent"`
+	// SupplierID: Taşeronlar kartı (migration 0069). Boşsa aynı adlı kart
+	// bulunur ya da açılır; düzenlemede boş = bağ korunur.
+	SupplierID string `json:"supplier_id"`
 }
 
 func (r subcontractorRequest) toInput(userID string) service.SubcontractorInput {
@@ -680,7 +685,7 @@ func (r subcontractorRequest) toInput(userID string) service.SubcontractorInput 
 		WorkDescription: r.WorkDescription, ContractAmount: r.ContractAmount, Currency: r.Currency,
 		StartDate: parseDateParam(r.StartDate), EndDate: parseDateParam(r.EndDate),
 		Status: r.Status, Notes: r.Notes, ChangeOrderID: r.ChangeOrderID, UserID: userID,
-		CostCodeID: r.CostCodeID, ProfitPercent: r.ProfitPercent,
+		CostCodeID: r.CostCodeID, ProfitPercent: r.ProfitPercent, SupplierID: r.SupplierID,
 	}
 }
 

@@ -26,6 +26,8 @@ import '../domain/legacy_subcontractor.dart';
 import 'ledger_entry_sheet.dart';
 import 'ledger_ui.dart';
 import '../../../../core/widgets/app_sheet.dart';
+import '../../../subcontractors/presentation/subcontractor_picker_sheet.dart';
+import '../../../suppliers/domain/supplier.dart';
 
 /// Finans > "Taşeron Ödemeleri" (`?grup=finans&alt=taseron-odemeleri`) --
 /// web proje Finans sekmesindeki "Taşeronlar" bölümünün (`Subcontractors
@@ -411,6 +413,20 @@ class _SubcontractorFormSheetState extends ConsumerState<_SubcontractorFormSheet
   bool _busy = false;
   String? _error;
 
+  /// Taşeronlar'dan seçilen kart (backend 0069). Seçilince ad ve firma
+  /// karttan gelir; seçilmezse sunucu aynı adlı kartı bulur ya da açar.
+  OrganizationSupplier? _card;
+
+  Future<void> _pickCard() async {
+    final card = await showSubcontractorPickerSheet(context);
+    if (card == null || !mounted) return;
+    setState(() {
+      _card = card;
+      _name.text = card.legalName;
+      if (card.tradeName.isNotEmpty) _company.text = card.tradeName;
+    });
+  }
+
   @override
   void dispose() {
     _name.dispose();
@@ -442,6 +458,7 @@ class _SubcontractorFormSheetState extends ConsumerState<_SubcontractorFormSheet
               contractAmount: _parseAmount(_amount.text)!,
               currency: widget.currency,
               profitPercent: _profitPercent,
+              supplierId: _card?.id ?? '',
             )
           : await repo.updateSubcontractor(
               widget.projectId,
@@ -473,6 +490,7 @@ class _SubcontractorFormSheetState extends ConsumerState<_SubcontractorFormSheet
   @override
   Widget build(BuildContext context) {
     final existing = widget.existing;
+    final canPickCard = ref.watch(authControllerProvider).valueOrNull.canAccess('organization.suppliers.read');
     return _SheetFrame(
       title: existing == null ? 'Taşeron Ekle' : 'Taşeronu Düzenle',
       formKey: _formKey,
@@ -484,8 +502,30 @@ class _SubcontractorFormSheetState extends ConsumerState<_SubcontractorFormSheet
         AppFormSection(
           title: 'Taşeron Bilgileri',
           children: [
+            // Yeni kayıtta taşeron Taşeronlar listesinden seçilir; aynı kişi
+            // her projede ayrı yazılıp ödemeleri dağılmasın.
+            if (existing == null && canPickCard)
+              ListTile(
+                key: const ValueKey('legacy-subcontractor-card'),
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.engineering_outlined),
+                title: Text(_card == null ? 'Taşeronlar listesinden seç' : _card!.legalName),
+                subtitle: Text(
+                  _card == null ? 'Listede yoksa aşağıya adını yaz; Taşeronlar\'a eklenir.' : 'Taşeronlar kartından',
+                  style: AppTypography.helper,
+                ),
+                trailing: _card == null
+                    ? const Icon(Icons.chevron_right)
+                    : IconButton(
+                        tooltip: 'Seçimi kaldır',
+                        icon: const Icon(Icons.close),
+                        onPressed: () => setState(() => _card = null),
+                      ),
+                onTap: _pickCard,
+              ),
             TextFormField(
               controller: _name,
+              readOnly: _card != null,
               textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(labelText: 'Taşeron adı'),
               validator: (v) => (v ?? '').trim().isEmpty ? 'Taşeron adı gerekli' : null,

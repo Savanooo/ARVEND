@@ -32,12 +32,14 @@ type Supplier struct {
 	// tedarikçi kaydı bu tek opsiyonel alanla genişletildi. Boş olabilir --
 	// hiçbir supplier/subcontract kullanılabilirlik farkı YOKTUR, salt
 	// bilgilendirici metadata.
-	Specialty  string
-	IBANEncSet bool
-	IsActive   bool
-	Notes      string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	Specialty string
+	// IsSubcontractor: "Taşeronlar" listesindeki kart (migration 0069).
+	IsSubcontractor bool
+	IBANEncSet      bool
+	IsActive        bool
+	Notes           string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // ---------- Organizasyon olayları (organization_events -- Sprint 2'nin
@@ -49,3 +51,44 @@ const (
 	OrgEventSupplierArchived    = "supplier_archived"
 	OrgEventSupplierReactivated = "supplier_reactivated"
 )
+
+// SubcontractorEngagement: taşeronun bir projedeki işi -- projedeki basit
+// taşeron kaydı (Kind "simple") ya da sözleşmeli taşeronluk ("contract").
+type SubcontractorEngagement struct {
+	Kind           string
+	ID             string
+	ProjectID      string
+	ProjectName    string
+	ProjectNo      string
+	ProjectStatus  string
+	Title          string
+	Status         string
+	Currency       string
+	ContractAmount float64
+	PaidAmount     float64
+}
+
+// SubcontractorLedgerPayment: taşerona yapılan bir ödeme -- Source "simple"
+// (projedeki basit taşeron ödemesi), "contract" (sözleşmeli taşeron
+// ödemesi) ya da "direct" (proje dışı, migration 0069).
+type SubcontractorLedgerPayment struct {
+	Source       string
+	ID           string
+	ProjectID    string
+	ProjectName  string
+	ProjectNo    string
+	EngagementID string
+	Amount       float64
+	Currency     string
+	PaidDate     time.Time
+	Description  string
+	VoidedAt     *time.Time
+	VoidReason   string
+}
+
+// SubcontractorCard: "Taşeronlar" listesinin satırı -- kart ve para
+// birimi başına ödenen toplam (yalnızca finans okuyabilene doldurulur).
+type SubcontractorCard struct {
+	Supplier
+	PaidTotals []MoneyAmount
+}

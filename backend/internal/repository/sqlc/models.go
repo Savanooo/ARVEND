@@ -880,6 +880,7 @@ type ProjectSubcontractor struct {
 	ChangeOrderID   pgtype.UUID        `json:"change_order_id"`
 	CostCodeID      pgtype.UUID        `json:"cost_code_id"`
 	ProfitPercent   pgtype.Numeric     `json:"profit_percent"`
+	SupplierID      pgtype.UUID        `json:"supplier_id"`
 }
 
 type ProjectSubcontractorPayment struct {
@@ -1307,27 +1308,45 @@ type SubcontractProgressClaimItem struct {
 	SortOrder                int32          `json:"sort_order"`
 }
 
-type Supplier struct {
+type SubcontractorDirectPayment struct {
 	ID             pgtype.UUID        `json:"id"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`
-	Code           string             `json:"code"`
-	LegalName      string             `json:"legal_name"`
-	TradeName      string             `json:"trade_name"`
-	TaxNumber      string             `json:"tax_number"`
-	TaxOffice      string             `json:"tax_office"`
-	ContactName    string             `json:"contact_name"`
-	Email          string             `json:"email"`
-	Phone          string             `json:"phone"`
-	Address        string             `json:"address"`
-	City           string             `json:"city"`
-	Country        string             `json:"country"`
-	IbanEnc        string             `json:"iban_enc"`
-	IsActive       bool               `json:"is_active"`
-	Notes          string             `json:"notes"`
+	SupplierID     pgtype.UUID        `json:"supplier_id"`
+	Amount         pgtype.Numeric     `json:"amount"`
+	Currency       string             `json:"currency"`
+	PaidDate       pgtype.Date        `json:"paid_date"`
+	Description    string             `json:"description"`
+	IdempotencyKey *string            `json:"idempotency_key"`
 	CreatedBy      pgtype.UUID        `json:"created_by"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	Specialty      string             `json:"specialty"`
+	VoidedAt       pgtype.Timestamptz `json:"voided_at"`
+	VoidedBy       pgtype.UUID        `json:"voided_by"`
+	VoidReason     string             `json:"void_reason"`
+}
+
+type Supplier struct {
+	ID              pgtype.UUID        `json:"id"`
+	OrganizationID  pgtype.UUID        `json:"organization_id"`
+	Code            string             `json:"code"`
+	LegalName       string             `json:"legal_name"`
+	TradeName       string             `json:"trade_name"`
+	TaxNumber       string             `json:"tax_number"`
+	TaxOffice       string             `json:"tax_office"`
+	ContactName     string             `json:"contact_name"`
+	Email           string             `json:"email"`
+	Phone           string             `json:"phone"`
+	Address         string             `json:"address"`
+	City            string             `json:"city"`
+	Country         string             `json:"country"`
+	IbanEnc         string             `json:"iban_enc"`
+	IsActive        bool               `json:"is_active"`
+	Notes           string             `json:"notes"`
+	CreatedBy       pgtype.UUID        `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	Specialty       string             `json:"specialty"`
+	IsSubcontractor bool               `json:"is_subcontractor"`
 }
 
 type SupplierQuotation struct {

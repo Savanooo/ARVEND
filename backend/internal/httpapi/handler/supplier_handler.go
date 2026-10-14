@@ -38,11 +38,13 @@ type supplierResponse struct {
 	City        string `json:"city"`
 	Country     string `json:"country"`
 	Specialty   string `json:"specialty"`
-	IBANSet     bool   `json:"iban_set"`
-	IsActive    bool   `json:"is_active"`
-	Notes       string `json:"notes"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	// IsSubcontractor: kart "Taşeronlar" listesinde (migration 0069).
+	IsSubcontractor bool   `json:"is_subcontractor"`
+	IBANSet         bool   `json:"iban_set"`
+	IsActive        bool   `json:"is_active"`
+	Notes           string `json:"notes"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
 }
 
 func toSupplierResponse(s domain.Supplier) supplierResponse {
@@ -50,8 +52,8 @@ func toSupplierResponse(s domain.Supplier) supplierResponse {
 		ID: s.ID, Code: s.Code, LegalName: s.LegalName, TradeName: s.TradeName,
 		TaxNumber: s.TaxNumber, TaxOffice: s.TaxOffice, ContactName: s.ContactName,
 		Email: s.Email, Phone: s.Phone, Address: s.Address, City: s.City, Country: s.Country,
-		Specialty: s.Specialty,
-		IBANSet:   s.IBANEncSet, IsActive: s.IsActive, Notes: s.Notes,
+		Specialty: s.Specialty, IsSubcontractor: s.IsSubcontractor,
+		IBANSet: s.IBANEncSet, IsActive: s.IsActive, Notes: s.Notes,
 		CreatedAt: s.CreatedAt.Format(rfc3339), UpdatedAt: s.UpdatedAt.Format(rfc3339),
 	}
 }

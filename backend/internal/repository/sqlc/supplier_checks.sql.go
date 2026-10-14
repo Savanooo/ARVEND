@@ -13,7 +13,7 @@ import (
 
 const findSupplierByTaxKey = `-- name: FindSupplierByTaxKey :one
 
-SELECT id, organization_id, code, legal_name, trade_name, tax_number, tax_office, contact_name, email, phone, address, city, country, iban_enc, is_active, notes, created_by, created_at, updated_at, specialty FROM suppliers
+SELECT id, organization_id, code, legal_name, trade_name, tax_number, tax_office, contact_name, email, phone, address, city, country, iban_enc, is_active, notes, created_by, created_at, updated_at, specialty, is_subcontractor FROM suppliers
 WHERE organization_id = $1
   AND ($2::uuid IS NULL OR id <> $2::uuid)
   AND upper(regexp_replace(tax_number, '[^0-9A-Za-z]', '', 'g')) = $3::text
@@ -57,6 +57,7 @@ func (q *Queries) FindSupplierByTaxKey(ctx context.Context, arg FindSupplierByTa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Specialty,
+		&i.IsSubcontractor,
 	)
 	return i, err
 }

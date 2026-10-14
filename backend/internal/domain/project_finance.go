@@ -294,9 +294,11 @@ type ProjectInvoice struct {
 }
 
 type Subcontractor struct {
-	ID              string
-	OrganizationID  string
-	ProjectID       string
+	ID             string
+	OrganizationID string
+	ProjectID      string
+	// SupplierID: bağlı olduğu Taşeronlar kartı (migration 0069).
+	SupplierID      *string
 	Name            string
 	CompanyName     string
 	Phone           string

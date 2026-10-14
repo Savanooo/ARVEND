@@ -74,6 +74,13 @@ class OtherMenuScreen extends ConsumerWidget {
           label: 'Masraflar',
           onTap: () => context.push('/diger/masraflar'),
         ),
+      // Taşeronlar (backend 0069): firma geneli taşeron kartları ve ödemeleri.
+      if (canSee('organization.suppliers.read'))
+        _MenuItem(
+          icon: Icons.engineering_outlined,
+          label: 'Taşeronlar',
+          onTap: () => context.push('/diger/taseronlar'),
+        ),
       if (canSee('customers.read'))
         _MenuItem(
           icon: Icons.people_outline,

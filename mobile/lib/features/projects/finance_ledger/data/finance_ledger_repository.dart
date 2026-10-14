@@ -47,8 +47,12 @@ class FinanceLedgerRepository {
     String companyName = '',
     String workDescription = '',
     double? profitPercent,
+    String supplierId = '',
   }) async {
     final json = await _client.post<Map<String, dynamic>>('${_p(projectId)}/subcontractors', data: {
+      // Taşeronlar kartı (backend 0069); boşsa sunucu aynı adlı kartı bulur
+      // ya da açar.
+      'supplier_id': supplierId,
       'name': name,
       'company_name': companyName,
       'work_description': workDescription,
