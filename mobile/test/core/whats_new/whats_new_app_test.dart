@@ -296,6 +296,10 @@ void main() {
     await tester.pumpAndSettle();
     final about = find.text('Hakkında');
     await tester.scrollUntilVisible(about, 200, scrollable: find.byType(Scrollable).last);
+    // Menü uzadıkça (ör. Stok Takibi) satır alt gezinme çubuğunun altında
+    // kalabiliyor -- dokunmadan önce tamamen görünür yap.
+    await tester.ensureVisible(about);
+    await tester.pumpAndSettle();
     await tester.tap(about);
     await tester.pumpAndSettle();
 

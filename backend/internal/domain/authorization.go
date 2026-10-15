@@ -200,6 +200,15 @@ const (
 	// çekmesini ve kendi masraflarını görmesini (GET /expenses/mine) açar.
 	// Varsayılan: bütün roller.
 	PermProjectsExpensesCreate = "projects.expenses.create"
+
+	// Stok Takibi (migration 0072): projelerden bağımsız depo/stok.
+	// read görüntüleme; manage malzeme kartı, giriş, çıkış, aktarım (ve
+	// birim maliyet/stok değerini görme); adjust fire, sayım, fiş iptali
+	// ve depo yönetimi. Varsayılan: Sahip/Yönetici hepsi; Finans, Proje
+	// Yöneticisi ve Eski Sistem read+manage; Saha read.
+	PermInventoryRead   = "inventory.read"
+	PermInventoryManage = "inventory.manage"
+	PermInventoryAdjust = "inventory.adjust"
 )
 
 // adminRoleOnlyPermissions, uçları izne EK OLARAK kaba requireAdmin

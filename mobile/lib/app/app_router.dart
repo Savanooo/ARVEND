@@ -20,6 +20,7 @@ import '../features/dashboard/presentation/dashboard_screen.dart';
 import '../features/attendance/presentation/attendance_screen.dart';
 import '../features/employees/employees_routes.dart';
 import '../features/offers/domain/offer.dart';
+import '../features/inventory/inventory_routes.dart' show inventoryRoutes;
 import '../features/offers/history/offer_history_routes.dart' show offerHistoryRoutes;
 import '../features/offers/presentation/offer_create_screen.dart';
 import '../features/offers/presentation/offer_detail_screen.dart';
@@ -503,6 +504,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                 ...employeesRoutes, // personel, personel/{yeni,:id,:id/duzenle,:id/giris-hesabi}
                 ...accessRoutes, // kullanicilar, kullanicilar/{yeni,:id}, roller, roller/:id
                 ...suppliersRoutes, // tedarikciler, tedarikciler/:id
+                ...inventoryRoutes, // stok, stok/{malzeme/:id,fis/:type,hareketler,hareketler/:id,depolar}
                 ...costCodesRoutes, // maliyet-kodlari, maliyet-kodlari/:id
                 ...calcAdminRoutes, // metraj-receteleri, …/:groupId, …/:groupId/:categoryId
                 ...settingsRoutes, // eposta-ayarlari

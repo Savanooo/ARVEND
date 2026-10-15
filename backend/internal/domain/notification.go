@@ -99,6 +99,9 @@ const (
 	// Günlük şantiye raporu gönderildi (migration 0071): projenin
 	// yöneticilerine, gönderen hariç.
 	NotificationDailyReportSubmitted = "daily_report_submitted"
+	// Günlük stok uyarısı (migration 0072): her sabah, SKT'si geçen/yaklaşan
+	// parti ya da azalan stok varsa inventory.manage sahiplerine (günde bir).
+	NotificationInventoryAlert = "inventory_alert"
 )
 
 // Varlık türleri -- mobil/web istemcinin ActionTarget'ı yorumlamadan,
@@ -119,4 +122,5 @@ const (
 	NotificationEntityProjectPhoto           = "project_photo"
 	NotificationEntityProjectFile            = "project_file"
 	NotificationEntityProjectExpense         = "project_expense"
+	NotificationEntityInventory              = "inventory"
 )

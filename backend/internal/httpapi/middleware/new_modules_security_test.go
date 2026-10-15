@@ -11,12 +11,17 @@ package middleware_test
 //	    ödeme defteri finans okuma, proje dışı ödeme finans yönetme
 //	proje silme (0070): projects.delete (Sahip/Yönetici) direkt siler ve
 //	    karar verir; projeyi düzenleyebilen (üyesi olduğu projede) talep açar
+//	Stok Takibi (0072): inventory.read görür, .manage kart/giriş/çıkış/
+//	    aktarım (ve birim maliyeti görür), .adjust fire/sayım/iptal/depo
 //
 // Her biri başka firmanın kaydına dokunamaz.
 
 import (
+	"bytes"
 	"context"
+	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -339,4 +344,100 @@ func TestNewModulesSecurity(t *testing.T) {
 		status(t, http.MethodDelete, "/api/v1/projects/"+pB.ID, ownerBToken, "", http.StatusNotFound)
 		status(t, http.MethodDelete, "/api/v1/projects/"+pB.ID, adminToken, "", http.StatusOK)
 	})
+
+	t.Run("stok_takibi", func(t *testing.T) {
+		// Satış (özel rol) stok izni yok; Saha yalnızca görür ve para görmez.
+		status(t, http.MethodGet, "/api/v1/inventory/items", salesToken, "", http.StatusForbidden)
+		whs := status(t, http.MethodGet, "/api/v1/inventory/warehouses", fieldToken, "", http.StatusOK)
+		wh := whs["warehouses"].([]any)[0].(map[string]any)["id"].(string)
+		status(t, http.MethodPost, "/api/v1/inventory/items", fieldToken, `{"name":"Saha Kartı"}`, http.StatusForbidden)
+		// Proje Yöneticisi (manage): kart açar, giriş ve çıkış yapar; fire,
+		// sayım, iptal ve depo açamaz.
+		item := status(t, http.MethodPost, "/api/v1/inventory/items", pmToken,
+			`{"name":"Silikon","unit":"adet","track_expiry":true,"expiry_policy":"warn","barcode":"869111"}`, http.StatusCreated)
+		itemID, _ := item["id"].(string)
+		rec := status(t, http.MethodPost, "/api/v1/inventory/receipts", pmToken,
+			`{"warehouse_id":"`+wh+`","reference_no":"IRS-9","lines":[{"item_id":"`+itemID+`","quantity":12,"unit_cost":45.5,"expiry_date":"2099-01-01"}]}`,
+			http.StatusCreated)
+		recID, _ := rec["id"].(string)
+		if lines, _ := rec["lines"].([]any); len(lines) != 1 || lines[0].(map[string]any)["unit_cost"] == nil {
+			t.Errorf("manage sahibi birim maliyeti görmeli: %v", rec["lines"])
+		}
+		status(t, http.MethodPost, "/api/v1/inventory/issues", pmToken,
+			`{"warehouse_id":"`+wh+`","counterparty":"Ali Usta","lines":[{"item_id":"`+itemID+`","quantity":2}]}`, http.StatusCreated)
+		status(t, http.MethodPost, "/api/v1/inventory/issues", pmToken,
+			`{"warehouse_id":"`+wh+`","lines":[{"item_id":"`+itemID+`","quantity":500}]}`, http.StatusConflict)
+		status(t, http.MethodPost, "/api/v1/inventory/receipts", pmToken,
+			`{"warehouse_id":"`+wh+`","lines":[{"item_id":"`+itemID+`","quantity":1}]}`, http.StatusBadRequest)
+		status(t, http.MethodPost, "/api/v1/inventory/waste", pmToken,
+			`{"warehouse_id":"`+wh+`","reason":"damaged","lines":[{"item_id":"`+itemID+`","quantity":1}]}`, http.StatusForbidden)
+		status(t, http.MethodPost, "/api/v1/inventory/counts", legacyToken,
+			`{"warehouse_id":"`+wh+`","lines":[{"item_id":"`+itemID+`","counted_quantity":9}]}`, http.StatusForbidden)
+		status(t, http.MethodPost, "/api/v1/inventory/documents/"+recID+"/reverse", finToken, `{"reason":"x"}`, http.StatusForbidden)
+		status(t, http.MethodPost, "/api/v1/inventory/warehouses", pmToken, `{"name":"PM Depo"}`, http.StatusForbidden)
+		// Saha listede miktarı görür, birim maliyet ve stok değeri görmez.
+		fieldList := status(t, http.MethodGet, "/api/v1/inventory/items", fieldToken, "", http.StatusOK)
+		for _, r := range fieldList["items"].([]any) {
+			row := r.(map[string]any)
+			if row["id"] == itemID && (row["quantity"] != 10.0 || row["avg_unit_cost"] != nil || row["stock_value"] != nil) {
+				t.Errorf("saha satırı: %v", row)
+			}
+		}
+		if sum := status(t, http.MethodGet, "/api/v1/inventory/summary", fieldToken, "", http.StatusOK); sum["stock_value"] != nil {
+			t.Errorf("saha stok değeri görmemeli: %v", sum)
+		}
+		found := status(t, http.MethodGet, "/api/v1/inventory/items/by-barcode/869111", fieldToken, "", http.StatusOK)
+		if found["id"] != itemID {
+			t.Errorf("barkodla bulunmalı: %v", found)
+		}
+		bals := status(t, http.MethodGet, "/api/v1/inventory/warehouses/"+wh+"/balances", fieldToken, "", http.StatusOK)
+		if rows, _ := bals["balances"].([]any); len(rows) != 1 || rows[0].(map[string]any)["expiry_date"] != "2099-01-01" {
+			t.Errorf("depo bakiyeleri: %v", bals)
+		}
+		status(t, http.MethodGet, "/api/v1/inventory/warehouses/"+wh+"/balances", ownerBToken, "", http.StatusNotFound)
+		// Yönetici (adjust): depo, fire, sayım, iptal.
+		status(t, http.MethodPost, "/api/v1/inventory/warehouses", adminToken, `{"name":"Yan Depo"}`, http.StatusCreated)
+		status(t, http.MethodPost, "/api/v1/inventory/waste", adminToken,
+			`{"warehouse_id":"`+wh+`","reason":"damaged","lines":[{"item_id":"`+itemID+`","quantity":1}]}`, http.StatusCreated)
+		status(t, http.MethodPost, "/api/v1/inventory/counts", adminToken,
+			`{"warehouse_id":"`+wh+`","lines":[{"item_id":"`+itemID+`","counted_quantity":8}]}`, http.StatusCreated)
+		status(t, http.MethodPost, "/api/v1/inventory/documents/"+recID+"/reverse", adminToken, `{"reason":"yanlış"}`, http.StatusConflict)
+
+		// İrsaliye fotoğrafı (multipart).
+		var body bytes.Buffer
+		mw := multipart.NewWriter(&body)
+		fw, _ := mw.CreateFormFile("file", "irsaliye.png")
+		_, _ = fw.Write(append([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}, make([]byte, 64)...))
+		_ = mw.Close()
+		upload := func(token string) int {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/inventory/documents/"+recID+"/attachment", bytes.NewReader(body.Bytes()))
+			req.Header.Set("Content-Type", mw.FormDataContentType())
+			req.AddCookie(&http.Cookie{Name: "access_token", Value: token})
+			rr := httptest.NewRecorder()
+			d.router.ServeHTTP(rr, req)
+			return rr.Code
+		}
+		if code := upload(fieldToken); code != http.StatusForbidden {
+			t.Errorf("saha ek yükleyememeli: %d", code)
+		}
+		if code := upload(pmToken); code != http.StatusOK {
+			t.Errorf("ek yüklenmeli: %d", code)
+		}
+		doc := status(t, http.MethodGet, "/api/v1/inventory/documents/"+recID, fieldToken, "", http.StatusOK)
+		if doc["has_attachment"] != true {
+			t.Errorf("fişte ek görünmeli: %v", doc)
+		}
+		rr, _ := rbacDo(t, d.router, http.MethodGet, "/api/v1/inventory/documents/"+recID+"/attachment", fieldToken, "")
+		if rr.Code != http.StatusOK || rr.Header().Get("Content-Type") != "image/png" {
+			t.Errorf("ek indirilmeli: %d %s", rr.Code, rr.Header().Get("Content-Type"))
+		}
+
+		// Başka firma hiçbir şeye ulaşamaz.
+		status(t, http.MethodGet, "/api/v1/inventory/items/"+itemID, ownerBToken, "", http.StatusNotFound)
+		status(t, http.MethodGet, "/api/v1/inventory/documents/"+recID, ownerBToken, "", http.StatusNotFound)
+		status(t, http.MethodPost, "/api/v1/inventory/receipts", ownerBToken,
+			`{"warehouse_id":"`+wh+`","lines":[{"item_id":"`+itemID+`","quantity":1}]}`, http.StatusNotFound)
+		status(t, http.MethodPost, "/api/v1/inventory/documents/"+recID+"/reverse", ownerBToken, `{"reason":"x"}`, http.StatusNotFound)
+	})
+
 }

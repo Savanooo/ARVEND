@@ -41,6 +41,7 @@ type Deps struct {
 	AuthorizationSvc  *service.AuthorizationService
 	CostCodes         *handler.CostCodeHandler
 	Suppliers         *handler.SupplierHandler
+	Inventory         *handler.InventoryHandler
 	Notifications     *handler.NotificationHandler
 	Push              *handler.PushHandler
 	Feedback          *handler.FeedbackHandler
@@ -844,6 +845,46 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/payments/{paymentId}/void", d.Suppliers.VoidDirectPayment)
 			})
 		})
+
+		// Stok Takibi (migration 0072): projelerden bağımsız depo/stok.
+		// Okuma inventory.read; kart, giriş, çıkış, aktarım ve ek
+		// inventory.manage; fire, sayım, fiş iptali ve depolar
+		// inventory.adjust. (Test router'ı Inventory vermezse rota yok.)
+		if d.Inventory != nil {
+			r.Route("/inventory", func(r chi.Router) {
+				r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
+				r.Group(func(r chi.Router) {
+					r.Use(perm(domain.PermInventoryRead))
+					r.Get("/summary", d.Inventory.Summary)
+					r.Get("/alerts", d.Inventory.Alerts)
+					r.Get("/warehouses", d.Inventory.ListWarehouses)
+					r.Get("/warehouses/{id}/balances", d.Inventory.WarehouseBalances)
+					r.Get("/items", d.Inventory.ListItems)
+					r.Get("/items/by-barcode/{code}", d.Inventory.FindItemByBarcode)
+					r.Get("/items/{id}", d.Inventory.GetItem)
+					r.Get("/documents", d.Inventory.ListDocuments)
+					r.Get("/documents/{id}", d.Inventory.GetDocument)
+					r.Get("/documents/{id}/attachment", d.Inventory.DownloadAttachment)
+				})
+				r.Group(func(r chi.Router) {
+					r.Use(perm(domain.PermInventoryManage))
+					r.Post("/items", d.Inventory.CreateItem)
+					r.Put("/items/{id}", d.Inventory.UpdateItem)
+					r.Post("/receipts", d.Inventory.Receipt)
+					r.Post("/issues", d.Inventory.Issue)
+					r.Post("/transfers", d.Inventory.Transfer)
+					r.Post("/documents/{id}/attachment", d.Inventory.UploadAttachment)
+				})
+				r.Group(func(r chi.Router) {
+					r.Use(perm(domain.PermInventoryAdjust))
+					r.Post("/warehouses", d.Inventory.CreateWarehouse)
+					r.Put("/warehouses/{id}", d.Inventory.UpdateWarehouse)
+					r.Post("/waste", d.Inventory.Waste)
+					r.Post("/counts", d.Inventory.Count)
+					r.Post("/documents/{id}/reverse", d.Inventory.ReverseDocument)
+				})
+			})
+		}
 
 		r.Route("/organization/permissions", func(r chi.Router) {
 			r.Use(requireAuth, requireTenant, requireOnboarded, requireAdmin, loadAuthorization, perm(domain.PermOrganizationRolesRead))

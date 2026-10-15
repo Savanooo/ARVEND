@@ -73,6 +73,7 @@ func main() {
 	authzSvc := service.NewAuthorizationService(pool, q)
 	costCodeSvc := service.NewCostCodeService(pool, q)
 	supplierSvc := service.NewSupplierService(pool, q, secretBox)
+	inventorySvc := service.NewInventoryService(pool, q, fileStore)
 	notificationSvc := service.NewNotificationService(q)
 	// Telefona bildirim: anahtar yoksa gönderim kapalı, cihaz kayıtları
 	// yine tutulur (açıldığı an telefonlar bilinsin).
@@ -120,6 +121,7 @@ func main() {
 		AuthorizationSvc:  authzSvc,
 		CostCodes:         handler.NewCostCodeHandler(costCodeSvc),
 		Suppliers:         handler.NewSupplierHandler(supplierSvc),
+		Inventory:         handler.NewInventoryHandler(inventorySvc),
 		Notifications:     handler.NewNotificationHandler(notificationSvc),
 		Push:              handler.NewPushHandler(pushSvc),
 		Feedback:          handler.NewFeedbackHandler(service.NewFeedbackService(q)),
@@ -160,6 +162,13 @@ func main() {
 	} else {
 		log.Println("gece fiyat senkronu zamanlayıcısı kapalı (PRICE_SYNC_SCHEDULER)")
 	}
+
+	// Günlük stok uyarısı (SKT ve azalan stok), her sabah 08:00.
+	background.Add(1)
+	go func() {
+		defer background.Done()
+		inventorySvc.RunDailyAlerts(runCtx)
+	}()
 
 	if pushSvc.Enabled() {
 		background.Add(1)

@@ -81,6 +81,13 @@ class OtherMenuScreen extends ConsumerWidget {
           label: 'Taşeronlar',
           onTap: () => context.push('/diger/taseronlar'),
         ),
+      // Stok Takibi (backend 0072): depolar, malzemeler, giriş/çıkış, SKT.
+      if (canSee('inventory.read'))
+        _MenuItem(
+          icon: Icons.warehouse_outlined,
+          label: 'Stok Takibi',
+          onTap: () => context.push('/diger/stok'),
+        ),
       if (canSee('customers.read'))
         _MenuItem(
           icon: Icons.people_outline,

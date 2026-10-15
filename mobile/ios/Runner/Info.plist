@@ -40,7 +40,7 @@
 		<string>remote-notification</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>ARVEND, şantiye fotoğrafı çekebilmeniz için kameranıza erişim istiyor.</string>
+	<string>ARVEND, şantiye fotoğrafı çekebilmeniz ve stok barkodu okutabilmeniz için kameranıza erişim istiyor.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>ARVEND konumunuzu kullanmaz. Bu açıklama, fotoğraf ve dosya seçerken kullanılan sistem bileşenleri gerektirdiği için vardır.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

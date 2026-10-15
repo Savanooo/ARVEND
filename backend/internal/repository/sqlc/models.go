@@ -131,6 +131,106 @@ type FeedbackMessage struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
+type InventoryBalance struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	WarehouseID    pgtype.UUID        `json:"warehouse_id"`
+	ItemID         pgtype.UUID        `json:"item_id"`
+	LotID          pgtype.UUID        `json:"lot_id"`
+	Quantity       pgtype.Numeric     `json:"quantity"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type InventoryDocument struct {
+	ID                pgtype.UUID        `json:"id"`
+	OrganizationID    pgtype.UUID        `json:"organization_id"`
+	DocNo             string             `json:"doc_no"`
+	DocType           string             `json:"doc_type"`
+	DocDate           pgtype.Date        `json:"doc_date"`
+	WarehouseID       pgtype.UUID        `json:"warehouse_id"`
+	TargetWarehouseID pgtype.UUID        `json:"target_warehouse_id"`
+	ProjectID         pgtype.UUID        `json:"project_id"`
+	SupplierID        pgtype.UUID        `json:"supplier_id"`
+	Counterparty      string             `json:"counterparty"`
+	ReferenceNo       string             `json:"reference_no"`
+	Reason            string             `json:"reason"`
+	Note              string             `json:"note"`
+	AttachmentKey     string             `json:"attachment_key"`
+	AttachmentMime    string             `json:"attachment_mime"`
+	AttachmentName    string             `json:"attachment_name"`
+	Status            string             `json:"status"`
+	ReversalOfID      pgtype.UUID        `json:"reversal_of_id"`
+	ReversedAt        pgtype.Timestamptz `json:"reversed_at"`
+	ReversedBy        pgtype.UUID        `json:"reversed_by"`
+	ReverseReason     string             `json:"reverse_reason"`
+	IdempotencyKey    *string            `json:"idempotency_key"`
+	CreatedBy         pgtype.UUID        `json:"created_by"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+type InventoryDocumentCounter struct {
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	Year           int32       `json:"year"`
+	Seq            int32       `json:"seq"`
+}
+
+type InventoryItem struct {
+	ID              pgtype.UUID        `json:"id"`
+	OrganizationID  pgtype.UUID        `json:"organization_id"`
+	Code            string             `json:"code"`
+	Name            string             `json:"name"`
+	Barcode         string             `json:"barcode"`
+	Unit            string             `json:"unit"`
+	Category        string             `json:"category"`
+	ProductID       pgtype.UUID        `json:"product_id"`
+	MinStock        pgtype.Numeric     `json:"min_stock"`
+	TrackExpiry     bool               `json:"track_expiry"`
+	ShelfLifeMonths *int32             `json:"shelf_life_months"`
+	ExpiryPolicy    string             `json:"expiry_policy"`
+	ExpiryAlertDays int32              `json:"expiry_alert_days"`
+	AvgUnitCost     pgtype.Numeric     `json:"avg_unit_cost"`
+	Notes           string             `json:"notes"`
+	IsActive        bool               `json:"is_active"`
+	CreatedBy       pgtype.UUID        `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type InventoryLot struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ItemID         pgtype.UUID        `json:"item_id"`
+	LotNo          string             `json:"lot_no"`
+	ExpiryDate     pgtype.Date        `json:"expiry_date"`
+	ProductionDate pgtype.Date        `json:"production_date"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type InventoryMovement struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	DocumentID     pgtype.UUID        `json:"document_id"`
+	LineNo         int32              `json:"line_no"`
+	WarehouseID    pgtype.UUID        `json:"warehouse_id"`
+	ItemID         pgtype.UUID        `json:"item_id"`
+	LotID          pgtype.UUID        `json:"lot_id"`
+	Quantity       pgtype.Numeric     `json:"quantity"`
+	UnitCost       pgtype.Numeric     `json:"unit_cost"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type InventoryWarehouse struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	Name           string             `json:"name"`
+	Address        string             `json:"address"`
+	Notes          string             `json:"notes"`
+	IsActive       bool               `json:"is_active"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Notification struct {
 	ID             pgtype.UUID        `json:"id"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`

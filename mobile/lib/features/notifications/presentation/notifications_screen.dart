@@ -202,6 +202,7 @@ class _NotificationTile extends StatelessWidget {
     'project_photo' => Icons.photo_camera_outlined,
     'project_file' => Icons.attach_file,
     'project_expense' => Icons.receipt_outlined,
+    'inventory' => Icons.inventory_2_outlined,
     _ => Icons.notifications_outlined,
   };
 

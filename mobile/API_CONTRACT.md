@@ -400,6 +400,57 @@ One report per project per day (`UNIQUE(project_id, report_date)`). Read and PDF
 - Project → Operasyon → "Günlük Rapor" (`?grup=operasyon&alt=gunluk-rapor`), full screens `/projeler/:id/gunluk-rapor` and `/projeler/:id/gunluk-rapor/:date`.
 - Home quick action "Günlük Rapor" (`projects.operations.manage`): pick a project → today's report.
 
+## Inventory / Stok Takibi (since 2026-10-15, migration 0072; mobile 1.5.19)
+
+Standalone warehouses and stock, not tied to projects. Permissions are role permissions (Roller screen):
+- `inventory.read`: view.
+- `inventory.manage`: item cards, receipt, issue, transfer, attachments. Unit cost and stock value are returned only to holders.
+- `inventory.adjust`: warehouses, waste, count, reversal.
+
+Defaults: owner/admin all three; finance, project_manager and legacy_user read + manage; field read only.
+
+Rules:
+- Quantities are `numeric(14,3)`.
+- Cost is the moving weighted average per item, VAT excluded. Transfers don't change cost.
+- A project on an issue is information only; it never adds project cost.
+- Posted documents never change. A reversal document undoes them.
+- Balances can't go negative (409).
+- Expiry: `track_expiry` items need `expiry_date`, or `production_date` plus the card's `shelf_life_months`, on receipt.
+  - `expiry_policy=block`: an expired lot can only leave as waste.
+  - `expiry_policy=warn`: an expired lot can leave, and the response `warnings` says so.
+  - Without `lot_id`, outgoing lines are taken first-expiry-first-out.
+
+Endpoints under `/inventory`:
+- `GET /summary` → `{item_count, expired_lot_count, expiring_lot_count, below_min_count, can_see_values, stock_value?}`.
+- `GET /alerts` → `{alerts: [{item_id, item_code, item_name, unit, expiry_policy, warehouse_id, warehouse_name, lot_id, lot_no, expiry_date, quantity, expired}]}`.
+- `GET /warehouses` → `{warehouses: [{id, name, address, notes, is_active, item_count, created_at}]}`. The first call creates "Merkez Depo" if the org has none.
+- `POST /warehouses` and `PUT /warehouses/{id}` `{name, address, notes, is_active?}` (adjust). Archiving a warehouse that has stock → 409.
+- `GET /warehouses/{id}/balances` → `{balances: [{item_id, item_code, item_name, unit, lot_id?, lot_no, expiry_date?, quantity}]}`.
+- `GET /items?warehouse_id=&include_inactive=1` → `{items: [item], can_see_values}`.
+  - item: `{id, code, name, barcode, unit, category, product_id?, min_stock?, track_expiry, shelf_life_months?, expiry_policy, expiry_alert_days, notes, is_active, quantity, nearest_expiry?, expired_quantity, expiring_quantity, below_min, avg_unit_cost?, stock_value?}`.
+- `GET /items/{id}` → `{item, balances: [{warehouse_id, warehouse_name, lot_id?, lot_no, expiry_date?, production_date?, quantity}], documents: [summary], can_see_values}`.
+- `GET /items/by-barcode/{code}` → item (404 if none).
+- `POST /items` and `PUT /items/{id}` (manage), body is the item fields. An empty `code` gets `STK-NNNN`. A duplicate code or barcode → 409. Archiving an item that has stock → 409.
+- `POST /receipts`, `/issues`, `/transfers` (manage) and `/waste`, `/counts` (adjust).
+  - Body: `{date?, warehouse_id, target_warehouse_id (transfer), project_id? (issue), supplier_id? (receipt), counterparty, reference_no, reason (waste: damaged|expired|cutting|lost|other), note, idempotency_key, lines}`.
+  - Each line: `{item_id, quantity | counted_quantity (count), unit_cost? (receipt), lot_id?, lot_no?, expiry_date?, production_date?}`.
+  - Returns 201 with the document. A repeated idempotency key returns the first document.
+- `GET /documents?type=&warehouse_id=&item_id=&project_id=&limit=&offset=` → `{documents: [summary]}`.
+  - summary: `{id, doc_no, doc_type, doc_date, status, counterparty, reference_no, reason, warehouse_name, target_warehouse_name, project_name, created_by_name, created_at, item_count, first_item_name, is_reversal}`.
+- `GET /documents/{id}` → summary plus `{warehouse_id, target_warehouse_id?, project_id?, project_no, supplier_id?, supplier_name, note, has_attachment, attachment_name, attachment_mime, reversal_of_id?, reversal_of_no, reversed_by_doc_id?, reversed_by_doc_no, reversed_at?, reversed_by_name, reverse_reason, lines: [{line_no, item_id, item_code, item_name, unit, warehouse_id, warehouse_name, lot_id?, lot_no, expiry_date?, quantity (signed), unit_cost?}], warnings}`.
+- `POST /documents/{id}/reverse {reason}` (adjust) → 201 with the reversal document.
+  - Reason required.
+  - Already reversed, or a reversal document → 409.
+  - If the received stock was already used → 409.
+- `POST /documents/{id}/attachment` multipart `file` (image or PDF, manage); `GET /documents/{id}/attachment`. Our documents are not a legal irsaliye; the supplier's irsaliye number goes in `reference_no`.
+
+Daily alert: every day at 08:00 Istanbul, orgs with expired or expiring lots, or items below minimum stock, notify `inventory.manage` holders once a day.
+- Type `inventory_alert`, entity `inventory`, target `/diger/stok`.
+
+**Mobile**: Diğer → "Stok Takibi".
+- Routes: `/diger/stok`, `/diger/stok/malzeme/:id`, `/diger/stok/fis/:type?depo=&malzeme=`, `/diger/stok/hareketler[/:id]`, `/diger/stok/depolar`.
+- Barcode/QR scanning uses `mobile_scanner`: from the list, in the item picker and in the item form.
+
 ## Calculations (`requireAuth`; read = `calculations.read`, group/category/recipe-item CUD = `calculations.manage` — no coarse admin gate any more)
 - Recipe admin (mobile Diğer > Metraj Reçeteleri, `lib/features/calc_admin/`, since 1.3.0+4): `POST /calculations/groups`, `PUT /calculations/groups/{id}`, `POST /calculations/categories`, `PUT /calculations/categories/{id}`, `POST/PUT/DELETE /calculations/recipe-items[/{id}]`. Group/category edits send the existing `image_file_id` back unchanged. Deactivating a group/category hides it (lists return active only). The product picker pages `GET /products` (limit 200) only with `products.read`.
 - `GET /calculations/groups` → active groups only.

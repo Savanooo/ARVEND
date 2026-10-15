@@ -44,6 +44,27 @@ class WhatsNewRelease {
 
 /// En yeni sürüm en üstte.
 const kWhatsNewReleases = <WhatsNewRelease>[
+  // Stok Takibi (backend 0072): depolar, malzeme kartları, giriş/çıkış/
+  // aktarım/fire/sayım, parti ve son kullanma tarihi, barkod okutma.
+  WhatsNewRelease(
+    build: 26,
+    version: '1.5.19',
+    items: [
+      WhatsNewItem(
+        icon: Icons.inventory_2_outlined,
+        title: 'Stok Takibi',
+        body: 'Diğer > Stok Takibi: depolardaki malzemeyi, giriş ve çıkışları gör; '
+            'son kullanma tarihi yaklaşan ve azalan malzeme için her sabah uyarı al.',
+        permission: 'inventory.read',
+      ),
+      WhatsNewItem(
+        icon: Icons.qr_code_scanner,
+        title: 'Barkodla malzeme bul',
+        body: 'Stok Takibi\'nde barkodu ya da QR kodu okutunca malzemenin sayfası açılır; fişe eklerken de okutabilirsin.',
+        permission: 'inventory.read',
+      ),
+    ],
+  ),
   // Günlük şantiye raporu (backend 0071); Taşeronlar'da kalan borç,
   // sahada çalıştığı günler, kart düzenleme ve arama.
   WhatsNewRelease(
