@@ -221,7 +221,7 @@ func (s *SupplierService) GetSubcontractorLedger(ctx context.Context, organizati
 			Source: r.Source, ID: r.ID.String(), ProjectID: r.ProjectID.String(),
 			ProjectName: r.ProjectName, ProjectNo: r.ProjectNo, EngagementID: r.EngagementID.String(),
 			Amount: repository.NumericToFloat64(r.Amount), Currency: r.Currency,
-			PaidDate: r.PaidDate.Time, Description: r.Description, VoidReason: r.VoidReason,
+			PaidDate: r.PaidDate.Time, Description: r.Description, VoidReason: r.VoidReason, Kind: r.Kind,
 		}
 		if r.VoidedAt.Valid {
 			t := r.VoidedAt.Time
@@ -247,9 +247,11 @@ func (s *SupplierService) GetSubcontractorLedger(ctx context.Context, organizati
 
 // DirectPaymentInput: proje dışı taşeron ödemesi.
 type DirectPaymentInput struct {
-	Amount         float64
-	Currency       string
-	PaidDate       time.Time
+	Amount   float64
+	Currency string
+	PaidDate time.Time
+	// PaymentKind: "general" (boşsa) | "advance" -- yalnızca bilgi.
+	PaymentKind    string
 	Description    string
 	IdempotencyKey string
 	UserID         string
@@ -268,6 +270,14 @@ func (s *SupplierService) CreateDirectPayment(ctx context.Context, organizationI
 	}
 	if in.Amount <= 0 {
 		return nil, ErrInvalidAmount
+	}
+	kind := strings.TrimSpace(in.PaymentKind)
+	switch kind {
+	case "":
+		kind = "general"
+	case "general", domain.SubcontractorPaymentKindAdvance:
+	default:
+		return nil, ErrInvalidPaymentKind
 	}
 	currency := "TRY"
 	if strings.TrimSpace(in.Currency) != "" {
@@ -317,12 +327,13 @@ func (s *SupplierService) CreateDirectPayment(ctx context.Context, organizationI
 		OrganizationID: orgID, SupplierID: sid, Amount: repository.Float64ToNumeric(in.Amount),
 		Currency: currency, PaidDate: repository.TimeToDate(in.PaidDate),
 		Description: truncateRunes(strings.TrimSpace(in.Description), 500), IdempotencyKey: keyPtr, CreatedBy: actor,
+		PaymentKind: kind,
 	})
 	if err != nil {
 		return nil, err
 	}
 	if err := logOrgEvent(ctx, txq, orgID, OrgEventSubcontractorDirectPaymentAdded, actor, map[string]any{
-		"supplier_id": supplierID, "payment_id": row.ID.String(), "amount": in.Amount,
+		"supplier_id": supplierID, "payment_id": row.ID.String(), "amount": in.Amount, "payment_kind": kind,
 	}); err != nil {
 		return nil, err
 	}
@@ -379,6 +390,7 @@ func toDirectLedgerPayment(r sqlc.SubcontractorDirectPayment) *domain.Subcontrac
 	p := &domain.SubcontractorLedgerPayment{
 		Source: "direct", ID: r.ID.String(), Amount: repository.NumericToFloat64(r.Amount),
 		Currency: r.Currency, PaidDate: r.PaidDate.Time, Description: r.Description, VoidReason: r.VoidReason,
+		Kind: r.PaymentKind,
 	}
 	if r.VoidedAt.Valid {
 		t := r.VoidedAt.Time

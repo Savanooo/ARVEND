@@ -20,6 +20,7 @@ import '../../../core/widgets/app_sheet.dart';
 import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/unsaved_changes_scope.dart';
 import '../../projects/finance_ledger/data/finance_ledger_providers.dart';
+import '../../projects/finance_ledger/domain/legacy_subcontractor.dart' show kPaymentKindAdvance, kPaymentKindWork;
 import '../../projects/finance_plan/domain/finance_dates.dart' show parseAmountInput;
 import '../../suppliers/presentation/supplier_form_sheet.dart';
 import '../data/subcontractors_repository.dart';
@@ -352,6 +353,7 @@ class _PaymentRow extends StatelessWidget {
     final p = payment;
     final details = [
       p.projectLabel,
+      if (p.isAdvance) 'Avans',
       Formatters.date(p.paidDate),
       if (p.description.isNotEmpty) p.description,
       if (p.isVoided) 'İptal edildi${p.voidReason.isEmpty ? '' : ': ${p.voidReason}'}',
@@ -388,7 +390,8 @@ class _PaymentRow extends StatelessWidget {
 }
 
 /// "Ödeme Yap": nereye (proje dışı ya da projedeki basit taşeron işi),
-/// tutar, tarih, açıklama. Sözleşmeli taşeronluğun ödemesi kendi
+/// avans mı, tutar, tarih, açıklama. Projedeki avans maliyet değildir;
+/// projenin Taşeron Ödemeleri'nden "İşe Say" ile maliyete geçer. Sözleşmeli taşeronluğun ödemesi kendi
 /// sözleşme sayfasından (hakedişe bağlı) girilir. true = ödeme girildi.
 Future<bool?> showSubcontractorPaymentSheet(BuildContext context, {required SubcontractorLedger ledger}) {
   return showAppSheet<bool>(
@@ -416,6 +419,7 @@ class _PaymentSheetState extends ConsumerState<_PaymentSheet> {
 
   /// null = proje dışı; dolu = projedeki basit taşeron işi.
   SubcontractorEngagement? _target;
+  bool _advance = false;
   bool _busy = false;
   String? _error;
   final _idempotencyKey = 'tsr-${DateTime.now().microsecondsSinceEpoch}';
@@ -452,6 +456,7 @@ class _PaymentSheetState extends ConsumerState<_PaymentSheet> {
               paidDate: _isoDate,
               description: _description.text.trim(),
               idempotencyKey: _idempotencyKey,
+              advance: _advance,
             );
       } else {
         await ref.read(financeLedgerRepositoryProvider).createSubcontractorPayment(
@@ -462,6 +467,7 @@ class _PaymentSheetState extends ConsumerState<_PaymentSheet> {
               paidDate: _isoDate,
               description: _description.text.trim(),
               idempotencyKey: _idempotencyKey,
+              paymentKind: _advance ? kPaymentKindAdvance : kPaymentKindWork,
             );
         invalidateProjectLedger(ref.invalidate, target.projectId);
       }
@@ -529,6 +535,19 @@ class _PaymentSheetState extends ConsumerState<_PaymentSheet> {
                         'Kalan: ${Formatters.money(target.remainingAmount, currency: target.currency)}',
                         style: AppTypography.helper,
                       ),
+                    SwitchListTile(
+                      key: const ValueKey('taseron-odeme-avans'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Avans'),
+                      subtitle: Text(
+                        target == null
+                            ? 'İş yapılmadan verilen para (bilgi için).'
+                            : 'Maliyete girmez; projede "İşe Say" ile maliyete geçer.',
+                        style: AppTypography.helper,
+                      ),
+                      value: _advance,
+                      onChanged: _busy ? null : (v) => setState(() => _advance = v),
+                    ),
                     TextFormField(
                       key: const ValueKey('taseron-odeme-tutar'),
                       controller: _amount,

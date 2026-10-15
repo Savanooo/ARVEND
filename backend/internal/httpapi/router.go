@@ -330,6 +330,7 @@ func NewRouter(d Deps) http.Handler {
 				r.Put("/{id}/subcontractors/{subcontractorId}", d.Projects.UpdateSubcontractor)
 				r.Post("/{id}/subcontractors/{subcontractorId}/payments", d.Projects.CreateSubcontractorPayment)
 				r.Post("/{id}/subcontractor-payments/{paymentId}/void", d.Projects.VoidSubcontractorPayment)
+				r.Post("/{id}/subcontractor-payments/{paymentId}/offset", d.Projects.OffsetSubcontractorAdvance)
 				r.Post("/{id}/change-orders", d.Projects.CreateChangeOrder)
 				r.Put("/{id}/change-orders/{changeOrderId}", d.Projects.UpdateChangeOrder)
 				r.Post("/{id}/change-orders/{changeOrderId}/send", d.Projects.SendChangeOrder)

@@ -408,15 +408,22 @@ class DashFinanceCurrency {
     required this.openReceivable,
     this.collectionPct,
     required this.realizedCost,
+    double? paidCost,
     required this.cashBalance,
     required this.month,
     required this.overduePlan,
     required this.overdueSalesInvoices,
     required this.trend6m,
-  });
+  }) : paidCost = paidCost ?? realizedCost;
 
   final String currency;
   final double portfolioValue, collectedTotal, openReceivable, realizedCost, cashBalance;
+
+  /// Ödenen (nakit, avans dahil): nakit dengesi = tahsilat - ödenen.
+  /// [realizedCost] 2026-10'dan beri tahakkuk esaslı (onaylı hakediş dahil,
+  /// docs/maliyet-tanimlari.md). Eski sunucuda alan yok: o zaman
+  /// realized_cost zaten nakitti.
+  final double paidCost;
   final double? collectionPct;
   final DashFinanceMonth month;
   final CountAmount overduePlan;
@@ -432,6 +439,7 @@ class DashFinanceCurrency {
     openReceivable: _d(j['open_receivable']),
     collectionPct: _dn(j['collection_pct']),
     realizedCost: _d(j['realized_cost']),
+    paidCost: _dn(j['paid_cost']),
     cashBalance: _d(j['cash_balance']),
     month: DashFinanceMonth.fromJson(_m(j['month'])),
     overduePlan: CountAmount.fromJson(_m(j['overdue_plan'])),

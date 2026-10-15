@@ -122,6 +122,7 @@ const (
 	ProjectEventSubcontractorUpdated     = "subcontractor_updated"
 	ProjectEventSubcontractorPaymentMade = "subcontractor_payment_added"
 	ProjectEventSubcontractorPaymentVoid = "subcontractor_payment_voided"
+	ProjectEventSubcontractorAdvanceUsed = "subcontractor_advance_offset"
 )
 
 type PaymentPlanItem struct {
@@ -332,6 +333,13 @@ type Subcontractor struct {
 	CostCodeID *string
 }
 
+// Basit taşeron ödemesinin türü (migration 0073): iş karşılığı ödeme
+// gerçekleşen maliyettir; avans "İşe say" ile maliyete geçene kadar değildir.
+const (
+	SubcontractorPaymentKindWork    = "work"
+	SubcontractorPaymentKindAdvance = "advance"
+)
+
 type SubcontractorPayment struct {
 	ID              string
 	OrganizationID  string
@@ -341,11 +349,14 @@ type SubcontractorPayment struct {
 	Currency        string
 	PaidDate        time.Time
 	Description     string
-	CreatedBy       *string
-	CreatedAt       time.Time
-	VoidedAt        *time.Time
-	VoidedBy        *string
-	VoidReason      string
+	PaymentKind     string
+	// OffsetAt: avans işe sayıldıysa ne zaman (PaymentKind artık "work").
+	OffsetAt   *time.Time
+	CreatedBy  *string
+	CreatedAt  time.Time
+	VoidedAt   *time.Time
+	VoidedBy   *string
+	VoidReason string
 }
 
 // ProjectFinancialSummary, projenin tüm finans tablosunu tek seferde
@@ -373,8 +384,13 @@ type ProjectFinancialSummary struct {
 	RemainingReceivable          float64
 	TotalExpenses                float64
 	TotalSubcontractorCommitment float64
-	SubcontractorPaid            float64
-	SubcontractorRemaining       float64
+	// SubcontractorPaid basit taşerona ödenen her şeydir (nakit; avans
+	// dahil). Maliyete yalnızca İŞ ödemesi girer; avans "İşe say" ile
+	// maliyete geçene kadar SubcontractorAdvanceOpen'da bekler.
+	SubcontractorPaid        float64
+	SubcontractorWorkPaid    float64
+	SubcontractorAdvanceOpen float64
+	SubcontractorRemaining   float64
 	// Sprint 5 follow-up: legacy taşeron ödemelerinin (yukarıda) AYRI,
 	// paralel kaynağı -- yeni "project_subcontracts" (Sprint 5) sözleşmelerine
 	// yapılan GERÇEK ödemeler (bkz. migration 0039). Fiziksel olarak farklı
@@ -382,10 +398,29 @@ type ProjectFinancialSummary struct {
 	// ile katılırlar, çift sayım riski yoktur (bkz. docs/subcontracts.md).
 	NewSubcontractPaid      float64
 	NewSubcontractRemaining float64
-	IssuedInvoiceTotal      float64
-	PaidInvoiceTotal        float64
-	// RealizedCost: gerçekleşen masraflar + taşerona (legacy+yeni) GERÇEKTEN ödenen.
+	// Sözleşmeli taşeron, tahakkuk esaslı (project_cost_basis, migration
+	// 0073): Accrued gerçekleşen iş (onaylı hakedişin brüt tutarı; ödenmemiş
+	// ve teminatta tutulan dahil), AdvanceOpen mahsup edilmemiş avans,
+	// Payable onaylı hakedişten henüz ödenmeyen net tutar, Retention onaylı
+	// hakedişlerden kesilen teminat, PendingClaims onaya sunulmuş hakedişler.
+	NewSubcontractAccrued       float64
+	NewSubcontractAdvanceOpen   float64
+	NewSubcontractPayable       float64
+	NewSubcontractRetention     float64
+	NewSubcontractPendingClaims float64
+	// PendingExpenses: onay bekleyen masraflar (maliyete girmez, ayrıca gösterilir).
+	PendingExpenses    float64
+	IssuedInvoiceTotal float64
+	PaidInvoiceTotal   float64
+	// RealizedCost: onaylı masraflar + basit taşeronun iş ödemeleri +
+	// sözleşmeli taşeronun gerçekleşen işi (docs/maliyet-tanimlari.md).
 	RealizedCost float64
+	// PaidCost: onaylı masraflar + bütün taşeron ödemeleri (nakit, avans dahil).
+	PaidCost float64
+	// AdvanceOpen: mahsup edilmemiş taşeron avansları (maliyet değil).
+	AdvanceOpen float64
+	// PendingCost: onay bekleyen masraflar + onaya sunulmuş hakedişler.
+	PendingCost float64
 	// CommittedCost: gerçekleşen + taşeron sözleşmelerinin (legacy+yeni) kalan taahhüdü.
 	CommittedCost          float64
 	RealizedGrossProfit    float64

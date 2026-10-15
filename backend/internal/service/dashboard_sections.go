@@ -324,7 +324,8 @@ func buildDashFinance(ctx context.Context, r *dashRun) (*sectionPayload, error) 
 			fc.CollectionPct = dashPct(row.CollectionPct)
 			fc.RealizedCost = dashMoney(row.RealizedCost)
 			fc.RealizedCostNet = dashMoney(row.RealizedCostNet)
-			fc.CashBalance = dashDec(row.CollectedTotal).Sub(dashDec(row.RealizedCost)).InexactFloat64()
+			fc.PaidCost = dashMoney(row.PaidCost)
+			fc.CashBalance = dashDec(row.CollectedTotal).Sub(dashDec(row.PaidCost)).InexactFloat64()
 			fc.OverduePlan = domain.CountAmount{Count: int(row.OverduePlanCount), Amount: dashMoney(row.OverduePlanAmount)}
 			fc.OverdueSalesInvoices = domain.CountAmount{Count: int(row.OverdueInvoiceCount), Amount: dashMoney(row.OverdueInvoiceAmount)}
 		}

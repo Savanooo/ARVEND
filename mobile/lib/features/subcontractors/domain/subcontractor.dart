@@ -129,6 +129,7 @@ class SubcontractorLedgerPayment {
     required this.description,
     required this.voidedAt,
     required this.voidReason,
+    this.kind = '',
   });
 
   final String source;
@@ -144,7 +145,11 @@ class SubcontractorLedgerPayment {
   final String? voidedAt;
   final String voidReason;
 
+  /// "work" | "advance" | "general" (backend migration 0073); eski sunucuda boş.
+  final String kind;
+
   bool get isDirect => source == 'direct';
+  bool get isAdvance => kind == 'advance';
   bool get isVoided => voidedAt != null;
 
   String get projectLabel =>
@@ -163,6 +168,7 @@ class SubcontractorLedgerPayment {
         description: json['description'] as String? ?? '',
         voidedAt: json['voided_at'] as String?,
         voidReason: json['void_reason'] as String? ?? '',
+        kind: json['kind'] as String? ?? '',
       );
 }
 

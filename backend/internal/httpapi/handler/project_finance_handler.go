@@ -742,15 +742,19 @@ type subcontractorPaymentResponse struct {
 	Currency        string  `json:"currency"`
 	PaidDate        string  `json:"paid_date"`
 	Description     string  `json:"description"`
-	VoidedAt        *string `json:"voided_at"`
-	VoidReason      string  `json:"void_reason"`
-	CreatedAt       string  `json:"created_at"`
+	// payment_kind: "work" | "advance"; offset_at: avans işe sayıldıysa.
+	PaymentKind string  `json:"payment_kind"`
+	OffsetAt    *string `json:"offset_at"`
+	VoidedAt    *string `json:"voided_at"`
+	VoidReason  string  `json:"void_reason"`
+	CreatedAt   string  `json:"created_at"`
 }
 
 func toSubcontractorPaymentResponse(p domain.SubcontractorPayment) subcontractorPaymentResponse {
 	return subcontractorPaymentResponse{
 		ID: p.ID, SubcontractorID: p.SubcontractorID, Amount: p.Amount, Currency: p.Currency,
 		PaidDate: p.PaidDate.Format(dateLayout), Description: p.Description,
+		PaymentKind: p.PaymentKind, OffsetAt: tsStrPtr(p.OffsetAt),
 		VoidedAt: tsStrPtr(p.VoidedAt), VoidReason: p.VoidReason, CreatedAt: p.CreatedAt.Format(rfc3339),
 	}
 }
@@ -759,6 +763,7 @@ type subcontractorPaymentRequest struct {
 	Amount         float64 `json:"amount"`
 	Currency       string  `json:"currency"`
 	PaidDate       string  `json:"paid_date"`
+	PaymentKind    string  `json:"payment_kind"`
 	Description    string  `json:"description"`
 	IdempotencyKey string  `json:"idempotency_key"`
 }
@@ -790,7 +795,7 @@ func (h *ProjectHandler) CreateSubcontractorPayment(w http.ResponseWriter, r *ht
 		return
 	}
 	p, err := h.svc.CreateSubcontractorPayment(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "subcontractorId"), orgID, service.SubcontractorPaymentInput{
-		Amount: req.Amount, Currency: req.Currency, PaidDate: paidDate,
+		Amount: req.Amount, Currency: req.Currency, PaidDate: paidDate, PaymentKind: req.PaymentKind,
 		Description: req.Description, IdempotencyKey: req.IdempotencyKey, UserID: userID,
 	})
 	if err != nil {
@@ -806,6 +811,19 @@ func (h *ProjectHandler) VoidSubcontractorPayment(w http.ResponseWriter, r *http
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
 	p, err := h.svc.VoidSubcontractorPayment(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "paymentId"), orgID, userID, req.Reason)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, toSubcontractorPaymentResponse(*p))
+}
+
+// OffsetSubcontractorAdvance: POST /projects/{id}/subcontractor-payments/{paymentId}/offset
+// -- avansı işe say (gerçekleşen maliyete geçer).
+func (h *ProjectHandler) OffsetSubcontractorAdvance(w http.ResponseWriter, r *http.Request) {
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	p, err := h.svc.OffsetSubcontractorAdvance(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "paymentId"), orgID, userID)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -842,11 +860,27 @@ type financialSummaryResponse struct {
 	IssuedInvoiceTotal           float64 `json:"issued_invoice_total"`
 	PaidInvoiceTotal             float64 `json:"paid_invoice_total"`
 	RealizedCost                 float64 `json:"realized_cost"`
-	CommittedCost                float64 `json:"committed_cost"`
-	RealizedGrossProfit          float64 `json:"realized_gross_profit"`
-	EstimatedGrossProfit         float64 `json:"estimated_gross_profit"`
-	RealizedMarginPercent        float64 `json:"realized_margin_percent"`
-	EstimatedMarginPercent       float64 `json:"estimated_margin_percent"`
+
+	// Maliyet tanımları (docs/maliyet-tanimlari.md): realized_cost tahakkuk
+	// esaslıdır; paid_cost nakit (avans dahil). Avans ve onay bekleyenler
+	// maliyete girmez, ayrıca gösterilir.
+	PaidCost                    float64 `json:"paid_cost"`
+	AdvanceOpen                 float64 `json:"advance_open"`
+	PendingCost                 float64 `json:"pending_cost"`
+	PendingExpenses             float64 `json:"pending_expenses"`
+	SubcontractorWorkPaid       float64 `json:"subcontractor_work_paid"`
+	SubcontractorAdvanceOpen    float64 `json:"subcontractor_advance_open"`
+	NewSubcontractAccrued       float64 `json:"new_subcontract_accrued"`
+	NewSubcontractAdvanceOpen   float64 `json:"new_subcontract_advance_open"`
+	NewSubcontractPayable       float64 `json:"new_subcontract_payable"`
+	NewSubcontractRetention     float64 `json:"new_subcontract_retention"`
+	NewSubcontractPendingClaims float64 `json:"new_subcontract_pending_claims"`
+
+	CommittedCost          float64 `json:"committed_cost"`
+	RealizedGrossProfit    float64 `json:"realized_gross_profit"`
+	EstimatedGrossProfit   float64 `json:"estimated_gross_profit"`
+	RealizedMarginPercent  float64 `json:"realized_margin_percent"`
+	EstimatedMarginPercent float64 `json:"estimated_margin_percent"`
 
 	// KDV hariç karşılıklar (bkz. domain.ProjectFinancialSummary).
 	// expense_vat_total: onaylı masrafların içindeki KDV; *_cost_net bundan.
@@ -893,6 +927,11 @@ func (h *ProjectHandler) FinancialSummary(w http.ResponseWriter, r *http.Request
 		NewSubcontractPaid: s.NewSubcontractPaid, NewSubcontractRemaining: s.NewSubcontractRemaining,
 		IssuedInvoiceTotal: s.IssuedInvoiceTotal, PaidInvoiceTotal: s.PaidInvoiceTotal,
 		RealizedCost: s.RealizedCost, CommittedCost: s.CommittedCost,
+		PaidCost: s.PaidCost, AdvanceOpen: s.AdvanceOpen, PendingCost: s.PendingCost,
+		PendingExpenses: s.PendingExpenses, SubcontractorWorkPaid: s.SubcontractorWorkPaid,
+		SubcontractorAdvanceOpen: s.SubcontractorAdvanceOpen, NewSubcontractAccrued: s.NewSubcontractAccrued,
+		NewSubcontractAdvanceOpen: s.NewSubcontractAdvanceOpen, NewSubcontractPayable: s.NewSubcontractPayable,
+		NewSubcontractRetention: s.NewSubcontractRetention, NewSubcontractPendingClaims: s.NewSubcontractPendingClaims,
 		RealizedGrossProfit: s.RealizedGrossProfit, EstimatedGrossProfit: s.EstimatedGrossProfit,
 		RealizedMarginPercent: s.RealizedMarginPercent, EstimatedMarginPercent: s.EstimatedMarginPercent,
 		ContractVATAmount: s.ContractVATAmount, ContractVATKnown: s.ContractVATKnown,

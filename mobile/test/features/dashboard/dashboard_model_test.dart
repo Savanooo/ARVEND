@@ -47,6 +47,14 @@ void main() {
       expect(fin.first.collectionPct, 59.2);
       expect(fin.first.trend6m, hasLength(6));
       expect(fin.first.trend6m.first.month, '2026-04');
+      // Nakit dengesi ödenenden (paid_cost, 2026-10); alan yoksa (eski
+      // sunucu) gerçekleşen maliyet zaten nakitti.
+      expect(fin.first.paidCost, 5200000);
+      expect(fin.first.collectedTotal - fin.first.paidCost, fin.first.cashBalance);
+      final legacy = Map<String, dynamic>.of(fixtureJson('owner')['sections']['finance']['by_currency'][0] as Map<String, dynamic>)
+        ..remove('paid_cost')
+        ..['realized_cost'] = 123;
+      expect(DashFinanceCurrency.fromJson(legacy).paidCost, 123);
       expect(owner.sections.projects!.counts.total, 23);
       expect(owner.sections.products!.demirProfil, 3645);
       expect(owner.sections.users!.byRole.map((r) => r.code), contains('field'));

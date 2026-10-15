@@ -208,7 +208,7 @@ Date display: "Bugün", "Yarın", otherwise web shows a date block ("30" over "E
 | 1 | receivable | Açık alacak | compact `finance.by_currency[0].open_receivable` | "%{collection_pct} tahsil edildi" | ProgressBar success | `/projeler?status=active` | go `/projeler` |
 | 2 | net_cash | Bu ay net nakit | signed compact `month.net_cash`; success/danger text **with sign** | "Giriş {collections}" / "Çıkış {outflows}" | – | `#nakit-akisi` | not tappable |
 | 3 | pipeline | Teklif hattı | compact `offers.by_currency[0].awaiting_customer.amount` | "{count} teklif yanıt bekliyor" · "Kabul oranı %{x} · 90 gün" (if not null) | – | `/teklifler` | go `/teklifler` |
-| 4 | cash_balance | Proje nakit dengesi | signed compact `finance.by_currency[0].cash_balance` | "Tahsilat {collected_total} · Harcama {realized_cost}" | – | `/projeler?status=active` | not tappable |
+| 4 | cash_balance | Proje nakit dengesi | signed compact `finance.by_currency[0].cash_balance` | "Tahsilat {collected_total} · Ödenen {paid_cost}" | – | `/projeler?status=active` | not tappable |
 | 5 | active_projects | Aktif proje | `projects.counts.active` | "{planned} planlanan · {paused} beklemede" | – | `/projeler?status=active` | go `/projeler` |
 | 6 | my_tasks | Açık görevim | `tasks.mine.open` | "{overdue} gecikmiş · {due_today} bugün" | – | `#gorevlerim` (web panel) | go `/gorevler` |
 | 7 | team_overdue | Ekipte geciken görev | `tasks.team.overdue` (danger text when >0) | "{unassigned} görev atanmamış" | – | `#modul-tasks` | go `/gorevler` |
@@ -419,7 +419,7 @@ interface Sections {
     past_end_date: number; ending_within_30d: number; top: ProjectRow[] /* ≤5 open, server-ranked */ };
   finance: { by_currency: {
     currency: string; portfolio_value: Money; collected_total: Money; open_receivable: Money; collection_pct: Pct;
-    realized_cost: Money; realized_cost_net: Money; cash_balance: Money;
+    realized_cost: Money; realized_cost_net: Money; paid_cost: Money; cash_balance: Money;
     month: { collections: Money; expenses: Money; subcontract_payments: Money; outflows: Money; net_cash: Money };
     overdue_plan: CountAmount; overdue_sales_invoices: CountAmount;
     trend_6m: { month: string /* "2026-04" */; collections: Money; outflows: Money; net: Money }[] /* exactly 6, oldest first */
@@ -548,9 +548,10 @@ interface MyTask { ref: Ref; title: string; project_name: string; due_date: ISOD
 - **collected_total** = Σ non-void `project_collections`.
 - **open_receivable** = Σ GREATEST(current_value − collected, 0) per project.
 - **collection_pct** = collected_total / portfolio_value × 100.
-- **realized_cost** = Σ(non-void **approved** expenses + non-void legacy `project_subcontractor_payments` + non-void `subcontract_payments`). This is the same formula as the summary's `realized_cost`. The two payment tables are physically separate (migration 0039), so there is no double count. It is cash and VAT-INCLUSIVE (expense amounts are what was paid; collections are VAT-inclusive too), so "Harcanan" and `cash_balance` stay VAT-inclusive.
+- **realized_cost** (2026-10, migration 0073, `docs/maliyet-tanimlari.md`) = the `project_cost_basis` view's `realized_cost`, the same value as the financial summary. It is accrual-based: approved expenses + legacy subcontractor WORK payments + subcontract realized work (certified claims, even when unpaid). Open advances are excluded. VAT-INCLUSIVE.
+- **paid_cost** = approved expenses + every non-void subcontractor payment, advances included. This is cash.
 - **realized_cost_net** (2026-10-09) = realized_cost − Σ `vat_amount` of the same approved, non-void expenses (an expense without a VAT rate has NULL and counts in full; subcontractor payments carry no VAT and count as they are). Same rule as the financial summary's `realized_cost_net` (backend `domain.VATBasis`/`CostNet`). Returned for consumers that need the VAT-exclusive cost; the v1 card does not show it.
-- **cash_balance** = collected_total − realized_cost (VAT-inclusive on both sides).
+- **cash_balance** = collected_total − paid_cost (cash on both sides, VAT-inclusive).
 - **month.*** over **all ap, including cancelled** (the cash is real), with dates in [month_start, next_month_start):
   - `collections` by `received_date`;
   - `expenses` by `expense_date`;
@@ -663,6 +664,8 @@ FROM per GROUP BY currency;
 -- (as built, backend/internal/repository/queries/dashboard.sql: expenses also need approval_status = 'approved'
 --  (migration 0060), and the cost CTE carries COALESCE(vat_amount, 0) for expenses / 0 for both payment tables, so
 --  realized_cost_net = sum(realized) - sum(realized_vat).)
+-- (2026-10, migration 0073: the cost CTE is gone; per joins the project_cost_basis view and takes
+--  realized_cost, expense_approved_vat and paid_cost from it -- see docs/maliyet-tanimlari.md.)
 
 -- Month flows / trend: one query, all ap statuses, keyed by (currency, month):
 --   SELECT ap.currency, date_trunc('month', received_date)::date AS m, sum(amount) ... WHERE received_date >= @trend_start AND received_date < @next_month_start

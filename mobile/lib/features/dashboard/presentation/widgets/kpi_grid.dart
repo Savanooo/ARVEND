@@ -215,13 +215,13 @@ KpiTileData kpiTileData(BuildContext context, Dashboard d, KpiKey key, {int? liv
         valueColor: signedValueColor(f.cashBalance),
         icon: Icons.account_balance_outlined,
         subs: [
-          'Tahsilat ${_c(f.collectedTotal, f.currency)} · Harcama ${_c(f.realizedCost, f.currency)}',
+          'Tahsilat ${_c(f.collectedTotal, f.currency)} · Ödenen ${_c(f.paidCost, f.currency)}',
           ?_others(rows, (r) => r.cashBalance, (r) => _sc(r.cashBalance, r.currency)),
         ],
         semantics: _spoken([
           'Proje nakit dengesi ${Formatters.signedMoney(f.cashBalance, currency: f.currency)}',
           'tahsilat ${_full(f.collectedTotal, f.currency)}',
-          'harcama ${_full(f.realizedCost, f.currency)}',
+          'ödenen ${_full(f.paidCost, f.currency)}',
           _others(rows, (r) => r.cashBalance, (r) => Formatters.signedMoney(r.cashBalance, currency: r.currency)),
         ]),
       );

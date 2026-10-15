@@ -32,6 +32,7 @@ const kProjectEventLabels = <String, String>{
   'subcontractor_updated': 'Taşeron güncellendi',
   'subcontractor_payment_added': 'Taşerona ödeme yapıldı',
   'subcontractor_payment_voided': 'Taşeron ödemesi iptal edildi',
+  'subcontractor_advance_offset': 'Taşeron avansı işe sayıldı',
   // Faz 7: operasyon olayları.
   'member_assigned': 'Ekibe personel atandı',
   'member_removed': 'Personel ekipten çıkarıldı',

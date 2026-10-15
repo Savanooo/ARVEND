@@ -92,11 +92,13 @@ WHERE c.organization_id = sqlc.arg(organization_id)::uuid AND c.supplier_id = sq
 ORDER BY created_at DESC;
 
 -- name: ListSubcontractorLedgerPayments :many
--- Taşerona yapılan bütün ödemeler (iptaller dahil), en yeni önce.
+-- Taşerona yapılan bütün ödemeler (iptaller dahil), en yeni önce. kind:
+-- 'work' | 'advance' | 'general' (proje dışı genel ödeme). Sözleşmeli
+-- taşeronda hakedişe bağlanmamış ödeme, sözleşmede avans tutarı varsa avanstır.
 SELECT * FROM (
     SELECT 'simple'::text AS source, x.id, x.project_id, p.name AS project_name, p.project_no,
            x.subcontractor_id AS engagement_id, x.amount, x.currency, x.paid_date, x.description,
-           x.voided_at, x.void_reason, x.created_at
+           x.voided_at, x.void_reason, x.created_at, x.payment_kind::text AS kind
     FROM project_subcontractor_payments x
     JOIN project_subcontractors s ON s.id = x.subcontractor_id
     JOIN projects p ON p.id = x.project_id
@@ -106,7 +108,8 @@ SELECT * FROM (
     UNION ALL
     SELECT 'contract'::text, x.id, x.project_id, p.name, p.project_no,
            x.subcontract_id, x.amount, x.currency, x.paid_date, x.description,
-           x.voided_at, x.void_reason, x.created_at
+           x.voided_at, x.void_reason, x.created_at,
+           CASE WHEN x.progress_claim_id IS NULL AND COALESCE(c.advance_amount, 0) > 0 THEN 'advance' ELSE 'work' END
     FROM subcontract_payments x
     JOIN project_subcontracts c ON c.id = x.subcontract_id
     JOIN projects p ON p.id = x.project_id
@@ -116,7 +119,7 @@ SELECT * FROM (
     UNION ALL
     SELECT 'direct'::text, x.id, NULL::uuid, ''::varchar(200), ''::varchar(30),
            NULL::uuid, x.amount, x.currency, x.paid_date, x.description,
-           x.voided_at, x.void_reason, x.created_at
+           x.voided_at, x.void_reason, x.created_at, x.payment_kind::text
     FROM subcontractor_direct_payments x
     WHERE x.organization_id = sqlc.arg(organization_id)::uuid AND x.supplier_id = sqlc.arg(supplier_id)::uuid
 ) t
@@ -124,9 +127,10 @@ ORDER BY paid_date DESC, created_at DESC
 LIMIT 500;
 
 -- name: CreateSubcontractorDirectPayment :one
+-- payment_kind: 'general' | 'advance' -- yalnızca bilgi (proje maliyetine girmez).
 INSERT INTO subcontractor_direct_payments (
-    organization_id, supplier_id, amount, currency, paid_date, description, idempotency_key, created_by
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    organization_id, supplier_id, amount, currency, paid_date, description, idempotency_key, created_by, payment_kind
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING *;
 
 -- name: GetSubcontractorDirectPaymentByIdempotencyKey :one

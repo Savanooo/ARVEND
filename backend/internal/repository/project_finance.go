@@ -284,8 +284,13 @@ func ToDomainSubcontractorPayment(p sqlc.ProjectSubcontractorPayment) domain.Sub
 		Currency:        p.Currency,
 		PaidDate:        p.PaidDate.Time,
 		Description:     p.Description,
+		PaymentKind:     p.PaymentKind,
 		VoidReason:      p.VoidReason,
 		CreatedAt:       p.CreatedAt.Time,
+	}
+	if p.OffsetAt.Valid {
+		t := p.OffsetAt.Time
+		pay.OffsetAt = &t
 	}
 	if p.CreatedBy.Valid {
 		s := p.CreatedBy.String()
@@ -319,12 +324,23 @@ func ToDomainFinancialSummary(r sqlc.GetProjectFinancialSummaryRow) domain.Proje
 		TotalExpenses:                NumericToFloat64(r.TotalExpenses),
 		TotalSubcontractorCommitment: NumericToFloat64(r.TotalSubcontractorCommitment),
 		SubcontractorPaid:            NumericToFloat64(r.SubcontractorPaid),
+		SubcontractorWorkPaid:        NumericToFloat64(r.SubcontractorWorkPaid),
+		SubcontractorAdvanceOpen:     NumericToFloat64(r.SubcontractorAdvanceOpen),
 		SubcontractorRemaining:       NumericToFloat64(r.SubcontractorRemaining),
 		NewSubcontractPaid:           NumericToFloat64(r.NewSubcontractPaid),
 		NewSubcontractRemaining:      NumericToFloat64(r.NewSubcontractRemaining),
+		NewSubcontractAccrued:        NumericToFloat64(r.NewSubcontractAccrued),
+		NewSubcontractAdvanceOpen:    NumericToFloat64(r.NewSubcontractAdvanceOpen),
+		NewSubcontractPayable:        NumericToFloat64(r.NewSubcontractPayable),
+		NewSubcontractRetention:      NumericToFloat64(r.NewSubcontractRetention),
+		NewSubcontractPendingClaims:  NumericToFloat64(r.NewSubcontractPendingClaims),
+		PendingExpenses:              NumericToFloat64(r.PendingExpenses),
 		IssuedInvoiceTotal:           NumericToFloat64(r.IssuedInvoiceTotal),
 		PaidInvoiceTotal:             NumericToFloat64(r.PaidInvoiceTotal),
 		RealizedCost:                 NumericToFloat64(r.RealizedCost),
+		PaidCost:                     NumericToFloat64(r.PaidCost),
+		AdvanceOpen:                  NumericToFloat64(r.AdvanceOpen),
+		PendingCost:                  NumericToFloat64(r.PendingCost),
 		CommittedCost:                NumericToFloat64(r.CommittedCost),
 		RealizedGrossProfit:          NumericToFloat64(r.RealizedGrossProfit),
 		EstimatedGrossProfit:         NumericToFloat64(r.EstimatedGrossProfit),

@@ -576,6 +576,7 @@
           "collection_pct": 59.2,
           "realized_cost": 5200000,
           "realized_cost_net": 4950000,
+          "paid_cost": 5200000,
           "cash_balance": 2200000,
           "month": {
             "collections": 950000,
@@ -639,6 +640,7 @@
           "collection_pct": 62.5,
           "realized_cost": 30000,
           "realized_cost_net": 30000,
+          "paid_cost": 30000,
           "cash_balance": 45000,
           "month": {
             "collections": 0,

@@ -1036,22 +1036,6 @@ coll AS (
     WHERE c.organization_id = $1::uuid AND c.voided_at IS NULL AND c.project_id IN (SELECT pn.id FROM pn)
     GROUP BY c.project_id
 ),
-cost AS (
-    SELECT x.project_id, sum(x.amount) AS total, sum(x.vat) AS vat
-    FROM (
-        -- Yalnızca onaylı masraflar (migration 0060; finans özetiyle aynı).
-        SELECT e.project_id, e.amount, COALESCE(e.vat_amount, 0) AS vat FROM project_expenses e
-        WHERE e.organization_id = $1::uuid AND e.voided_at IS NULL AND e.approval_status = 'approved'
-        UNION ALL
-        SELECT sp.project_id, sp.amount, 0 FROM project_subcontractor_payments sp
-        WHERE sp.organization_id = $1::uuid AND sp.voided_at IS NULL
-        UNION ALL
-        SELECT np.project_id, np.amount, 0 FROM subcontract_payments np
-        WHERE np.organization_id = $1::uuid AND np.voided_at IS NULL
-    ) x
-    WHERE x.project_id IN (SELECT pn.id FROM pn)
-    GROUP BY x.project_id
-),
 plan_coll AS (
     SELECT c.payment_plan_item_id, sum(c.amount) AS collected
     FROM project_collections c
@@ -1079,14 +1063,15 @@ per AS (
     SELECT pn.currency,
            pn.contract_amount + COALESCE(co.net, 0) AS current_value,
            COALESCE(coll.total, 0) AS collected,
-           COALESCE(cost.total, 0) AS realized,
-           COALESCE(cost.vat, 0) AS realized_vat,
+           cb.realized_cost AS realized,
+           cb.expense_approved_vat AS realized_vat,
+           cb.paid_cost AS paid,
            COALESCE(od.cnt, 0) AS od_cnt, COALESCE(od.amount, 0) AS od_amount, od.oldest AS od_oldest,
            COALESCE(inv.cnt, 0) AS inv_cnt, COALESCE(inv.amount, 0) AS inv_amount, inv.oldest AS inv_oldest
     FROM pn
     LEFT JOIN co ON co.project_id = pn.id
     LEFT JOIN coll ON coll.project_id = pn.id
-    LEFT JOIN cost ON cost.project_id = pn.id
+    JOIN project_cost_basis cb ON cb.project_id = pn.id
     LEFT JOIN od ON od.project_id = pn.id
     LEFT JOIN inv ON inv.project_id = pn.id
 )
@@ -1096,6 +1081,7 @@ SELECT per.currency::text AS currency,
        sum(GREATEST(per.current_value - per.collected, 0))::numeric(18,2) AS open_receivable,
        sum(per.realized)::numeric(18,2) AS realized_cost,
        (sum(per.realized) - sum(per.realized_vat))::numeric(18,2) AS realized_cost_net,
+       sum(per.paid)::numeric(18,2) AS paid_cost,
        (CASE WHEN sum(per.current_value) > 0
              THEN round(sum(per.collected) / sum(per.current_value) * 100, 1) END)::numeric AS collection_pct,
        sum(per.od_cnt)::int AS overdue_plan_count,
@@ -1122,6 +1108,7 @@ type DashboardFinanceByCurrencyRow struct {
 	OpenReceivable       pgtype.Numeric `json:"open_receivable"`
 	RealizedCost         pgtype.Numeric `json:"realized_cost"`
 	RealizedCostNet      pgtype.Numeric `json:"realized_cost_net"`
+	PaidCost             pgtype.Numeric `json:"paid_cost"`
 	CollectionPct        pgtype.Numeric `json:"collection_pct"`
 	OverduePlanCount     int32          `json:"overdue_plan_count"`
 	OverduePlanAmount    pgtype.Numeric `json:"overdue_plan_amount"`
@@ -1133,13 +1120,13 @@ type DashboardFinanceByCurrencyRow struct {
 
 // ============================================================ finance
 // Proje kümesi P = ap içinde iptal dışı projeler; para birimi projeninki.
-// Güncel bedel GetProjectFinancialSummary co_effect formülü; gerçekleşen
-// maliyet = masraf + eski taşeron ödemeleri + Sprint 5 taşeron ödemeleri
-// (iki ödeme tablosu fiziksel olarak ayrı, migration 0039 -- çift sayım
-// yok). Açık alacak proje BAŞINA sıfırın altına düşürülmez. realized_cost
-// nakittir (KDV DAHİL; tahsilatlar da KDV dahil); realized_cost_net finans
-// özetinin realized_cost_net'iyle AYNI kural: onaylı masrafların içindeki
-// KDV düşülür (oranı belirtilmemiş masraf tamamıyla, taşeron olduğu gibi).
+// Güncel bedel GetProjectFinancialSummary co_effect formülü; maliyetler
+// finans özetiyle AYNI görünümden (project_cost_basis, migration 0073):
+// realized_cost gerçekleşen maliyet (onaylı hakediş dahil, açık avans
+// hariç), paid_cost ödenen (nakit; avans dahil). Hepsi KDV DAHİL;
+// realized_cost_net finans özetinin kuralı: onaylı masrafların içindeki KDV
+// düşülür (oranı belirtilmemiş masraf tamamıyla, taşeron olduğu gibi).
+// Açık alacak proje BAŞINA sıfırın altına düşürülmez.
 func (q *Queries) DashboardFinanceByCurrency(ctx context.Context, arg DashboardFinanceByCurrencyParams) ([]DashboardFinanceByCurrencyRow, error) {
 	rows, err := q.db.Query(ctx, dashboardFinanceByCurrency, arg.OrgID, arg.RestrictToUserID, arg.Today)
 	if err != nil {
@@ -1156,6 +1143,7 @@ func (q *Queries) DashboardFinanceByCurrency(ctx context.Context, arg DashboardF
 			&i.OpenReceivable,
 			&i.RealizedCost,
 			&i.RealizedCostNet,
+			&i.PaidCost,
 			&i.CollectionPct,
 			&i.OverduePlanCount,
 			&i.OverduePlanAmount,

@@ -41,25 +41,19 @@ ORDER BY created_at DESC LIMIT 1;
 SELECT p.*, o.offer_no, r.revision_no,
     COALESCE((SELECT sum(c.amount) FROM project_collections c
               WHERE c.project_id = p.id AND c.voided_at IS NULL), 0)::numeric(18,2) AS collected_amount,
-    -- Yalnızca onaylı masraflar (migration 0060; GetProjectFinancialSummary ile aynı).
-    COALESCE((SELECT sum(e.amount) FROM project_expenses e
-              WHERE e.project_id = p.id AND e.voided_at IS NULL AND e.approval_status = 'approved'), 0)::numeric(18,2) AS total_expenses,
-    -- Aynı onaylı masrafların İÇİNDEKİ KDV (finans özetinin expense_vat_total'ı;
-    -- oranı belirtilmemiş masrafta NULL -> sayılmaz).
-    COALESCE((SELECT sum(e.vat_amount) FROM project_expenses e
-              WHERE e.project_id = p.id AND e.voided_at IS NULL AND e.approval_status = 'approved'), 0)::numeric(18,2) AS expense_vat_total,
-    COALESCE((SELECT sum(sp.amount) FROM project_subcontractor_payments sp
-              WHERE sp.project_id = p.id AND sp.voided_at IS NULL), 0)::numeric(18,2) AS subcontractor_paid,
+    -- Maliyetler finans özetiyle AYNI görünümden (project_cost_basis,
+    -- migration 0073): gerçekleşen maliyet liste ile detayda aynı çıkar.
+    cb.expense_approved AS total_expenses,
+    cb.expense_approved_vat AS expense_vat_total,
+    cb.simple_paid AS subcontractor_paid,
+    -- Kalan taahhüt: sözleşme - İŞ ödemesi (açık avans taahhüdün içinde kalır).
     COALESCE((SELECT sum(GREATEST(s.contract_amount - COALESCE((
                   SELECT sum(sp2.amount) FROM project_subcontractor_payments sp2
-                  WHERE sp2.subcontractor_id = s.id AND sp2.voided_at IS NULL), 0), 0))
+                  WHERE sp2.subcontractor_id = s.id AND sp2.voided_at IS NULL AND sp2.payment_kind = 'work'), 0), 0))
               FROM project_subcontractors s
               WHERE s.project_id = p.id AND s.status <> 'cancelled'), 0)::numeric(18,2) AS subcontractor_remaining,
-    -- Yeni modül (Sprint 5) taşeron ödemeleri: GetProjectFinancialSummary
-    -- realized_cost'a zaten giriyordu, liste girmiyordu -- liste ile detay
-    -- "gerçekleşen maliyet/kâr"da ayrışıyordu.
-    COALESCE((SELECT sum(np.amount) FROM subcontract_payments np
-              WHERE np.project_id = p.id AND np.voided_at IS NULL), 0)::numeric(18,2) AS new_subcontract_paid,
+    cb.subcontract_paid AS new_subcontract_paid,
+    cb.realized_cost,
     COALESCE((SELECT count(*) FROM project_invoices i
               WHERE i.project_id = p.id AND i.invoice_type = 'sales' AND i.status <> 'cancelled'), 0)::bigint AS invoice_count,
     COALESCE((SELECT count(*) FROM project_invoices i
@@ -79,6 +73,7 @@ SELECT p.*, o.offer_no, r.revision_no,
 FROM projects p
 JOIN offers o ON o.id = p.source_offer_id
 JOIN offer_revisions r ON r.id = p.source_revision_id
+JOIN project_cost_basis cb ON cb.project_id = p.id
 WHERE p.organization_id = $1
   AND (sqlc.narg('status')::varchar IS NULL OR p.status = sqlc.narg('status')::varchar)
   AND (sqlc.narg('customer_id')::uuid IS NULL OR p.customer_id = sqlc.narg('customer_id')::uuid)

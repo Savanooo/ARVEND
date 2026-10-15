@@ -123,6 +123,8 @@ type subcontractorLedgerPaymentResponse struct {
 	Description  string  `json:"description"`
 	VoidedAt     *string `json:"voided_at"`
 	VoidReason   string  `json:"void_reason"`
+	// kind: "work" | "advance" | "general" (proje dışı genel ödeme).
+	Kind string `json:"kind"`
 }
 
 // subcontractorSiteDayResponse: günlük raporlardan sahada çalıştığı gün.
@@ -147,7 +149,7 @@ func toLedgerPaymentResponse(p domain.SubcontractorLedgerPayment) subcontractorL
 		Source: p.Source, ID: p.ID, ProjectID: nonEmptyPtr(p.ProjectID), ProjectName: p.ProjectName,
 		ProjectNo: p.ProjectNo, EngagementID: nonEmptyPtr(p.EngagementID), Amount: p.Amount,
 		Currency: p.Currency, PaidDate: p.PaidDate.Format(dateLayout), Description: p.Description,
-		VoidedAt: tsStrPtr(p.VoidedAt), VoidReason: p.VoidReason,
+		VoidedAt: tsStrPtr(p.VoidedAt), VoidReason: p.VoidReason, Kind: p.Kind,
 	}
 }
 
@@ -216,6 +218,8 @@ type directPaymentRequest struct {
 	PaidDate       string  `json:"paid_date"`
 	Description    string  `json:"description"`
 	IdempotencyKey string  `json:"idempotency_key"`
+	// payment_kind: "general" (boşsa) | "advance".
+	PaymentKind string `json:"payment_kind"`
 }
 
 // CreateDirectPayment: POST /subcontractors/{id}/payments -- proje dışı
@@ -239,7 +243,7 @@ func (h *SupplierHandler) CreateDirectPayment(w http.ResponseWriter, r *http.Req
 	userID, _ := middleware.UserIDFromContext(r.Context())
 	p, err := h.svc.CreateDirectPayment(r.Context(), orgID, chi.URLParam(r, "id"), service.DirectPaymentInput{
 		Amount: req.Amount, Currency: req.Currency, PaidDate: paid, Description: req.Description,
-		IdempotencyKey: req.IdempotencyKey, UserID: userID,
+		IdempotencyKey: req.IdempotencyKey, UserID: userID, PaymentKind: req.PaymentKind,
 	})
 	if err != nil {
 		h.writeSubcontractorError(w, err)

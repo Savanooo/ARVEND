@@ -133,4 +133,41 @@ void main() {
     expect(find.text('Gerçekleşen Maliyet'), findsOneWidget);
     expect(find.text('Maliyet (KDV hariç)'), findsNothing);
   });
+  // Maliyet tanımları (backend migration 0073): gerçekleşen maliyet tahakkuk
+  // esaslı; nakit, avans, ödenecek, teminat ve onay bekleyen ayrı satırlar.
+  testWidgets('ödenen / ödenecek / teminat / avans / onay bekleyen satırları sunucunun rakamıyla', (tester) async {
+    await pump(tester, {
+      ..._base(),
+      'paid_cost': 95000,
+      'advance_open': 20000,
+      'pending_cost': 7500,
+      'new_subcontract_payable': 41000,
+      'new_subcontract_retention': 4000,
+    });
+    expect(find.text('Ödenen (nakit)'), findsOneWidget);
+    expect(find.text('95.000,00 TL'), findsOneWidget);
+    expect(find.text('Taşerona ödenecek'), findsOneWidget);
+    expect(find.text('41.000,00 TL'), findsOneWidget);
+    expect(find.text('Teminatta tutulan'), findsOneWidget);
+    expect(find.text('4.000,00 TL'), findsOneWidget);
+    expect(find.text('Verilen avans (maliyet değil)'), findsOneWidget);
+    expect(find.text('20.000,00 TL'), findsOneWidget);
+    expect(find.text('Onay bekleyen (maliyet değil)'), findsOneWidget);
+    expect(find.text('7.500,00 TL'), findsOneWidget);
+  });
+
+  testWidgets('eski sunucu ya da hepsi sıfır: ek satırlar yok', (tester) async {
+    await pump(tester, _base());
+    for (final label in [
+      'Ödenen (nakit)',
+      'Taşerona ödenecek',
+      'Teminatta tutulan',
+      'Verilen avans (maliyet değil)',
+      'Onay bekleyen (maliyet değil)',
+    ]) {
+      expect(find.text(label), findsNothing, reason: label);
+    }
+    final s = FinancialSummary.fromJson(_base());
+    expect(s.paidCost, s.realizedCost, reason: 'alan yoksa ödenen = gerçekleşen (eski sunucu nakit esaslıydı)');
+  });
 }

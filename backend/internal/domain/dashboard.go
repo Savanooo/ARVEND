@@ -326,9 +326,11 @@ type DashFinance struct {
 	ByCurrency []DashFinanceCurrency `json:"by_currency"`
 }
 
-// DashFinanceCurrency: RealizedCost ve CashBalance nakittir (KDV DAHİL;
-// tahsilatlar da KDV dahil). RealizedCostNet KDV hariç karşılıktır --
-// finans özetinin realized_cost_net kuralı (bkz. VATBasis).
+// DashFinanceCurrency: RealizedCost gerçekleşen maliyettir (finans özetiyle
+// aynı tanım, project_cost_basis); PaidCost ve CashBalance nakittir
+// (tahsilat - ödenen; avans dahil). Hepsi KDV DAHİL (tahsilatlar da KDV
+// dahil). RealizedCostNet KDV hariç karşılıktır -- finans özetinin
+// realized_cost_net kuralı (bkz. VATBasis).
 type DashFinanceCurrency struct {
 	Currency             string             `json:"currency"`
 	PortfolioValue       float64            `json:"portfolio_value"`
@@ -337,6 +339,7 @@ type DashFinanceCurrency struct {
 	CollectionPct        *float64           `json:"collection_pct"`
 	RealizedCost         float64            `json:"realized_cost"`
 	RealizedCostNet      float64            `json:"realized_cost_net"`
+	PaidCost             float64            `json:"paid_cost"`
 	CashBalance          float64            `json:"cash_balance"`
 	Month                DashFinanceMonth   `json:"month"`
 	OverduePlan          CountAmount        `json:"overdue_plan"`

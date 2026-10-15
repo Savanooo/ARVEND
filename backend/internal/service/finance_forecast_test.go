@@ -11,7 +11,7 @@ func TestApplyForecast(t *testing.T) {
 		s := domain.ProjectFinancialSummary{
 			CurrentContractValue: 1200000, ContractVATAmount: 200000, ContractVATKnown: true,
 			RealizedCost: 500000, CommittedCost: 900000,
-			SubcontractorPaid: 100000, SubcontractorRemaining: 50000,
+			SubcontractorPaid: 100000, SubcontractorWorkPaid: 100000, SubcontractorRemaining: 50000,
 		}
 		applyNetFigures(&s)
 		return s
@@ -39,6 +39,17 @@ func TestApplyForecast(t *testing.T) {
 		}
 	})
 
+	// Basit taşerona verilen avans (migration 0073) kalan taahhüdün içinde
+	// durur; EAC'ye eklenen eski taşeron payı onu ikinci kez saymamalı.
+	t.Run("eski taşeron avansı EAC'ye iki kez eklenmez", func(t *testing.T) {
+		s := base()
+		s.SubcontractorPaid, s.SubcontractorAdvanceOpen = 130000, 30000
+		applyForecast(&s, &domain.CostControlSummary{HasBudget: true, RevisedBudget: 800000, EACTotal: 700000, EACNet: 700000})
+		if s.ForecastCost != 850000 {
+			t.Fatalf("avans iki kez sayılmamalı: %v", s.ForecastCost)
+		}
+	})
+
 	t.Run("Maliyet Kontrolü okunamazsa taahhüt bazlı", func(t *testing.T) {
 		s := base()
 		applyForecast(&s, nil)
@@ -62,7 +73,7 @@ func TestApplyForecast(t *testing.T) {
 		s := domain.ProjectFinancialSummary{
 			CurrentContractValue: 1200000, ContractVATAmount: 200000, ContractVATKnown: known,
 			RealizedCost: 500000, CommittedCost: 900000,
-			SubcontractorPaid: 100000, SubcontractorRemaining: 50000,
+			SubcontractorPaid: 100000, SubcontractorWorkPaid: 100000, SubcontractorRemaining: 50000,
 			ExpenseVATTotal: 30000,
 		}
 		if !known {

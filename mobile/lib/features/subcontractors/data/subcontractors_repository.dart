@@ -55,6 +55,7 @@ class SubcontractorsRepository {
     required String idempotencyKey,
     String currency = 'TRY',
     String description = '',
+    bool advance = false,
   }) async {
     final json = await _client.post<Map<String, dynamic>>('$_base/${Uri.encodeComponent(id)}/payments', data: {
       'amount': amount,
@@ -62,6 +63,8 @@ class SubcontractorsRepository {
       'paid_date': paidDate,
       'description': description,
       'idempotency_key': idempotencyKey,
+      // Yalnızca bilgi: proje dışı ödeme proje maliyetine hiç girmez.
+      'payment_kind': advance ? 'advance' : 'general',
     });
     return SubcontractorLedgerPayment.fromJson(json);
   }

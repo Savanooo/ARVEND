@@ -757,6 +757,27 @@ type ProjectContract struct {
 	TerminationReason     string             `json:"termination_reason"`
 }
 
+type ProjectCostBasis struct {
+	ProjectID                pgtype.UUID    `json:"project_id"`
+	OrganizationID           pgtype.UUID    `json:"organization_id"`
+	ExpenseApproved          pgtype.Numeric `json:"expense_approved"`
+	ExpenseApprovedVat       pgtype.Numeric `json:"expense_approved_vat"`
+	ExpensePending           pgtype.Numeric `json:"expense_pending"`
+	SimpleWorkPaid           pgtype.Numeric `json:"simple_work_paid"`
+	SimpleAdvanceOpen        pgtype.Numeric `json:"simple_advance_open"`
+	SimplePaid               pgtype.Numeric `json:"simple_paid"`
+	SubcontractAccrued       pgtype.Numeric `json:"subcontract_accrued"`
+	SubcontractPaid          pgtype.Numeric `json:"subcontract_paid"`
+	SubcontractAdvanceOpen   pgtype.Numeric `json:"subcontract_advance_open"`
+	SubcontractPayable       pgtype.Numeric `json:"subcontract_payable"`
+	SubcontractRetention     pgtype.Numeric `json:"subcontract_retention"`
+	SubcontractPendingClaims pgtype.Numeric `json:"subcontract_pending_claims"`
+	RealizedCost             pgtype.Numeric `json:"realized_cost"`
+	PaidCost                 pgtype.Numeric `json:"paid_cost"`
+	AdvanceOpen              pgtype.Numeric `json:"advance_open"`
+	PendingCost              pgtype.Numeric `json:"pending_cost"`
+}
+
 type ProjectCostForecast struct {
 	ID             pgtype.UUID        `json:"id"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`
@@ -1041,6 +1062,9 @@ type ProjectSubcontractorPayment struct {
 	VoidedAt        pgtype.Timestamptz `json:"voided_at"`
 	VoidedBy        pgtype.UUID        `json:"voided_by"`
 	VoidReason      string             `json:"void_reason"`
+	PaymentKind     string             `json:"payment_kind"`
+	OffsetAt        pgtype.Timestamptz `json:"offset_at"`
+	OffsetBy        pgtype.UUID        `json:"offset_by"`
 }
 
 type ProjectTask struct {
@@ -1355,6 +1379,20 @@ type SubcontractChangeOrderItem struct {
 	SortOrder      int32          `json:"sort_order"`
 }
 
+type SubcontractCostBasis struct {
+	SubcontractID  pgtype.UUID    `json:"subcontract_id"`
+	OrganizationID pgtype.UUID    `json:"organization_id"`
+	ProjectID      pgtype.UUID    `json:"project_id"`
+	Status         string         `json:"status"`
+	Certified      pgtype.Numeric `json:"certified"`
+	Accrued        pgtype.Numeric `json:"accrued"`
+	Paid           pgtype.Numeric `json:"paid"`
+	AdvanceOpen    pgtype.Numeric `json:"advance_open"`
+	Payable        pgtype.Numeric `json:"payable"`
+	Retention      pgtype.Numeric `json:"retention"`
+	PendingClaims  pgtype.Numeric `json:"pending_claims"`
+}
+
 type SubcontractCounter struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
 	Year           int32       `json:"year"`
@@ -1465,6 +1503,7 @@ type SubcontractorDirectPayment struct {
 	VoidedAt       pgtype.Timestamptz `json:"voided_at"`
 	VoidedBy       pgtype.UUID        `json:"voided_by"`
 	VoidReason     string             `json:"void_reason"`
+	PaymentKind    string             `json:"payment_kind"`
 }
 
 type Supplier struct {

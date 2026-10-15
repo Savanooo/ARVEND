@@ -10,7 +10,9 @@ import '../domain/legacy_subcontractor.dart';
 /// - POST /projects/{id}/subcontractors                      -> `{name, company_name,
 ///   work_description, contract_amount, currency}` (201; kapalı projede 409)
 /// - POST /projects/{id}/subcontractors/{subId}/payments      -> `{amount, currency,
-///   paid_date, description, idempotency_key}` (201; anahtar TAŞERON başına)
+///   paid_date, payment_kind, description, idempotency_key}` (201; anahtar
+///   TAŞERON başına; payment_kind work|advance)
+/// - POST /projects/{id}/subcontractor-payments/{payId}/offset -> avansı işe say
 /// - PUT  /projects/{id}/subcontractors/{subId}               -> tüm alanlar (TAM
 ///   yazma: gönderilmeyen alan silinir; sözleşme bedeli > 0, durum geçerli olmalı)
 /// - POST /projects/{id}/subcontractor-payments/{payId}/void  -> `{reason}`
@@ -113,6 +115,7 @@ class FinanceLedgerRepository {
     required String paidDate,
     required String idempotencyKey,
     String description = '',
+    String paymentKind = kPaymentKindWork,
   }) async {
     final json = await _client.post<Map<String, dynamic>>(
       '${_p(projectId)}/subcontractors/${Uri.encodeComponent(subcontractorId)}/payments',
@@ -120,9 +123,19 @@ class FinanceLedgerRepository {
         'amount': amount,
         'currency': currency,
         'paid_date': paidDate,
+        'payment_kind': paymentKind,
         'description': description,
         'idempotency_key': idempotencyKey,
       },
+    );
+    return LegacySubcontractorPayment.fromJson(json);
+  }
+
+  /// Avansı işe sayar: ödeme iş ödemesine döner ve gerçekleşen maliyete
+  /// girer (geri alınmaz). İş/iptal edilmiş/zaten sayılmış ödeme -> 409.
+  Future<LegacySubcontractorPayment> offsetSubcontractorAdvance(String projectId, String paymentId) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '${_p(projectId)}/subcontractor-payments/${Uri.encodeComponent(paymentId)}/offset',
     );
     return LegacySubcontractorPayment.fromJson(json);
   }

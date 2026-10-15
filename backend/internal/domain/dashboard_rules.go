@@ -175,6 +175,7 @@ var ActivityEventPermissions = map[string]string{
 	ProjectEventSubcontractorUpdated:     PermProjectsFinanceRead,
 	ProjectEventSubcontractorPaymentMade: PermProjectsFinanceRead,
 	ProjectEventSubcontractorPaymentVoid: PermProjectsFinanceRead,
+	ProjectEventSubcontractorAdvanceUsed: PermProjectsFinanceRead,
 	ProjectEventChangeOrderCreated:       PermProjectsFinanceRead,
 	ProjectEventChangeOrderUpdated:       PermProjectsFinanceRead,
 	ProjectEventChangeOrderSent:          PermProjectsFinanceRead,

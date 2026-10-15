@@ -84,6 +84,8 @@ type SubcontractorLedgerPayment struct {
 	Description  string
 	VoidedAt     *time.Time
 	VoidReason   string
+	// Kind: "work" | "advance" | "general" (proje dışı genel ödeme).
+	Kind string
 }
 
 // SubcontractorCard: "Taşeronlar" listesinin satırı -- kart ve para

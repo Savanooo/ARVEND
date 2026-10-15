@@ -26,7 +26,7 @@ func jsonMap(t *testing.T, v any) map[string]any {
 func TestProjectResponseVATNetFields(t *testing.T) {
 	p := domain.Project{
 		ContractAmount: 1200000, ChangeOrderNet: 48000, CollectedAmount: 300000,
-		TotalExpenses: 150000, SubcontractorPaid: 25000, NewSubcontractPaid: 40000,
+		TotalExpenses: 150000, SubcontractorPaid: 25000, NewSubcontractPaid: 40000, RealizedCostTotal: 215000,
 		ExpenseVATTotal: 20000, ContractVATAmount: 208000, ContractVATKnown: true,
 		HasFinanceAggregates: true,
 	}

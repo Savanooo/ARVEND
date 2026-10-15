@@ -180,7 +180,9 @@ Future<bool?> showCollectionDetailSheet(
 
 /// Legacy taşeron ödemesinin ayrıntısı + "İptal Et" (`POST .../subcontractor-
 /// payments/{id}/void {reason}`). Yanlış girilmiş bir ödeme başka hiçbir
-/// yerden düzeltilemiyordu (web'de de iptal yok).
+/// yerden düzeltilemiyordu (web'de de iptal yok). Açık avansta ayrıca
+/// "İşe Say" (`POST .../subcontractor-payments/{id}/offset`): avans iş
+/// ödemesine döner ve gerçekleşen maliyete girer (docs/maliyet-tanimlari.md).
 Future<bool?> showLegacySubcontractorPaymentDetailSheet(
   BuildContext context, {
   required String projectId,
@@ -191,6 +193,7 @@ Future<bool?> showLegacySubcontractorPaymentDetailSheet(
   final rows = <Widget>[
     AppDataRow(label: 'Taşeron', value: subcontractor.name, multiline: true),
     AppDataRow(label: 'Tarih', value: Formatters.date(payment.paidDate)),
+    AppDataRow(label: 'Tür', value: legacyPaymentKindLabel(payment)),
     AppDataRow(label: 'Açıklama', value: payment.description.isEmpty ? '—' : payment.description, multiline: true),
   ];
   return _showLedgerSheet(
@@ -205,13 +208,29 @@ Future<bool?> showLegacySubcontractorPaymentDetailSheet(
     voidTitle: 'Ödemeyi İptal Et',
     voidMessage: 'Ödeme iptal edilir; taşerona ödenen tutardan ve gerçekleşen maliyetten düşer. Kayıt silinmez.',
     doneMessage: 'Ödeme iptal edildi.',
+    notice: payment.isOpenAdvance
+        ? 'Avans ödenmiştir ama henüz maliyet değildir. Taşeron işi yaptıkça "İşe Say" ile maliyete geçirin.'
+        : null,
     onVoid: (container, reason) async {
       await container
           .read(financeLedgerRepositoryProvider)
           .voidSubcontractorPayment(projectId, payment.id, reason: reason);
       invalidateProjectLedger(container.invalidate, projectId);
     },
+    onOffset: canVoid && payment.isOpenAdvance
+        ? (container) async {
+            await container.read(financeLedgerRepositoryProvider).offsetSubcontractorAdvance(projectId, payment.id);
+            invalidateProjectLedger(container.invalidate, projectId);
+          }
+        : null,
   );
+}
+
+/// Ödeme türü etiketi: "İş karşılığı", "Avans" ya da işe sayılmış avans.
+String legacyPaymentKindLabel(LegacySubcontractorPayment p) {
+  if (p.paymentKind == kPaymentKindAdvance) return 'Avans (maliyet değil)';
+  if (p.offsetAt != null) return 'Avans · işe sayıldı ${Formatters.date(p.offsetAt)}';
+  return 'İş karşılığı';
 }
 
 Future<bool?> _showLedgerSheet(
@@ -233,6 +252,7 @@ Future<bool?> _showLedgerSheet(
   Future<void> Function(ProviderContainer container)? onApprove,
   Future<void> Function(ProviderContainer container, String reason)? onReject,
   Future<bool> Function(BuildContext sheetContext, ProviderContainer container)? onEdit,
+  Future<void> Function(ProviderContainer container)? onOffset,
 }) {
   return showAppSheet<bool>(
     context: context,
@@ -256,11 +276,12 @@ Future<bool?> _showLedgerSheet(
       onApprove: onApprove,
       onReject: onReject,
       onEdit: voided ? null : onEdit,
+      onOffset: voided ? null : onOffset,
     ),
   );
 }
 
-enum _SheetAction { voiding, withdrawing, approving, rejecting }
+enum _SheetAction { voiding, withdrawing, approving, rejecting, offsetting }
 
 class _LedgerSheet extends ConsumerStatefulWidget {
   const _LedgerSheet({
@@ -281,6 +302,7 @@ class _LedgerSheet extends ConsumerStatefulWidget {
     this.onApprove,
     this.onReject,
     this.onEdit,
+    this.onOffset,
   });
 
   final String projectId;
@@ -314,6 +336,9 @@ class _LedgerSheet extends ConsumerStatefulWidget {
   /// Masraf düzenleme: formu bu sayfanın üstünde açar; kaydedildiyse true
   /// döner ve bu sayfa kapanır (eski değerleri göstermeye devam etmesin).
   final Future<bool> Function(BuildContext sheetContext, ProviderContainer container)? onEdit;
+
+  /// Taşeron avansını işe say: yalnızca açık avansta ve finans yöneticisine dolu.
+  final Future<void> Function(ProviderContainer container)? onOffset;
 
   @override
   ConsumerState<_LedgerSheet> createState() => _LedgerSheetState();
@@ -380,6 +405,23 @@ class _LedgerSheetState extends ConsumerState<_LedgerSheet> {
     );
     if (reason == null || !mounted) return;
     await _run(_SheetAction.rejecting, (container) => widget.onReject!(container, reason), 'Masraf reddedildi.');
+  }
+
+  Future<void> _offset() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Avansı İşe Say'),
+        content: const Text('Avans iş karşılığı ödemeye döner ve gerçekleşen maliyete, kâra girer. Bu işlem geri '
+            'alınmaz; yanlışsa ödemeyi iptal edip yeniden girin.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Vazgeç')),
+          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('İşe Say')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _run(_SheetAction.offsetting, (container) => widget.onOffset!(container), 'Avans işe sayıldı.');
   }
 
   Future<void> _edit() async {
@@ -487,6 +529,16 @@ class _LedgerSheetState extends ConsumerState<_LedgerSheet> {
                       ),
                     ),
                   ],
+                ),
+              ],
+              if (widget.onOffset != null) ...[
+                const SizedBox(height: AppSpacing.lg),
+                PrimaryButton(
+                  key: const ValueKey('avans-ise-say'),
+                  label: 'İşe Say',
+                  icon: Icons.task_alt,
+                  loading: _running == _SheetAction.offsetting,
+                  onPressed: _busy ? null : _offset,
                 ),
               ],
               if (widget.onEdit != null) ...[

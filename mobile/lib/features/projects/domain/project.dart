@@ -185,6 +185,19 @@ class FinancialSummary {
   final double forecastMarginPercent;
   final double forecastMarginPercentNet;
 
+  /// Maliyet tanımları (backend migration 0073, docs/maliyet-tanimlari.md):
+  /// [realizedCost] tahakkuk esaslıdır (onaylı hakediş dahil, açık avans
+  /// hariç). [paidCost] nakit (avans dahil); [advanceOpen] işe sayılmamış
+  /// avans (maliyet değil); [pendingCost] onay bekleyen masraf + onaya
+  /// sunulmuş hakediş; [subcontractPayable] onaylı hakedişten taşerona
+  /// ödenecek; [subcontractRetention] teminatta tutulan. Eski sunucuda alan
+  /// yok: ödenen = gerçekleşen, diğerleri 0 (satırlar gizlenir).
+  final double paidCost;
+  final double advanceOpen;
+  final double pendingCost;
+  final double subcontractPayable;
+  final double subcontractRetention;
+
   const FinancialSummary({
     required this.currentContractValue,
     required this.collectedAmount,
@@ -214,7 +227,13 @@ class FinancialSummary {
     double? forecastProfitNet,
     double? forecastMarginPercent,
     double? forecastMarginPercentNet,
-  })  : currentContractValueNet = currentContractValueNet ?? currentContractValue,
+    double? paidCost,
+    this.advanceOpen = 0,
+    this.pendingCost = 0,
+    this.subcontractPayable = 0,
+    this.subcontractRetention = 0,
+  })  : paidCost = paidCost ?? realizedCost,
+        currentContractValueNet = currentContractValueNet ?? currentContractValue,
         realizedGrossProfitNet = realizedGrossProfitNet ?? realizedGrossProfit,
         realizedMarginPercentNet = realizedMarginPercentNet ?? realizedMarginPercent,
         realizedCostNet = realizedCostNet ?? realizedCost,
@@ -232,6 +251,9 @@ class FinancialSummary {
   /// (masraflarda KDV girilmemişse aynı rakamı iki kez yazmanın anlamı yok).
   bool get realizedCostNetDiffers => (realizedCost - realizedCostNet).abs() >= 0.005;
   bool get forecastCostNetDiffers => (forecastCost - forecastCostNet).abs() >= 0.005;
+
+  /// "Ödenen" satırı yalnızca gerçekleşen maliyetten farklıysa gösterilir.
+  bool get paidCostDiffers => (paidCost - realizedCost).abs() >= 0.005;
 
   factory FinancialSummary.fromJson(Map<String, dynamic> json) => FinancialSummary(
         currentContractValue: (json['current_contract_value'] as num).toDouble(),
@@ -263,6 +285,11 @@ class FinancialSummary {
         forecastProfitNet: (json['forecast_profit_net'] as num?)?.toDouble(),
         forecastMarginPercent: (json['forecast_margin_percent'] as num?)?.toDouble(),
         forecastMarginPercentNet: (json['forecast_margin_percent_net'] as num?)?.toDouble(),
+        paidCost: (json['paid_cost'] as num?)?.toDouble(),
+        advanceOpen: (json['advance_open'] as num?)?.toDouble() ?? 0,
+        pendingCost: (json['pending_cost'] as num?)?.toDouble() ?? 0,
+        subcontractPayable: (json['new_subcontract_payable'] as num?)?.toDouble() ?? 0,
+        subcontractRetention: (json['new_subcontract_retention'] as num?)?.toDouble() ?? 0,
       );
 }
 

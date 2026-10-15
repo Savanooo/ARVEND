@@ -823,6 +823,32 @@ class _FinancialSummaryCard extends StatelessWidget {
                   ? '${formatBudgetPercent(s.realizedMarginPercentNet)} / ${formatBudgetPercent(s.realizedMarginPercent)}'
                   : formatBudgetPercent(s.realizedMarginPercent),
             ),
+            // Maliyet tanımları (docs/maliyet-tanimlari.md): gerçekleşen
+            // maliyet tahakkuk esaslı; nakit ve maliyete girmeyenler ayrı.
+            // Sıfır olan satır gösterilmez.
+            if (s.paidCostDiffers)
+              _InfoRow(label: 'Ödenen (nakit)', value: Formatters.money(s.paidCost, currency: s.currency)),
+            if (s.subcontractPayable > 0)
+              _InfoRow(
+                label: 'Taşerona ödenecek',
+                value: Formatters.money(s.subcontractPayable, currency: s.currency),
+              ),
+            if (s.subcontractRetention > 0)
+              _InfoRow(
+                label: 'Teminatta tutulan',
+                value: Formatters.money(s.subcontractRetention, currency: s.currency),
+              ),
+            if (s.advanceOpen > 0)
+              _InfoRow(
+                label: 'Verilen avans (maliyet değil)',
+                value: Formatters.money(s.advanceOpen, currency: s.currency),
+              ),
+            if (s.pendingCost > 0)
+              _InfoRow(
+                label: 'Onay bekleyen (maliyet değil)',
+                value: Formatters.money(s.pendingCost, currency: s.currency),
+                valueColor: AppStatusColors.warning,
+              ),
             const Divider(height: 24),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,

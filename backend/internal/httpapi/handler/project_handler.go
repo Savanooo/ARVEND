@@ -548,6 +548,7 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrQuotationDuplicateItem),
 		errors.Is(err, service.ErrInvalidProfitPercent),
 		errors.Is(err, service.ErrInvalidExpenseVATRate),
+		errors.Is(err, service.ErrInvalidPaymentKind),
 		errors.Is(err, service.ErrInvalidAmount):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, service.ErrOfferNotAccepted),
@@ -555,6 +556,7 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrProjectLocked),
 		errors.Is(err, service.ErrCurrencyMismatch),
 		errors.Is(err, service.ErrAlreadyVoided),
+		errors.Is(err, service.ErrNotOpenAdvance),
 		errors.Is(err, service.ErrDuplicateMember),
 		errors.Is(err, service.ErrDuplicateContent),
 		errors.Is(err, service.ErrChangeOrderNotEditable),

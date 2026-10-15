@@ -694,6 +694,127 @@ void main() {
       expect(find.widgetWithText(OutlinedButton, 'İptal Et'), findsNothing);
     });
 
+    // Maliyet tanımları (backend migration 0073): avans maliyet değildir,
+    // "İşe Say" ile maliyete geçer.
+    testWidgets('ödeme ekle: Avans seçilince payment_kind=advance gider; varsayılan iş', (tester) async {
+      final client = await _client(FakeHttpClientAdapter(script: {}));
+      final repo = FakeFinanceLedgerRepository();
+      final project = cc.sampleProject();
+      await _pump(tester, buildLedgerApp(user: ledgerOwner, client: client, repo: repo, home: tab(project)));
+
+      await tester.tap(find.text('Ödeme Ekle').first);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('maliyete girmez'), findsNothing);
+      await tester.tap(find.text('Avans'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('maliyete girmez'), findsOneWidget);
+      await tester.enterText(find.widgetWithText(TextFormField, 'Tutar (TRY)'), '10.000');
+      await tester.tap(find.text('Ödeme Kaydet'));
+      await tester.pumpAndSettle();
+
+      expect(repo.createdPayments.single['payment_kind'], kPaymentKindAdvance);
+    });
+
+    testWidgets('açık avans: listede "Avans", ayrıntıda onaydan sonra İşe Say', (tester) async {
+      final client = await _client(FakeHttpClientAdapter(script: {}));
+      final repo = FakeFinanceLedgerRepository(payments: [
+        ...kLegacyPayments,
+        const LegacySubcontractorPayment(
+          id: 'sp9',
+          subcontractorId: 's1',
+          amount: 20000,
+          currency: 'TRY',
+          paidDate: '2026-10-01',
+          description: 'Mobilizasyon',
+          paymentKind: kPaymentKindAdvance,
+        ),
+      ]);
+      final project = cc.sampleProject();
+      await _pump(tester, buildLedgerApp(user: ledgerOwner, client: client, repo: repo, home: tab(project)));
+
+      expect(find.textContaining('Avans · Mobilizasyon'), findsOneWidget);
+      expect(find.textContaining('Avans · 1. ödeme'), findsNothing, reason: 'iş ödemesi avans yazmaz');
+
+      await tester.tap(find.byKey(const ValueKey('legacy-payment-sp1')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('avans-ise-say')), findsNothing, reason: 'iş ödemesinde İşe Say yok');
+      expect(find.text('İş karşılığı'), findsOneWidget);
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('legacy-payment-sp9')));
+      await tester.pumpAndSettle();
+      expect(find.text('Avans (maliyet değil)'), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const ValueKey('avans-ise-say')));
+      await tester.tap(find.byKey(const ValueKey('avans-ise-say')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, 'İşe Say'));
+      await tester.pumpAndSettle();
+
+      expect(repo.offsetPayments, ['sp9']);
+      expect(find.text('Avans işe sayıldı.'), findsOneWidget);
+    });
+
+    testWidgets('salt-okur: açık avansta İşe Say yok', (tester) async {
+      final client = await _client(FakeHttpClientAdapter(script: {}));
+      final repo = FakeFinanceLedgerRepository(payments: [
+        const LegacySubcontractorPayment(
+          id: 'sp9',
+          subcontractorId: 's1',
+          amount: 20000,
+          currency: 'TRY',
+          paidDate: '2026-10-01',
+          description: 'Mobilizasyon',
+          paymentKind: kPaymentKindAdvance,
+        ),
+      ]);
+      await _pump(tester, buildLedgerApp(user: ledgerViewer, client: client, repo: repo, home: tab(cc.sampleProject())));
+
+      await tester.tap(find.byKey(const ValueKey('legacy-payment-sp9')));
+      await tester.pumpAndSettle();
+      expect(find.text('Avans (maliyet değil)'), findsOneWidget);
+      expect(find.byKey(const ValueKey('avans-ise-say')), findsNothing);
+    });
+
+    test('depo: ödeme türü gönderilir; İşe Say .../offset ucuna gider ve türü okur', () async {
+      final adapter = FakeHttpClientAdapter(script: {
+        '/projects/p1/subcontractors/s1/payments': [
+          (status: 201, body: {'id': 'sp9', 'subcontractor_id': 's1', 'amount': 20000, 'payment_kind': 'advance'}),
+        ],
+        '/projects/p1/subcontractor-payments/sp9/offset': [
+          (
+            status: 200,
+            body: {
+              'id': 'sp9',
+              'subcontractor_id': 's1',
+              'amount': 20000,
+              'payment_kind': 'work',
+              'offset_at': '2026-10-15T10:00:00Z',
+            }
+          ),
+        ],
+      });
+      final repo = FinanceLedgerRepository(await _client(adapter));
+      final created = await repo.createSubcontractorPayment(
+        'p1',
+        's1',
+        amount: 20000,
+        currency: 'TRY',
+        paidDate: '2026-10-01',
+        idempotencyKey: 'k1',
+        paymentKind: kPaymentKindAdvance,
+      );
+      expect((adapter.requestBodies.first as Map)['payment_kind'], 'advance');
+      expect(created.isOpenAdvance, isTrue);
+
+      final offset = await repo.offsetSubcontractorAdvance('p1', 'sp9');
+      expect(adapter.calls.last, '/projects/p1/subcontractor-payments/sp9/offset');
+      expect(offset.isOpenAdvance, isFalse);
+      expect(offset.offsetAt, isNotNull);
+      // Eski sunucu: alan yoksa iş ödemesi.
+      expect(LegacySubcontractorPayment.fromJson(const {'id': 'x'}).paymentKind, kPaymentKindWork);
+    });
+
     test('depo: düzenleme formda olmayan alanları aynen geri gönderir; iptal doğru uca gider', () async {
       final adapter = FakeHttpClientAdapter(script: {
         '/projects/p1/subcontractors/s1': [

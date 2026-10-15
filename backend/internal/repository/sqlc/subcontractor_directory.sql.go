@@ -13,9 +13,9 @@ import (
 
 const createSubcontractorDirectPayment = `-- name: CreateSubcontractorDirectPayment :one
 INSERT INTO subcontractor_direct_payments (
-    organization_id, supplier_id, amount, currency, paid_date, description, idempotency_key, created_by
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, organization_id, supplier_id, amount, currency, paid_date, description, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason
+    organization_id, supplier_id, amount, currency, paid_date, description, idempotency_key, created_by, payment_kind
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, organization_id, supplier_id, amount, currency, paid_date, description, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason, payment_kind
 `
 
 type CreateSubcontractorDirectPaymentParams struct {
@@ -27,8 +27,10 @@ type CreateSubcontractorDirectPaymentParams struct {
 	Description    string         `json:"description"`
 	IdempotencyKey *string        `json:"idempotency_key"`
 	CreatedBy      pgtype.UUID    `json:"created_by"`
+	PaymentKind    string         `json:"payment_kind"`
 }
 
+// payment_kind: 'general' | 'advance' -- yalnızca bilgi (proje maliyetine girmez).
 func (q *Queries) CreateSubcontractorDirectPayment(ctx context.Context, arg CreateSubcontractorDirectPaymentParams) (SubcontractorDirectPayment, error) {
 	row := q.db.QueryRow(ctx, createSubcontractorDirectPayment,
 		arg.OrganizationID,
@@ -39,6 +41,7 @@ func (q *Queries) CreateSubcontractorDirectPayment(ctx context.Context, arg Crea
 		arg.Description,
 		arg.IdempotencyKey,
 		arg.CreatedBy,
+		arg.PaymentKind,
 	)
 	var i SubcontractorDirectPayment
 	err := row.Scan(
@@ -56,6 +59,7 @@ func (q *Queries) CreateSubcontractorDirectPayment(ctx context.Context, arg Crea
 		&i.VoidedAt,
 		&i.VoidedBy,
 		&i.VoidReason,
+		&i.PaymentKind,
 	)
 	return i, err
 }
@@ -145,7 +149,7 @@ func (q *Queries) GetSubcontractorCard(ctx context.Context, arg GetSubcontractor
 }
 
 const getSubcontractorDirectPaymentByIdempotencyKey = `-- name: GetSubcontractorDirectPaymentByIdempotencyKey :one
-SELECT id, organization_id, supplier_id, amount, currency, paid_date, description, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason FROM subcontractor_direct_payments
+SELECT id, organization_id, supplier_id, amount, currency, paid_date, description, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason, payment_kind FROM subcontractor_direct_payments
 WHERE organization_id = $1 AND idempotency_key = $2
 `
 
@@ -172,6 +176,7 @@ func (q *Queries) GetSubcontractorDirectPaymentByIdempotencyKey(ctx context.Cont
 		&i.VoidedAt,
 		&i.VoidedBy,
 		&i.VoidReason,
+		&i.PaymentKind,
 	)
 	return i, err
 }
@@ -316,10 +321,10 @@ func (q *Queries) ListSubcontractorEngagements(ctx context.Context, arg ListSubc
 }
 
 const listSubcontractorLedgerPayments = `-- name: ListSubcontractorLedgerPayments :many
-SELECT source, id, project_id, project_name, project_no, engagement_id, amount, currency, paid_date, description, voided_at, void_reason, created_at FROM (
+SELECT source, id, project_id, project_name, project_no, engagement_id, amount, currency, paid_date, description, voided_at, void_reason, created_at, kind FROM (
     SELECT 'simple'::text AS source, x.id, x.project_id, p.name AS project_name, p.project_no,
            x.subcontractor_id AS engagement_id, x.amount, x.currency, x.paid_date, x.description,
-           x.voided_at, x.void_reason, x.created_at
+           x.voided_at, x.void_reason, x.created_at, x.payment_kind::text AS kind
     FROM project_subcontractor_payments x
     JOIN project_subcontractors s ON s.id = x.subcontractor_id
     JOIN projects p ON p.id = x.project_id
@@ -329,7 +334,8 @@ SELECT source, id, project_id, project_name, project_no, engagement_id, amount, 
     UNION ALL
     SELECT 'contract'::text, x.id, x.project_id, p.name, p.project_no,
            x.subcontract_id, x.amount, x.currency, x.paid_date, x.description,
-           x.voided_at, x.void_reason, x.created_at
+           x.voided_at, x.void_reason, x.created_at,
+           CASE WHEN x.progress_claim_id IS NULL AND COALESCE(c.advance_amount, 0) > 0 THEN 'advance' ELSE 'work' END
     FROM subcontract_payments x
     JOIN project_subcontracts c ON c.id = x.subcontract_id
     JOIN projects p ON p.id = x.project_id
@@ -339,7 +345,7 @@ SELECT source, id, project_id, project_name, project_no, engagement_id, amount, 
     UNION ALL
     SELECT 'direct'::text, x.id, NULL::uuid, ''::varchar(200), ''::varchar(30),
            NULL::uuid, x.amount, x.currency, x.paid_date, x.description,
-           x.voided_at, x.void_reason, x.created_at
+           x.voided_at, x.void_reason, x.created_at, x.payment_kind::text
     FROM subcontractor_direct_payments x
     WHERE x.organization_id = $1::uuid AND x.supplier_id = $2::uuid
 ) t
@@ -367,9 +373,12 @@ type ListSubcontractorLedgerPaymentsRow struct {
 	VoidedAt     pgtype.Timestamptz `json:"voided_at"`
 	VoidReason   string             `json:"void_reason"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	Kind         string             `json:"kind"`
 }
 
-// Taşerona yapılan bütün ödemeler (iptaller dahil), en yeni önce.
+// Taşerona yapılan bütün ödemeler (iptaller dahil), en yeni önce. kind:
+// 'work' | 'advance' | 'general' (proje dışı genel ödeme). Sözleşmeli
+// taşeronda hakedişe bağlanmamış ödeme, sözleşmede avans tutarı varsa avanstır.
 func (q *Queries) ListSubcontractorLedgerPayments(ctx context.Context, arg ListSubcontractorLedgerPaymentsParams) ([]ListSubcontractorLedgerPaymentsRow, error) {
 	rows, err := q.db.Query(ctx, listSubcontractorLedgerPayments, arg.OrganizationID, arg.SupplierID, arg.RestrictToUserID)
 	if err != nil {
@@ -393,6 +402,7 @@ func (q *Queries) ListSubcontractorLedgerPayments(ctx context.Context, arg ListS
 			&i.VoidedAt,
 			&i.VoidReason,
 			&i.CreatedAt,
+			&i.Kind,
 		); err != nil {
 			return nil, err
 		}
@@ -568,7 +578,7 @@ UPDATE subcontractor_direct_payments
 SET voided_at = now(), voided_by = $1, void_reason = $2
 WHERE id = $3 AND organization_id = $4 AND supplier_id = $5
   AND voided_at IS NULL
-RETURNING id, organization_id, supplier_id, amount, currency, paid_date, description, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason
+RETURNING id, organization_id, supplier_id, amount, currency, paid_date, description, idempotency_key, created_by, created_at, updated_at, voided_at, voided_by, void_reason, payment_kind
 `
 
 type VoidSubcontractorDirectPaymentParams struct {
@@ -603,6 +613,7 @@ func (q *Queries) VoidSubcontractorDirectPayment(ctx context.Context, arg VoidSu
 		&i.VoidedAt,
 		&i.VoidedBy,
 		&i.VoidReason,
+		&i.PaymentKind,
 	)
 	return i, err
 }

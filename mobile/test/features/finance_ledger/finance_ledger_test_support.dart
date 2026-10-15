@@ -329,6 +329,7 @@ class FakeFinanceLedgerRepository implements FinanceLedgerRepository {
     required String paidDate,
     required String idempotencyKey,
     String description = '',
+    String paymentKind = kPaymentKindWork,
   }) async {
     calls.add('createPayment');
     createdPayments.add({
@@ -338,6 +339,7 @@ class FakeFinanceLedgerRepository implements FinanceLedgerRepository {
       'paid_date': paidDate,
       'description': description,
       'idempotency_key': idempotencyKey,
+      'payment_kind': paymentKind,
     });
     return LegacySubcontractorPayment(
       id: 'sp${pays.length + 1}',
@@ -346,6 +348,25 @@ class FakeFinanceLedgerRepository implements FinanceLedgerRepository {
       currency: currency,
       paidDate: paidDate,
       description: description,
+      paymentKind: paymentKind,
+    );
+  }
+
+  final List<String> offsetPayments = [];
+
+  @override
+  Future<LegacySubcontractorPayment> offsetSubcontractorAdvance(String projectId, String paymentId) async {
+    calls.add('offsetAdvance');
+    offsetPayments.add(paymentId);
+    final p = pays.firstWhere((p) => p.id == paymentId);
+    return LegacySubcontractorPayment(
+      id: p.id,
+      subcontractorId: p.subcontractorId,
+      amount: p.amount,
+      currency: p.currency,
+      paidDate: p.paidDate,
+      description: p.description,
+      offsetAt: '2026-10-15T10:00:00Z',
     );
   }
 }

@@ -83,6 +83,12 @@ class LegacySubcontractor {
 }
 
 /// Legacy taşerona yapılmış tek bir ödeme (`GET /subcontractor-payments`).
+/// Basit taşeron ödemesinin türü (backend migration 0073): iş karşılığı
+/// ödeme gerçekleşen maliyettir; avans "İşe say" ile maliyete geçene kadar
+/// değildir (docs/maliyet-tanimlari.md).
+const kPaymentKindWork = 'work';
+const kPaymentKindAdvance = 'advance';
+
 class LegacySubcontractorPayment {
   const LegacySubcontractorPayment({
     required this.id,
@@ -91,6 +97,8 @@ class LegacySubcontractorPayment {
     required this.currency,
     required this.paidDate,
     required this.description,
+    this.paymentKind = kPaymentKindWork,
+    this.offsetAt,
     this.voidedAt,
     this.voidReason = '',
   });
@@ -103,10 +111,19 @@ class LegacySubcontractorPayment {
   /// "YYYY-MM-DD".
   final String paidDate;
   final String description;
+
+  /// [kPaymentKindWork] | [kPaymentKindAdvance]. Eski sunucuda alan yok: iş.
+  final String paymentKind;
+
+  /// Avans işe sayıldıysa ne zaman (o andan beri [paymentKind] "work").
+  final String? offsetAt;
   final String? voidedAt;
   final String voidReason;
 
   bool get isVoided => voidedAt != null;
+
+  /// İptal edilmemiş, henüz işe sayılmamış avans: "İşe say" sunulur.
+  bool get isOpenAdvance => paymentKind == kPaymentKindAdvance && !isVoided;
 
   factory LegacySubcontractorPayment.fromJson(Map<String, dynamic> json) => LegacySubcontractorPayment(
         id: json['id'] as String,
@@ -115,6 +132,8 @@ class LegacySubcontractorPayment {
         currency: json['currency'] as String? ?? 'TRY',
         paidDate: json['paid_date'] as String? ?? '',
         description: json['description'] as String? ?? '',
+        paymentKind: json['payment_kind'] as String? ?? kPaymentKindWork,
+        offsetAt: json['offset_at'] as String?,
         voidedAt: json['voided_at'] as String?,
         voidReason: json['void_reason'] as String? ?? '',
       );

@@ -317,6 +317,8 @@ class LegacySubcontractorCard extends StatelessWidget {
                     [
                       Formatters.date(p.paidDate),
                       Formatters.money(p.amount, currency: p.currency),
+                      // Avans maliyet değildir; "İşe Say"a kadar listede belli olsun.
+                      if (p.isOpenAdvance) 'Avans',
                       if (p.description.isNotEmpty) p.description,
                     ].join(' · '),
                     style: AppTypography.metadata,
@@ -583,9 +585,10 @@ class _SubcontractorFormSheetState extends ConsumerState<_SubcontractorFormSheet
   }
 }
 
-/// "Ödeme Ekle" -- tutar*, tarih*, açıklama. İdempotency anahtarı TAŞERON
-/// ve form örneği başına sabittir (web: yanıtı kaybolan A ödemesinin
-/// anahtarı B'ye gitmesin).
+/// "Ödeme Ekle" -- tür (iş karşılığı / avans), tutar*, tarih*, açıklama.
+/// İdempotency anahtarı TAŞERON ve form örneği başına sabittir (web: yanıtı
+/// kaybolan A ödemesinin anahtarı B'ye gitmesin). Avans maliyet değildir;
+/// ödeme ayrıntısındaki "İşe Say" ile maliyete geçer.
 Future<LegacySubcontractorPayment?> showLegacySubcontractorPaymentSheet(
   BuildContext context, {
   required String projectId,
@@ -614,6 +617,7 @@ class _PaymentSheetState extends ConsumerState<_PaymentSheet> {
   final _amount = TextEditingController();
   final _description = TextEditingController();
   DateTime _date = clock.now();
+  String _kind = kPaymentKindWork;
   bool _busy = false;
   String? _error;
   late final _idempotencyKey = 'subpay-${widget.subcontractor.id}-${DateTime.now().microsecondsSinceEpoch}';
@@ -642,6 +646,7 @@ class _PaymentSheetState extends ConsumerState<_PaymentSheet> {
             paidDate: _isoDate(_date),
             description: _description.text.trim(),
             idempotencyKey: _idempotencyKey,
+            paymentKind: _kind,
           );
       if (mounted) Navigator.of(context).pop(created);
     } on ApiException catch (e) {
@@ -666,6 +671,20 @@ class _PaymentSheetState extends ConsumerState<_PaymentSheet> {
         AppFormSection(
           title: 'Ödeme Bilgileri',
           children: [
+            SegmentedButton<String>(
+              key: const ValueKey('payment-kind'),
+              segments: const [
+                ButtonSegment(value: kPaymentKindWork, label: Text('İş karşılığı'), icon: Icon(Icons.construction)),
+                ButtonSegment(value: kPaymentKindAdvance, label: Text('Avans'), icon: Icon(Icons.forward)),
+              ],
+              selected: {_kind},
+              onSelectionChanged: _busy ? null : (s) => setState(() => _kind = s.first),
+            ),
+            if (_kind == kPaymentKindAdvance)
+              const Text(
+                'Avans ödenmiş sayılır ama maliyete girmez. Taşeron işi yaptıkça ödemeyi açıp "İşe Say" deyin.',
+                style: AppTypography.metadata,
+              ),
             TextFormField(
               controller: _amount,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),

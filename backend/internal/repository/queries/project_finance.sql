@@ -275,10 +275,12 @@ RETURNING *;
 -- ============ Taşeron Ödemeleri ============
 
 -- name: CreateSubcontractorPayment :one
+-- payment_kind: 'work' (iş karşılığı, maliyettir) | 'advance' (avans;
+-- "İşe say" ile maliyete geçene kadar maliyet değildir, migration 0073).
 INSERT INTO project_subcontractor_payments (
     organization_id, project_id, subcontractor_id, amount, currency,
-    paid_date, description, idempotency_key, created_by
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    paid_date, description, idempotency_key, created_by, payment_kind
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 RETURNING *;
 
 -- GetSubcontractorPayment, void durumundan BAĞIMSIZ okur (bkz.
@@ -299,6 +301,15 @@ SELECT * FROM project_subcontractor_payments
 WHERE project_id = $1 AND organization_id = $2
 ORDER BY paid_date DESC, created_at DESC;
 
+-- name: OffsetSubcontractorAdvance :one
+-- Avansı işe say (mahsup): ödeme iş ödemesine döner ve o andan itibaren
+-- gerçekleşen maliyete girer; ne zaman/kimin saydığı tutulur.
+UPDATE project_subcontractor_payments
+SET payment_kind = 'work', offset_at = now(), offset_by = sqlc.narg(offset_by)
+WHERE id = sqlc.arg(id) AND organization_id = sqlc.arg(organization_id) AND project_id = sqlc.arg(project_id)
+  AND voided_at IS NULL AND payment_kind = 'advance'
+RETURNING *;
+
 -- name: VoidSubcontractorPayment :one
 -- project_id EKLENDİ (bkz. GetPaymentPlanItem notu).
 UPDATE project_subcontractor_payments
@@ -313,20 +324,18 @@ RETURNING *;
 -- -- Go tarafında hiçbir para aritmetiği yoktur (float64 yalnızca taşıma
 -- tipidir), böylece kuruş hassasiyeti korunur.
 --
--- İki maliyet/kâr kavramı bilinçli olarak ayrı tutulur:
---   realized_cost  = gerçekleşen masraflar + taşerona GERÇEKTEN ödenen
+-- Maliyet tanımları TEK yerde: project_cost_basis / subcontract_cost_basis
+-- görünümleri (migration 0073, docs/maliyet-tanimlari.md). Proje listesi ve
+-- Ana Sayfa da aynı görünümü okur.
+--   realized_cost  = onaylı masraflar + basit taşeronun İŞ ödemeleri +
+--                    sözleşmeli taşeronun gerçekleşen işi (onaylı hakediş)
+--   paid_cost      = onaylı masraflar + bütün taşeron ödemeleri (avans dahil)
 --   committed_cost = realized_cost + taşeron sözleşmelerinin KALAN taahhüdü
---
--- Sprint 5 follow-up: "taşerona GERÇEKTEN ödenen" artık İKİ AYRI kaynaktan
--- TOPLANIR -- legacy project_subcontractor_payments (subpay/subremaining,
--- YUKARIDAKİ notta anlatılan orijinal mekanizma) VE yeni Sprint 5
--- subcontract_payments (newsubpay/newsubremaining). Bu iki kaynak FİZİKSEL
--- OLARAK AYRI tablolara, AYRI sözleşme kayıtlarına (project_subcontractors
--- vs project_subcontracts) bağlıdır -- bir proje HER İKİSİNİ de kullansa
--- bile aynı ödeme iki kez sayılamaz, saf toplama güvenlidir (bkz.
--- docs/subcontracts.md, migration 0039 gerekçesi). new_sc_value, draft/
--- cancelled sözleşmeleri HARİÇ TUTAR -- taslağın henüz hiçbir taahhüdü/
--- ödemesi anlamlı değildir (GetSubcontractCurrentValue İLE AYNI ilke).
+-- Kalan taahhüt sözleşme BAŞINA, negatife düşürülmeden: basit taşeronda
+-- sözleşme - iş ödemesi, sözleşmeli taşeronda güncel değer - gerçekleşen.
+-- Avans gerçekleşen değildir; kalan taahhüdün içinde kalır (iki kez sayılmaz).
+-- new_sc_value draft/cancelled sözleşmeleri HARİÇ TUTAR (taslağın taahhüdü
+-- anlamlı değildir; GetSubcontractCurrentValue ile aynı ilke).
 -- name: GetProjectFinancialSummary :one
 WITH proj AS (
     SELECT pr.contract_amount, pr.currency, pr.source_revision_id FROM projects pr
@@ -347,21 +356,6 @@ planned AS (
     SELECT COALESCE(sum(planned_amount), 0)::numeric(18,2) AS total
     FROM project_payment_plan_items WHERE project_id = $1 AND status <> 'cancelled'
 ),
-expense_total AS (
-    -- Yalnızca ONAYLI masraflar (migration 0060): onay bekleyen/reddedilen
-    -- kayıt gerçekleşen maliyete ve kâra girmez.
-    -- vat_total: bu masrafların İÇİNDEKİ KDV (migration 0065; oranı
-    -- belirtilmemiş masrafta NULL -> sayılmaz, tutarın tamamı maliyettir).
-    -- Bütçe bazlı tahminin KDV hariç karşılığı Maliyet Kontrolü'nün kendi
-    -- eac_net'inden gelir (cost_control.sql), burada ayrıca hesaplanmaz.
-    SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total,
-        COALESCE(sum(vat_amount), 0)::numeric(18,2) AS vat_total
-    FROM project_expenses WHERE project_id = $1 AND voided_at IS NULL AND approval_status = 'approved'
-),
-subpay AS (
-    SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
-    FROM project_subcontractor_payments WHERE project_id = $1 AND voided_at IS NULL
-),
 subcommit AS (
     -- İptal edilmiş taşeron sözleşmeleri taahhüde dahil edilmez.
     SELECT COALESCE(sum(contract_amount), 0)::numeric(18,2) AS total
@@ -370,11 +364,13 @@ subcommit AS (
 subremaining AS (
     -- Kalan taahhüt taşeron BAŞINA hesaplanır ve negatife düşürülmez:
     -- fazla ödenmiş bir taşeron, diğerlerinin kalan taahhüdünü azaltmamalı.
+    -- Yalnızca İŞ ödemesi düşülür; açık avans taahhüdün içinde kalır.
     SELECT COALESCE(sum(GREATEST(s.contract_amount - COALESCE(p.paid, 0), 0)), 0)::numeric(18,2) AS total
     FROM project_subcontractors s
     LEFT JOIN (
         SELECT subcontractor_id, sum(amount) AS paid
-        FROM project_subcontractor_payments WHERE project_id = $1 AND voided_at IS NULL
+        FROM project_subcontractor_payments
+        WHERE project_id = $1 AND voided_at IS NULL AND payment_kind = 'work'
         GROUP BY subcontractor_id
     ) p ON p.subcontractor_id = s.id
     WHERE s.project_id = $1 AND s.status <> 'cancelled'
@@ -429,21 +425,13 @@ new_sc_value AS (
     ) coe ON coe.subcontract_id = sc.id
     WHERE sc.project_id = $1 AND sc.organization_id = $2 AND sc.status NOT IN ('draft', 'cancelled')
 ),
-newsubpay AS (
-    SELECT COALESCE(sum(amount), 0)::numeric(18,2) AS total
-    FROM subcontract_payments WHERE project_id = $1 AND organization_id = $2 AND voided_at IS NULL
-),
 newsubremaining AS (
     -- subremaining İLE AYNI ilke: kalan taahhüt sözleşme BAŞINA hesaplanır
-    -- ve negatife düşürülmez (fazla ödenmiş bir sözleşme diğerlerinin
-    -- kalan taahhüdünü azaltmamalı).
-    SELECT COALESCE(sum(GREATEST(v.current_value - COALESCE(p.paid, 0), 0)), 0)::numeric(18,2) AS total
+    -- ve negatife düşürülmez. Gerçekleşen iş (onaylı hakediş) düşülür;
+    -- açık avans taahhüdün içinde kalır.
+    SELECT COALESCE(sum(GREATEST(v.current_value - COALESCE(b.accrued, 0), 0)), 0)::numeric(18,2) AS total
     FROM new_sc_value v
-    LEFT JOIN (
-        SELECT subcontract_id, sum(amount) AS paid
-        FROM subcontract_payments WHERE project_id = $1 AND organization_id = $2 AND voided_at IS NULL
-        GROUP BY subcontract_id
-    ) p ON p.subcontract_id = v.id
+    LEFT JOIN subcontract_cost_basis b ON b.subcontract_id = v.id
 ),
 -- Faz 8: projects.contract_amount ASLA değişmez (ana sözleşme). "Güncel
 -- proje bedeli", onaylı ek işler/eksiltmelerden HER SEFERİNDE aggregate
@@ -488,22 +476,33 @@ SELECT
     planned.total AS planned_collections,
     coll.total    AS collected_amount,
     (current_value.total - coll.total)::numeric(18,2) AS remaining_receivable,
-    expense_total.total     AS total_expenses,
-    -- Onaylı masrafların içindeki KDV; KDV hariç maliyetler Go'da bundan
-    -- türetilir (ProjectService.applyNetFigures/applyForecast).
-    expense_total.vat_total AS expense_vat_total,
+    -- Yalnızca ONAYLI masraflar (migration 0060); expense_vat_total bunların
+    -- İÇİNDEKİ KDV (oranı belirtilmemişte sayılmaz). KDV hariç maliyetler
+    -- Go'da bundan türetilir (ProjectService.applyNetFigures/applyForecast).
+    basis.expense_approved     AS total_expenses,
+    basis.expense_approved_vat AS expense_vat_total,
+    basis.expense_pending      AS pending_expenses,
     subcommit.total    AS total_subcontractor_commitment,
-    subpay.total       AS subcontractor_paid,
+    basis.simple_paid  AS subcontractor_paid,
+    basis.simple_work_paid    AS subcontractor_work_paid,
+    basis.simple_advance_open AS subcontractor_advance_open,
     subremaining.total AS subcontractor_remaining,
-    newsubpay.total       AS new_subcontract_paid,
+    basis.subcontract_paid AS new_subcontract_paid,
+    basis.subcontract_accrued        AS new_subcontract_accrued,
+    basis.subcontract_advance_open   AS new_subcontract_advance_open,
+    basis.subcontract_payable        AS new_subcontract_payable,
+    basis.subcontract_retention      AS new_subcontract_retention,
+    basis.subcontract_pending_claims AS new_subcontract_pending_claims,
     newsubremaining.total AS new_subcontract_remaining,
     inv.issued_total   AS issued_invoice_total,
     inv.paid_total     AS paid_invoice_total,
-    (expense_total.total + subpay.total + newsubpay.total)::numeric(18,2) AS realized_cost,
-    (expense_total.total + subpay.total + newsubpay.total + subremaining.total + newsubremaining.total)::numeric(18,2)
-        AS committed_cost,
-    (current_value.total - (expense_total.total + subpay.total + newsubpay.total))::numeric(18,2) AS realized_gross_profit,
-    (current_value.total - (expense_total.total + subpay.total + newsubpay.total + subremaining.total + newsubremaining.total))::numeric(18,2)
+    basis.realized_cost,
+    basis.paid_cost,
+    basis.advance_open,
+    basis.pending_cost,
+    (basis.realized_cost + subremaining.total + newsubremaining.total)::numeric(18,2) AS committed_cost,
+    (current_value.total - basis.realized_cost)::numeric(18,2) AS realized_gross_profit,
+    (current_value.total - (basis.realized_cost + subremaining.total + newsubremaining.total))::numeric(18,2)
         AS estimated_gross_profit,
     -- Marj yüzdesi matematiksel olarak SINIRSIZDIR (küçük bir sözleşme
     -- bedeline karşı çok büyük bir maliyet girilirse oran patlar). Cast
@@ -516,13 +515,14 @@ SELECT
     -- döner -- sıfıra bölme yoktur.
     CASE WHEN current_value.total > 0
          THEN GREATEST(-99999999.99, LEAST(99999999.99,
-              round((current_value.total - (expense_total.total + subpay.total + newsubpay.total)) * 100 / current_value.total, 2)))
+              round((current_value.total - basis.realized_cost) * 100 / current_value.total, 2)))
          ELSE 0 END::numeric(10,2) AS realized_margin_percent,
     CASE WHEN current_value.total > 0
          THEN GREATEST(-99999999.99, LEAST(99999999.99,
-              round((current_value.total - (expense_total.total + subpay.total + newsubpay.total + subremaining.total + newsubremaining.total)) * 100 / current_value.total, 2)))
+              round((current_value.total - (basis.realized_cost + subremaining.total + newsubremaining.total)) * 100 / current_value.total, 2)))
          ELSE 0 END::numeric(10,2) AS estimated_margin_percent
-FROM proj, base_vat, coll, planned, expense_total, subpay, subcommit, subremaining, newsubpay, newsubremaining, inv, co_effect, current_value;
+FROM proj, project_cost_basis basis, base_vat, coll, planned, subcommit, subremaining, newsubremaining, inv, co_effect, current_value
+WHERE basis.project_id = $1 AND basis.organization_id = $2;
 
 -- ============ Proje Olayları (audit) ============
 

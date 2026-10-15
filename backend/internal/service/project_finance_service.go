@@ -21,6 +21,9 @@ var (
 	ErrCurrencyMismatch = errors.New("hareketin para birimi projenin para biriminden farklı olamaz")
 	ErrInvalidAmount    = errors.New("tutar sıfırdan büyük olmalıdır")
 	ErrAlreadyVoided    = errors.New("bu kayıt zaten iptal edilmiş")
+
+	ErrInvalidPaymentKind = errors.New("ödeme türü geçersiz")
+	ErrNotOpenAdvance     = errors.New("yalnızca iptal edilmemiş, henüz işe sayılmamış avans işe sayılabilir")
 )
 
 // logProjectEvent, project_events'e değişmez bir denetim kaydı yazar.
@@ -1369,12 +1372,25 @@ func (s *ProjectService) UpdateSubcontractor(ctx context.Context, projectID, sub
 // ---------- Taşeron Ödemeleri ----------
 
 type SubcontractorPaymentInput struct {
-	Amount         float64
-	Currency       string
-	PaidDate       time.Time
+	Amount   float64
+	Currency string
+	PaidDate time.Time
+	// PaymentKind: "work" (boşsa) | "advance".
+	PaymentKind    string
 	Description    string
 	IdempotencyKey string
 	UserID         string
+}
+
+// normalizeSubcontractorPaymentKind: boş = iş ödemesi (eski istemciler).
+func normalizeSubcontractorPaymentKind(kind string) (string, error) {
+	switch strings.TrimSpace(kind) {
+	case "", domain.SubcontractorPaymentKindWork:
+		return domain.SubcontractorPaymentKindWork, nil
+	case domain.SubcontractorPaymentKindAdvance:
+		return domain.SubcontractorPaymentKindAdvance, nil
+	}
+	return "", ErrInvalidPaymentKind
 }
 
 // projectID, URL'deki proje kimliğidir -- subcontractorID'nin GERÇEKTEN
@@ -1389,6 +1405,10 @@ func (s *ProjectService) CreateSubcontractorPayment(ctx context.Context, project
 	sid, err := repository.StringToUUID(subcontractorID)
 	if err != nil {
 		return nil, domain.ErrNotFound
+	}
+	kind, err := normalizeSubcontractorPaymentKind(in.PaymentKind)
+	if err != nil {
+		return nil, err
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -1457,6 +1477,7 @@ func (s *ProjectService) CreateSubcontractorPayment(ctx context.Context, project
 		Description:     strings.TrimSpace(in.Description),
 		IdempotencyKey:  keyPtr,
 		CreatedBy:       actorUUID(in.UserID),
+		PaymentKind:     kind,
 	})
 	if err != nil {
 		// bkz. CreateCollection: eşzamanlı aynı anahtarlı istek kazandıysa
@@ -1472,7 +1493,7 @@ func (s *ProjectService) CreateSubcontractorPayment(ctx context.Context, project
 		return nil, err
 	}
 	if err := logProjectEvent(ctx, txq, orgID, sub.ProjectID, domain.ProjectEventSubcontractorPaymentMade, actorUUID(in.UserID),
-		map[string]any{"payment_id": row.ID.String(), "subcontractor_id": subcontractorID, "amount": in.Amount}); err != nil {
+		map[string]any{"payment_id": row.ID.String(), "subcontractor_id": subcontractorID, "amount": in.Amount, "payment_kind": kind}); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1551,6 +1572,53 @@ func (s *ProjectService) VoidSubcontractorPayment(ctx context.Context, projectID
 	return &out, nil
 }
 
+// OffsetSubcontractorAdvance: avansı işe say (mahsup). Ödeme iş ödemesine
+// döner ve gerçekleşen maliyete girer; geri alınmaz (yanlışsa ödeme iptal
+// edilip yeniden girilir). Tamamlanmış/iptal edilmiş projede yapılamaz.
+func (s *ProjectService) OffsetSubcontractorAdvance(ctx context.Context, projectID, paymentID, organizationID, userID string) (*domain.SubcontractorPayment, error) {
+	pid, orgID, err := s.scopedIDs(projectID, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	payID, err := repository.StringToUUID(paymentID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	txq := s.q.WithTx(tx)
+
+	if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+		return nil, err
+	}
+	row, err := txq.OffsetSubcontractorAdvance(ctx, sqlc.OffsetSubcontractorAdvanceParams{
+		ID: payID, OrganizationID: orgID, ProjectID: pid, OffsetBy: actorUUID(userID),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			if _, gerr := txq.GetSubcontractorPayment(ctx, sqlc.GetSubcontractorPaymentParams{ID: payID, OrganizationID: orgID, ProjectID: pid}); gerr == nil {
+				return nil, ErrNotOpenAdvance
+			}
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	if err := logProjectEvent(ctx, txq, orgID, row.ProjectID, domain.ProjectEventSubcontractorAdvanceUsed, actorUUID(userID),
+		map[string]any{"payment_id": paymentID, "subcontractor_id": row.SubcontractorID.String(),
+			"amount": repository.NumericToFloat64(row.Amount)}); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	out := repository.ToDomainSubcontractorPayment(row)
+	return &out, nil
+}
+
 // ---------- Finans Özeti ----------
 
 // FinancialSummary, projenin tüm finans tablosunu TEK sorguda üretir.
@@ -1570,7 +1638,7 @@ func (s *ProjectService) FinancialSummaryForViewer(ctx context.Context, projectI
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	row, err := s.q.GetProjectFinancialSummary(ctx, sqlc.GetProjectFinancialSummaryParams{ID: pid, OrganizationID: orgID})
+	row, err := s.q.GetProjectFinancialSummary(ctx, sqlc.GetProjectFinancialSummaryParams{ProjectID: pid, OrganizationID: orgID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -1623,8 +1691,10 @@ func roundKurus(v float64) float64 { return domain.RoundKurus(v) }
 // bütçe otomatik açıldığı için HasBudget tek başına "bütçe girildi" demek
 // değildir: bütçe tahmini (EAC) yalnızca bütçe kalemleri gerçekten girilmişse
 // (RevisedBudget > 0) kullanılır. Eski (legacy) taşeron kayıtları Maliyet
-// Kontrolü'ne hiç girmez; EAC'ye ayrıca eklenir -- önceden mobil bütçeli
-// her projede EAC'yi kullanıyor, bu taşeron ödemelerini görmüyordu.
+// Kontrolü'ne hiç girmez; EAC'ye ayrıca eklenir (iş ödemesi + kalan
+// taahhüt; açık avans kalan taahhüdün içindedir, iki kez eklenmez) --
+// önceden mobil bütçeli her projede EAC'yi kullanıyor, bu taşeron
+// ödemelerini görmüyordu.
 //
 // KDV hariç tahmini maliyet: Maliyet Kontrolü'nün kendi KDV hariç EAC'si
 // (EACNet = KDV hariç gerçekleşen + kalan; kalanın KDV'si bilinmediği için
@@ -1633,7 +1703,7 @@ func roundKurus(v float64) float64 { return domain.RoundKurus(v) }
 func applyForecast(s *domain.ProjectFinancialSummary, cc *domain.CostControlSummary) {
 	if cc != nil && cc.HasBudget && cc.RevisedBudget > 0 {
 		s.ForecastBasis = domain.ForecastBasisBudget
-		legacy := s.SubcontractorPaid + s.SubcontractorRemaining
+		legacy := s.SubcontractorWorkPaid + s.SubcontractorRemaining
 		s.ForecastCost = roundKurus(cc.EACTotal + legacy)
 		s.ForecastCostNet = roundKurus(cc.EACNet + legacy)
 	} else {

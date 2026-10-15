@@ -45,13 +45,15 @@ SELECT co.*,
     COALESCE((SELECT sum(e.vat_amount) FROM project_expenses e
               WHERE e.change_order_id = co.id AND e.voided_at IS NULL AND e.approval_status = 'approved'), 0)::numeric(18,2)
         AS realized_expense_vat,
+    -- Yalnızca İŞ ödemeleri gerçekleşen maliyettir; açık avans kalan
+    -- taahhüdün içinde kalır (project_cost_basis, migration 0073).
     COALESCE((SELECT sum(sp.amount) FROM project_subcontractor_payments sp
               JOIN project_subcontractors s ON s.id = sp.subcontractor_id
-              WHERE s.change_order_id = co.id AND sp.voided_at IS NULL), 0)::numeric(18,2)
+              WHERE s.change_order_id = co.id AND sp.voided_at IS NULL AND sp.payment_kind = 'work'), 0)::numeric(18,2)
         AS realized_subcontractor_cost,
     COALESCE((SELECT sum(GREATEST(s.contract_amount - COALESCE((
                   SELECT sum(sp2.amount) FROM project_subcontractor_payments sp2
-                  WHERE sp2.subcontractor_id = s.id AND sp2.voided_at IS NULL), 0), 0))
+                  WHERE sp2.subcontractor_id = s.id AND sp2.voided_at IS NULL AND sp2.payment_kind = 'work'), 0), 0))
               FROM project_subcontractors s
               WHERE s.change_order_id = co.id AND s.status <> 'cancelled'), 0)::numeric(18,2)
         AS subcontractor_remaining_commitment,

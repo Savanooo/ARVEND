@@ -1522,7 +1522,9 @@ func TestSubcontracts(t *testing.T) {
 		}
 	})
 
-	t.Run("37_finance_summary_terminated_remaining_is_certified_minus_paid", func(t *testing.T) {
+	// Maliyet tanımları (migration 0073): sözleşmeli taşeronda gerçekleşen =
+	// onaylı iş; kalan taahhüt = güncel değer - gerçekleşen (ödenen değil).
+	t.Run("37_finance_summary_terminated_remaining_is_certified_minus_accrued", func(t *testing.T) {
 		p := newProject(t, orgA.ID, 900000)
 		cc := newCostCode(t, orgA.ID, "S37-CC")
 		s := newSupplier(t, orgA.ID, "S37-S")
@@ -1544,8 +1546,13 @@ func TestSubcontracts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if before.NewSubcontractRemaining != 450000 {
-			t.Fatalf("fesih ÖNCESİ kalan taahhüt 500000-50000=450000 olmalı, geldi %v", before.NewSubcontractRemaining)
+		if before.NewSubcontractRemaining != 300000 || before.NewSubcontractAccrued != 200000 || before.NewSubcontractPaid != 50000 {
+			t.Fatalf("fesih ÖNCESİ kalan taahhüt 500000-200000(onaylı iş)=300000 olmalı, geldi kalan %v gerçekleşen %v ödenen %v",
+				before.NewSubcontractRemaining, before.NewSubcontractAccrued, before.NewSubcontractPaid)
+		}
+		if before.RealizedCost != 200000 || before.PaidCost != 50000 {
+			t.Fatalf("gerçekleşen maliyet onaylı işi (200000), ödenen nakdi (50000) göstermeli: %v %v",
+				before.RealizedCost, before.PaidCost)
 		}
 		if _, err := projectSvc.TerminateSubcontract(ctx, p.ID, sc.ID, orgA.ID, "", "fesih"); err != nil {
 			t.Fatal(err)
@@ -1554,19 +1561,20 @@ func TestSubcontracts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if after.NewSubcontractRemaining != 150000 {
-			t.Fatalf("fesih SONRASI kalan taahhüt sertifikalı-ödenen = 150000 olmalı, geldi %v", after.NewSubcontractRemaining)
+		if after.NewSubcontractRemaining != 0 {
+			t.Fatalf("fesih SONRASI kalan taahhüt sertifikalı-gerçekleşen = 0 olmalı, geldi %v", after.NewSubcontractRemaining)
 		}
-		if after.CommittedCost != 200000 {
-			t.Fatalf("fesih SONRASI tahmini maliyet ödenen+kalan = 200000 olmalı, geldi %v", after.CommittedCost)
+		if after.CommittedCost != 200000 || after.NewSubcontractPayable != 150000 {
+			t.Fatalf("fesih SONRASI tahmini maliyet onaylı iş = 200000, ödenecek 150000 olmalı, geldi %v / %v",
+				after.CommittedCost, after.NewSubcontractPayable)
 		}
 		cost, err := projectSvc.CostControlSummary(ctx, p.ID, orgA.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cost.CommittedCost != after.NewSubcontractPaid+after.NewSubcontractRemaining {
+		if cost.CommittedCost != after.NewSubcontractAccrued+after.NewSubcontractRemaining {
 			t.Fatalf("Finans (%v) ile Maliyet Kontrolü (%v) fesih taahhüdünde ayrışmamalı",
-				after.NewSubcontractPaid+after.NewSubcontractRemaining, cost.CommittedCost)
+				after.NewSubcontractAccrued+after.NewSubcontractRemaining, cost.CommittedCost)
 		}
 	})
 

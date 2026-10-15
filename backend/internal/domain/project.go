@@ -94,8 +94,13 @@ type Project struct {
 	// SubcontractorPaid yalnızca eski (legacy) taşeron kayıtlarını taşır;
 	// finans özetindeki new_subcontract_paid İLE AYNI.
 	NewSubcontractPaid float64
-	InvoiceCount       int64
-	PaidInvoiceCount   int64
+	// RealizedCostTotal: gerçekleşen maliyet, finans özetiyle AYNI görünümden
+	// (project_cost_basis): onaylı masraflar + basit taşeronun iş ödemeleri +
+	// sözleşmeli taşeronun onaylı işi. Ödemelerin toplamı DEĞİLDİR (açık
+	// avans hariç, ödenmemiş onaylı hakediş dahil).
+	RealizedCostTotal float64
+	InvoiceCount      int64
+	PaidInvoiceCount  int64
 	// ChangeOrderNet, onaylı ek işler/eksiltmelerin işaretli net etkisidir
 	// (ek iş: +, eksiltme: -). "Güncel proje bedeli" = ContractAmount +
 	// ChangeOrderNet -- projects tablosunda TUTULMAZ (bkz. Faz 8, 0027
@@ -137,10 +142,9 @@ func (p Project) RemainingReceivable() float64 {
 
 // RealizedCost/RealizedGrossProfit, liste satırı için gerçekleşen
 // maliyet ve kârdır (KDV DAHİL) -- finans özetinin realized_cost/
-// realized_gross_profit'iyle birebir aynı formül: onaylı masraflar + eski
-// taşeron ödemeleri + taşeron modülü ödemeleri (hepsi iptal edilmemiş).
+// realized_gross_profit'iyle aynı kaynak (project_cost_basis, migration 0073).
 func (p Project) RealizedCost() float64 {
-	return roundKurus(p.TotalExpenses + p.SubcontractorPaid + p.NewSubcontractPaid)
+	return roundKurus(p.RealizedCostTotal)
 }
 
 func (p Project) RealizedGrossProfit() float64 {
