@@ -49,6 +49,7 @@ import '../features/projects/projects_routes.dart';
 import '../features/projects/presentation/projects_screen.dart';
 import '../features/projects/presentation/bid_comparison_screen.dart';
 import '../features/projects/presentation/purchase_order_detail_screen.dart';
+import '../features/projects/presentation/purchase_receipt_form_screen.dart';
 import '../features/projects/presentation/purchase_order_form_screen.dart';
 import '../features/projects/presentation/purchase_request_detail_screen.dart';
 import '../features/projects/presentation/purchase_request_form_screen.dart';
@@ -319,6 +320,13 @@ final routerProvider = Provider<GoRouter>((ref) {
                       builder: (context, state) => PurchaseOrderFormScreen(
                         projectId: state.pathParameters['id']!,
                         poId: state.pathParameters['poId'],
+                      ),
+                    ),
+                    GoRoute(
+                      path: 'satin-alma/siparisler/:poId/teslim',
+                      builder: (context, state) => PurchaseReceiptFormScreen(
+                        projectId: state.pathParameters['id']!,
+                        poId: state.pathParameters['poId']!,
                       ),
                     ),
                     GoRoute(

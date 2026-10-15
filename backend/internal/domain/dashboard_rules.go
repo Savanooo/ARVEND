@@ -199,6 +199,8 @@ var ActivityEventPermissions = map[string]string{
 	ProjectEventPurchaseOrderApproved:    PermProjectsProcurementRead,
 	ProjectEventPurchaseOrderCancelled:   PermProjectsProcurementRead,
 	ProjectEventPurchaseOrderClosed:      PermProjectsProcurementRead,
+	ProjectEventPurchaseReceiptRecorded:  PermProjectsProcurementRead,
+	ProjectEventPurchaseReceiptVoided:    PermProjectsProcurementRead,
 	ProjectEventRFQCreated:               PermProjectsProcurementRead,
 	ProjectEventRFQUpdated:               PermProjectsProcurementRead,
 	ProjectEventRFQIssued:                PermProjectsProcurementRead,

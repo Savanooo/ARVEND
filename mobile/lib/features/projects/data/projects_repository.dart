@@ -92,6 +92,7 @@ class ProjectsRepository {
     String budgetLineId = '',
     double? vatRate,
     String? idempotencyKey,
+    String? purchaseOrderId,
   }) async {
     final json = await _client.post<Map<String, dynamic>>(_expensesBase(projectId), data: {
       'category': category,
@@ -109,6 +110,8 @@ class ProjectsRepository {
       'cost_code_id': costCodeId,
       'budget_line_id': budgetLineId,
       ..._vatRateField(vatRate),
+      // Satın alma siparişi bağı (backend migration 0074) -- opsiyonel.
+      'purchase_order_id': ?purchaseOrderId,
     });
     return Expense.fromJson(json);
   }
@@ -132,6 +135,7 @@ class ProjectsRepository {
     required String costCodeId,
     required String budgetLineId,
     required double? vatRate,
+    String? purchaseOrderId,
   }) async {
     final json = await _client.put<Map<String, dynamic>>('${_expensesBase(projectId)}/$expenseId', data: {
       'category': category,
@@ -146,6 +150,9 @@ class ProjectsRepository {
       'cost_code_id': costCodeId,
       'budget_line_id': budgetLineId,
       ..._vatRateField(vatRate),
+      // null = alan gönderilmez, sunucu mevcut sipariş bağını korur (bağ
+      // yazma yetkisi olmayan düzenleme); "" = bağ kalkar.
+      'purchase_order_id': ?purchaseOrderId,
     });
     return Expense.fromJson(json);
   }
@@ -819,14 +826,72 @@ class ProjectsRepository {
   /// P3 ile `commitments` artık ayrıştırılıyor (PO onayının maliyet
   /// kontrolüne KALEM-başına, onay-sonrası DEĞİŞMEZ etkisini göstermek
   /// için) -- bkz. domain/procurement.dart `Commitment` yorumu.
-  Future<({PurchaseOrder order, List<PurchaseOrderItem> items, List<Commitment> commitments})> purchaseOrderDetail(
-      String projectId, String poId) async {
+  ///
+  /// Teslim alma (backend migration 0074): `receipts` ve `receipt_summary`
+  /// eski sunucuda yok -- boş liste / boş özet.
+  Future<PurchaseOrderDetail> purchaseOrderDetail(String projectId, String poId) async {
     final json = await _client.get<Map<String, dynamic>>('/projects/$projectId/purchase-orders/$poId');
     final order = PurchaseOrder.fromJson(json['purchase_order'] as Map<String, dynamic>);
     final items = (json['items'] as List).cast<Map<String, dynamic>>().map(PurchaseOrderItem.fromJson).toList();
     final commitments =
         (json['commitments'] as List).cast<Map<String, dynamic>>().map(Commitment.fromJson).toList();
-    return (order: order, items: items, commitments: commitments);
+    final receipts = (json['receipts'] as List? ?? const [])
+        .cast<Map<String, dynamic>>()
+        .map(PurchaseReceipt.fromJson)
+        .toList();
+    return (
+      order: order,
+      items: items,
+      commitments: commitments,
+      receipts: receipts,
+      receiptSummary: PurchaseReceiptSummary.fromJson(json['receipt_summary'] as Map<String, dynamic>?),
+    );
+  }
+
+  /// Siparişe teslim (irsaliye) girer. Satırlar: kabul/red miktarı (ikisi
+  /// de 0 olan satır gönderilmez). destination "site" | "warehouse"
+  /// (depoda warehouseId zorunlu). Anahtar form örneği başına sabittir.
+  Future<PurchaseReceipt> createPurchaseReceipt(
+    String projectId,
+    String poId, {
+    required String receivedDate,
+    String deliveryNoteNo = '',
+    required String destination,
+    String? warehouseId,
+    String notes = '',
+    required String idempotencyKey,
+    required List<PurchaseReceiptItem> items,
+  }) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/purchase-orders/$poId/receipts',
+      data: {
+        'received_date': receivedDate,
+        'delivery_note_no': deliveryNoteNo,
+        'destination': destination,
+        'warehouse_id': ?warehouseId,
+        'notes': notes,
+        'idempotency_key': idempotencyKey,
+        'items': [
+          for (final i in items)
+            {
+              'purchase_order_item_id': i.purchaseOrderItemId,
+              'accepted_quantity': i.acceptedQuantity,
+              'rejected_quantity': i.rejectedQuantity,
+              'rejection_reason': i.rejectionReason,
+            },
+        ],
+      },
+    );
+    return PurchaseReceipt.fromJson(json);
+  }
+
+  /// Teslimi gerekçeyle iptal eder (yalnızca sipariş onaylıyken).
+  Future<PurchaseReceipt> voidPurchaseReceipt(String projectId, String receiptId, {required String reason}) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/purchase-receipts/$receiptId/void',
+      data: {'reason': reason},
+    );
+    return PurchaseReceipt.fromJson(json);
   }
 
   Map<String, dynamic> _purchaseOrderBody({

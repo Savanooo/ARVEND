@@ -16,6 +16,7 @@ package middleware_test
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
@@ -259,6 +260,67 @@ func TestProcurementSecurityMatrix(t *testing.T) {
 		rec, _ := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-requests", finToken, "{not-json")
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("status = %d, want 400", rec.Code)
+		}
+	})
+	// Siparişten teslim alma (migration 0074): ayrı izin. Finans/PM/Eski
+	// Sistem alır; Saha varsayılan almaz; üye olmayan projede reddedilir.
+	t.Run("20_receipt_permission_matrix", func(t *testing.T) {
+		rec, body := rbacDo(t, d.router, http.MethodPost, "/api/v1/organization/suppliers", ownerToken,
+			`{"code":"SEC-TSL","legal_name":"Teslim Tedarikçisi"}`)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("tedarikçi: %d %v", rec.Code, body)
+		}
+		supID, _ := body["id"].(string)
+		poBody := `{"supplier_id":"` + supID + `","issue_date":"2026-10-15","tax_rate":20,"items":[{"cost_code_id":"` + cc.ID +
+			`","description":"Alçıpan","quantity":100,"unit":"adet","unit_price":10}]}`
+		newPO := func(projectID string) (string, string) {
+			rec, body := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+projectID+"/purchase-orders", ownerToken, poBody)
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("sipariş: %d %v", rec.Code, body)
+			}
+			poID, _ := body["id"].(string)
+			if rec, body := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+projectID+"/purchase-orders/"+poID+"/approve", ownerToken, ""); rec.Code != http.StatusOK {
+				t.Fatalf("onay: %d %v", rec.Code, body)
+			}
+			_, detail := rbacDo(t, d.router, http.MethodGet, "/api/v1/projects/"+projectID+"/purchase-orders/"+poID, ownerToken, "")
+			items, _ := detail["items"].([]any)
+			itemID, _ := items[0].(map[string]any)["id"].(string)
+			return poID, itemID
+		}
+		poA, itemA := newPO(pA.ID)
+		receipt := func(itemID string, accepted int) string {
+			return `{"received_date":"2026-10-15","destination":"site","items":[{"purchase_order_item_id":"` + itemID +
+				`","accepted_quantity":` + strconv.Itoa(accepted) + `}]}`
+		}
+		if rec, body := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-orders/"+poA+"/receipts", fieldToken, receipt(itemA, 1)); rec.Code != http.StatusForbidden {
+			t.Errorf("saha varsayılan teslim alamaz: %d %v", rec.Code, body)
+		}
+		for name, token := range map[string]string{"pm": pmToken, "finance": finToken, "legacy": legacyToken} {
+			if rec, body := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-orders/"+poA+"/receipts", token, receipt(itemA, 1)); rec.Code != http.StatusCreated {
+				t.Errorf("%s teslim alabilmeli: %d %v", name, rec.Code, body)
+			}
+		}
+		_, detail := rbacDo(t, d.router, http.MethodGet, "/api/v1/projects/"+pA.ID+"/purchase-orders/"+poA, finToken, "")
+		items, _ := detail["items"].([]any)
+		if got := items[0].(map[string]any)["waiting_quantity"]; got != 97.0 {
+			t.Errorf("üç teslimden sonra bekleyen 97 olmalı, geldi %v", got)
+		}
+		if po, _ := detail["purchase_order"].(map[string]any); po["receipt_status"] != "partial" {
+			t.Errorf("sipariş teslim durumu kısmi olmalı: %v", po["receipt_status"])
+		}
+		poB, itemB := newPO(pB.ID)
+		if rec, body := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pB.ID+"/purchase-orders/"+poB+"/receipts", finToken, receipt(itemB, 1)); rec.Code != http.StatusForbidden {
+			t.Errorf("üye olmayan projede teslim reddedilmeli: %d %v", rec.Code, body)
+		}
+		// Başka projenin siparişi bu projenin URL'siyle teslim alınamaz.
+		if rec, body := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-orders/"+poB+"/receipts", finToken, receipt(itemB, 1)); rec.Code != http.StatusNotFound {
+			t.Errorf("çapraz proje teslim 404 olmalı: %d %v", rec.Code, body)
+		}
+		if rec, _ := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-orders/"+poA+"/receipts", finToken, receipt(itemA, 1000)); rec.Code != http.StatusConflict {
+			t.Errorf("kabul tavanı aşımı 409 olmalı: %d", rec.Code)
+		}
+		if rec, _ := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-orders/"+poA+"/receipts", finToken, "{bozuk"); rec.Code != http.StatusBadRequest {
+			t.Errorf("bozuk gövde 400 olmalı: %d", rec.Code)
 		}
 	})
 }

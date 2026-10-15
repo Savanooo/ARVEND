@@ -250,6 +250,9 @@ const (
 	ProjectEventPurchaseOrderApproved  = "purchase_order_approved"
 	ProjectEventPurchaseOrderCancelled = "purchase_order_cancelled"
 	ProjectEventPurchaseOrderClosed    = "purchase_order_closed"
+
+	ProjectEventPurchaseReceiptRecorded = "purchase_receipt_recorded"
+	ProjectEventPurchaseReceiptVoided   = "purchase_receipt_voided"
 )
 
 // PurchaseOrder, purchase_orders satırının domain karşılığıdır.
@@ -314,4 +317,63 @@ type PurchaseOrderItem struct {
 	UnitPrice       float64
 	LineTotal       float64
 	SortOrder       int
+}
+
+// ---------- Siparişten teslim alma (migration 0074) ----------
+
+const (
+	ReceiptDestinationSite      = "site"
+	ReceiptDestinationWarehouse = "warehouse"
+
+	// Siparişin teslim durumu: hiç teslim yok / kısmi / her kalem tamam
+	// (bekleyen = sipariş - kabul - red sıfır).
+	ReceiptStatusNone     = "none"
+	ReceiptStatusPartial  = "partial"
+	ReceiptStatusComplete = "complete"
+)
+
+// PurchaseReceipt: bir teslim (irsaliye). Değişmez; yanlışsa iptal edilir.
+type PurchaseReceipt struct {
+	ID              string
+	ProjectID       string
+	PurchaseOrderID string
+	SequenceNo      int
+	ReceivedDate    time.Time
+	DeliveryNoteNo  string
+	Destination     string
+	WarehouseID     *string
+	WarehouseName   string
+	Notes           string
+	CreatedBy       *string
+	CreatedByName   string
+	CreatedAt       time.Time
+	VoidedAt        *time.Time
+	VoidReason      string
+	Items           []PurchaseReceiptItem
+}
+
+type PurchaseReceiptItem struct {
+	PurchaseOrderItemID string
+	AcceptedQuantity    float64
+	RejectedQuantity    float64
+	RejectionReason     string
+}
+
+// PurchaseOrderItemReceipt: sipariş kalemi başına iptal edilmemiş
+// teslimlerin toplamı. Bekleyen = sipariş - kabul - red (sıfırın altına inmez).
+type PurchaseOrderItemReceipt struct {
+	AcceptedQuantity float64
+	RejectedQuantity float64
+	WaitingQuantity  float64
+}
+
+// PurchaseOrderReceiptSummary: siparişin teslim özeti. AcceptedGross
+// kabul edilen malın KDV dahil değeri; Costed siparişe bağlı onaylı
+// masraflar (fatura); ReceivedNotCosted = max(AcceptedGross - Costed, 0).
+type PurchaseOrderReceiptSummary struct {
+	Status            string
+	AcceptedNet       float64
+	AcceptedGross     float64
+	Costed            float64
+	ReceivedNotCosted float64
 }

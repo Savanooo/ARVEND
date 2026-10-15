@@ -33,6 +33,7 @@ değişmedi: yalnızca onaylı masrafların içindeki KDV düşülür
 | **Onay bekleyen** | `pending_cost` = `pending_expenses` + `new_subcontract_pending_claims` | Onay bekleyen masraflar ve onaya sunulmuş hakedişler. Maliyete girmez, ayrıca gösterilir |
 | **Kalan taahhüt** | `subcontractor_remaining`, `new_subcontract_remaining` | Sözleşme başına, negatife düşmeden: basit taşeronda sözleşme − iş ödemesi; sözleşmeli taşeronda güncel değer − gerçekleşen iş |
 | **Tahmini maliyet** | `committed_cost` | Gerçekleşen + kalan taahhüt |
+| **Teslim alınmış, maliyeti girilmemiş** | `received_not_costed` | Siparişten kabul edilen malın KDV dahil değeri − o siparişe bağlı onaylı masraflar (sipariş başına, sıfırın altına inmez). Maliyete girmez, kaybolmasın diye ayrıca gösterilir (migration 0074, `docs/procurement.md` §12) |
 
 ### Sözleşmeli taşeronda "gerçekleşen iş"
 

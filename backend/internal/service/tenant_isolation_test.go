@@ -114,6 +114,8 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		// (purchase_request_items'ı CASCADE ile alır, ve artık hiçbir rfq
 		// buna referans vermiyor); son olarak suppliers (organizasyon-
 		// seviyeli, artık hiçbir PO/RFQ/teklif buna referans vermiyor).
+		"DELETE FROM purchase_receipt_items WHERE organization_id = $1",
+		"DELETE FROM purchase_receipts WHERE organization_id = $1",
 		"DELETE FROM purchase_orders WHERE organization_id = $1",
 		"UPDATE rfqs SET awarded_quotation_id = NULL WHERE organization_id = $1",
 		"DELETE FROM supplier_quotations WHERE organization_id = $1",

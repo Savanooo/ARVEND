@@ -233,6 +233,10 @@ type Expense struct {
 	// doluysa "bütçe dışı" (unbudgeted) olarak.
 	CostCodeID   *string
 	BudgetLineID *string
+	// PurchaseOrderID (migration 0074): masraf bir satın alma siparişinin
+	// faturasıysa o sipariş -- "teslim alınmış, maliyeti girilmemiş" tutar
+	// bundan düşer.
+	PurchaseOrderID *string
 	// ApprovalStatus: pending | approved | rejected (bkz. ExpenseApproval*).
 	// DecidedBy/DecidedAt/DecisionNote son kararın izidir; düzenleme onları
 	// temizler. Onay akışından önceki masraflarda (approved) boştur.
@@ -421,6 +425,10 @@ type ProjectFinancialSummary struct {
 	AdvanceOpen float64
 	// PendingCost: onay bekleyen masraflar + onaya sunulmuş hakedişler.
 	PendingCost float64
+	// ReceivedNotCosted: siparişten teslim alınmış (kabul edilmiş) ama
+	// siparişe bağlı onaylı masrafı (faturası) girilmemiş tutar, KDV dahil.
+	// Maliyete girmez; kaybolmasın diye ayrıca gösterilir.
+	ReceivedNotCosted float64
 	// CommittedCost: gerçekleşen + taşeron sözleşmelerinin (legacy+yeni) kalan taahhüdü.
 	CommittedCost          float64
 	RealizedGrossProfit    float64

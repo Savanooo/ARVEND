@@ -585,3 +585,30 @@ sends a test mail with the SAVED settings.
 13. Legacy subcontractors: the web neither edits a subcontractor nor voids its payments, so the app does not either (the backend has the endpoints).
 
 (The cross-project "my tasks" endpoint and organization name/id on auth responses — formerly gaps #1/#2 here — are both RESOLVED; see MOBILE_BACKEND_GAPS.md for the history.)
+
+## Siparişten teslim alma (2026-10, migration 0074)
+
+Kurallar: `docs/procurement.md` §12.
+
+- **Sipariş detayı** `GET /projects/{id}/purchase-orders/{poId}` ek alanlar:
+  - `receipts`: iptaller dahil, en yeni önce. Her teslim `{id, sequence_no, received_date, delivery_note_no, destination: site|warehouse, warehouse_id, warehouse_name, notes, created_by, created_by_name, created_at, voided_at, void_reason, items: [{purchase_order_item_id, accepted_quantity, rejected_quantity, rejection_reason}]}`.
+  - `receipt_summary`: `{status: none|partial|complete, accepted_total, costed_total, received_not_costed}`. Tutarlar KDV dahil.
+  - Her kalemde `accepted_quantity`, `rejected_quantity`, `waiting_quantity`.
+  - `purchase_order` içinde `receipt_status` ve `received_not_costed`.
+- **Sipariş listesi** satırları `receipt_status` ve `received_not_costed` taşır.
+- **Teslim girme:** `POST /projects/{id}/purchase-orders/{poId}/receipts` (`projects.procurement.receive`).
+  - Gövde: `{received_date, delivery_note_no?, destination: "site"|"warehouse", warehouse_id? (depoda zorunlu), notes?, idempotency_key?, items: [{purchase_order_item_id, accepted_quantity, rejected_quantity, rejection_reason?}]}`.
+  - Başarılı olursa `201` döner ve gövdede teslim vardır.
+  - **400:** iki miktarı da 0 olan satırlar atlanır, hiç satır kalmazsa 400. Negatif miktar, tekrarlanan kalem, geçersiz teslim yeri de 400 döner.
+  - **409:** onaylı olmayan sipariş; kalan kabulü aşan miktar (mesajda kalem ve en fazla miktar yazar); kapalı depo; başkasının tekrar anahtarı; kilitli proje.
+  - **404:** başka projenin siparişi ya da kalemi.
+- **Teslim iptali:** `POST /projects/{id}/purchase-receipts/{receiptId}/void {reason}` (`projects.procurement.receive`).
+  - Gerekçe zorunlu (400).
+  - Kapatılmış sipariş (409), zaten iptal (409).
+- **Sipariş iptali:** teslim alınmış sipariş iptal edilemez → 409.
+- **Sipariş kapatma:** teslim kaydı varsa gelmeyen kısım taahhütten çıkar.
+- **Masraf:** `POST/PUT /projects/{id}/expenses` opsiyonel `purchase_order_id` alır. Bu projenin onaylı ya da kapatılmış siparişi olmalı, değilse 400.
+  - PUT'ta alan yoksa bağ korunur, `""` gönderilirse kalkar.
+  - Masraf satırları `purchase_order_id` taşır.
+  - Finans izni olmayan (yalnızca kendi masrafını giren) kişi bağ yazamaz.
+- **Finans özeti** `received_not_costed`: teslim alınmış, faturası girilmemiş tutar. Maliyet değildir.

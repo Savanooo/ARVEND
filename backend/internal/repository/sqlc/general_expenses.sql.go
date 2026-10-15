@@ -23,7 +23,7 @@ INSERT INTO project_expenses (
     $9, $10, $11, $12,
     $13
 )
-RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note, vat_rate, vat_amount
+RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note, vat_rate, vat_amount, purchase_order_id
 `
 
 type CreateGeneralExpenseParams struct {
@@ -90,6 +90,7 @@ func (q *Queries) CreateGeneralExpense(ctx context.Context, arg CreateGeneralExp
 		&i.DecisionNote,
 		&i.VatRate,
 		&i.VatAmount,
+		&i.PurchaseOrderID,
 	)
 	return i, err
 }
@@ -151,7 +152,7 @@ SET approval_status = $1, decided_by = $2,
     decided_at = now(), decision_note = $3
 WHERE id = $4 AND organization_id = $5 AND project_id IS NULL
   AND voided_at IS NULL AND approval_status = 'pending'
-RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note, vat_rate, vat_amount
+RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note, vat_rate, vat_amount, purchase_order_id
 `
 
 type DecideGeneralExpenseParams struct {
@@ -199,12 +200,13 @@ func (q *Queries) DecideGeneralExpense(ctx context.Context, arg DecideGeneralExp
 		&i.DecisionNote,
 		&i.VatRate,
 		&i.VatAmount,
+		&i.PurchaseOrderID,
 	)
 	return i, err
 }
 
 const getGeneralExpenseByIdempotencyKey = `-- name: GetGeneralExpenseByIdempotencyKey :one
-SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note, vat_rate, vat_amount FROM project_expenses
+SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note, vat_rate, vat_amount, purchase_order_id FROM project_expenses
 WHERE organization_id = $1 AND idempotency_key = $2 AND project_id IS NULL
 `
 
@@ -244,12 +246,13 @@ func (q *Queries) GetGeneralExpenseByIdempotencyKey(ctx context.Context, arg Get
 		&i.DecisionNote,
 		&i.VatRate,
 		&i.VatAmount,
+		&i.PurchaseOrderID,
 	)
 	return i, err
 }
 
 const getGeneralExpenseForUpdate = `-- name: GetGeneralExpenseForUpdate :one
-SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note, vat_rate, vat_amount FROM project_expenses
+SELECT id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note, vat_rate, vat_amount, purchase_order_id FROM project_expenses
 WHERE id = $1 AND organization_id = $2 AND project_id IS NULL
 FOR UPDATE
 `
@@ -292,12 +295,13 @@ func (q *Queries) GetGeneralExpenseForUpdate(ctx context.Context, arg GetGeneral
 		&i.DecisionNote,
 		&i.VatRate,
 		&i.VatAmount,
+		&i.PurchaseOrderID,
 	)
 	return i, err
 }
 
 const listExpensesFiltered = `-- name: ListExpensesFiltered :many
-SELECT e.id, e.organization_id, e.project_id, e.category, e.description, e.amount, e.currency, e.expense_date, e.supplier_name, e.invoice_no, e.notes, e.created_by, e.created_at, e.updated_at, e.voided_at, e.voided_by, e.void_reason, e.idempotency_key, e.change_order_id, e.cost_code_id, e.budget_line_id, e.approval_status, e.decided_by, e.decided_at, e.decision_note, e.vat_rate, e.vat_amount,
+SELECT e.id, e.organization_id, e.project_id, e.category, e.description, e.amount, e.currency, e.expense_date, e.supplier_name, e.invoice_no, e.notes, e.created_by, e.created_at, e.updated_at, e.voided_at, e.voided_by, e.void_reason, e.idempotency_key, e.change_order_id, e.cost_code_id, e.budget_line_id, e.approval_status, e.decided_by, e.decided_at, e.decision_note, e.vat_rate, e.vat_amount, e.purchase_order_id,
        COALESCE(p.name, '')::text AS project_name,
        COALESCE(p.project_no, '')::text AS project_no,
        COALESCE(p.status, '')::text AS project_status,
@@ -336,37 +340,38 @@ type ListExpensesFilteredParams struct {
 }
 
 type ListExpensesFilteredRow struct {
-	ID             pgtype.UUID        `json:"id"`
-	OrganizationID pgtype.UUID        `json:"organization_id"`
-	ProjectID      pgtype.UUID        `json:"project_id"`
-	Category       string             `json:"category"`
-	Description    string             `json:"description"`
-	Amount         pgtype.Numeric     `json:"amount"`
-	Currency       string             `json:"currency"`
-	ExpenseDate    pgtype.Date        `json:"expense_date"`
-	SupplierName   string             `json:"supplier_name"`
-	InvoiceNo      string             `json:"invoice_no"`
-	Notes          string             `json:"notes"`
-	CreatedBy      pgtype.UUID        `json:"created_by"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	VoidedAt       pgtype.Timestamptz `json:"voided_at"`
-	VoidedBy       pgtype.UUID        `json:"voided_by"`
-	VoidReason     string             `json:"void_reason"`
-	IdempotencyKey *string            `json:"idempotency_key"`
-	ChangeOrderID  pgtype.UUID        `json:"change_order_id"`
-	CostCodeID     pgtype.UUID        `json:"cost_code_id"`
-	BudgetLineID   pgtype.UUID        `json:"budget_line_id"`
-	ApprovalStatus string             `json:"approval_status"`
-	DecidedBy      pgtype.UUID        `json:"decided_by"`
-	DecidedAt      pgtype.Timestamptz `json:"decided_at"`
-	DecisionNote   string             `json:"decision_note"`
-	VatRate        pgtype.Numeric     `json:"vat_rate"`
-	VatAmount      pgtype.Numeric     `json:"vat_amount"`
-	ProjectName    string             `json:"project_name"`
-	ProjectNo      string             `json:"project_no"`
-	ProjectStatus  string             `json:"project_status"`
-	CreatedByName  string             `json:"created_by_name"`
+	ID              pgtype.UUID        `json:"id"`
+	OrganizationID  pgtype.UUID        `json:"organization_id"`
+	ProjectID       pgtype.UUID        `json:"project_id"`
+	Category        string             `json:"category"`
+	Description     string             `json:"description"`
+	Amount          pgtype.Numeric     `json:"amount"`
+	Currency        string             `json:"currency"`
+	ExpenseDate     pgtype.Date        `json:"expense_date"`
+	SupplierName    string             `json:"supplier_name"`
+	InvoiceNo       string             `json:"invoice_no"`
+	Notes           string             `json:"notes"`
+	CreatedBy       pgtype.UUID        `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	VoidedAt        pgtype.Timestamptz `json:"voided_at"`
+	VoidedBy        pgtype.UUID        `json:"voided_by"`
+	VoidReason      string             `json:"void_reason"`
+	IdempotencyKey  *string            `json:"idempotency_key"`
+	ChangeOrderID   pgtype.UUID        `json:"change_order_id"`
+	CostCodeID      pgtype.UUID        `json:"cost_code_id"`
+	BudgetLineID    pgtype.UUID        `json:"budget_line_id"`
+	ApprovalStatus  string             `json:"approval_status"`
+	DecidedBy       pgtype.UUID        `json:"decided_by"`
+	DecidedAt       pgtype.Timestamptz `json:"decided_at"`
+	DecisionNote    string             `json:"decision_note"`
+	VatRate         pgtype.Numeric     `json:"vat_rate"`
+	VatAmount       pgtype.Numeric     `json:"vat_amount"`
+	PurchaseOrderID pgtype.UUID        `json:"purchase_order_id"`
+	ProjectName     string             `json:"project_name"`
+	ProjectNo       string             `json:"project_no"`
+	ProjectStatus   string             `json:"project_status"`
+	CreatedByName   string             `json:"created_by_name"`
 }
 
 // "Masraflar" ekranı (GET /expenses): projeli ve genel masraflar tek
@@ -426,6 +431,7 @@ func (q *Queries) ListExpensesFiltered(ctx context.Context, arg ListExpensesFilt
 			&i.DecisionNote,
 			&i.VatRate,
 			&i.VatAmount,
+			&i.PurchaseOrderID,
 			&i.ProjectName,
 			&i.ProjectNo,
 			&i.ProjectStatus,
@@ -450,7 +456,7 @@ SET category = $1, description = $2, amount = $3,
     approval_status = 'pending', decided_by = NULL, decided_at = NULL, decision_note = ''
 WHERE id = $10 AND organization_id = $11 AND project_id IS NULL
   AND voided_at IS NULL
-RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note, vat_rate, vat_amount
+RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note, vat_rate, vat_amount, purchase_order_id
 `
 
 type UpdateGeneralExpenseParams struct {
@@ -512,6 +518,7 @@ func (q *Queries) UpdateGeneralExpense(ctx context.Context, arg UpdateGeneralExp
 		&i.DecisionNote,
 		&i.VatRate,
 		&i.VatAmount,
+		&i.PurchaseOrderID,
 	)
 	return i, err
 }
@@ -521,7 +528,7 @@ UPDATE project_expenses
 SET voided_at = now(), voided_by = $1, void_reason = $2
 WHERE id = $3 AND organization_id = $4 AND project_id IS NULL
   AND voided_at IS NULL
-RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note, vat_rate, vat_amount
+RETURNING id, organization_id, project_id, category, description, amount, currency, expense_date, supplier_name, invoice_no, notes, created_by, created_at, updated_at, voided_at, voided_by, void_reason, idempotency_key, change_order_id, cost_code_id, budget_line_id, approval_status, decided_by, decided_at, decision_note, vat_rate, vat_amount, purchase_order_id
 `
 
 type VoidGeneralExpenseParams struct {
@@ -567,6 +574,7 @@ func (q *Queries) VoidGeneralExpense(ctx context.Context, arg VoidGeneralExpense
 		&i.DecisionNote,
 		&i.VatRate,
 		&i.VatAmount,
+		&i.PurchaseOrderID,
 	)
 	return i, err
 }

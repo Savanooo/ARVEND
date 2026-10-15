@@ -159,6 +159,13 @@ class PurchaseOrder {
   final String createdAt;
   final String updatedAt;
 
+  /// Teslim alma (backend migration 0074): [kReceiptNone] | [kReceiptPartial]
+  /// | [kReceiptComplete]. [receivedNotCosted]: teslim alınmış ama siparişe
+  /// bağlı onaylı masrafı (faturası) girilmemiş tutar, KDV dahil. Eski
+  /// sunucuda ve yazma yanıtlarında alan yok: none / null.
+  final String receiptStatus;
+  final double? receivedNotCosted;
+
   const PurchaseOrder({
     required this.id,
     required this.poNo,
@@ -187,6 +194,8 @@ class PurchaseOrder {
     required this.closedBy,
     required this.createdAt,
     required this.updatedAt,
+    this.receiptStatus = kReceiptNone,
+    this.receivedNotCosted,
   });
 
   factory PurchaseOrder.fromJson(Map<String, dynamic> json) => PurchaseOrder(
@@ -217,6 +226,8 @@ class PurchaseOrder {
         closedBy: json['closed_by'] as String?,
         createdAt: json['created_at'] as String? ?? '',
         updatedAt: json['updated_at'] as String? ?? '',
+        receiptStatus: json['receipt_status'] as String? ?? kReceiptNone,
+        receivedNotCosted: (json['received_not_costed'] as num?)?.toDouble(),
       );
 
   static const statusDraft = 'draft';
@@ -230,8 +241,123 @@ class PurchaseOrder {
   /// çünkü onaylı bir PO'yu iptal etmek commitment voidler.
   bool get isEditable => status == statusDraft;
   bool get canApprove => status == statusDraft;
-  bool get canCancel => status == statusDraft || status == statusApproved;
+  /// Teslim alınmış sipariş iptal edilemez (sunucu 409); gelmeyecek kısım
+  /// "Kapat" ile taahhütten çıkar.
+  bool get canCancel => status == statusDraft || (status == statusApproved && receiptStatus == kReceiptNone);
   bool get canClose => status == statusApproved;
+
+  /// Teslim yalnızca onaylı (kapatılmamış) siparişe girilir.
+  bool get canReceive => status == statusApproved;
+  bool get hasReceipts => receiptStatus != kReceiptNone;
+}
+
+/// Siparişin teslim durumu (backend migration 0074).
+const kReceiptNone = 'none';
+const kReceiptPartial = 'partial';
+const kReceiptComplete = 'complete';
+
+/// Teslim alma izni (backend domain.PermProjectsProcurementReceive).
+const kProcurementReceivePermission = 'projects.procurement.receive';
+
+/// Bir teslim (irsaliye): kalem başına kabul ve red miktarı. Değişmez;
+/// yanlışsa gerekçeyle iptal edilir (sipariş onaylıyken).
+class PurchaseReceipt {
+  const PurchaseReceipt({
+    required this.id,
+    required this.sequenceNo,
+    required this.receivedDate,
+    this.deliveryNoteNo = '',
+    required this.destination,
+    this.warehouseName = '',
+    this.notes = '',
+    this.createdByName = '',
+    this.voidedAt,
+    this.voidReason = '',
+    this.items = const [],
+  });
+
+  final String id;
+  final int sequenceNo;
+
+  /// "YYYY-MM-DD".
+  final String receivedDate;
+  final String deliveryNoteNo;
+
+  /// "site" | "warehouse".
+  final String destination;
+  final String warehouseName;
+  final String notes;
+  final String createdByName;
+  final String? voidedAt;
+  final String voidReason;
+  final List<PurchaseReceiptItem> items;
+
+  bool get isVoided => voidedAt != null;
+  String get destinationLabel =>
+      destination == 'warehouse' ? (warehouseName.isEmpty ? 'Depo' : 'Depo · $warehouseName') : 'Şantiye';
+
+  factory PurchaseReceipt.fromJson(Map<String, dynamic> json) => PurchaseReceipt(
+        id: json['id'] as String,
+        sequenceNo: (json['sequence_no'] as num?)?.toInt() ?? 0,
+        receivedDate: json['received_date'] as String? ?? '',
+        deliveryNoteNo: json['delivery_note_no'] as String? ?? '',
+        destination: json['destination'] as String? ?? 'site',
+        warehouseName: json['warehouse_name'] as String? ?? '',
+        notes: json['notes'] as String? ?? '',
+        createdByName: json['created_by_name'] as String? ?? '',
+        voidedAt: json['voided_at'] as String?,
+        voidReason: json['void_reason'] as String? ?? '',
+        items: (json['items'] as List? ?? const [])
+            .cast<Map<String, dynamic>>()
+            .map(PurchaseReceiptItem.fromJson)
+            .toList(),
+      );
+}
+
+class PurchaseReceiptItem {
+  const PurchaseReceiptItem({
+    required this.purchaseOrderItemId,
+    this.acceptedQuantity = 0,
+    this.rejectedQuantity = 0,
+    this.rejectionReason = '',
+  });
+
+  final String purchaseOrderItemId;
+  final double acceptedQuantity;
+  final double rejectedQuantity;
+  final String rejectionReason;
+
+  factory PurchaseReceiptItem.fromJson(Map<String, dynamic> json) => PurchaseReceiptItem(
+        purchaseOrderItemId: json['purchase_order_item_id'] as String? ?? '',
+        acceptedQuantity: (json['accepted_quantity'] as num?)?.toDouble() ?? 0,
+        rejectedQuantity: (json['rejected_quantity'] as num?)?.toDouble() ?? 0,
+        rejectionReason: json['rejection_reason'] as String? ?? '',
+      );
+}
+
+/// Siparişin teslim özeti (KDV dahil): teslim alınan, siparişe bağlı onaylı
+/// masraflar (faturalar) ve teslim alınmış ama maliyeti girilmemiş tutar.
+class PurchaseReceiptSummary {
+  const PurchaseReceiptSummary({
+    this.status = kReceiptNone,
+    this.acceptedTotal = 0,
+    this.costedTotal = 0,
+    this.receivedNotCosted = 0,
+  });
+
+  final String status;
+  final double acceptedTotal;
+  final double costedTotal;
+  final double receivedNotCosted;
+
+  factory PurchaseReceiptSummary.fromJson(Map<String, dynamic>? json) => json == null
+      ? const PurchaseReceiptSummary()
+      : PurchaseReceiptSummary(
+          status: json['status'] as String? ?? kReceiptNone,
+          acceptedTotal: (json['accepted_total'] as num?)?.toDouble() ?? 0,
+          costedTotal: (json['costed_total'] as num?)?.toDouble() ?? 0,
+          receivedNotCosted: (json['received_not_costed'] as num?)?.toDouble() ?? 0,
+        );
 }
 
 /// PO kalemindeki `cost_code_id`, PR kaleminden farklı olarak nullable
@@ -248,6 +374,14 @@ class PurchaseOrderItem {
   final double lineTotal;
   final int sortOrder;
 
+  /// Teslim alma (backend migration 0074), yalnızca detayda dolu: iptal
+  /// edilmemiş teslimlerin kabul / red toplamı ve bekleyen (sipariş - kabul
+  /// - red). Kabul tavanı = sipariş - kabul (reddedilenin yerine gelen kabul
+  /// edilebilir).
+  final double? acceptedQuantity;
+  final double? rejectedQuantity;
+  final double? waitingQuantity;
+
   const PurchaseOrderItem({
     required this.id,
     required this.wbsNodeId,
@@ -259,7 +393,16 @@ class PurchaseOrderItem {
     required this.unitPrice,
     required this.lineTotal,
     required this.sortOrder,
+    this.acceptedQuantity,
+    this.rejectedQuantity,
+    this.waitingQuantity,
   });
+
+  /// Bu teslimde en fazla kabul edilebilecek miktar.
+  double get maxAcceptable {
+    final m = quantity - (acceptedQuantity ?? 0);
+    return m < 0 ? 0 : m;
+  }
 
   factory PurchaseOrderItem.fromJson(Map<String, dynamic> json) => PurchaseOrderItem(
         id: json['id'] as String,
@@ -272,6 +415,9 @@ class PurchaseOrderItem {
         unitPrice: (json['unit_price'] as num?)?.toDouble() ?? 0,
         lineTotal: (json['line_total'] as num?)?.toDouble() ?? 0,
         sortOrder: (json['sort_order'] as num?)?.toInt() ?? 0,
+        acceptedQuantity: (json['accepted_quantity'] as num?)?.toDouble(),
+        rejectedQuantity: (json['rejected_quantity'] as num?)?.toDouble(),
+        waitingQuantity: (json['waiting_quantity'] as num?)?.toDouble(),
       );
 }
 
@@ -670,3 +816,12 @@ List<PurchaseOrderItem> purchaseOrderItemsFromAward({
   }
   return out;
 }
+
+/// Sipariş detayı: sipariş, kalemler, taahhütler ve teslim alma.
+typedef PurchaseOrderDetail = ({
+  PurchaseOrder order,
+  List<PurchaseOrderItem> items,
+  List<Commitment> commitments,
+  List<PurchaseReceipt> receipts,
+  PurchaseReceiptSummary receiptSummary,
+});

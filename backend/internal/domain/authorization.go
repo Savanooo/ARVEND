@@ -160,6 +160,8 @@ const (
 	PermProjectsProcurementRead     = "projects.procurement.read"
 	PermProjectsProcurementManage   = "projects.procurement.manage"
 	PermProjectsProcurementApprove  = "projects.procurement.approve"
+	// Siparişten mal kabulü (teslim alma) kaydı ve iptali (migration 0074).
+	PermProjectsProcurementReceive = "projects.procurement.receive"
 
 	// Sprint 5 -- Taşeron Yönetimi (Subcontractor Management)
 	PermProjectsSubcontractsRead         = "projects.subcontracts.read"

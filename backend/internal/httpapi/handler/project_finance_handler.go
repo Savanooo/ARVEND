@@ -291,6 +291,8 @@ type expenseResponse struct {
 	ChangeOrderID *string `json:"change_order_id,omitempty"`
 	CostCodeID    *string `json:"cost_code_id,omitempty"`
 	BudgetLineID  *string `json:"budget_line_id,omitempty"`
+	// Masrafın bağlı olduğu satın alma siparişi (migration 0074).
+	PurchaseOrderID *string `json:"purchase_order_id,omitempty"`
 	// Onay (migration 0060): pending | approved | rejected. Toplamlara
 	// yalnızca approved (ve iptal edilmemiş) masraf girer; decision_note
 	// ret gerekçesidir.
@@ -313,7 +315,8 @@ func toExpenseResponse(e domain.Expense) expenseResponse {
 		VoidedAt: tsStrPtr(e.VoidedAt), VoidReason: e.VoidReason, CreatedAt: e.CreatedAt.Format(rfc3339),
 		CreatedBy: e.CreatedBy, VoidedBy: e.VoidedBy,
 		ChangeOrderID: e.ChangeOrderID, CostCodeID: e.CostCodeID, BudgetLineID: e.BudgetLineID,
-		ApprovalStatus: e.ApprovalStatus, DecidedBy: e.DecidedBy, DecidedAt: tsStrPtr(e.DecidedAt),
+		PurchaseOrderID: e.PurchaseOrderID,
+		ApprovalStatus:  e.ApprovalStatus, DecidedBy: e.DecidedBy, DecidedAt: tsStrPtr(e.DecidedAt),
 		DecisionNote: e.DecisionNote,
 		VATRate:      e.VATRate, VATAmount: e.VATAmount, NetAmount: e.NetAmount(),
 	}
@@ -338,6 +341,9 @@ type expenseRequest struct {
 	// "belirtilmedi" -- alanı göndermeyen istemciler (bugünkü web formu)
 	// masrafı önceki gibi KDV bilgisiz girer.
 	VATRate *float64 `json:"vat_rate"`
+	// PurchaseOrderID (migration 0074): alan yok = düzenlemede mevcut bağ
+	// korunur; "" = bağ kalkar; dolu = bu projenin onaylı/kapatılmış siparişi.
+	PurchaseOrderID *string `json:"purchase_order_id"`
 }
 
 func (r expenseRequest) toInput(userID string, expenseDate time.Time, ownOnly bool) service.ExpenseInput {
@@ -347,7 +353,7 @@ func (r expenseRequest) toInput(userID string, expenseDate time.Time, ownOnly bo
 		InvoiceNo: r.InvoiceNo, Notes: r.Notes, IdempotencyKey: r.IdempotencyKey,
 		ChangeOrderID: r.ChangeOrderID, UserID: userID,
 		CostCodeID: r.CostCodeID, BudgetLineID: r.BudgetLineID,
-		VATRate: r.VATRate, OwnOnly: ownOnly,
+		VATRate: r.VATRate, OwnOnly: ownOnly, PurchaseOrderID: r.PurchaseOrderID,
 	}
 }
 
@@ -868,6 +874,7 @@ type financialSummaryResponse struct {
 	AdvanceOpen                 float64 `json:"advance_open"`
 	PendingCost                 float64 `json:"pending_cost"`
 	PendingExpenses             float64 `json:"pending_expenses"`
+	ReceivedNotCosted           float64 `json:"received_not_costed"`
 	SubcontractorWorkPaid       float64 `json:"subcontractor_work_paid"`
 	SubcontractorAdvanceOpen    float64 `json:"subcontractor_advance_open"`
 	NewSubcontractAccrued       float64 `json:"new_subcontract_accrued"`
@@ -928,7 +935,7 @@ func (h *ProjectHandler) FinancialSummary(w http.ResponseWriter, r *http.Request
 		IssuedInvoiceTotal: s.IssuedInvoiceTotal, PaidInvoiceTotal: s.PaidInvoiceTotal,
 		RealizedCost: s.RealizedCost, CommittedCost: s.CommittedCost,
 		PaidCost: s.PaidCost, AdvanceOpen: s.AdvanceOpen, PendingCost: s.PendingCost,
-		PendingExpenses: s.PendingExpenses, SubcontractorWorkPaid: s.SubcontractorWorkPaid,
+		PendingExpenses: s.PendingExpenses, ReceivedNotCosted: s.ReceivedNotCosted, SubcontractorWorkPaid: s.SubcontractorWorkPaid,
 		SubcontractorAdvanceOpen: s.SubcontractorAdvanceOpen, NewSubcontractAccrued: s.NewSubcontractAccrued,
 		NewSubcontractAdvanceOpen: s.NewSubcontractAdvanceOpen, NewSubcontractPayable: s.NewSubcontractPayable,
 		NewSubcontractRetention: s.NewSubcontractRetention, NewSubcontractPendingClaims: s.NewSubcontractPendingClaims,

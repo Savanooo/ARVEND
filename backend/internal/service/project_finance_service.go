@@ -23,7 +23,9 @@ var (
 	ErrAlreadyVoided    = errors.New("bu kayıt zaten iptal edilmiş")
 
 	ErrInvalidPaymentKind = errors.New("ödeme türü geçersiz")
-	ErrNotOpenAdvance     = errors.New("yalnızca iptal edilmemiş, henüz işe sayılmamış avans işe sayılabilir")
+	// Masraf yalnızca bu projenin onaylı ya da kapatılmış siparişine bağlanır.
+	ErrInvalidPurchaseOrderRef = errors.New("masraf yalnızca bu projenin onaylı ya da kapatılmış bir siparişine bağlanabilir")
+	ErrNotOpenAdvance          = errors.New("yalnızca iptal edilmemiş, henüz işe sayılmamış avans işe sayılabilir")
 )
 
 // logProjectEvent, project_events'e değişmez bir denetim kaydı yazar.
@@ -546,6 +548,11 @@ type ExpenseInput struct {
 	IdempotencyKey string
 	// ChangeOrderID, OPSİYONELDİR (bkz. SubcontractorInput notu).
 	ChangeOrderID string
+	// PurchaseOrderID, OPSİYONELDİR (migration 0074): masraf bu projenin
+	// onaylı/kapatılmış bir siparişinin faturasıysa o sipariş. Düzenlemede
+	// nil = mevcut bağ korunur (alanı bilmeyen eski istemciler bağı
+	// silmesin), "" = bağ kalkar.
+	PurchaseOrderID *string
 	// CostCodeID/BudgetLineID, Cost Control (Sprint 2) eşlemesi için
 	// OPSİYONELDİR (bkz. domain.Expense.CostCodeID notu). BudgetLineID
 	// doluysa, boşsa dahi CostCodeID otomatik doldurulur (bkz. CreateExpense/
@@ -656,28 +663,33 @@ func (s *ProjectService) CreateExpense(ctx context.Context, projectID, organizat
 	if err != nil {
 		return nil, err
 	}
+	purchaseOrderID, err := resolvePurchaseOrderRef(ctx, txq, derefString(in.PurchaseOrderID), pid, orgID)
+	if err != nil {
+		return nil, err
+	}
 	approvalStatus := domain.ExpenseApprovalPending
 	if in.PreApproved {
 		approvalStatus = domain.ExpenseApprovalApproved
 	}
 	row, err := txq.CreateExpense(ctx, sqlc.CreateExpenseParams{
-		OrganizationID: orgID,
-		ProjectID:      pid,
-		Category:       in.Category,
-		Description:    strings.TrimSpace(in.Description),
-		Amount:         repository.Float64ToNumeric(in.Amount),
-		Currency:       project.Currency,
-		ExpenseDate:    repository.TimeToDate(in.ExpenseDate),
-		SupplierName:   strings.TrimSpace(in.SupplierName),
-		InvoiceNo:      strings.TrimSpace(in.InvoiceNo),
-		Notes:          strings.TrimSpace(in.Notes),
-		IdempotencyKey: keyPtr,
-		CreatedBy:      actorUUID(in.UserID),
-		ChangeOrderID:  changeOrderID,
-		CostCodeID:     costCodeID,
-		BudgetLineID:   budgetLineID,
-		ApprovalStatus: approvalStatus,
-		VatRate:        repository.Float64PtrToNumeric(in.VATRate),
+		OrganizationID:  orgID,
+		ProjectID:       pid,
+		Category:        in.Category,
+		Description:     strings.TrimSpace(in.Description),
+		Amount:          repository.Float64ToNumeric(in.Amount),
+		Currency:        project.Currency,
+		ExpenseDate:     repository.TimeToDate(in.ExpenseDate),
+		SupplierName:    strings.TrimSpace(in.SupplierName),
+		InvoiceNo:       strings.TrimSpace(in.InvoiceNo),
+		Notes:           strings.TrimSpace(in.Notes),
+		IdempotencyKey:  keyPtr,
+		CreatedBy:       actorUUID(in.UserID),
+		ChangeOrderID:   changeOrderID,
+		CostCodeID:      costCodeID,
+		BudgetLineID:    budgetLineID,
+		ApprovalStatus:  approvalStatus,
+		VatRate:         repository.Float64PtrToNumeric(in.VATRate),
+		PurchaseOrderID: purchaseOrderID,
 	})
 	if err != nil {
 		// bkz. CreateCollection: eşzamanlı aynı anahtarlı istek kazandıysa
@@ -772,7 +784,7 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 		return nil, err
 	}
 
-	var changeOrderID, costCodeID, budgetLineID pgtype.UUID
+	var changeOrderID, costCodeID, budgetLineID, purchaseOrderID pgtype.UUID
 	if in.OwnOnly {
 		// Kısıtlı yazar: yalnızca kendi bekleyen/reddedilen masrafı; finans
 		// bağları kayıttaki haliyle kalır (yeniden doğrulanmaz -- finansın
@@ -786,6 +798,7 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 			return nil, err
 		}
 		changeOrderID, costCodeID, budgetLineID = existing.ChangeOrderID, existing.CostCodeID, existing.BudgetLineID
+		purchaseOrderID = existing.PurchaseOrderID
 	} else {
 		// Ek iş bağı da yeniden yazılır (önceden düzenleme onu sessizce yok
 		// sayıyordu); başka projenin ek işine bağlanamaz.
@@ -795,23 +808,36 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 		if costCodeID, budgetLineID, err = resolveCostAllocation(ctx, txq, in.CostCodeID, in.BudgetLineID, pid, orgID); err != nil {
 			return nil, err
 		}
+		if in.PurchaseOrderID == nil {
+			existing, err := txq.GetExpense(ctx, sqlc.GetExpenseParams{ID: eid, OrganizationID: orgID, ProjectID: pid})
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return nil, domain.ErrNotFound
+				}
+				return nil, err
+			}
+			purchaseOrderID = existing.PurchaseOrderID
+		} else if purchaseOrderID, err = resolvePurchaseOrderRef(ctx, txq, *in.PurchaseOrderID, pid, orgID); err != nil {
+			return nil, err
+		}
 	}
 	// Sorgu masrafı yeniden onay bekler hale getirir (bkz. UpdateExpense SQL).
 	row, err := txq.UpdateExpense(ctx, sqlc.UpdateExpenseParams{
-		ID:             eid,
-		OrganizationID: orgID,
-		Category:       in.Category,
-		Description:    strings.TrimSpace(in.Description),
-		Amount:         repository.Float64ToNumeric(in.Amount),
-		ExpenseDate:    repository.TimeToDate(in.ExpenseDate),
-		SupplierName:   strings.TrimSpace(in.SupplierName),
-		InvoiceNo:      strings.TrimSpace(in.InvoiceNo),
-		Notes:          strings.TrimSpace(in.Notes),
-		ProjectID:      pid,
-		CostCodeID:     costCodeID,
-		BudgetLineID:   budgetLineID,
-		VatRate:        repository.Float64PtrToNumeric(in.VATRate),
-		ChangeOrderID:  changeOrderID,
+		ID:              eid,
+		OrganizationID:  orgID,
+		Category:        in.Category,
+		Description:     strings.TrimSpace(in.Description),
+		Amount:          repository.Float64ToNumeric(in.Amount),
+		ExpenseDate:     repository.TimeToDate(in.ExpenseDate),
+		SupplierName:    strings.TrimSpace(in.SupplierName),
+		InvoiceNo:       strings.TrimSpace(in.InvoiceNo),
+		Notes:           strings.TrimSpace(in.Notes),
+		ProjectID:       pid,
+		CostCodeID:      costCodeID,
+		BudgetLineID:    budgetLineID,
+		VatRate:         repository.Float64PtrToNumeric(in.VATRate),
+		ChangeOrderID:   changeOrderID,
+		PurchaseOrderID: purchaseOrderID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1735,4 +1761,28 @@ func (s *ProjectService) ListProjectEvents(ctx context.Context, projectID, organ
 		out[i] = repository.ToDomainProjectEvent(r)
 	}
 	return out, nil
+}
+
+// resolvePurchaseOrderRef: masrafın bağlanacağı sipariş (boşsa bağ yok).
+// Aynı projenin onaylı ya da kapatılmış siparişi olmalı.
+func resolvePurchaseOrderRef(ctx context.Context, q *sqlc.Queries, purchaseOrderID string, projectID, orgID pgtype.UUID) (pgtype.UUID, error) {
+	purchaseOrderID = strings.TrimSpace(purchaseOrderID)
+	if purchaseOrderID == "" {
+		return pgtype.UUID{}, nil
+	}
+	id, err := repository.StringToUUID(purchaseOrderID)
+	if err != nil {
+		return pgtype.UUID{}, ErrInvalidPurchaseOrderRef
+	}
+	po, err := q.GetPurchaseOrder(ctx, sqlc.GetPurchaseOrderParams{ID: id, OrganizationID: orgID, ProjectID: projectID})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pgtype.UUID{}, ErrInvalidPurchaseOrderRef
+		}
+		return pgtype.UUID{}, err
+	}
+	if po.Status != domain.PurchaseOrderStatusApproved && po.Status != domain.PurchaseOrderStatusClosed {
+		return pgtype.UUID{}, ErrInvalidPurchaseOrderRef
+	}
+	return id, nil
 }

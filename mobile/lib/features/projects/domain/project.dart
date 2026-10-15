@@ -198,6 +198,11 @@ class FinancialSummary {
   final double subcontractPayable;
   final double subcontractRetention;
 
+  /// Siparişten teslim alınmış (kabul edilmiş) ama siparişe bağlı onaylı
+  /// masrafı (faturası) girilmemiş tutar, KDV dahil (backend migration 0074).
+  /// Maliyet değildir; kaybolmasın diye ayrıca gösterilir.
+  final double receivedNotCosted;
+
   const FinancialSummary({
     required this.currentContractValue,
     required this.collectedAmount,
@@ -232,6 +237,7 @@ class FinancialSummary {
     this.pendingCost = 0,
     this.subcontractPayable = 0,
     this.subcontractRetention = 0,
+    this.receivedNotCosted = 0,
   })  : paidCost = paidCost ?? realizedCost,
         currentContractValueNet = currentContractValueNet ?? currentContractValue,
         realizedGrossProfitNet = realizedGrossProfitNet ?? realizedGrossProfit,
@@ -290,6 +296,7 @@ class FinancialSummary {
         pendingCost: (json['pending_cost'] as num?)?.toDouble() ?? 0,
         subcontractPayable: (json['new_subcontract_payable'] as num?)?.toDouble() ?? 0,
         subcontractRetention: (json['new_subcontract_retention'] as num?)?.toDouble() ?? 0,
+        receivedNotCosted: (json['received_not_costed'] as num?)?.toDouble() ?? 0,
       );
 }
 
@@ -338,6 +345,11 @@ class Expense {
   final String? costCodeId;
   final String? budgetLineId;
 
+  /// Masraf bir satın alma siparişinin faturasıysa o sipariş (backend
+  /// migration 0074): siparişteki "teslim alınmış, maliyeti girilmemiş"
+  /// tutar bundan düşer.
+  final String? purchaseOrderId;
+
   /// `pending|approved|rejected`. Alan gelmezse (onay akışından önceki
   /// sunucu) `approved` -- o sunucu her masrafı zaten sayıyordu.
   final String approvalStatus;
@@ -378,6 +390,7 @@ class Expense {
     this.changeOrderId,
     this.costCodeId,
     this.budgetLineId,
+    this.purchaseOrderId,
     this.approvalStatus = kExpenseApproved,
     this.decidedAt,
     this.decisionNote = '',
@@ -422,6 +435,7 @@ class Expense {
         changeOrderId: _nonEmptyId(json['change_order_id'] as String?),
         costCodeId: _nonEmptyId(json['cost_code_id'] as String?),
         budgetLineId: _nonEmptyId(json['budget_line_id'] as String?),
+        purchaseOrderId: _nonEmptyId(json['purchase_order_id'] as String?),
         approvalStatus: json['approval_status'] as String? ?? kExpenseApproved,
         decidedAt: json['decided_at'] as String?,
         decisionNote: json['decision_note'] as String? ?? '',

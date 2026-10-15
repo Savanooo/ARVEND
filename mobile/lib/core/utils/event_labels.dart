@@ -74,6 +74,8 @@ const kProjectEventLabels = <String, String>{
   'purchase_order_approved': 'Sipariş onaylandı',
   'purchase_order_cancelled': 'Sipariş iptal edildi',
   'purchase_order_closed': 'Sipariş kapatıldı',
+  'purchase_receipt_recorded': 'Siparişten teslim alındı',
+  'purchase_receipt_voided': 'Teslim iptal edildi',
   'rfq_created': 'RFQ oluşturuldu',
   'rfq_updated': 'RFQ güncellendi',
   'rfq_issued': 'RFQ tedarikçilere gönderildi',

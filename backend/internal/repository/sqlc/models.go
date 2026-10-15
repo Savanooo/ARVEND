@@ -776,6 +776,7 @@ type ProjectCostBasis struct {
 	PaidCost                 pgtype.Numeric `json:"paid_cost"`
 	AdvanceOpen              pgtype.Numeric `json:"advance_open"`
 	PendingCost              pgtype.Numeric `json:"pending_cost"`
+	ReceivedNotCosted        pgtype.Numeric `json:"received_not_costed"`
 }
 
 type ProjectCostForecast struct {
@@ -848,33 +849,34 @@ type ProjectEvent struct {
 }
 
 type ProjectExpense struct {
-	ID             pgtype.UUID        `json:"id"`
-	OrganizationID pgtype.UUID        `json:"organization_id"`
-	ProjectID      pgtype.UUID        `json:"project_id"`
-	Category       string             `json:"category"`
-	Description    string             `json:"description"`
-	Amount         pgtype.Numeric     `json:"amount"`
-	Currency       string             `json:"currency"`
-	ExpenseDate    pgtype.Date        `json:"expense_date"`
-	SupplierName   string             `json:"supplier_name"`
-	InvoiceNo      string             `json:"invoice_no"`
-	Notes          string             `json:"notes"`
-	CreatedBy      pgtype.UUID        `json:"created_by"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	VoidedAt       pgtype.Timestamptz `json:"voided_at"`
-	VoidedBy       pgtype.UUID        `json:"voided_by"`
-	VoidReason     string             `json:"void_reason"`
-	IdempotencyKey *string            `json:"idempotency_key"`
-	ChangeOrderID  pgtype.UUID        `json:"change_order_id"`
-	CostCodeID     pgtype.UUID        `json:"cost_code_id"`
-	BudgetLineID   pgtype.UUID        `json:"budget_line_id"`
-	ApprovalStatus string             `json:"approval_status"`
-	DecidedBy      pgtype.UUID        `json:"decided_by"`
-	DecidedAt      pgtype.Timestamptz `json:"decided_at"`
-	DecisionNote   string             `json:"decision_note"`
-	VatRate        pgtype.Numeric     `json:"vat_rate"`
-	VatAmount      pgtype.Numeric     `json:"vat_amount"`
+	ID              pgtype.UUID        `json:"id"`
+	OrganizationID  pgtype.UUID        `json:"organization_id"`
+	ProjectID       pgtype.UUID        `json:"project_id"`
+	Category        string             `json:"category"`
+	Description     string             `json:"description"`
+	Amount          pgtype.Numeric     `json:"amount"`
+	Currency        string             `json:"currency"`
+	ExpenseDate     pgtype.Date        `json:"expense_date"`
+	SupplierName    string             `json:"supplier_name"`
+	InvoiceNo       string             `json:"invoice_no"`
+	Notes           string             `json:"notes"`
+	CreatedBy       pgtype.UUID        `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	VoidedAt        pgtype.Timestamptz `json:"voided_at"`
+	VoidedBy        pgtype.UUID        `json:"voided_by"`
+	VoidReason      string             `json:"void_reason"`
+	IdempotencyKey  *string            `json:"idempotency_key"`
+	ChangeOrderID   pgtype.UUID        `json:"change_order_id"`
+	CostCodeID      pgtype.UUID        `json:"cost_code_id"`
+	BudgetLineID    pgtype.UUID        `json:"budget_line_id"`
+	ApprovalStatus  string             `json:"approval_status"`
+	DecidedBy       pgtype.UUID        `json:"decided_by"`
+	DecidedAt       pgtype.Timestamptz `json:"decided_at"`
+	DecisionNote    string             `json:"decision_note"`
+	VatRate         pgtype.Numeric     `json:"vat_rate"`
+	VatAmount       pgtype.Numeric     `json:"vat_amount"`
+	PurchaseOrderID pgtype.UUID        `json:"purchase_order_id"`
 }
 
 type ProjectFile struct {
@@ -1172,6 +1174,37 @@ type PurchaseOrderItem struct {
 	UnitPrice       pgtype.Numeric `json:"unit_price"`
 	LineTotal       pgtype.Numeric `json:"line_total"`
 	SortOrder       int32          `json:"sort_order"`
+}
+
+type PurchaseReceipt struct {
+	ID              pgtype.UUID        `json:"id"`
+	OrganizationID  pgtype.UUID        `json:"organization_id"`
+	ProjectID       pgtype.UUID        `json:"project_id"`
+	PurchaseOrderID pgtype.UUID        `json:"purchase_order_id"`
+	SequenceNo      int32              `json:"sequence_no"`
+	ReceivedDate    pgtype.Date        `json:"received_date"`
+	DeliveryNoteNo  string             `json:"delivery_note_no"`
+	Destination     string             `json:"destination"`
+	WarehouseID     pgtype.UUID        `json:"warehouse_id"`
+	Notes           string             `json:"notes"`
+	IdempotencyKey  *string            `json:"idempotency_key"`
+	CreatedBy       pgtype.UUID        `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	VoidedAt        pgtype.Timestamptz `json:"voided_at"`
+	VoidedBy        pgtype.UUID        `json:"voided_by"`
+	VoidReason      string             `json:"void_reason"`
+}
+
+type PurchaseReceiptItem struct {
+	ID                  pgtype.UUID    `json:"id"`
+	OrganizationID      pgtype.UUID    `json:"organization_id"`
+	ProjectID           pgtype.UUID    `json:"project_id"`
+	ReceiptID           pgtype.UUID    `json:"receipt_id"`
+	PurchaseOrderID     pgtype.UUID    `json:"purchase_order_id"`
+	PurchaseOrderItemID pgtype.UUID    `json:"purchase_order_item_id"`
+	AcceptedQuantity    pgtype.Numeric `json:"accepted_quantity"`
+	RejectedQuantity    pgtype.Numeric `json:"rejected_quantity"`
+	RejectionReason     string         `json:"rejection_reason"`
 }
 
 type PurchaseRequest struct {

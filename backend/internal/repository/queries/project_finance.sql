@@ -120,11 +120,14 @@ RETURNING id, amount;
 -- başlar; tek istisna geçmiş veriyi aktaran araç (bkz.
 -- ExpenseInput.PreApproved). vat_rate (migration 0065) NULL olabilir
 -- ("belirtilmedi"); vat_amount ondan üretilir.
+-- purchase_order_id (migration 0074) OPSİYONELDİR: masrafı (alış
+-- faturasını) siparişe bağlar; "teslim alınmış, maliyeti girilmemiş"
+-- tutar bundan düşer.
 INSERT INTO project_expenses (
     organization_id, project_id, category, description, amount, currency,
     expense_date, supplier_name, invoice_no, notes, idempotency_key, created_by, change_order_id,
-    cost_code_id, budget_line_id, approval_status, vat_rate
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+    cost_code_id, budget_line_id, approval_status, vat_rate, purchase_order_id
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 RETURNING *;
 
 -- GetExpense, void durumundan BAĞIMSIZ okur (bkz. GetCollection notu).
@@ -181,7 +184,7 @@ LIMIT sqlc.arg(row_limit)::int;
 UPDATE project_expenses
 SET category = $3, description = $4, amount = $5, expense_date = $6,
     supplier_name = $7, invoice_no = $8, notes = $9, cost_code_id = $11, budget_line_id = $12,
-    vat_rate = $13, change_order_id = $14,
+    vat_rate = $13, change_order_id = $14, purchase_order_id = $15,
     approval_status = 'pending', decided_by = NULL, decided_at = NULL, decision_note = ''
 WHERE id = $1 AND organization_id = $2 AND voided_at IS NULL AND project_id = $10
 RETURNING *;
@@ -500,6 +503,7 @@ SELECT
     basis.paid_cost,
     basis.advance_open,
     basis.pending_cost,
+    basis.received_not_costed,
     (basis.realized_cost + subremaining.total + newsubremaining.total)::numeric(18,2) AS committed_cost,
     (current_value.total - basis.realized_cost)::numeric(18,2) AS realized_gross_profit,
     (current_value.total - (basis.realized_cost + subremaining.total + newsubremaining.total))::numeric(18,2)

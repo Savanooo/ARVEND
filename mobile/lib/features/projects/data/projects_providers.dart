@@ -226,8 +226,7 @@ final projectPurchaseOrdersProvider = FutureProvider.autoDispose.family<List<Pur
   (ref, id) => ref.watch(projectsRepositoryProvider).purchaseOrders(id),
 );
 
-final purchaseOrderDetailProvider = FutureProvider.autoDispose.family<
-    ({PurchaseOrder order, List<PurchaseOrderItem> items, List<Commitment> commitments}),
+final purchaseOrderDetailProvider = FutureProvider.autoDispose.family<PurchaseOrderDetail,
     ({String projectId, String poId})>(
   (ref, args) => ref.watch(projectsRepositoryProvider).purchaseOrderDetail(args.projectId, args.poId),
 );

@@ -143,6 +143,7 @@ void main() {
       'pending_cost': 7500,
       'new_subcontract_payable': 41000,
       'new_subcontract_retention': 4000,
+      'received_not_costed': 12345,
     });
     expect(find.text('Ödenen (nakit)'), findsOneWidget);
     expect(find.text('95.000,00 TL'), findsOneWidget);
@@ -154,6 +155,9 @@ void main() {
     expect(find.text('20.000,00 TL'), findsOneWidget);
     expect(find.text('Onay bekleyen (maliyet değil)'), findsOneWidget);
     expect(find.text('7.500,00 TL'), findsOneWidget);
+    // Siparişten teslim alınmış, faturası girilmemiş (backend migration 0074).
+    expect(find.text('Teslim alınmış, faturası yok'), findsOneWidget);
+    expect(find.text('12.345,00 TL'), findsOneWidget);
   });
 
   testWidgets('eski sunucu ya da hepsi sıfır: ek satırlar yok', (tester) async {
@@ -164,6 +168,7 @@ void main() {
       'Teminatta tutulan',
       'Verilen avans (maliyet değil)',
       'Onay bekleyen (maliyet değil)',
+      'Teslim alınmış, faturası yok',
     ]) {
       expect(find.text(label), findsNothing, reason: label);
     }

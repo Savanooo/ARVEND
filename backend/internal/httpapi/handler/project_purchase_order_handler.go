@@ -42,6 +42,21 @@ type purchaseOrderResponse struct {
 	ClosedBy             *string `json:"closed_by,omitempty"`
 	CreatedAt            string  `json:"created_at"`
 	UpdatedAt            string  `json:"updated_at"`
+	// Teslim alma (migration 0074): none | partial | complete ve teslim
+	// alınmış ama siparişe bağlı onaylı masrafı (faturası) girilmemiş tutar
+	// (KDV dahil). Liste ve detayda dolu; tekil yazma yanıtlarında yok.
+	ReceiptStatus     string   `json:"receipt_status,omitempty"`
+	ReceivedNotCosted *float64 `json:"received_not_costed,omitempty"`
+}
+
+func withReceiptSummary(resp purchaseOrderResponse, sum domain.PurchaseOrderReceiptSummary, ok bool) purchaseOrderResponse {
+	if !ok {
+		sum = domain.PurchaseOrderReceiptSummary{Status: domain.ReceiptStatusNone}
+	}
+	resp.ReceiptStatus = sum.Status
+	v := sum.ReceivedNotCosted
+	resp.ReceivedNotCosted = &v
+	return resp
 }
 
 func toPurchaseOrderResponse(p domain.PurchaseOrder) purchaseOrderResponse {
@@ -77,6 +92,11 @@ type purchaseOrderItemResponse struct {
 	UnitPrice    float64 `json:"unit_price"`
 	LineTotal    float64 `json:"line_total"`
 	SortOrder    int     `json:"sort_order"`
+	// Teslim alma (migration 0074), yalnızca detayda: iptal edilmemiş
+	// teslimlerin kabul / red toplamı; bekleyen = sipariş - kabul - red.
+	AcceptedQuantity *float64 `json:"accepted_quantity,omitempty"`
+	RejectedQuantity *float64 `json:"rejected_quantity,omitempty"`
+	WaitingQuantity  *float64 `json:"waiting_quantity,omitempty"`
 }
 
 func toPurchaseOrderItemResponse(i domain.PurchaseOrderItem) purchaseOrderItemResponse {
@@ -84,6 +104,56 @@ func toPurchaseOrderItemResponse(i domain.PurchaseOrderItem) purchaseOrderItemRe
 		ID: i.ID, WBSNodeID: i.WBSNodeID, CostCodeID: i.CostCodeID, BudgetLineID: i.BudgetLineID,
 		Description: i.Description, Quantity: i.Quantity, Unit: i.Unit, UnitPrice: i.UnitPrice, LineTotal: i.LineTotal, SortOrder: i.SortOrder,
 	}
+}
+
+type purchaseReceiptItemResponse struct {
+	PurchaseOrderItemID string  `json:"purchase_order_item_id"`
+	AcceptedQuantity    float64 `json:"accepted_quantity"`
+	RejectedQuantity    float64 `json:"rejected_quantity"`
+	RejectionReason     string  `json:"rejection_reason"`
+}
+
+type purchaseReceiptResponse struct {
+	ID              string                        `json:"id"`
+	PurchaseOrderID string                        `json:"purchase_order_id"`
+	SequenceNo      int                           `json:"sequence_no"`
+	ReceivedDate    string                        `json:"received_date"`
+	DeliveryNoteNo  string                        `json:"delivery_note_no"`
+	Destination     string                        `json:"destination"`
+	WarehouseID     *string                       `json:"warehouse_id"`
+	WarehouseName   string                        `json:"warehouse_name"`
+	Notes           string                        `json:"notes"`
+	CreatedBy       *string                       `json:"created_by"`
+	CreatedByName   string                        `json:"created_by_name"`
+	CreatedAt       string                        `json:"created_at"`
+	VoidedAt        *string                       `json:"voided_at"`
+	VoidReason      string                        `json:"void_reason"`
+	Items           []purchaseReceiptItemResponse `json:"items"`
+}
+
+func toPurchaseReceiptResponse(r domain.PurchaseReceipt) purchaseReceiptResponse {
+	items := make([]purchaseReceiptItemResponse, len(r.Items))
+	for i, it := range r.Items {
+		items[i] = purchaseReceiptItemResponse{
+			PurchaseOrderItemID: it.PurchaseOrderItemID, AcceptedQuantity: it.AcceptedQuantity,
+			RejectedQuantity: it.RejectedQuantity, RejectionReason: it.RejectionReason,
+		}
+	}
+	return purchaseReceiptResponse{
+		ID: r.ID, PurchaseOrderID: r.PurchaseOrderID, SequenceNo: r.SequenceNo,
+		ReceivedDate: r.ReceivedDate.Format(dateLayout), DeliveryNoteNo: r.DeliveryNoteNo,
+		Destination: r.Destination, WarehouseID: r.WarehouseID, WarehouseName: r.WarehouseName, Notes: r.Notes,
+		CreatedBy: r.CreatedBy, CreatedByName: r.CreatedByName, CreatedAt: r.CreatedAt.Format(rfc3339),
+		VoidedAt: tsStrPtr(r.VoidedAt), VoidReason: r.VoidReason, Items: items,
+	}
+}
+
+// receiptSummaryResponse: siparişin teslim özeti (KDV dahil tutarlar).
+type receiptSummaryResponse struct {
+	Status            string  `json:"status"`
+	AcceptedTotal     float64 `json:"accepted_total"`
+	CostedTotal       float64 `json:"costed_total"`
+	ReceivedNotCosted float64 `json:"received_not_costed"`
 }
 
 type purchaseOrderItemRequest struct {
@@ -141,9 +211,15 @@ func (h *ProjectHandler) ListPurchaseOrders(w http.ResponseWriter, r *http.Reque
 		h.writeError(w, err)
 		return
 	}
+	sums, err := h.svc.PurchaseOrderReceiptSummaries(r.Context(), chi.URLParam(r, "id"), "", orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
 	out := make([]purchaseOrderResponse, len(rows))
 	for i, p := range rows {
-		out[i] = toPurchaseOrderDetailedResponse(p)
+		sum, ok := sums[p.ID]
+		out[i] = withReceiptSummary(toPurchaseOrderDetailedResponse(p), sum, ok)
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"purchase_orders": out})
 }
@@ -185,17 +261,113 @@ func (h *ProjectHandler) GetPurchaseOrder(w http.ResponseWriter, r *http.Request
 		h.writeError(w, err)
 		return
 	}
+	projectID, poID := chi.URLParam(r, "id"), chi.URLParam(r, "poId")
+	received, err := h.svc.PurchaseOrderItemReceipts(r.Context(), projectID, poID, orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	sums, err := h.svc.PurchaseOrderReceiptSummaries(r.Context(), projectID, poID, orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	receipts, err := h.svc.ListPurchaseReceipts(r.Context(), projectID, poID, orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
 	itemsOut := make([]purchaseOrderItemResponse, len(items))
 	for i, it := range items {
 		itemsOut[i] = toPurchaseOrderItemResponse(it)
+		if rc, ok := received[it.ID]; ok {
+			itemsOut[i].AcceptedQuantity, itemsOut[i].RejectedQuantity, itemsOut[i].WaitingQuantity =
+				&rc.AcceptedQuantity, &rc.RejectedQuantity, &rc.WaitingQuantity
+		}
 	}
 	commitmentsOut := make([]commitmentResponse, len(commitments))
 	for i, c := range commitments {
 		commitmentsOut[i] = toCommitmentResponse(c)
 	}
+	receiptsOut := make([]purchaseReceiptResponse, len(receipts))
+	for i, rc := range receipts {
+		receiptsOut[i] = toPurchaseReceiptResponse(rc)
+	}
+	sum, ok := sums[p.ID]
+	if !ok {
+		sum = domain.PurchaseOrderReceiptSummary{Status: domain.ReceiptStatusNone}
+	}
 	httpjson.Write(w, http.StatusOK, map[string]any{
-		"purchase_order": toPurchaseOrderResponse(*p), "items": itemsOut, "commitments": commitmentsOut,
+		"purchase_order": withReceiptSummary(toPurchaseOrderResponse(*p), sum, true), "items": itemsOut,
+		"commitments": commitmentsOut, "receipts": receiptsOut,
+		"receipt_summary": receiptSummaryResponse{
+			Status: sum.Status, AcceptedTotal: sum.AcceptedGross, CostedTotal: sum.Costed, ReceivedNotCosted: sum.ReceivedNotCosted,
+		},
 	})
+}
+
+type purchaseReceiptItemRequest struct {
+	PurchaseOrderItemID string  `json:"purchase_order_item_id"`
+	AcceptedQuantity    float64 `json:"accepted_quantity"`
+	RejectedQuantity    float64 `json:"rejected_quantity"`
+	RejectionReason     string  `json:"rejection_reason"`
+}
+
+type purchaseReceiptRequest struct {
+	ReceivedDate   string                       `json:"received_date"`
+	DeliveryNoteNo string                       `json:"delivery_note_no"`
+	Destination    string                       `json:"destination"`
+	WarehouseID    string                       `json:"warehouse_id"`
+	Notes          string                       `json:"notes"`
+	IdempotencyKey string                       `json:"idempotency_key"`
+	Items          []purchaseReceiptItemRequest `json:"items"`
+}
+
+// CreatePurchaseReceipt: POST /projects/{id}/purchase-orders/{poId}/receipts
+// (projects.procurement.receive) -- teslim (irsaliye) girer.
+func (h *ProjectHandler) CreatePurchaseReceipt(w http.ResponseWriter, r *http.Request) {
+	var req purchaseReceiptRequest
+	if err := httpjson.Decode(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	received, ok := requestDate(w, req.ReceivedDate)
+	if !ok {
+		return
+	}
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	in := service.PurchaseReceiptInput{
+		ReceivedDate: received, DeliveryNoteNo: req.DeliveryNoteNo, Destination: req.Destination,
+		WarehouseID: req.WarehouseID, Notes: req.Notes, IdempotencyKey: req.IdempotencyKey, UserID: userID,
+	}
+	for _, it := range req.Items {
+		in.Items = append(in.Items, service.PurchaseReceiptItemInput{
+			PurchaseOrderItemID: it.PurchaseOrderItemID, AcceptedQuantity: it.AcceptedQuantity,
+			RejectedQuantity: it.RejectedQuantity, RejectionReason: it.RejectionReason,
+		})
+	}
+	rc, err := h.svc.CreatePurchaseReceipt(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "poId"), orgID, in)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusCreated, toPurchaseReceiptResponse(*rc))
+}
+
+// VoidPurchaseReceipt: POST /projects/{id}/purchase-receipts/{receiptId}/void {reason}
+// (projects.procurement.receive).
+func (h *ProjectHandler) VoidPurchaseReceipt(w http.ResponseWriter, r *http.Request) {
+	var req voidRequest
+	_ = httpjson.Decode(r, &req)
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	rc, err := h.svc.VoidPurchaseReceipt(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "receiptId"), orgID, userID, req.Reason)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	httpjson.Write(w, http.StatusOK, toPurchaseReceiptResponse(*rc))
 }
 
 func (h *ProjectHandler) UpdatePurchaseOrder(w http.ResponseWriter, r *http.Request) {

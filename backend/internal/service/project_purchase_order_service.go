@@ -522,6 +522,17 @@ func (s *ProjectService) CancelPurchaseOrder(ctx context.Context, projectID, poI
 		return nil, ErrPurchaseOrderNotCancellable
 	}
 	wasApproved := current.Status == domain.PurchaseOrderStatusApproved
+	// Teslim alınmış mal iptalle kaybolmasın (migration 0074): gelmeyecek
+	// kısım "Kapat" ile taahhütten çıkarılır, teslim alınan kalır.
+	if wasApproved {
+		n, err := txq.CountActivePurchaseReceipts(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if n > 0 {
+			return nil, ErrPurchaseOrderHasReceipts
+		}
+	}
 
 	row, err := txq.CancelPurchaseOrder(ctx, sqlc.CancelPurchaseOrderParams{
 		ID: id, OrganizationID: orgID, ProjectID: pid, CancelledBy: actorUUID(userID), CancelReason: reason,
@@ -569,8 +580,11 @@ func (s *ProjectService) CancelPurchaseOrder(ctx context.Context, projectID, poI
 	return &out, nil
 }
 
-// ClosePurchaseOrder, TERMİNAL bir arşiv işaretidir -- commitment'a
-// DOKUNMAZ (bkz. dosya-başı yorum ve migration §7 gerekçesi).
+// ClosePurchaseOrder, TERMİNAL bir arşiv işaretidir. Teslim kaydı olan
+// siparişte (migration 0074) teslim alınmayan kısım taahhütten çıkar,
+// teslim alınan kalır (releaseUnreceivedCommitments). Hiç teslim kaydı
+// yoksa taahhüde dokunulmaz (teslim alma öncesi davranış: kapatılan sipariş
+// tamamen gelmiş sayılır) -- gelmeyecek siparişin yolu iptaldir.
 func (s *ProjectService) ClosePurchaseOrder(ctx context.Context, projectID, poID, organizationID, userID string) (*domain.PurchaseOrder, error) {
 	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
@@ -598,8 +612,16 @@ func (s *ProjectService) ClosePurchaseOrder(ctx context.Context, projectID, poID
 		}
 		return nil, err
 	}
+	released := 0
+	if n, err := txq.CountActivePurchaseReceipts(ctx, id); err != nil {
+		return nil, err
+	} else if n > 0 {
+		if released, err = releaseUnreceivedCommitments(ctx, txq, orgID, pid, id, actorUUID(userID)); err != nil {
+			return nil, err
+		}
+	}
 	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventPurchaseOrderClosed, actorUUID(userID),
-		map[string]any{"purchase_order_id": poID}); err != nil {
+		map[string]any{"purchase_order_id": poID, "commitments_adjusted": released}); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {

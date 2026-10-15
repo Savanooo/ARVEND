@@ -44,6 +44,41 @@ class WhatsNewRelease {
 
 /// En yeni sürüm en üstte.
 const kWhatsNewReleases = <WhatsNewRelease>[
+  // Maliyet tanımları (backend 0073): tahakkuk esaslı gerçekleşen maliyet,
+  // taşeron avansı ve "İşe say"; siparişten teslim alma ve faturayı
+  // siparişe bağlama (backend 0074).
+  WhatsNewRelease(
+    build: 28,
+    version: '1.5.20',
+    items: [
+      WhatsNewItem(
+        icon: Icons.local_shipping_outlined,
+        title: 'Siparişten teslim alma',
+        body: 'Satın alma siparişinde "Teslim Al" ile gelen malı kalem kalem kabul ya da reddet; '
+            'bekleyen miktar her zaman görünür.',
+        permission: 'projects.procurement.receive',
+      ),
+      WhatsNewItem(
+        icon: Icons.receipt_long_outlined,
+        title: 'Faturayı siparişe bağla',
+        body: 'Masraf girerken siparişi seç; teslim alınıp faturası girilmemiş tutar kârlılıkta ayrıca görünür.',
+        permission: 'projects.finance.manage',
+      ),
+      WhatsNewItem(
+        icon: Icons.forward,
+        title: 'Taşeron avansı',
+        body: 'Taşeron ödemesinde "Avans" seç: maliyete girmez; iş yapılınca ödemeyi açıp "İşe Say" de.',
+        permission: 'projects.finance.manage',
+      ),
+      WhatsNewItem(
+        icon: Icons.insights_outlined,
+        title: 'Daha doğru kârlılık',
+        body: 'Onaylanmış ama ödenmemiş taşeron hakedişi artık maliyette; ödenen, taşerona ödenecek, '
+            'avans ve onay bekleyenler ayrı satırda.',
+        permission: 'projects.finance.read',
+      ),
+    ],
+  ),
   // Stok Takibi (backend 0072): depolar, malzeme kartları, giriş/çıkış/
   // aktarım/fire/sayım, parti ve son kullanma tarihi, barkod okutma.
   // Build 27 yalnızca düzeltme (işlem menüsü telefonda kesiliyordu); notlar

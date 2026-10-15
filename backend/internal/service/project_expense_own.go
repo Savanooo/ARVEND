@@ -61,11 +61,11 @@ func checkOwnExpenseLinks(in ExpenseInput, stored *sqlc.ProjectExpense) error {
 		sent = strings.TrimSpace(sent)
 		return sent == "" || (stored != nil && have.Valid && strings.EqualFold(sent, have.String()))
 	}
-	var co, cc, bl pgtype.UUID
+	var co, cc, bl, po pgtype.UUID
 	if stored != nil {
-		co, cc, bl = stored.ChangeOrderID, stored.CostCodeID, stored.BudgetLineID
+		co, cc, bl, po = stored.ChangeOrderID, stored.CostCodeID, stored.BudgetLineID, stored.PurchaseOrderID
 	}
-	if !same(in.ChangeOrderID, co) || !same(in.CostCodeID, cc) || !same(in.BudgetLineID, bl) {
+	if !same(in.ChangeOrderID, co) || !same(in.CostCodeID, cc) || !same(in.BudgetLineID, bl) || !same(derefString(in.PurchaseOrderID), po) {
 		return ErrExpenseFinanceLinkForbidden
 	}
 	return nil

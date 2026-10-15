@@ -41,6 +41,7 @@ import '../budget/presentation/widgets/budget_ui.dart' show formatBudgetPercent;
 import '../contract_co/contract_co_sections.dart' show ContractCoSectionEntry, contractCoSections;
 import '../daily_report/presentation/daily_reports_tab.dart' show DailyReportsTab;
 import '../data/projects_providers.dart';
+import '../domain/procurement.dart' show kReceiptPartial, kReceiptComplete;
 import '../domain/project.dart';
 import '../domain/project_lock_text.dart';
 import '../finance_ledger/data/finance_ledger_providers.dart' show invalidateProjectLedger, kLedgerReadPermission;
@@ -843,6 +844,12 @@ class _FinancialSummaryCard extends StatelessWidget {
                 label: 'Verilen avans (maliyet değil)',
                 value: Formatters.money(s.advanceOpen, currency: s.currency),
               ),
+            if (s.receivedNotCosted > 0)
+              _InfoRow(
+                label: 'Teslim alınmış, faturası yok',
+                value: Formatters.money(s.receivedNotCosted, currency: s.currency),
+                valueColor: AppStatusColors.warning,
+              ),
             if (s.pendingCost > 0)
               _InfoRow(
                 label: 'Onay bekleyen (maliyet değil)',
@@ -1148,6 +1155,19 @@ class _PurchaseOrdersList extends ConsumerWidget {
               children: orders
                   .map((po) => AppListCard(
                         title: '${po.poNo} — ${po.supplierName ?? po.supplierCode ?? ''}',
+                        // Teslim alma (backend migration 0074): kısmi/tam teslim
+                        // ve faturası girilmemiş teslim tutarı.
+                        subtitle: switch (po.receiptStatus) {
+                          kReceiptPartial => 'Kısmi teslim',
+                          kReceiptComplete => 'Teslim alındı',
+                          _ => null,
+                        },
+                        footer: (po.receivedNotCosted ?? 0) > 0
+                            ? Text(
+                                'Maliyeti girilmemiş ${Formatters.money(po.receivedNotCosted!, currency: po.currency)}',
+                                style: AppTypography.metadata.copyWith(color: AppStatusColors.warning),
+                              )
+                            : null,
                         onTap: () => context.push('/projeler/$projectId/satin-alma/siparisler/${po.id}'),
                         trailing: Column(
                           mainAxisAlignment: MainAxisAlignment.center,

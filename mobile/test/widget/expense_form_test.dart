@@ -195,6 +195,58 @@ void main() {
     expect(find.text('Masraf onaya gönderildi.'), findsOneWidget);
   });
 
+  // Satın alma siparişi bağı (backend migration 0074): faturası girilen
+  // onaylı/kapatılmış sipariş; taslak/iptal sipariş sunulmaz.
+  testWidgets('masraf: satın alma siparişine bağlanır, yalnızca onaylı/kapatılmış sipariş sunulur', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    Map<String, dynamic> po(String id, String no, String status) => {
+          'id': id, 'po_no': no, 'supplier_id': 's1', 'supplier_name': 'Alçıpan Tedarik', 'currency': 'TRY',
+          'status': status, 'issue_date': '2026-10-01', 'total': 1200,
+        };
+    final adapter = FakeHttpClientAdapter(script: {
+      '/projects/p1/purchase-orders': [
+        (
+          status: 200,
+          body: {
+            'purchase_orders': [
+              po('po1', 'SAS-001', 'approved'),
+              po('po2', 'SAS-002', 'closed'),
+              po('po3', 'SAS-003', 'draft'),
+              po('po4', 'SAS-004', 'cancelled'),
+            ],
+          },
+        ),
+      ],
+      '/projects/p1/expenses': [
+        (
+          status: 201,
+          body: {'id': 'e1', 'category': 'material', 'description': 'Fatura', 'amount': 1200, 'currency': 'TRY', 'expense_date': '2026-10-15', 'created_at': '2026-10-15T08:00:00Z', 'approval_status': 'pending', 'purchase_order_id': 'po2'},
+        ),
+      ],
+    });
+    await _open(
+      tester,
+      adapter,
+      (context) => showExpenseFormSheet(context, 'p1', currency: 'TRY'),
+      user: _user({'projects.finance.manage', 'projects.procurement.read'}),
+    );
+    await tester.enterText(find.widgetWithText(TextFormField, 'Açıklama'), 'Fatura');
+    await tester.enterText(find.widgetWithText(TextFormField, 'Tutar (TRY)'), '1200');
+    await tester.ensureVisible(find.byKey(const ValueKey('masraf-siparis')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('masraf-siparis')));
+    await tester.pumpAndSettle();
+    expect(find.text('SAS-003 · Alçıpan Tedarik'), findsNothing);
+    expect(find.text('SAS-004 · Alçıpan Tedarik'), findsNothing);
+    await tester.tap(find.text('SAS-002 · Alçıpan Tedarik').last);
+    await tester.pumpAndSettle();
+    await _save(tester);
+
+    final body = adapter.requestBodies[adapter.calls.indexOf('/projects/p1/expenses')] as Map<String, dynamic>;
+    expect(body['purchase_order_id'], 'po2');
+  });
+
   testWidgets('masraf KDV: varsayılan Belirtilmedi; oran seçilince canlı KDV hariç/KDV önizlemesi, vat_rate gider', (
     tester,
   ) async {

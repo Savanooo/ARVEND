@@ -493,6 +493,14 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/purchase-orders/{poId}/cancel", d.Projects.CancelPurchaseOrder)
 				r.Post("/{id}/purchase-orders/{poId}/close", d.Projects.ClosePurchaseOrder)
 			})
+			// Siparişten teslim alma (migration 0074): sahada mal kabulü
+			// sipariş yönetiminden ayrı bir izindir (Roller ekranından
+			// sahaya da verilebilir; siparişi görmek procurement.read ister).
+			r.Group(func(r chi.Router) {
+				r.Use(projPerm(domain.PermProjectsProcurementReceive))
+				r.Post("/{id}/purchase-orders/{poId}/receipts", d.Projects.CreatePurchaseReceipt)
+				r.Post("/{id}/purchase-receipts/{receiptId}/void", d.Projects.VoidPurchaseReceipt)
+			})
 
 			// --- Sprint 5: Taşeron Yönetimi -- Subcontract + SOV + Subcontract
 			// Change Order + Progress Claim (Hakediş). Cost Control'ün MALİYET

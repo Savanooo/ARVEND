@@ -14,6 +14,7 @@ import '../budget/data/budget_providers.dart';
 import '../budget/domain/budget.dart' show formatTrDecimalInput, kBudgetReadPermission, kCostCodesReadPermission;
 import '../data/projects_providers.dart';
 import '../domain/expense_actions.dart' show kExpenseFinanceManagePermission;
+import '../domain/procurement.dart' show PurchaseOrder;
 import '../domain/project.dart';
 import '../my_expenses/data/my_expenses_repository.dart';
 import '../finance_plan/domain/finance_dates.dart' show parseAmountInput, parseApiDate;
@@ -80,6 +81,7 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
   late String? _changeOrderId = widget.initial?.changeOrderId;
   late String? _budgetLineId = widget.initial?.budgetLineId;
   late String? _costCodeId = widget.initial?.costCodeId;
+  late String? _purchaseOrderId = widget.initial?.purchaseOrderId;
 
   /// KDV oranı (%); null = belirtilmedi (sunucuda NULL, tutarın tamamı
   /// maliyet sayılır).
@@ -165,6 +167,7 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
           costCodeId: link(_costCodeId),
           vatRate: _vatRate,
           idempotencyKey: _idempotencyKey,
+          purchaseOrderId: canLink ? _purchaseOrderId : null,
         );
       } else {
         expense = await repo.updateExpense(
@@ -182,6 +185,8 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
           budgetLineId: link(_budgetLineId),
           costCodeId: link(_costCodeId),
           vatRate: _vatRate,
+          // Yetkisi olmayan düzenlemede alan gönderilmez: sunucu bağı korur.
+          purchaseOrderId: canLink ? (_purchaseOrderId ?? '') : null,
         );
       }
       if (!mounted) return;
@@ -236,6 +241,16 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
               .where((c) => c.isActive || c.id == _costCodeId)
               .toList()
         : const [];
+    // Satın alma siparişi (backend migration 0074): faturası girilen
+    // onaylı/kapatılmış sipariş; mevcut bağ listede kalır.
+    final purchaseOrders = allowed('projects.procurement.read')
+        ? (ref.watch(projectPurchaseOrdersProvider(widget.projectId)).valueOrNull ?? const <PurchaseOrder>[])
+              .where((po) =>
+                  po.status == PurchaseOrder.statusApproved ||
+                  po.status == PurchaseOrder.statusClosed ||
+                  po.id == _purchaseOrderId)
+              .toList()
+        : const <PurchaseOrder>[];
     final initial = widget.initial;
 
     return UnsavedChangesScope(
@@ -340,10 +355,36 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
                     ),
                   ],
                 ),
-                if (changeOrders.isNotEmpty || budgetLines.isNotEmpty || costCodes.isNotEmpty)
+                if (changeOrders.isNotEmpty ||
+                    budgetLines.isNotEmpty ||
+                    costCodes.isNotEmpty ||
+                    purchaseOrders.isNotEmpty)
                   AppFormSection(
                     title: 'Bağlantılar (opsiyonel)',
                     children: [
+                      if (purchaseOrders.isNotEmpty)
+                        DropdownButtonFormField<String?>(
+                          key: const ValueKey('masraf-siparis'),
+                          initialValue: purchaseOrders.any((po) => po.id == _purchaseOrderId) ? _purchaseOrderId : null,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Satın Alma Siparişi (opsiyonel)',
+                            helperText: 'Bu masraf bir siparişin faturasıysa seçin.',
+                          ),
+                          items: [
+                            const DropdownMenuItem<String?>(value: null, child: Text('Bağlı değil')),
+                            for (final po in purchaseOrders)
+                              DropdownMenuItem<String?>(
+                                value: po.id,
+                                child: Text(
+                                  '${po.poNo} · ${po.supplierName ?? po.supplierCode ?? ''}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
+                          onChanged: (v) => setState(() => _purchaseOrderId = v),
+                        ),
                       if (changeOrders.isNotEmpty)
                         DropdownButtonFormField<String?>(
                           key: const ValueKey('masraf-ek-is'),

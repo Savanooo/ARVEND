@@ -133,6 +133,10 @@ func ToDomainExpense(e sqlc.ProjectExpense) domain.Expense {
 		s := e.VoidedBy.String()
 		exp.VoidedBy = &s
 	}
+	if e.PurchaseOrderID.Valid {
+		s := e.PurchaseOrderID.String()
+		exp.PurchaseOrderID = &s
+	}
 	if e.ChangeOrderID.Valid {
 		s := e.ChangeOrderID.String()
 		exp.ChangeOrderID = &s
@@ -341,6 +345,7 @@ func ToDomainFinancialSummary(r sqlc.GetProjectFinancialSummaryRow) domain.Proje
 		PaidCost:                     NumericToFloat64(r.PaidCost),
 		AdvanceOpen:                  NumericToFloat64(r.AdvanceOpen),
 		PendingCost:                  NumericToFloat64(r.PendingCost),
+		ReceivedNotCosted:            NumericToFloat64(r.ReceivedNotCosted),
 		CommittedCost:                NumericToFloat64(r.CommittedCost),
 		RealizedGrossProfit:          NumericToFloat64(r.RealizedGrossProfit),
 		EstimatedGrossProfit:         NumericToFloat64(r.EstimatedGrossProfit),

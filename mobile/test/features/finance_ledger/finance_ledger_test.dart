@@ -432,6 +432,8 @@ void main() {
         'cost_code_id': 'cc1',
         'budget_line_id': 'bl9',
         'vat_rate': 20,
+        // Sipariş bağı da aynen geri gider (yoksa boş: bağ yok).
+        'purchase_order_id': '',
       });
       expect(find.text('Masraf güncellendi; yeniden onaya gönderildi.'), findsOneWidget);
       expect(find.text('Masrafı Düzenle'), findsNothing, reason: 'form kapandı');

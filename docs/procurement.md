@@ -526,3 +526,82 @@ Mobil tarafta bu sprintte YALNIZCA okuma görünürlüğü vardır (PR ve PO
 liste/detay) — RFQ oluşturma, teklif karşılaştırma, tedarikçi yönetimi,
 PO onayı, karmaşık düzenleme mobilde bu sprintte YOKTUR (web-first ilkesi,
 Sprint 2/3 ile aynı).
+
+## 12. Siparişten Teslim Alma (2026-10, migration 0074)
+
+§11'deki yol haritasının ilk adımı. **Mal kabulü şimdilik bir MİKTAR
+kontrolüdür: maliyet yazmaz.** Malın maliyeti siparişe bağlanan masraftan
+(alış faturası) gelir.
+
+**Teslim (irsaliye):** onaylı bir siparişe girilir.
+- Alanlar: tarih, irsaliye no, teslim yeri (şantiye ya da Stok Takibi'ndeki
+  bir depo), not.
+- Kalem başına **kabul** ve **red** miktarı (ve red nedeni) taşır.
+- Siparişin kaçıncı teslimi olduğu (`sequence_no`) tutulur.
+- Teslimler değişmez. Yanlış girilen teslim gerekçeyle iptal edilir; bu
+  yalnızca sipariş onaylıyken (kapatılmadan önce) mümkündür.
+- Aynı kişinin aynı tekrar anahtarı (`idempotency_key`) aynı teslimi döner.
+
+**Miktar kuralları (kalem başına, iptal edilen teslimler sayılmaz):**
+
+```
+bekleyen      = max(sipariş - kabul - red, 0)
+kabul tavanı  = sipariş - önceki kabuller
+```
+
+Örnek: 100 sipariş, 60 geldi, 5 hasarlı. Sonuç 55 kabul, 5 red, 40
+bekliyor. Reddedilenin yerine yenisi gelirse yeniden kabul edilebilir;
+tavan, siparişten fazlasının kabulünü engeller.
+
+**Siparişin teslim durumu:**
+- `none`: hiç teslim yok.
+- `partial`: kısmi teslim.
+- `complete`: her kalemde bekleyen 0.
+
+**Teslim alınmış, maliyeti girilmemiş:** masraf (fatura) opsiyonel
+`purchase_order_id` ile siparişe bağlanır.
+
+```
+kabul edilen değer (KDV dahil) = Σ round(kabul × birim fiyat, 2) + KDV
+                                 (siparişin toplamıyla aynı yuvarlama)
+maliyeti girilmemiş            = max(kabul edilen değer - siparişe bağlı onaylı masraflar, 0)
+```
+
+Bu tutar maliyete girmez. Kaybolmaması için sipariş detayında, sipariş
+listesinde ve proje kârlılığında (`received_not_costed`,
+`project_cost_basis`) ayrıca gösterilir.
+
+**İptal ve kapatma (§5.3'ün güncellemesi):**
+- Teslim alınmış sipariş **iptal edilemez** (`409`). Gelmeyecek kısmı
+  bırakmak için sipariş **kapatılır**.
+- Teslim kaydı olan sipariş kapatılırken her kalemin taahhüdü kabul
+  edilen değere (KDV hariç) iner:
+  - Eski taahhüt gerekçeyle iptal edilir.
+  - Kabul edilen tutarla yenisi açılır.
+  - Hiç kabul edilmeyen kalemin taahhüdü düşer.
+  - Sonuç: gelmeyen kısım taahhütten çıkar, teslim alınan kalır.
+- Hiç teslim kaydı olmayan sipariş kapatılınca taahhüde dokunulmaz.
+  Teslim alma öncesindeki davranış budur: kapatılan sipariş tamamen gelmiş
+  sayılır.
+
+**İzin:** `projects.procurement.receive` (Finans kategorisi).
+- Sahip/Yönetici, Finans, Proje Yöneticisi ve Eski Sistem varsayılan alır.
+- Saha varsayılan almaz. Roller ekranından, siparişi görme
+  (`projects.procurement.read`) ile birlikte verilebilir.
+
+**Uçlar:**
+- `POST /projects/{id}/purchase-orders/{poId}/receipts`
+- `POST /projects/{id}/purchase-receipts/{receiptId}/void`
+- Sipariş detayı `receipts`, `receipt_summary` ve kalem başına
+  `accepted_quantity` / `rejected_quantity` / `waiting_quantity` döner.
+- Sipariş listesi `receipt_status` ve `received_not_costed` döner.
+
+**Bilerek ertelenenler:**
+- Depoya teslimde Stok Takibi'ne otomatik giriş fişi kesilmez. Stok
+  sarfının proje maliyeti olup olmayacağı ürün sahibinin kararını
+  bekliyor. O zamana kadar depoya alınan malzeme ayrıca masraf olarak
+  girilmemeli.
+- İrsaliye fotoğrafı eklenmez.
+- Tedarikçi faturası ayrı bir belge değildir: masraf + sipariş bağı
+  kullanılır. Mükerrer fatura kontrolü (tedarikçi + fatura no / e-belge
+  UUID) fatura belgesiyle birlikte gelecek.

@@ -77,6 +77,8 @@ func rbacCleanupOrg(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		// cleanupOrganization İLE AYNI sıra/gerekçe (bkz. o dosyadaki yorum):
 		// purchase_orders -> rfqs.awarded_quotation_id NULL'a çek ->
 		// supplier_quotations -> rfqs -> purchase_requests -> suppliers.
+		"DELETE FROM purchase_receipt_items WHERE organization_id = $1",
+		"DELETE FROM purchase_receipts WHERE organization_id = $1",
 		"DELETE FROM purchase_orders WHERE organization_id = $1",
 		"UPDATE rfqs SET awarded_quotation_id = NULL WHERE organization_id = $1",
 		"DELETE FROM supplier_quotations WHERE organization_id = $1",

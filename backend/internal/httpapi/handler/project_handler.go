@@ -408,7 +408,11 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 	var notFound *service.NotFoundError
+	var exceeds *service.ErrReceiptExceedsOrder
 	switch {
+	case errors.As(err, &exceeds):
+		// Kabul tavanı (sipariş - önceki kabuller) aşıldı: kayda bağlı, 409.
+		httpjson.Error(w, http.StatusConflict, exceeds.Error())
 	case errors.As(err, &notFound):
 		// İstekte gönderilen bir referans (bütçe kalemi, tedarikçi, SOV
 		// kalemi...) bulunamadı -- "proje bulunamadı" yanıltıcı olurdu.
@@ -549,6 +553,12 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrInvalidProfitPercent),
 		errors.Is(err, service.ErrInvalidExpenseVATRate),
 		errors.Is(err, service.ErrInvalidPaymentKind),
+		errors.Is(err, service.ErrInvalidPurchaseOrderRef),
+		errors.Is(err, service.ErrReceiptItemsRequired),
+		errors.Is(err, service.ErrReceiptInvalidQuantity),
+		errors.Is(err, service.ErrReceiptDuplicateItem),
+		errors.Is(err, service.ErrReceiptInvalidDestination),
+		errors.Is(err, service.ErrReceiptReasonRequired),
 		errors.Is(err, service.ErrInvalidAmount):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, service.ErrOfferNotAccepted),
@@ -557,6 +567,11 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrCurrencyMismatch),
 		errors.Is(err, service.ErrAlreadyVoided),
 		errors.Is(err, service.ErrNotOpenAdvance),
+		errors.Is(err, service.ErrPurchaseOrderNotReceivable),
+		errors.Is(err, service.ErrReceiptWarehouseInactive),
+		errors.Is(err, service.ErrReceiptIdempotencyKeyInUse),
+		errors.Is(err, service.ErrReceiptNotVoidable),
+		errors.Is(err, service.ErrPurchaseOrderHasReceipts),
 		errors.Is(err, service.ErrDuplicateMember),
 		errors.Is(err, service.ErrDuplicateContent),
 		errors.Is(err, service.ErrChangeOrderNotEditable),
