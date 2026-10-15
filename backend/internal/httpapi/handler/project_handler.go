@@ -418,7 +418,8 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, service.ErrProjectHasRecords),
 		errors.Is(err, service.ErrProjectDeleteAlreadyRequested),
 		errors.Is(err, service.ErrProjectDeleteRequestNotFound),
-		errors.Is(err, service.ErrSubcontractorCardArchived):
+		errors.Is(err, service.ErrSubcontractorCardArchived),
+		errors.Is(err, service.ErrDailyReportAlreadySubmitted):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrProjectDeleteRequestNotOwn):
 		httpjson.Error(w, http.StatusForbidden, err.Error())

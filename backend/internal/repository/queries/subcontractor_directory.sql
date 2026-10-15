@@ -139,3 +139,29 @@ SET voided_at = now(), voided_by = sqlc.narg(voided_by), void_reason = sqlc.arg(
 WHERE id = sqlc.arg(id) AND organization_id = sqlc.arg(organization_id) AND supplier_id = sqlc.arg(supplier_id)
   AND voided_at IS NULL
 RETURNING *;
+
+-- name: ListSubcontractorRemainingTotals :many
+-- Kart başına, para birimi başına kalan borç: projelerdeki işlerin
+-- (iptal edilmemiş basit kayıtlar, yürürlükteki/tamamlanmış sözleşmeler)
+-- sözleşme bedeli eksi geçerli ödemeler, işi başına sıfırın altına inmez.
+WITH eng AS (
+    SELECT s.supplier_id, s.project_id, s.currency, s.contract_amount AS contract,
+           COALESCE((SELECT sum(x.amount) FROM project_subcontractor_payments x
+                     WHERE x.subcontractor_id = s.id AND x.voided_at IS NULL), 0) AS paid
+    FROM project_subcontractors s
+    WHERE s.organization_id = sqlc.arg(organization_id)::uuid AND s.supplier_id IS NOT NULL
+      AND s.status <> 'cancelled'
+    UNION ALL
+    SELECT c.supplier_id, c.project_id, c.currency, c.original_amount,
+           COALESCE((SELECT sum(x.amount) FROM subcontract_payments x
+                     WHERE x.subcontract_id = c.id AND x.voided_at IS NULL), 0)
+    FROM project_subcontracts c
+    WHERE c.organization_id = sqlc.arg(organization_id)::uuid AND c.status IN ('active', 'completed')
+)
+SELECT supplier_id, currency, COALESCE(sum(GREATEST(contract - paid, 0)), 0)::numeric(18,2) AS remaining_total
+FROM eng
+WHERE sqlc.narg(restrict_to_user_id)::uuid IS NULL OR EXISTS (
+    SELECT 1 FROM project_users pu
+    WHERE pu.project_id = eng.project_id AND pu.user_id = sqlc.narg(restrict_to_user_id)::uuid)
+GROUP BY supplier_id, currency
+ORDER BY supplier_id, currency;

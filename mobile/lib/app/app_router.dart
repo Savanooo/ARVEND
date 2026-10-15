@@ -36,6 +36,7 @@ import '../features/profile/presentation/profile_screen.dart';
 import '../features/projects/activity/activity_routes.dart' show projectActivityRoutes;
 import '../features/projects/budget/budget_routes.dart' show budgetRoutes;
 import '../features/projects/contract_co/contract_co_routes.dart' show contractCoRoutes;
+import '../features/projects/daily_report/daily_report_routes.dart' show dailyReportRoutes;
 import '../features/projects/finance_plan/finance_plan_routes.dart' show financePlanRoutes;
 import '../features/projects/ops_team/ops_team_routes.dart' show opsTeamRoutes;
 import '../features/projects/my_expenses/presentation/my_expenses_screen.dart';
@@ -216,6 +217,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                     ...financePlanRoutes, // odeme-plani, odeme-plani/{yeni,:itemId,:itemId/duzenle}, faturalar/{yeni,:invoiceId}
                     ...opsTeamRoutes, // planlama, planlama/{yeni,:itemId,:itemId/duzenle}, ekip, erisim
                     ...projectActivityRoutes, // aktivite (web Aktivite sekmesi)
+                    ...dailyReportRoutes, // gunluk-rapor, gunluk-rapor/:date
                     GoRoute(
                       path: 'gorevler/yeni',
                       builder: (context, state) => TaskFormScreen(

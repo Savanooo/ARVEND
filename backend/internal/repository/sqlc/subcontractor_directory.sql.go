@@ -462,6 +462,64 @@ func (q *Queries) ListSubcontractorPaidTotals(ctx context.Context, arg ListSubco
 	return items, nil
 }
 
+const listSubcontractorRemainingTotals = `-- name: ListSubcontractorRemainingTotals :many
+WITH eng AS (
+    SELECT s.supplier_id, s.project_id, s.currency, s.contract_amount AS contract,
+           COALESCE((SELECT sum(x.amount) FROM project_subcontractor_payments x
+                     WHERE x.subcontractor_id = s.id AND x.voided_at IS NULL), 0) AS paid
+    FROM project_subcontractors s
+    WHERE s.organization_id = $2::uuid AND s.supplier_id IS NOT NULL
+      AND s.status <> 'cancelled'
+    UNION ALL
+    SELECT c.supplier_id, c.project_id, c.currency, c.original_amount,
+           COALESCE((SELECT sum(x.amount) FROM subcontract_payments x
+                     WHERE x.subcontract_id = c.id AND x.voided_at IS NULL), 0)
+    FROM project_subcontracts c
+    WHERE c.organization_id = $2::uuid AND c.status IN ('active', 'completed')
+)
+SELECT supplier_id, currency, COALESCE(sum(GREATEST(contract - paid, 0)), 0)::numeric(18,2) AS remaining_total
+FROM eng
+WHERE $1::uuid IS NULL OR EXISTS (
+    SELECT 1 FROM project_users pu
+    WHERE pu.project_id = eng.project_id AND pu.user_id = $1::uuid)
+GROUP BY supplier_id, currency
+ORDER BY supplier_id, currency
+`
+
+type ListSubcontractorRemainingTotalsParams struct {
+	RestrictToUserID pgtype.UUID `json:"restrict_to_user_id"`
+	OrganizationID   pgtype.UUID `json:"organization_id"`
+}
+
+type ListSubcontractorRemainingTotalsRow struct {
+	SupplierID     pgtype.UUID    `json:"supplier_id"`
+	Currency       string         `json:"currency"`
+	RemainingTotal pgtype.Numeric `json:"remaining_total"`
+}
+
+// Kart başına, para birimi başına kalan borç: projelerdeki işlerin
+// (iptal edilmemiş basit kayıtlar, yürürlükteki/tamamlanmış sözleşmeler)
+// sözleşme bedeli eksi geçerli ödemeler, işi başına sıfırın altına inmez.
+func (q *Queries) ListSubcontractorRemainingTotals(ctx context.Context, arg ListSubcontractorRemainingTotalsParams) ([]ListSubcontractorRemainingTotalsRow, error) {
+	rows, err := q.db.Query(ctx, listSubcontractorRemainingTotals, arg.RestrictToUserID, arg.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSubcontractorRemainingTotalsRow
+	for rows.Next() {
+		var i ListSubcontractorRemainingTotalsRow
+		if err := rows.Scan(&i.SupplierID, &i.Currency, &i.RemainingTotal); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const nextSubcontractorCodeNumber = `-- name: NextSubcontractorCodeNumber :one
 SELECT (COALESCE(max(substring(code FROM 5)::int), 0) + 1)::int AS next
 FROM suppliers

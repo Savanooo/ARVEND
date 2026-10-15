@@ -96,6 +96,9 @@ const (
 	NotificationProjectDeleteRequested = "project_delete_requested"
 	NotificationProjectDeleteApproved  = "project_delete_approved"
 	NotificationProjectDeleteRejected  = "project_delete_rejected"
+	// Günlük şantiye raporu gönderildi (migration 0071): projenin
+	// yöneticilerine, gönderen hariç.
+	NotificationDailyReportSubmitted = "daily_report_submitted"
 )
 
 // Varlık türleri -- mobil/web istemcinin ActionTarget'ı yorumlamadan,

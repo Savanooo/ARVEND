@@ -8,7 +8,9 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/app_section_header.dart';
 import '../../../../core/widgets/quick_action_button.dart';
 import '../../../customers/presentation/customer_form_sheet.dart';
+import '../../../projects/daily_report/daily_report_paths.dart';
 import '../../../projects/finance_ledger/data/finance_ledger_providers.dart' show invalidateProjectLedger;
+import '../../../projects/ops_team/domain/ops_dates.dart' show formatDay, istanbulToday;
 import '../../../projects/presentation/collection_form_sheet.dart';
 import '../../../projects/my_expenses/presentation/add_expense_flow.dart';
 import '../../../projects/presentation/note_form_sheet.dart';
@@ -133,6 +135,7 @@ Future<void> _runQuickAction(
     case QuickActionKey.purchaseRequest:
     case QuickActionKey.task:
     case QuickActionKey.note:
+    case QuickActionKey.dailyReport:
       break;
   }
 
@@ -154,6 +157,8 @@ Future<void> _runQuickAction(
       openPage('/projeler/${project.id}/satin-alma/talepler/yeni');
     case QuickActionKey.task:
       openPage('/projeler/${project.id}/gorevler/yeni');
+    case QuickActionKey.dailyReport:
+      openPage(dailyReportPath(project.id, formatDay(istanbulToday())!));
     default:
       break;
   }

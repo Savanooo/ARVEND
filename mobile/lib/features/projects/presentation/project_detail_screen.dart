@@ -39,6 +39,7 @@ import '../activity/activity_routes.dart' show projectActivityPath;
 import '../budget/budget_routes.dart' show budgetSections;
 import '../budget/presentation/widgets/budget_ui.dart' show formatBudgetPercent;
 import '../contract_co/contract_co_sections.dart' show ContractCoSectionEntry, contractCoSections;
+import '../daily_report/presentation/daily_reports_tab.dart' show DailyReportsTab;
 import '../data/projects_providers.dart';
 import '../domain/project.dart';
 import '../domain/project_lock_text.dart';
@@ -200,6 +201,14 @@ final List<_SubViewDef> _operasyonViews = [
     navWord: 'görevler',
     visible: (user) => _failOpen(user, 'projects.tasks.read'),
     builder: (id, p) => _OperationsTab(projectId: id, locked: isProjectClosed(p.status)),
+  ),
+  // Günlük şantiye raporu (backend migration 0071) -- operasyon izni.
+  _SubViewDef(
+    alt: 'gunluk-rapor',
+    label: 'Günlük Rapor',
+    navWord: 'günlük rapor',
+    visible: (user) => _failOpen(user, 'projects.operations.read'),
+    builder: (id, p) => DailyReportsTab(projectId: id, locked: isProjectClosed(p.status)),
   ),
   for (final s in opsTeamSections)
     _SubViewDef(

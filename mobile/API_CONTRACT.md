@@ -364,14 +364,16 @@ A subcontractor card is a `suppliers` row with `is_subcontractor=true`. Supplier
 - Responses carry `supplier_id`.
 
 **Endpoints**
-- `GET /subcontractors` (`organization.suppliers.read`) → `{subcontractors: [supplier + paid_totals?], can_see_totals}`.
+- `GET /subcontractors` (`organization.suppliers.read`) → `{subcontractors: [supplier + paid_totals? + remaining_totals?], can_see_totals}`.
   - `paid_totals: [{currency, amount}]` sums non-voided simple project payments, contract subcontract payments and direct payments.
+  - `remaining_totals: [{currency, amount}]` (since 1.5.18, migration 0071 release) sums, per job, `max(contract − paid, 0)` over non-cancelled simple project subcontractors and active/completed subcontracts (`original_amount`, same as the ledger). Currencies with zero remaining are omitted.
   - Totals are returned only to holders of `projects.finance.read`. For membership-restricted roles, project payments count only from member projects.
 - `POST /subcontractors` (`organization.suppliers.manage`) takes the supplier body. An empty `code` gets `TSR-NNNN`.
 - `POST /subcontractors/{id}/mark` (`organization.suppliers.manage`) flags an existing catalog supplier as a subcontractor.
 - `GET /subcontractors/{id}/ledger` (`organization.suppliers.read` + `projects.finance.read`) → `{subcontractor, engagements, payments, paid_totals}`.
   - `engagements`: `{kind: simple|contract, id, project_id/name/no/status, title, status, currency, contract_amount, paid_amount, remaining_amount}`.
   - `payments` (voided included, newest first, max 500): `{source: simple|contract|direct, id, project_id?, project_name, project_no, engagement_id?, amount, currency, paid_date, description, voided_at?, void_reason}`.
+  - `site_days` (since 1.5.18; newest first, max 90): `{report_date, project_id, project_name, project_no, workers, work_note}` from daily site reports. Membership-restricted roles see member projects only.
 - `POST /subcontractors/{id}/payments` `{amount, currency?, paid_date, description?, idempotency_key}` (`projects.finance.manage`) records a non-project (direct) payment. An archived card → 409.
 - `POST /subcontractors/{id}/payments/{paymentId}/void` `{reason?}` (`projects.finance.manage`). Voiding an already voided or unknown payment → 404.
 
@@ -379,6 +381,24 @@ A subcontractor card is a `suppliers` row with `is_subcontractor=true`. Supplier
 - Diğer → "Taşeronlar" (`/diger/taseronlar`, `/diger/taseronlar/:id`).
 - On the ledger screen, "Ödeme Yap" lets the user pick either a non-project payment or one of the card's simple project jobs. Project jobs go to `POST /projects/{pid}/subcontractors/{sid}/payments`.
 - The project "Taşeron Ekle" form has a card picker.
+- 1.5.18: the list shows "Kalan" (remaining_totals); the ledger shows "Sahada Çalıştığı Günler" (tap → that day's report), tap-to-call on the phone, and "Kartı düzenle" (`organization.suppliers.manage`, reuses the supplier form → `PUT /suppliers/{id}`).
+
+## Daily site report / Günlük Şantiye Raporu (since 2026-10-15, migration 0071; mobile 1.5.18)
+
+One report per project per day (`UNIQUE(project_id, report_date)`). Read and PDF = `projects.operations.read`; save and submit = `projects.operations.manage` (all `projPerm`, project access required). `{date}` is `YYYY-MM-DD`; a malformed date → 400.
+- `GET /projects/{id}/daily-reports` → `{reports: [{id, report_date, weather, temperature_c?, own_workers, subcontractor_workers, status, work_done, created_by_name, photo_count}], today}` (newest first, max 120; `today` is the Istanbul date). Another org's project → 404.
+- `GET /projects/{id}/daily-reports/{date}` → always 200. `{exists, id, project_id, report_date, weather, temperature_c?, own_workers, work_done, issues, materials, notes, status: draft|submitted, submitted_at?, submitted_by_name, created_by_name, updated_at?, subcontractors: [{supplier_id, name, specialty, workers, work_note}], suggested_own_workers, completed_tasks: [{id, title, assigned_name}], photos: [{id, stage, description}], subcontractor_options: [{supplier_id, name, specialty}]}`.
+  - `exists=false`: the day has no report yet; the auto fields are still filled.
+  - `suggested_own_workers`: project team members (`project_members` active that day) whose attendance is `geldi` or `yarım gün`.
+  - `completed_tasks` / `photos`: tasks completed / photos uploaded on that Istanbul day.
+  - `subcontractor_options`: active cards linked to the project (simple job not cancelled, subcontract not cancelled/terminated) or used in its earlier reports. The field role has no `organization.suppliers.read`, so the app's picker uses this list.
+- `PUT /projects/{id}/daily-reports/{date}` `{weather: ''|sunny|cloudy|rainy|snowy|windy, temperature_c?: -50..60, own_workers: 0..10000, work_done, issues, materials, notes (≤4000 chars each), subcontractors: [{supplier_id, workers, work_note ≤300}] (≤30)}` → the report. Upsert; the subcontractor list is replaced as a whole. A future date, a bad value or a duplicate card → 400; an unknown/other-org card → 404; a completed/cancelled project → 409. A submitted report stays submitted when edited.
+- `POST /projects/{id}/daily-reports/{date}/submit` → the report. No report for that day → 404; already submitted → 409. Notifies the project's managers (firm Sahip/Yönetici + `projects.update` holders on the access list), except the sender: type `daily_report_submitted`, target `/projeler/{id}/gunluk-rapor/{date}`. Writes project event `daily_report_submitted` (feed: `projects.operations.read`).
+- `GET /projects/{id}/daily-reports/{date}/pdf` → `application/pdf` (`Gunluk-Rapor-<project_no>-<date>.pdf`). Up to 6 JPEG/PNG photos of the day, downscaled to 1400 px. No report → 404.
+
+**Mobile**
+- Project → Operasyon → "Günlük Rapor" (`?grup=operasyon&alt=gunluk-rapor`), full screens `/projeler/:id/gunluk-rapor` and `/projeler/:id/gunluk-rapor/:date`.
+- Home quick action "Günlük Rapor" (`projects.operations.manage`): pick a project → today's report.
 
 ## Calculations (`requireAuth`; read = `calculations.read`, group/category/recipe-item CUD = `calculations.manage` — no coarse admin gate any more)
 - Recipe admin (mobile Diğer > Metraj Reçeteleri, `lib/features/calc_admin/`, since 1.3.0+4): `POST /calculations/groups`, `PUT /calculations/groups/{id}`, `POST /calculations/categories`, `PUT /calculations/categories/{id}`, `POST/PUT/DELETE /calculations/recipe-items[/{id}]`. Group/category edits send the existing `image_file_id` back unchanged. Deactivating a group/category hides it (lists return active only). The product picker pages `GET /products` (limit 200) only with `products.read`.

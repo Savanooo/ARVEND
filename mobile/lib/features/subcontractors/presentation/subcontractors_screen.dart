@@ -151,6 +151,8 @@ class _CardRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final paid = card.paidTotals.map((t) => Formatters.money(t.amount, currency: t.currency)).join(' + ');
+    final remaining =
+        card.remainingTotals.map((t) => Formatters.money(t.amount, currency: t.currency)).join(' + ');
     return AppCard(
       margin: const EdgeInsets.only(bottom: AppSpacing.sm),
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -179,6 +181,12 @@ class _CardRow extends StatelessWidget {
                   paid.isEmpty ? Formatters.money(0) : paid,
                   style: AppTypography.body.copyWith(fontWeight: FontWeight.w700),
                 ),
+                if (remaining.isNotEmpty)
+                  Text(
+                    'Kalan $remaining',
+                    key: ValueKey('taseron-kalan-${card.id}'),
+                    style: AppTypography.helper.copyWith(color: AppColors.warning, fontWeight: FontWeight.w600),
+                  ),
               ],
             ),
           ],

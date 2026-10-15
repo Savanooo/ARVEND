@@ -98,6 +98,7 @@ func rbacCleanupOrg(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		// suppliers'tan ÖNCE.
 		"DELETE FROM project_subcontractor_payments WHERE organization_id = $1",
 		"DELETE FROM project_subcontractors WHERE organization_id = $1",
+		"DELETE FROM project_daily_report_subcontractors WHERE organization_id = $1",
 		"DELETE FROM subcontractor_direct_payments WHERE organization_id = $1",
 		"DELETE FROM suppliers WHERE organization_id = $1",
 		"DELETE FROM projects WHERE organization_id = $1",

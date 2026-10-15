@@ -215,7 +215,7 @@ void main() {
       }
     });
 
-    testWidgets('saha: Nakit Akışı yok, Görevlerim var, BÖLÜMLER, yalnızca masraf + "Not Ekle", hiç para yok', (
+    testWidgets('saha: Nakit Akışı yok, Görevlerim var, BÖLÜMLER, yalnızca masraf + "Günlük Rapor" + "Not Ekle", hiç para yok', (
       tester,
     ) async {
       await _pump(tester, user: fieldUser, script: _script(fixtureJson('field')));
@@ -225,7 +225,12 @@ void main() {
       expect(find.text('BÖLÜMLER'), findsOneWidget);
       expect(find.text('NAKİT & SATIŞ'), findsNothing);
       // Masrafı herkes girer (backend 0066); finans izni olmadan.
-      const fieldActions = {QuickActionKey.expense, QuickActionKey.myExpenses, QuickActionKey.note};
+      const fieldActions = {
+        QuickActionKey.expense,
+        QuickActionKey.myExpenses,
+        QuickActionKey.dailyReport,
+        QuickActionKey.note,
+      };
       for (final a in fieldActions) {
         expect(find.text(a.label), findsOneWidget, reason: a.label);
       }

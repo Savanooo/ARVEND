@@ -91,4 +91,18 @@ type SubcontractorLedgerPayment struct {
 type SubcontractorCard struct {
 	Supplier
 	PaidTotals []MoneyAmount
+	// RemainingTotals: para birimi başına kalan borç (yürürlükteki işlerin
+	// bedeli eksi ödenen, iş başına sıfırın altına inmez).
+	RemainingTotals []MoneyAmount
+}
+
+// SubcontractorSiteDay: taşeronun sahada çalıştığı bir gün (günlük şantiye
+// raporundan, migration 0071).
+type SubcontractorSiteDay struct {
+	ReportDate  time.Time
+	ProjectID   string
+	ProjectName string
+	ProjectNo   string
+	Workers     int
+	WorkNote    string
 }

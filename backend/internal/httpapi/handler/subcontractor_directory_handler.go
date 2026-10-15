@@ -28,6 +28,8 @@ type subcontractorCardResponse struct {
 	// PaidTotals: para birimi başına ödenen (iptaller hariç) -- yalnızca
 	// finans okuyabilene; diğerlerinde alan gelmez.
 	PaidTotals []moneyAmountResponse `json:"paid_totals,omitempty"`
+	// RemainingTotals: para birimi başına kalan borç -- aynı kural.
+	RemainingTotals []moneyAmountResponse `json:"remaining_totals,omitempty"`
 }
 
 // ListSubcontractorCards: GET /subcontractors.
@@ -52,6 +54,10 @@ func (h *SupplierHandler) ListSubcontractorCards(w http.ResponseWriter, r *http.
 			out[i].PaidTotals = make([]moneyAmountResponse, len(c.PaidTotals))
 			for j, t := range c.PaidTotals {
 				out[i].PaidTotals[j] = moneyAmountResponse{Currency: t.Currency, Amount: t.Amount}
+			}
+			out[i].RemainingTotals = make([]moneyAmountResponse, len(c.RemainingTotals))
+			for j, t := range c.RemainingTotals {
+				out[i].RemainingTotals[j] = moneyAmountResponse{Currency: t.Currency, Amount: roundMoney(t.Amount)}
 			}
 		}
 	}
@@ -119,6 +125,16 @@ type subcontractorLedgerPaymentResponse struct {
 	VoidReason   string  `json:"void_reason"`
 }
 
+// subcontractorSiteDayResponse: günlük raporlardan sahada çalıştığı gün.
+type subcontractorSiteDayResponse struct {
+	ReportDate  string `json:"report_date"`
+	ProjectID   string `json:"project_id"`
+	ProjectName string `json:"project_name"`
+	ProjectNo   string `json:"project_no"`
+	Workers     int    `json:"workers"`
+	WorkNote    string `json:"work_note"`
+}
+
 func nonEmptyPtr(s string) *string {
 	if s == "" {
 		return nil
@@ -178,11 +194,19 @@ func (h *SupplierHandler) GetSubcontractorLedger(w http.ResponseWriter, r *http.
 	for _, c := range order {
 		paid = append(paid, moneyAmountResponse{Currency: c, Amount: roundMoney(totals[c])})
 	}
+	siteDays := make([]subcontractorSiteDayResponse, len(ledger.SiteDays))
+	for i, d := range ledger.SiteDays {
+		siteDays[i] = subcontractorSiteDayResponse{
+			ReportDate: d.ReportDate.Format(dateLayout), ProjectID: d.ProjectID, ProjectName: d.ProjectName,
+			ProjectNo: d.ProjectNo, Workers: d.Workers, WorkNote: d.WorkNote,
+		}
+	}
 	httpjson.Write(w, http.StatusOK, map[string]any{
 		"subcontractor": toSupplierResponse(ledger.Card),
 		"engagements":   engagements,
 		"payments":      payments,
 		"paid_totals":   paid,
+		"site_days":     siteDays,
 	})
 }
 

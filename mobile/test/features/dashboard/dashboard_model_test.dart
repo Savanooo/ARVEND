@@ -523,13 +523,18 @@ void main() {
         'Masraf Takibi',
         'Mesai Gir',
         'Satın Alma',
+        'Günlük Rapor',
         'Görev Ekle',
         'Not Ekle',
         'Müşteri Ekle',
         'Metraj Hesapla',
       ]);
       // Masrafı herkes girer (backend 0066): Saha da girer ve Masraflarım'ı görür.
-      expect(quickActionsFor(fieldUser).map((a) => a.label), ['Masraf Gir', 'Masraf Takibi', 'Not Ekle']);
+      // Günlük şantiye raporu (backend 0071) operasyon yazma izniyle: Saha yazar.
+      expect(
+        quickActionsFor(fieldUser).map((a) => a.label),
+        ['Masraf Gir', 'Masraf Takibi', 'Günlük Rapor', 'Not Ekle'],
+      );
       expect(
         quickActionsFor(financeUser).map((a) => a.label),
         ['Tahsilat Gir', 'Masraf Gir', 'Masraf Takibi', 'Satın Alma'],

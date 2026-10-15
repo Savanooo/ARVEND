@@ -47,6 +47,7 @@ const kProjectEventLabels = <String, String>{
   'photo_uploaded': 'Şantiye fotoğrafı yüklendi',
   'photo_removed': 'Şantiye fotoğrafı silindi',
   'note_added': 'Not eklendi',
+  'daily_report_submitted': 'Günlük rapor gönderildi',
   // Faz 8: ek iş (değişiklik emri) olayları.
   'change_order_created': 'Ek iş oluşturuldu',
   'change_order_updated': 'Ek iş güncellendi',

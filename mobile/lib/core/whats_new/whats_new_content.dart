@@ -44,6 +44,27 @@ class WhatsNewRelease {
 
 /// En yeni sürüm en üstte.
 const kWhatsNewReleases = <WhatsNewRelease>[
+  // Günlük şantiye raporu (backend 0071); Taşeronlar'da kalan borç,
+  // sahada çalıştığı günler, kart düzenleme ve arama.
+  WhatsNewRelease(
+    build: 25,
+    version: '1.5.18',
+    items: [
+      WhatsNewItem(
+        icon: Icons.assignment_outlined,
+        title: 'Günlük şantiye raporu',
+        body: 'Her gün hava, ekip ve taşeron sayısı, yapılan işleri yaz; o günün görev ve fotoğrafları kendiliğinden eklenir. '
+            'Gönderince yöneticine bildirim gider, PDF olarak paylaşırsın.',
+        permission: 'projects.operations.manage',
+      ),
+      WhatsNewItem(
+        icon: Icons.engineering_outlined,
+        title: 'Taşeronda kalan borç',
+        body: 'Taşeronlar listesinde kalan borcu, taşeronun sayfasında sahada çalıştığı günleri görürsün; telefonuna dokunup ararsın.',
+        permission: 'organization.suppliers.read',
+      ),
+    ],
+  ),
   // Proje silme (backend 0070); Ana Sayfa "Masraf Gir" genel masrafı da
   // sorar. Build 23 yalnızca TestFlight'a gitti, mağazaya 24 çıkar.
   WhatsNewRelease(

@@ -674,6 +674,35 @@ type ProjectCounter struct {
 	Seq            int32       `json:"seq"`
 }
 
+type ProjectDailyReport struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	ReportDate     pgtype.Date        `json:"report_date"`
+	Weather        string             `json:"weather"`
+	TemperatureC   *int16             `json:"temperature_c"`
+	OwnWorkers     int32              `json:"own_workers"`
+	WorkDone       string             `json:"work_done"`
+	Issues         string             `json:"issues"`
+	Materials      string             `json:"materials"`
+	Notes          string             `json:"notes"`
+	Status         string             `json:"status"`
+	SubmittedAt    pgtype.Timestamptz `json:"submitted_at"`
+	SubmittedBy    pgtype.UUID        `json:"submitted_by"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	UpdatedBy      pgtype.UUID        `json:"updated_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProjectDailyReportSubcontractor struct {
+	ReportID       pgtype.UUID `json:"report_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	SupplierID     pgtype.UUID `json:"supplier_id"`
+	Workers        int32       `json:"workers"`
+	WorkNote       string      `json:"work_note"`
+}
+
 type ProjectDeleteRequest struct {
 	ID             pgtype.UUID        `json:"id"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`

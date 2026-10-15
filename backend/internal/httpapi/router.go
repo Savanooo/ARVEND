@@ -575,6 +575,10 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/{id}/photos", d.Projects.ListPhotos)
 				r.Get("/{id}/photos/{photoId}/content", d.Projects.DownloadPhoto)
 				r.Get("/{id}/notes", d.Projects.ListNotes)
+				// Günlük şantiye raporu (migration 0071).
+				r.Get("/{id}/daily-reports", d.Projects.ListDailyReports)
+				r.Get("/{id}/daily-reports/{date}", d.Projects.GetDailyReport)
+				r.Get("/{id}/daily-reports/{date}/pdf", d.Projects.DailyReportPDF)
 			})
 			r.Group(func(r chi.Router) {
 				r.Use(projPerm(domain.PermProjectsOperationsManage))
@@ -587,6 +591,8 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/photos", d.Projects.UploadPhoto)
 				r.Delete("/{id}/photos/{photoId}", d.Projects.DeletePhoto)
 				r.Post("/{id}/notes", d.Projects.CreateNote)
+				r.Put("/{id}/daily-reports/{date}", d.Projects.SaveDailyReport)
+				r.Post("/{id}/daily-reports/{date}/submit", d.Projects.SubmitDailyReport)
 			})
 
 			// Görev/plan formlarının "kime" seçicisi: ücretsiz personel

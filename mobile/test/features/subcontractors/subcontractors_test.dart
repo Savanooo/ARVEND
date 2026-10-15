@@ -56,6 +56,10 @@ Map<String, dynamic> _cards({bool totals = true}) => {
             'paid_totals': [
               {'currency': 'TRY', 'amount': 9500},
             ],
+          if (totals)
+            'remaining_totals': [
+              {'currency': 'TRY', 'amount': 12000},
+            ],
         },
         _card('s2', 'Eski Usta', active: false),
       ],
@@ -112,6 +116,17 @@ Map<String, dynamic> _ledger() => {
       ],
       'paid_totals': [
         {'currency': 'TRY', 'amount': 9500},
+      ],
+      'site_days': [
+        for (var d = 14; d >= 8; d--)
+          {
+            'report_date': '2026-10-${d.toString().padLeft(2, '0')}',
+            'project_id': 'p1',
+            'project_name': 'Kadıköy Konut',
+            'project_no': 'PRJ-2026-0007',
+            'workers': 3,
+            'work_note': d == 14 ? 'pano montajı' : '',
+          },
       ],
     };
 
@@ -172,6 +187,14 @@ void main() {
     expect(find.text('Eski Usta'), findsOneWidget);
   });
 
+  testWidgets('listede kalan borç finans okuyana görünür', (tester) async {
+    await _pump(tester, user: _admin, script: {
+      '/subcontractors': [(status: 200, body: _cards())],
+    });
+    expect(find.byKey(const ValueKey('taseron-kalan-s1')), findsOneWidget);
+    expect(find.textContaining('Kalan 12.000'), findsOneWidget);
+  });
+
   testWidgets('finans okuyamayan toplam görmez, yeni taşeron ekleyemez', (tester) async {
     await _pump(tester, user: _readerNoFinance, script: {
       '/subcontractors': [(status: 200, body: _cards(totals: false))],
@@ -213,6 +236,35 @@ void main() {
     expect(find.textContaining('Proje dışı'), findsOneWidget);
     expect(find.textContaining('PRJ-2026-0007 · Kadıköy Konut'), findsWidgets);
     expect(find.byKey(const ValueKey('taseron-toplam-odenen')), findsOneWidget);
+  });
+
+  testWidgets('taşeron sayfası sahada çalıştığı günleri, aramayı ve düzenlemeyi gösterir', (tester) async {
+    await _pump(tester, user: _admin, initial: '/diger/taseronlar/s1', script: {
+      '/subcontractors/s1/ledger': [(status: 200, body: _ledger())],
+    });
+    expect(find.text('7 gün · toplam 21 adam-gün'), findsOneWidget);
+    expect(find.byKey(const ValueKey('taseron-saha-2026-10-14-p1')), findsOneWidget);
+    expect(find.textContaining('pano montajı'), findsOneWidget);
+    // İlk 5 gün açık; "Tümünü göster" kalanları açar.
+    expect(find.byKey(const ValueKey('taseron-saha-2026-10-08-p1')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('taseron-saha-tumu')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('taseron-saha-2026-10-08-p1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('taseron-ara')), findsOneWidget);
+    expect(find.byKey(const ValueKey('taseron-karti-duzenle')), findsOneWidget);
+  });
+
+  testWidgets('tedarikçi yönetme izni olmayan kartı düzenleyemez', (tester) async {
+    final financeOnly = cc.buildUser(
+      id: 'fin',
+      roleCode: 'finance',
+      permissions: const {'organization.suppliers.read', 'projects.finance.read'},
+    );
+    await _pump(tester, user: financeOnly, initial: '/diger/taseronlar/s1', script: {
+      '/subcontractors/s1/ledger': [(status: 200, body: {..._ledger(), 'site_days': []})],
+    });
+    expect(find.byKey(const ValueKey('taseron-karti-duzenle')), findsNothing);
+    expect(find.text('Günlük raporlarda henüz görünmedi.'), findsOneWidget);
   });
 
   testWidgets('"Ödeme Yap" proje dışı ödemeyi taşeronun kendisine yazar', (tester) async {

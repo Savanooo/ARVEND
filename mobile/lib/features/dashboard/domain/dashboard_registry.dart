@@ -748,6 +748,8 @@ enum QuickActionKey {
   attendance('Mesai Gir', Icons.more_time, ['attendance.manage', 'employees.read'], needsProject: false),
   // Kısa ad: eşit genişlikli kutucukta "Satın Alma Talebi" "Satın Alma Ta…" diye kesiliyordu.
   purchaseRequest('Satın Alma', Icons.shopping_cart_outlined, ['projects.procurement.manage']),
+  // Günlük şantiye raporu (backend 0071): seçilen projenin bugünkü raporu.
+  dailyReport('Günlük Rapor', Icons.assignment_outlined, ['projects.operations.manage']),
   task('Görev Ekle', Icons.add_task, ['projects.tasks.create']),
   note('Not Ekle', Icons.sticky_note_2_outlined, ['projects.operations.manage']),
   customer('Müşteri Ekle', Icons.person_add_alt_outlined, ['customers.manage'], needsProject: false),

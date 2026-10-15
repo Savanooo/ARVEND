@@ -79,6 +79,18 @@ func (s *SupplierService) ListSubcontractorCards(ctx context.Context, organizati
 			})
 		}
 	}
+	remaining, err := s.q.ListSubcontractorRemainingTotals(ctx, sqlc.ListSubcontractorRemainingTotalsParams{
+		OrganizationID: orgID, RestrictToUserID: restrict,
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range remaining {
+		amount := repository.NumericToFloat64(t.RemainingTotal)
+		if i, ok := index[t.SupplierID]; ok && amount > 0 {
+			out[i].RemainingTotals = append(out[i].RemainingTotals, domain.MoneyAmount{Currency: t.Currency, Amount: amount})
+		}
+	}
 	return out, nil
 }
 
@@ -157,6 +169,8 @@ type SubcontractorLedger struct {
 	Card        domain.Supplier
 	Engagements []domain.SubcontractorEngagement
 	Payments    []domain.SubcontractorLedgerPayment
+	// SiteDays: günlük raporlarda sahada göründüğü günler (son 90).
+	SiteDays []domain.SubcontractorSiteDay
 }
 
 func (s *SupplierService) GetSubcontractorLedger(ctx context.Context, organizationID, supplierID, restrictToUserID string) (*SubcontractorLedger, error) {
@@ -214,6 +228,19 @@ func (s *SupplierService) GetSubcontractorLedger(ctx context.Context, organizati
 			p.VoidedAt = &t
 		}
 		out.Payments[i] = p
+	}
+	days, err := s.q.ListSubcontractorSiteDays(ctx, sqlc.ListSubcontractorSiteDaysParams{
+		OrganizationID: orgID, SupplierID: sid, RestrictToUserID: restrict,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out.SiteDays = make([]domain.SubcontractorSiteDay, len(days))
+	for i, d := range days {
+		out.SiteDays[i] = domain.SubcontractorSiteDay{
+			ReportDate: d.ReportDate.Time, ProjectID: d.ProjectID.String(), ProjectName: d.ProjectName,
+			ProjectNo: d.ProjectNo, Workers: int(d.Workers), WorkNote: d.WorkNote,
+		}
 	}
 	return out, nil
 }

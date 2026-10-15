@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/auth/permissions.dart';
@@ -20,11 +21,16 @@ import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/unsaved_changes_scope.dart';
 import '../../projects/finance_ledger/data/finance_ledger_providers.dart';
 import '../../projects/finance_plan/domain/finance_dates.dart' show parseAmountInput;
+import '../../suppliers/presentation/supplier_form_sheet.dart';
 import '../data/subcontractors_repository.dart';
 import '../domain/subcontractor.dart';
 
 const _kFinanceRead = 'projects.finance.read';
 const _kFinanceManage = 'projects.finance.manage';
+const _kSuppliersManage = 'organization.suppliers.manage';
+
+/// Sahada çalıştığı günlerden ilk kaç tanesi açık gösterilir.
+const _kSiteDaysPreview = 5;
 
 /// Taşeronun sayfası (backend GET /subcontractors/{id}/ledger): kart
 /// bilgisi, ödenen toplam, projelerdeki işleri (sözleşme / ödenen / kalan)
@@ -69,6 +75,18 @@ class SubcontractorLedgerScreen extends ConsumerWidget {
 
     return AppPageScaffold(
       title: Text(ledger?.card.legalName ?? 'Taşeron'),
+      actions: [
+        if (ledger != null && user.canAccess(_kSuppliersManage))
+          IconButton(
+            key: const ValueKey('taseron-karti-duzenle'),
+            tooltip: 'Kartı düzenle',
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: () async {
+              final saved = await showSupplierFormSheet(context, existing: ledger.card);
+              if (saved != null) await refresh();
+            },
+          ),
+      ],
       floatingActionButton: canPay && ledger != null && ledger.card.isActive
           ? FloatingActionButton.extended(
               key: const ValueKey('taseron-odeme-yap'),
@@ -99,6 +117,8 @@ class SubcontractorLedgerScreen extends ConsumerWidget {
                 )
               else
                 for (final e in l.engagements) _EngagementRow(engagement: e),
+              const SizedBox(height: AppSpacing.lg),
+              _SiteDaysSection(days: l.siteDays),
               const SizedBox(height: AppSpacing.lg),
               const AppSectionHeader(title: 'Ödemeler'),
               if (l.payments.isEmpty)
@@ -163,7 +183,7 @@ class _HeaderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = ledger.card;
-    final info = [c.specialty, c.phone, c.tradeName, if (c.ibanSet) 'IBAN kayıtlı'].where((v) => v.isNotEmpty).join(' · ');
+    final info = [c.specialty, c.tradeName, if (c.ibanSet) 'IBAN kayıtlı'].where((v) => v.isNotEmpty).join(' · ');
     final paid = ledger.paidTotals.map((t) => Formatters.money(t.amount, currency: t.currency)).join(' + ');
     return AppCard(
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -171,6 +191,22 @@ class _HeaderCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (info.isNotEmpty) Text(info, style: AppTypography.metadata),
+          if (c.phone.isNotEmpty)
+            InkWell(
+              key: const ValueKey('taseron-ara'),
+              onTap: () => launchUrl(Uri(scheme: 'tel', path: c.phone.replaceAll(' ', ''))),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.call_outlined, size: 18, color: AppColors.gold),
+                    const SizedBox(width: AppSpacing.xs),
+                    Text(c.phone, style: AppTypography.body.copyWith(color: AppColors.gold, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+            ),
           if (!c.isActive) ...[
             const SizedBox(height: AppSpacing.xs),
             const Text('Arşivde -- yeni ödeme girilemez.', style: AppTypography.helper),
@@ -184,6 +220,89 @@ class _HeaderCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Günlük raporlardan sahada çalıştığı günler: özet (gün ve adam-gün) ve
+/// en yeni [_kSiteDaysPreview] gün; "Tümü" listeyi açar. Satır o günün
+/// raporunu açar.
+class _SiteDaysSection extends StatefulWidget {
+  const _SiteDaysSection({required this.days});
+
+  final List<SubcontractorSiteDay> days;
+
+  @override
+  State<_SiteDaysSection> createState() => _SiteDaysSectionState();
+}
+
+class _SiteDaysSectionState extends State<_SiteDaysSection> {
+  bool _all = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final days = widget.days;
+    final distinct = days.map((d) => d.reportDate).toSet().length;
+    final manDays = days.fold<int>(0, (sum, d) => sum + d.workers);
+    final shown = _all ? days : days.take(_kSiteDaysPreview).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const AppSectionHeader(title: 'Sahada Çalıştığı Günler'),
+        if (days.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
+            child: Text('Günlük raporlarda henüz görünmedi.', style: AppTypography.helper),
+          )
+        else ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: Text(
+              '$distinct gün · toplam $manDays adam-gün',
+              key: const ValueKey('taseron-saha-ozet'),
+              style: AppTypography.metadata,
+            ),
+          ),
+          for (final d in shown)
+            AppCard(
+              key: ValueKey('taseron-saha-${d.reportDate}-${d.projectId}'),
+              margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+              padding: const EdgeInsets.all(AppSpacing.md),
+              onTap: () => context.push(
+                '/projeler/${Uri.encodeComponent(d.projectId)}/gunluk-rapor/${Uri.encodeComponent(d.reportDate)}',
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(Formatters.date(d.reportDate), style: AppTypography.cardTitle),
+                        Text(
+                          [d.projectLabel, if (d.workNote.isNotEmpty) d.workNote].join(' · '),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.metadata,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Text('${d.workers} kişi', style: AppTypography.body.copyWith(fontWeight: FontWeight.w700)),
+                ],
+              ),
+            ),
+          if (days.length > _kSiteDaysPreview && !_all)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                key: const ValueKey('taseron-saha-tumu'),
+                onPressed: () => setState(() => _all = true),
+                child: Text('Tümünü göster (${days.length})'),
+              ),
+            ),
+        ],
+      ],
     );
   }
 }

@@ -20,13 +20,15 @@ class MoneyTotal {
       (raw as List? ?? const []).cast<Map<String, dynamic>>().map(MoneyTotal.fromJson).toList();
 }
 
-/// "Taşeronlar" listesinin satırı. [paidTotals] yalnızca finans okuyabilene
-/// dolu gelir.
+/// "Taşeronlar" listesinin satırı. [paidTotals] ve [remainingTotals]
+/// (projelerdeki yürürlükteki işlerden kalan borç) yalnızca finans
+/// okuyabilene dolu gelir.
 class SubcontractorCard {
-  const SubcontractorCard({required this.supplier, this.paidTotals = const []});
+  const SubcontractorCard({required this.supplier, this.paidTotals = const [], this.remainingTotals = const []});
 
   final OrganizationSupplier supplier;
   final List<MoneyTotal> paidTotals;
+  final List<MoneyTotal> remainingTotals;
 
   String get id => supplier.id;
   String get name => supplier.legalName;
@@ -40,6 +42,7 @@ class SubcontractorCard {
   factory SubcontractorCard.fromJson(Map<String, dynamic> json) => SubcontractorCard(
         supplier: OrganizationSupplier.fromJson(json),
         paidTotals: MoneyTotal.listFrom(json['paid_totals']),
+        remainingTotals: MoneyTotal.listFrom(json['remaining_totals']),
       );
 }
 
@@ -163,20 +166,55 @@ class SubcontractorLedgerPayment {
       );
 }
 
+/// Taşeronun sahada çalıştığı bir gün (günlük şantiye raporundan, backend
+/// migration 0071).
+class SubcontractorSiteDay {
+  const SubcontractorSiteDay({
+    required this.reportDate,
+    required this.projectId,
+    required this.projectName,
+    required this.projectNo,
+    required this.workers,
+    required this.workNote,
+  });
+
+  /// YYYY-AA-GG.
+  final String reportDate;
+  final String projectId;
+  final String projectName;
+  final String projectNo;
+  final int workers;
+  final String workNote;
+
+  String get projectLabel => projectNo.isEmpty ? projectName : '$projectNo · $projectName';
+
+  factory SubcontractorSiteDay.fromJson(Map<String, dynamic> json) => SubcontractorSiteDay(
+        reportDate: json['report_date'] as String? ?? '',
+        projectId: json['project_id'] as String? ?? '',
+        projectName: json['project_name'] as String? ?? '',
+        projectNo: json['project_no'] as String? ?? '',
+        workers: (json['workers'] as num?)?.toInt() ?? 0,
+        workNote: json['work_note'] as String? ?? '',
+      );
+}
+
 /// GET /subcontractors/{id}/ledger -- kart, projelerdeki işleri ve bütün
-/// ödemeleri (iptaller dahil), para birimi başına ödenen toplam.
+/// ödemeleri (iptaller dahil), para birimi başına ödenen toplam ve günlük
+/// raporlardan sahada çalıştığı günler (son 90).
 class SubcontractorLedger {
   const SubcontractorLedger({
     required this.card,
     required this.engagements,
     required this.payments,
     required this.paidTotals,
+    this.siteDays = const [],
   });
 
   final OrganizationSupplier card;
   final List<SubcontractorEngagement> engagements;
   final List<SubcontractorLedgerPayment> payments;
   final List<MoneyTotal> paidTotals;
+  final List<SubcontractorSiteDay> siteDays;
 
   factory SubcontractorLedger.fromJson(Map<String, dynamic> json) => SubcontractorLedger(
         card: OrganizationSupplier.fromJson(json['subcontractor'] as Map<String, dynamic>),
@@ -189,5 +227,9 @@ class SubcontractorLedger {
             .map(SubcontractorLedgerPayment.fromJson)
             .toList(),
         paidTotals: MoneyTotal.listFrom(json['paid_totals']),
+        siteDays: (json['site_days'] as List? ?? const [])
+            .cast<Map<String, dynamic>>()
+            .map(SubcontractorSiteDay.fromJson)
+            .toList(),
       );
 }

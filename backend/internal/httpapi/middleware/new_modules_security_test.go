@@ -218,6 +218,89 @@ func TestNewModulesSecurity(t *testing.T) {
 		if eng, _ := ledger["engagements"].([]any); len(eng) != 1 {
 			t.Errorf("defterde projedeki iş görünmeli: %v", ledger["engagements"])
 		}
+		// Listede kalan borç yalnızca finans okuyana.
+		finList := status(t, http.MethodGet, "/api/v1/subcontractors", finToken, "", http.StatusOK)
+		for _, r := range finList["subcontractors"].([]any) {
+			c := r.(map[string]any)
+			if c["id"] == cardID && c["remaining_totals"] == nil {
+				t.Errorf("finans kalan borcu görmeli: %v", c)
+			}
+		}
+		for _, r := range status(t, http.MethodGet, "/api/v1/subcontractors", pmToken, "", http.StatusOK)["subcontractors"].([]any) {
+			if c := r.(map[string]any); c["remaining_totals"] != nil || c["paid_totals"] != nil {
+				t.Errorf("PM tutar görmemeli: %v", c)
+			}
+		}
+	})
+
+	t.Run("gunluk_rapor", func(t *testing.T) {
+		pR := mustCreateProject(t, ctx, d, orgID, "Rapor Projesi")
+		pOther := mustCreateProject(t, ctx, d, orgID, "Rapor Projesi (üye değil)")
+		member(t, pR.ID, fieldUser.ID, pmUser.ID, finUser.ID)
+		card := status(t, http.MethodPost, "/api/v1/subcontractors", finToken, `{"legal_name":"Kalıpçı Veli"}`, http.StatusCreated)
+		cardID, _ := card["id"].(string)
+		today := service.IstanbulToday().Format("2006-01-02")
+		base := "/api/v1/projects/" + pR.ID + "/daily-reports"
+		body := `{"weather":"sunny","temperature_c":21,"own_workers":4,"work_done":"Kalıp","subcontractors":[{"supplier_id":"` + cardID + `","workers":3}]}`
+
+		// Operasyon izni olmayan (finans, satış) göremez/yazamaz; üye olmayan saha da.
+		status(t, http.MethodGet, base, finToken, "", http.StatusForbidden)
+		status(t, http.MethodPut, base+"/"+today, finToken, body, http.StatusForbidden)
+		status(t, http.MethodGet, base, salesToken, "", http.StatusForbidden)
+		status(t, http.MethodGet, "/api/v1/projects/"+pOther.ID+"/daily-reports/"+today, fieldToken, "", http.StatusForbidden)
+		// Yazılmamış gün 200 + exists=false; tarih biçimi ve ileri tarih 400.
+		empty := status(t, http.MethodGet, base+"/"+today, fieldToken, "", http.StatusOK)
+		if empty["exists"] != false {
+			t.Errorf("yazılmamış gün: %v", empty)
+		}
+		status(t, http.MethodGet, base+"/15.10.2026", fieldToken, "", http.StatusBadRequest)
+		status(t, http.MethodPut, base+"/2099-01-01", fieldToken, body, http.StatusBadRequest)
+		status(t, http.MethodPut, base+"/"+today, fieldToken, `{"weather":`, http.StatusBadRequest)
+		// Saha yazar ve gönderir; ikinci gönderim 409.
+		saved := status(t, http.MethodPut, base+"/"+today, fieldToken, body, http.StatusOK)
+		if saved["exists"] != true || saved["status"] != "draft" {
+			t.Fatalf("kayıt: %v", saved)
+		}
+		if subs, _ := saved["subcontractors"].([]any); len(subs) != 1 {
+			t.Errorf("taşeron satırı: %v", saved["subcontractors"])
+		}
+		// Saha tedarikçi listesini okuyamaz; seçici rapordaki seçeneklerden dolar.
+		again := status(t, http.MethodGet, base+"/"+today, fieldToken, "", http.StatusOK)
+		if opts, _ := again["subcontractor_options"].([]any); len(opts) != 1 {
+			t.Errorf("sahaya taşeron seçenekleri gelmeli: %v", again["subcontractor_options"])
+		}
+		status(t, http.MethodPost, base+"/"+today+"/submit", fieldToken, "", http.StatusOK)
+		status(t, http.MethodPost, base+"/"+today+"/submit", pmToken, "", http.StatusConflict)
+		list := status(t, http.MethodGet, base, pmToken, "", http.StatusOK)
+		if rows, _ := list["reports"].([]any); len(rows) != 1 {
+			t.Errorf("liste: %v", list)
+		}
+		// PDF.
+		rec, _ := rbacDo(t, d.router, http.MethodGet, base+"/"+today+"/pdf", pmToken, "")
+		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "application/pdf" || !strings.HasPrefix(rec.Body.String(), "%PDF") {
+			t.Errorf("PDF: %d %s", rec.Code, rec.Header().Get("Content-Type"))
+		}
+		// Başka firma hiçbir şeye ulaşamaz.
+		for _, c := range []struct{ method, path, body string }{
+			{http.MethodGet, base, ""},
+			{http.MethodGet, base + "/" + today, ""},
+			{http.MethodPut, base + "/" + today, body},
+			{http.MethodGet, base + "/" + today + "/pdf", ""},
+		} {
+			if rec, _ := rbacDo(t, d.router, c.method, c.path, ownerBToken, c.body); rec.Code == http.StatusOK {
+				t.Errorf("başka firma %s %s: 200", c.method, c.path)
+			}
+		}
+		// Başka firmanın kartı rapora eklenemez.
+		cardB := status(t, http.MethodPost, "/api/v1/subcontractors", ownerBToken, `{"legal_name":"B Usta"}`, http.StatusCreated)
+		status(t, http.MethodPut, base+"/"+today, fieldToken,
+			strings.Replace(body, cardID, cardB["id"].(string), 1), http.StatusNotFound)
+		// Taşeronun sayfasında sahada çalıştığı gün.
+		ledger := status(t, http.MethodGet, "/api/v1/subcontractors/"+cardID+"/ledger", finToken, "", http.StatusOK)
+		days, _ := ledger["site_days"].([]any)
+		if len(days) != 1 || days[0].(map[string]any)["report_date"] != today {
+			t.Errorf("sahadaki günler: %v", ledger["site_days"])
+		}
 	})
 
 	t.Run("proje_silme", func(t *testing.T) {

@@ -88,6 +88,8 @@ const (
 	ProjectEventPhotoUploaded     = "photo_uploaded"
 	ProjectEventPhotoRemoved      = "photo_removed"
 	ProjectEventNoteAdded         = "note_added"
+	// Günlük şantiye raporu gönderildi (migration 0071).
+	ProjectEventDailyReportSubmitted = "daily_report_submitted"
 )
 
 // ProjectMember, bir personelin projeye atanmasıdır. EmployeeName atama
