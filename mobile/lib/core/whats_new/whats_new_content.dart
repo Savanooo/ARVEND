@@ -46,6 +46,8 @@ class WhatsNewRelease {
 const kWhatsNewReleases = <WhatsNewRelease>[
   // Stok Takibi (backend 0072): depolar, malzeme kartları, giriş/çıkış/
   // aktarım/fire/sayım, parti ve son kullanma tarihi, barkod okutma.
+  // Build 27 yalnızca düzeltme (işlem menüsü telefonda kesiliyordu); notlar
+  // 26'da kalır, 25'ten 27'ye geçen de görür.
   WhatsNewRelease(
     build: 26,
     version: '1.5.19',

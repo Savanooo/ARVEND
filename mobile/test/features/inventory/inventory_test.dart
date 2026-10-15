@@ -391,4 +391,26 @@ void main() {
     expect(find.byKey(const ValueKey('stok-satir-miktar-i1')), findsOneWidget);
   });
 
+
+  testWidgets('işlem menüsü telefon ekranında kesilmez: "Yeni Malzeme"ye ulaşılır', (tester) async {
+    await _pump(tester, user: _admin, initial: '/diger/stok', script: {
+      '/inventory/items': [(status: 200, body: _items())],
+      '/inventory/summary': [(status: 200, body: _summary())],
+      '/inventory/warehouses': [(status: 200, body: _warehouses)],
+    });
+    // 1.5.19'da menü ekranın ~yarısıyla sınırlıydı; iPhone'da "Sayım" kesiliyor,
+    // "Yeni Malzeme" hiç görünmüyordu.
+    await tester.binding.setSurfaceSize(const Size(390, 700));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('stok-islem')));
+    await tester.pumpAndSettle();
+    final newItem = find.byKey(const ValueKey('stok-islem-yeni-malzeme'));
+    await tester.ensureVisible(newItem);
+    await tester.pumpAndSettle();
+    await tester.tap(newItem);
+    await tester.pumpAndSettle();
+    expect(find.text('Yeni Malzeme'), findsOneWidget);
+    expect(find.byKey(const ValueKey('stok-kart-ad')), findsOneWidget);
+  });
+
 }

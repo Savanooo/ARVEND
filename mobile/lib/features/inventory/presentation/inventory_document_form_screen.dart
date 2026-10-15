@@ -164,33 +164,38 @@ class _InventoryDocumentFormScreenState extends ConsumerState<InventoryDocumentF
     final detail = await ref.read(inventoryRepositoryProvider).item(line.item.id);
     if (!mounted) return;
     final lots = detail.balances.where((b) => b.warehouseId == _warehouseId).toList();
+    // İçeriğe göre uzar (varsayılan ekranın ~yarısıyla sınırlıydı, alttaki
+    // satırlar kesiliyordu); sığmazsa kaydırılır.
     final picked = await showAppSheet<InventoryBalance?>(
       context: context,
+      isScrollControlled: true,
       useSafeArea: true,
       builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(AppSpacing.md),
-              child: Text('Parti Seç', style: AppTypography.sectionTitle),
-            ),
-            ListTile(
-              key: const ValueKey('stok-parti-otomatik'),
-              leading: const Icon(Icons.auto_mode),
-              title: const Text('Otomatik'),
-              subtitle: const Text('Önce SKT\'si yakın parti çıkar'),
-              onTap: () => Navigator.of(context).pop(),
-            ),
-            for (final b in lots)
-              ListTile(
-                key: ValueKey('stok-parti-${b.lotId}'),
-                title: Text(_lotText(b.lotNo, b.expiryDate).isEmpty ? 'Partisiz' : _lotText(b.lotNo, b.expiryDate)),
-                trailing: Text(formatQty(b.quantity, line.item.unit)),
-                onTap: () => Navigator.of(context).pop(b),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(AppSpacing.md),
+                child: Text('Parti Seç', style: AppTypography.sectionTitle),
               ),
-            const SizedBox(height: AppSpacing.sm),
-          ],
+              ListTile(
+                key: const ValueKey('stok-parti-otomatik'),
+                leading: const Icon(Icons.auto_mode),
+                title: const Text('Otomatik'),
+                subtitle: const Text('Önce SKT\'si yakın parti çıkar'),
+                onTap: () => Navigator.of(context).pop(),
+              ),
+              for (final b in lots)
+                ListTile(
+                  key: ValueKey('stok-parti-${b.lotId}'),
+                  title: Text(_lotText(b.lotNo, b.expiryDate).isEmpty ? 'Partisiz' : _lotText(b.lotNo, b.expiryDate)),
+                  trailing: Text(formatQty(b.quantity, line.item.unit)),
+                  onTap: () => Navigator.of(context).pop(b),
+                ),
+              const SizedBox(height: AppSpacing.sm),
+            ],
+          ),
         ),
       ),
     );

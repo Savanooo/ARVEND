@@ -54,36 +54,41 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   Future<void> _openActions(User? user) async {
     final canManage = user.canAccess(kInventoryManage);
     final canAdjust = user.canAccess(kInventoryAdjust);
+    // İçeriğe göre uzar (varsayılan ekranın ~yarısıyla sınırlıydı, alttaki
+    // satırlar kesiliyordu); sığmazsa kaydırılır.
     final picked = await showAppSheet<String>(
       context: context,
+      isScrollControlled: true,
       useSafeArea: true,
       builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(AppSpacing.md),
-              child: Text('Stok İşlemi', style: AppTypography.sectionTitle),
-            ),
-            if (canManage) ...[
-              _action(context, kDocReceipt, 'Giriş', 'Depoya gelen malzeme (irsaliye)'),
-              _action(context, kDocIssue, 'Çıkış', 'Depodan verilen malzeme'),
-              _action(context, kDocTransfer, 'Aktarım', 'Depodan depoya'),
-            ],
-            if (canAdjust) ...[
-              _action(context, kDocWaste, 'Fire', 'Hasar, SKT geçti, kayıp'),
-              _action(context, kDocCount, 'Sayım', 'Sayılan miktarı gir, fark düzeltilsin'),
-            ],
-            if (canManage)
-              ListTile(
-                key: const ValueKey('stok-islem-yeni-malzeme'),
-                leading: const Icon(Icons.add_box_outlined),
-                title: const Text('Yeni Malzeme'),
-                subtitle: const Text('Malzeme kartı aç'),
-                onTap: () => Navigator.of(context).pop('item'),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(AppSpacing.md),
+                child: Text('Stok İşlemi', style: AppTypography.sectionTitle),
               ),
-            const SizedBox(height: AppSpacing.sm),
-          ],
+              if (canManage) ...[
+                _action(context, kDocReceipt, 'Giriş', 'Depoya gelen malzeme (irsaliye)'),
+                _action(context, kDocIssue, 'Çıkış', 'Depodan verilen malzeme'),
+                _action(context, kDocTransfer, 'Aktarım', 'Depodan depoya'),
+              ],
+              if (canAdjust) ...[
+                _action(context, kDocWaste, 'Fire', 'Hasar, SKT geçti, kayıp'),
+                _action(context, kDocCount, 'Sayım', 'Sayılan miktarı gir, fark düzeltilsin'),
+              ],
+              if (canManage)
+                ListTile(
+                  key: const ValueKey('stok-islem-yeni-malzeme'),
+                  leading: const Icon(Icons.add_box_outlined),
+                  title: const Text('Yeni Malzeme'),
+                  subtitle: const Text('Malzeme kartı aç'),
+                  onTap: () => Navigator.of(context).pop('item'),
+                ),
+              const SizedBox(height: AppSpacing.sm),
+            ],
+          ),
         ),
       ),
     );
