@@ -23,9 +23,19 @@ const errUserInactiveBody = `{"error":"hesabınız pasif durumda, lütfen yenide
 // VERİTABANINDAKİ rolle değiştirilir -- ardından gelen RequireRole
 // (requireAdmin) token'ın 15 dakikalık ömrü boyunca eski rolü değil güncel
 // rolü görür. ok=false ise yanıt yazılmıştır.
-func applyUserGate(w http.ResponseWriter, r *http.Request, isActive, deleted bool, role string, orgID pgtype.UUID) (*http.Request, bool) {
-	if !isActive || deleted {
+//
+// Taşeron hesabı (supplierID dolu, migration 0075) VARSAYILAN RETLE
+// karşılanır: yalnızca AllowPortalUsers'ın işaretlediği uçlara (kendi
+// hesabı, bildirimler, telefon kaydı, /portal) geçer, diğer her uçta --
+// o ucun izin kontrolüne bakılmadan -- 403 alır. Kartı arşive alınmış
+// taşeronun hesabı pasif kullanıcı gibi kapanır.
+func applyUserGate(w http.ResponseWriter, r *http.Request, isActive, deleted bool, role string, orgID pgtype.UUID, supplierID pgtype.UUID, supplierActive bool) (*http.Request, bool) {
+	if !isActive || deleted || (supplierID.Valid && !supplierActive) {
 		http.Error(w, errUserInactiveBody, http.StatusUnauthorized)
+		return r, false
+	}
+	if supplierID.Valid && !portalAllowed(r) {
+		http.Error(w, errPortalOnlyBody, http.StatusForbidden)
 		return r, false
 	}
 	claimOrg, _ := OrganizationIDFromContext(r.Context())
@@ -38,6 +48,9 @@ func applyUserGate(w http.ResponseWriter, r *http.Request, isActive, deleted boo
 		return r, false
 	}
 	ctx := context.WithValue(r.Context(), ctxRole, domain.Role(role))
+	if supplierID.Valid {
+		ctx = context.WithValue(ctx, ctxSupplierID, supplierID.String())
+	}
 	return r.WithContext(ctx), true
 }
 
@@ -71,7 +84,7 @@ func RequireActiveUser(q *sqlc.Queries) func(http.Handler) http.Handler {
 				http.Error(w, `{"error":"oturum geçersiz veya süresi dolmuş"}`, http.StatusUnauthorized)
 				return
 			}
-			r, ok = applyUserGate(w, r, st.IsActive, st.UserDeleted, st.Role, st.OrganizationID)
+			r, ok = applyUserGate(w, r, st.IsActive, st.UserDeleted, st.Role, st.OrganizationID, st.SupplierID, st.SupplierActive)
 			if !ok {
 				return
 			}

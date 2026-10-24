@@ -51,7 +51,7 @@ func (s *PlatformService) ListOrganizationRoles(ctx context.Context, organizatio
 	}
 	out := make([]domain.OrganizationRole, 0, len(rows))
 	for _, r := range rows {
-		if r.Code == domain.OrgRoleLegacyUser {
+		if !domain.OrgRoleAssignable(r.Code) {
 			continue
 		}
 		out = append(out, repository.ToDomainOrganizationRole(r))
@@ -79,7 +79,7 @@ func (s *PlatformService) ProvisionOrganizationUser(ctx context.Context, in Prov
 	if len(in.TemporaryPassword) < 8 {
 		return nil, nil, errors.New("geçici şifre en az 8 karakter olmalı")
 	}
-	if roleCode == domain.OrgRoleLegacyUser {
+	if !domain.OrgRoleAssignable(roleCode) {
 		return nil, nil, domain.ErrRoleNotAssignable
 	}
 	if _, err := s.requireLiveOrganization(ctx, in.OrganizationID); err != nil {
@@ -206,7 +206,7 @@ func (s *PlatformService) ReactivateOrganizationUser(ctx context.Context, organi
 // organizasyon rolünü değiştirmesidir -- tenant tarafındaki AYNI kural
 // (son aktif Owner düşürülemez, kaba rol senkronu). legacy_user hedef olamaz.
 func (s *PlatformService) SetOrganizationUserRole(ctx context.Context, organizationID, userID, roleCode, actorUserID string) (*domain.OrganizationRole, error) {
-	if strings.TrimSpace(roleCode) == domain.OrgRoleLegacyUser {
+	if !domain.OrgRoleAssignable(strings.TrimSpace(roleCode)) {
 		return nil, domain.ErrRoleNotAssignable
 	}
 	if _, err := s.requireLiveOrganization(ctx, organizationID); err != nil {

@@ -74,6 +74,10 @@ type userResponse struct {
 	// gelir, normal listelerde zaten hiç görünmeyen kullanıcılar için
 	// anlamsızdır.
 	DeletedAt *string `json:"deleted_at,omitempty"`
+	// SupplierID: dolu ise hesap bir taşeron hesabıdır (Taşeron Paneli,
+	// migration 0075) -- istemci ona firma ekranlarını değil Taşeron
+	// Paneli'ni açar (sunucu zaten yalnızca oraya geçirir).
+	SupplierID *string `json:"supplier_id,omitempty"`
 	// OrganizationStatus: firmanın yaşam döngüsü durumu (active/trial/...);
 	// Süper Admin'de boş. Trial* alanları YALNIZCA durum 'trial' ve bitiş
 	// tarihi kayıtlıyken dolu gelir (bkz. domain.Organization.Trial) -- süre
@@ -152,6 +156,7 @@ func toUserResponse(u domain.User) userResponse {
 		resp.EmployeeFullName = u.LinkedEmployeeName
 		resp.EmployeeIsActive = &active
 	}
+	resp.SupplierID = u.SupplierID
 	return resp
 }
 

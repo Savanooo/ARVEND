@@ -136,6 +136,14 @@ func setUserOrganizationRole(ctx context.Context, q *sqlc.Queries, userID, organ
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
+	// Taşeron rolü yalnızca taşeron girişi açılırken atanır (legacy_user
+	// buradan atanabilmeye devam eder -- eski davranış, bkz. çağıranlar).
+	if strings.TrimSpace(roleCode) == domain.OrgRoleSubcontractor {
+		return nil, domain.ErrRoleNotAssignable
+	}
+	if portal, err := q.IsPortalUser(ctx, sqlc.IsPortalUserParams{ID: uid, OrganizationID: orgID}); err == nil && portal {
+		return nil, domain.ErrPortalUserLocked
+	}
 	role, err := q.GetOrganizationRoleByCode(ctx, sqlc.GetOrganizationRoleByCodeParams{OrganizationID: orgID, Code: roleCode})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

@@ -298,7 +298,8 @@ func (h *UserHandler) writeUserError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusConflict, "bu kullanıcı adı zaten kullanılıyor")
 	case errors.Is(err, domain.ErrInvalidCredentials):
 		httpjson.Error(w, http.StatusBadRequest, "mevcut şifre hatalı")
-	case errors.Is(err, domain.ErrLastOwner), errors.Is(err, domain.ErrInitialPasswordAlreadySet):
+	case errors.Is(err, domain.ErrLastOwner), errors.Is(err, domain.ErrInitialPasswordAlreadySet),
+		errors.Is(err, domain.ErrPortalUserLocked):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, domain.ErrOwnerOnlyAction), errors.Is(err, service.ErrEmployeeLinkNotPermitted):
 		httpjson.Error(w, http.StatusForbidden, err.Error())

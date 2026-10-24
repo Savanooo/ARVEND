@@ -25,6 +25,7 @@ import '../../projects/finance_plan/domain/finance_dates.dart' show parseAmountI
 import '../../suppliers/presentation/supplier_form_sheet.dart';
 import '../data/subcontractors_repository.dart';
 import '../domain/subcontractor.dart';
+import 'subcontractor_portal_section.dart';
 
 const _kFinanceRead = 'projects.finance.read';
 const _kFinanceManage = 'projects.finance.manage';
@@ -109,6 +110,14 @@ class SubcontractorLedgerScreen extends ConsumerWidget {
             padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.md, AppSpacing.lg, 96),
             children: [
               _HeaderCard(ledger: l),
+              const SizedBox(height: AppSpacing.lg),
+              // Taşeron Paneli (backend 0075): giriş ve proje izinleri --
+              // yalnızca kullanıcı yönetimi yetkisi olana görünür.
+              SubcontractorPortalSection(
+                supplierId: subcontractorId,
+                suggestedName: l.card.contactName.trim().isNotEmpty ? l.card.contactName : l.card.legalName,
+                cardActive: l.card.isActive,
+              ),
               const SizedBox(height: AppSpacing.lg),
               const AppSectionHeader(title: 'Projelerdeki İşleri'),
               if (l.engagements.isEmpty)

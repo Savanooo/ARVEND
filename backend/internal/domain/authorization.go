@@ -19,7 +19,18 @@ const (
 	OrgRoleProjectManager = "project_manager"
 	OrgRoleFinance        = "finance"
 	OrgRoleField          = "field"
+	// OrgRoleSubcontractor: Taşeron Paneli hesabı (migration 0075). Rol
+	// seçicilerde görünmez; yalnızca taşeron kartındaki "Giriş aç" ile
+	// atanır ve başka bir role çevrilemez.
+	OrgRoleSubcontractor = "subcontractor"
 )
+
+// OrgRoleAssignable: elle (kullanıcı ekleme/rol değiştirme) atanabilen rol mü.
+// legacy_user yalnızca migration artığıdır; subcontractor yalnızca taşeron
+// girişi açılırken atanır.
+func OrgRoleAssignable(code string) bool {
+	return code != OrgRoleLegacyUser && code != OrgRoleSubcontractor
+}
 
 // bypassProjectMembershipRoles, bu rol kodlarına sahip kullanıcıların proje
 // üyeliğinden BAĞIMSIZ olarak organizasyondaki TÜM projeleri görebildiği/
@@ -162,6 +173,8 @@ const (
 	PermProjectsProcurementApprove  = "projects.procurement.approve"
 	// Siparişten mal kabulü (teslim alma) kaydı ve iptali (migration 0074).
 	PermProjectsProcurementReceive = "projects.procurement.receive"
+	// Taşeron Paneli (migration 0075): yalnızca taşeron hesaplarının rolünde.
+	PermSubcontractorPortal = "subcontractor.portal"
 
 	// Sprint 5 -- Taşeron Yönetimi (Subcontractor Management)
 	PermProjectsSubcontractsRead         = "projects.subcontracts.read"

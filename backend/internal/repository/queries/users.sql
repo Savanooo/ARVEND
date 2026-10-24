@@ -117,11 +117,16 @@ WHERE u.id = $1 AND u.organization_id = $2;
 -- kaba rol): access token 15 dakika geçerli ve rolü içinde taşıyor --
 -- pasifleştirilen ya da yetkisi düşürülen biri token'ın ömrü boyunca
 -- çalışmaya devam ediyordu. Ek sorgu yok, zaten okunan satır.
+--
+-- supplier_id dolu = taşeron hesabı (migration 0075): kapı onu yalnızca
+-- izin verilen uçlara geçirir; kart arşive alındıysa hesap kapanır.
 SELECT u.must_change_password, o.onboarding_completed,
        u.is_active, (u.deleted_at IS NOT NULL)::boolean AS user_deleted,
-       u.role, u.organization_id
+       u.role, u.organization_id, u.supplier_id,
+       COALESCE(s.is_active, true)::boolean AS supplier_active
 FROM users u
 JOIN organizations o ON o.id = u.organization_id
+LEFT JOIN suppliers s ON s.id = u.supplier_id
 WHERE u.id = $1;
 
 -- name: GetUserGateStatus :one
@@ -129,8 +134,10 @@ WHERE u.id = $1;
 -- (onboarding, firma ayarları, ilk şifre, cihaz kaydı...) aynı "kullanıcı
 -- hâlâ aktif mi, rolü ne" kontrolü.
 SELECT u.is_active, (u.deleted_at IS NOT NULL)::boolean AS user_deleted,
-       u.role, u.organization_id
+       u.role, u.organization_id, u.supplier_id,
+       COALESCE(s.is_active, true)::boolean AS supplier_active
 FROM users u
+LEFT JOIN suppliers s ON s.id = u.supplier_id
 WHERE u.id = $1;
 
 -- name: ReactivateUser :execrows

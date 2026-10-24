@@ -254,6 +254,29 @@ void main() {
     expect(find.byKey(const ValueKey('taseron-karti-duzenle')), findsOneWidget);
   });
 
+  testWidgets('kullanıcı yönetebilen (Sahip) taşeron sayfasında Taşeron Paneli bölümünü görür', (tester) async {
+    final owner = cc.buildUser(
+      id: 'own',
+      role: UserRole.admin,
+      roleCode: 'owner',
+      permissions: const {
+        'organization.suppliers.read',
+        'projects.finance.read',
+        'organization.users.read',
+        'organization.users.manage',
+      },
+    );
+    await _pump(tester, user: owner, initial: '/diger/taseronlar/s1', script: {
+      '/subcontractors/s1/ledger': [(status: 200, body: _ledger())],
+      '/subcontractors/s1/portal': [
+        (status: 200, body: {'users': <dynamic>[], 'projects': <dynamic>[]}),
+      ],
+    });
+    expect(find.byKey(const ValueKey('taseron-paneli')), findsOneWidget);
+    expect(find.byKey(const ValueKey('portal-giris-ac')), findsOneWidget);
+    expect(find.text('Henüz proje izni verilmedi.'), findsOneWidget);
+  });
+
   testWidgets('tedarikçi yönetme izni olmayan kartı düzenleyemez', (tester) async {
     final financeOnly = cc.buildUser(
       id: 'fin',

@@ -150,6 +150,9 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM inventory_warehouses WHERE organization_id = $1",
 		"DELETE FROM project_daily_report_subcontractors WHERE organization_id = $1",
 		"DELETE FROM subcontractor_direct_payments WHERE organization_id = $1",
+		// Taşeron Paneli (migration 0075): taşeron hesapları karta bağlı.
+		"DELETE FROM subcontractor_project_access WHERE organization_id = $1",
+		"UPDATE users SET supplier_id = NULL WHERE organization_id = $1",
 		"DELETE FROM suppliers WHERE organization_id = $1",
 		// projects, teklife/revizyona CASCADE'siz FK ile bağlıdır (kasıtlı:
 		// bir projeye dayanak olan teklif silinememeli), bu yüzden

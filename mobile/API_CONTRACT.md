@@ -98,7 +98,10 @@ per-person grants (owner is never restricted). Since 2026-10-07 also
 `trial_days_left` (Istanbul days; 0 on the last day, negative after) and
 `trial_expired` (bool). An expired trial is NOT blocked — the app shows a
 per-day dismissible Ana Sayfa banner to Sahip/Yönetici only
-(`features/dashboard/domain/trial_notice.dart`).
+(`features/dashboard/domain/trial_notice.dart`). Since 2026-10-24
+(migration 0075) a subcontractor portal account also carries `supplier_id`
+(omitted for everyone else) and `organization_role_code: "subcontractor"`
+— see "Taşeron Paneli" below.
 
 ## Dashboard (Ana Sayfa) — added 2026-09-28
 - `GET /dashboard` (`requireAuth`+tenant+onboarded; NO single `perm()` —
@@ -612,3 +615,25 @@ Kurallar: `docs/procurement.md` §12.
   - Masraf satırları `purchase_order_id` taşır.
   - Finans izni olmayan (yalnızca kendi masrafını giren) kişi bağ yazamaz.
 - **Finans özeti** `received_not_costed`: teslim alınmış, faturası girilmemiş tutar. Maliyet değildir.
+
+## Taşeron Paneli (2026-10-24, migration 0075; mobile 1.5.21)
+
+Kurallar ve sonraki fazlar: `docs/taseron-paneli.md`.
+
+- **Taşeron hesabı:** `users.supplier_id` dolu, kaba rol `kullanici`, organizasyon rolü `subcontractor` ("Taşeron"; izinleri yalnızca `subcontractor.portal` + `notifications.read`). Bu rol başka kullanıcıya atanamaz, izinleri değiştirilemez; taşeron hesabına rol/kişisel izin/proje üyeliği verilemez (409).
+- **Varsayılan ret:** taşeron hesabı yalnızca şunlara girer: `/auth/*`, `/users/me/*` (şifre belirleme/değiştirme, hesabı silme), `/notifications*`, `POST /push/devices`, `/portal/*`. Diğer her uç 403 `{"code": "portal_only"}` döner.
+- **Kart arşivlenirse** taşeron hesabı kilitlenir: oturumlu her istek 401, giriş ve yenileme 403 (`kullanıcı pasif durumda`).
+- **Taşeron tarafı:** `GET /portal/overview` → `{supplier: {id, name}, projects, engagements, payments, totals}`.
+  - Taşeron her zaman oturumdan bulunur; istekte kimlik yoktur. Taşeron olmayan hesap → 403.
+  - `projects`: izin verilen projeler `{id, project_no, name, status}`.
+  - `engagements`: yalnızca izinli projelerdeki işler `{kind: simple|contract, id, project_id, project_name, project_no, project_status, title, status, currency, contract_amount, certified (yalnızca contract, yoksa null), paid, payable, retention, advance_open, pending_claims, remaining}`. Sözleşmede `contract_amount` = ilk bedel + onaylı değişiklikler; taslak sözleşme görünmez.
+  - `payments`: iptal edilmemiş ödemeler (izinli projelerdekiler + proje dışı `source: direct`), en yeni önce, en çok 500: `{source: simple|contract|direct, id, project_id?, project_name, project_no, amount, currency, paid_date, description, kind: work|advance|general}`.
+  - `totals`: para birimi başına `{currency, contract_amount, paid, remaining, payable, retention}`; `paid` ödeme listesinin toplamı (proje dışı dahil), `remaining` işlerin `max(bedel − ödenen, 0)` toplamı. TRY önce.
+- **Firma tarafı** (taşeron kartı):
+  - `GET /subcontractors/{id}/portal` (`organization.suppliers.read` + `organization.users.read`) → `{users: [{id, username, full_name, is_active, must_change_password, last_login_at, created_at}], projects: [{id, project_no, name, status, granted, has_engagement}]}`. `projects` iptal edilmemiş projeler + izinli olanlar + işi olanlar; sırası izinli, işi olan, en yeni.
+  - `POST /subcontractors/{id}/portal/users` `{full_name, username, temporary_password}` (`organization.users.manage`) → 201 kullanıcı. Hesap `must_change_password=true` açılır. Eksik alan / kısa şifre / ayrılmış ad 400, alınmış kullanıcı adı 409, arşivdeki kart 409.
+  - `POST /subcontractors/{id}/portal/users/{userId}/password` `{temporary_password}` → kullanıcı; açık oturumlar kapanır, ilk girişte yeni şifre istenir.
+  - `POST /subcontractors/{id}/portal/users/{userId}/active` `{active}` → kullanıcı; kapatınca oturumlar ve push kayıtları silinir.
+  - `PUT /subcontractors/{id}/portal/projects` `{project_ids}` → güncel ayarlar (GET ile aynı). Verilen kümeyle değiştirir; başka firmanın projesi 400.
+  - Proje izni `project_users`'tan ayrıdır (`subcontractor_project_access`); proje ekibine eklemek taşerona hiçbir şey açmaz.
+- **Mobil:** taşeron hesabı girişte `/taseron`'a gider ve firma ekranlarına yönlendirilemez (`app_router.dart`); profil `/taseron/profil`. Firma tarafı taşeron sayfasında "Taşeron Paneli" bölümü (`subcontractor_portal_section.dart`): giriş aç (geçici şifre üretilir, bilgiler bir kez gösterilir ve kopyalanır), şifreyi sıfırla, girişi kapat/aç, proje izinleri. Bölüm `organization.users.read` olmayana görünmez.

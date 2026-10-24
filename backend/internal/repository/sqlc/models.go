@@ -1539,6 +1539,14 @@ type SubcontractorDirectPayment struct {
 	PaymentKind    string             `json:"payment_kind"`
 }
 
+type SubcontractorProjectAccess struct {
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	SupplierID     pgtype.UUID        `json:"supplier_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	GrantedBy      pgtype.UUID        `json:"granted_by"`
+	GrantedAt      pgtype.Timestamptz `json:"granted_at"`
+}
+
 type Supplier struct {
 	ID              pgtype.UUID        `json:"id"`
 	OrganizationID  pgtype.UUID        `json:"organization_id"`
@@ -1601,6 +1609,7 @@ type User struct {
 	OrganizationRoleID pgtype.UUID        `json:"organization_role_id"`
 	DeletedAt          pgtype.Timestamptz `json:"deleted_at"`
 	DeletedBy          pgtype.UUID        `json:"deleted_by"`
+	SupplierID         pgtype.UUID        `json:"supplier_id"`
 }
 
 type UserPermissionOverride struct {

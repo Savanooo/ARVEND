@@ -87,6 +87,10 @@ func NewRouter(d Deps) http.Handler {
 	// projPerm çağrıları onu okur, tekrar sorgu atmaz (bkz.
 	// middleware/require_permission.go).
 	loadAuthorization := appmw.LoadAuthorization(d.AuthorizationSvc)
+	// Taşeron Paneli (migration 0075): taşeron hesabı oturum kapısında
+	// VARSAYILAN RETLE karşılanır; yalnızca allowPortal'lı uçlara (kendi
+	// hesabı, bildirimler, telefon kaydı, /portal) geçer. Kapıdan ÖNCE gelir.
+	allowPortal := appmw.AllowPortalUsers()
 	perm := func(code string) func(http.Handler) http.Handler { return appmw.RequirePermission(code) }
 	anyPerm := func(codes ...string) func(http.Handler) http.Handler { return appmw.RequireAnyPermission(codes...) }
 	projPerm := func(code string) func(http.Handler) http.Handler {
@@ -129,13 +133,15 @@ func NewRouter(d Deps) http.Handler {
 			// belirlemesi. requireAdmin VE requireOnboarded YOK -- bu
 			// kullanıcının onboarding gate'inden ÇIKMASINI sağlayan tek uç,
 			// gate'in kendisi burayı kilitleyemez.
-			r.With(requireActiveUser).Post("/me/set-initial-password", d.Users.SetInitialPassword)
+			r.With(allowPortal, requireActiveUser).Post("/me/set-initial-password", d.Users.SetInitialPassword)
+			// Kendi şifresi ve hesabı taşeron hesabına da açık -- grup kapısının
+			// (requireOnboarded) DIŞINDA, allowPortal kapıdan önce gelsin diye.
+			r.With(allowPortal, requireOnboarded).Patch("/me/password", d.Users.ChangeOwnPassword)
+			// Kendi hesabını silme (App Store 5.1.1(v), KVKK) -- şifreyle onaylı.
+			r.With(allowPortal, requireOnboarded).Post("/me/delete", d.Users.DeleteOwnAccount)
 
 			r.Group(func(r chi.Router) {
 				r.Use(requireOnboarded)
-				r.Patch("/me/password", d.Users.ChangeOwnPassword)
-				// Kendi hesabını silme (App Store 5.1.1(v), KVKK) -- şifreyle onaylı.
-				r.Post("/me/delete", d.Users.DeleteOwnAccount)
 
 				r.Group(func(r chi.Router) {
 					// requireAdmin KORUNUR (super_admin'in tenant kullanıcı
@@ -689,7 +695,7 @@ func NewRouter(d Deps) http.Handler {
 		// akışları tarafından üretilir, bkz. NotificationService.Create
 		// çağrı noktaları.
 		r.Route("/notifications", func(r chi.Router) {
-			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization, perm(domain.PermNotificationsRead))
+			r.Use(requireAuth, requireTenant, allowPortal, requireOnboarded, loadAuthorization, perm(domain.PermNotificationsRead))
 			r.Get("/", d.Notifications.List)
 			r.Get("/unread-count", d.Notifications.UnreadCount)
 			r.Post("/{id}/read", d.Notifications.MarkRead)
@@ -703,7 +709,7 @@ func NewRouter(d Deps) http.Handler {
 			// Pasifleştirilmiş biri, token'ı dolana kadar telefonunu yeniden
 			// kaydedip bildirim almaya devam edemesin (pasifleştirme cihaz
 			// kayıtlarını siler). Çıkıştaki kayıt silme serbest kalır.
-			r.With(requireActiveUser).Post("/", d.Push.RegisterDevice)
+			r.With(allowPortal, requireActiveUser).Post("/", d.Push.RegisterDevice)
 			r.Post("/unregister", d.Push.UnregisterDevice)
 		})
 
@@ -853,6 +859,25 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/payments", d.Suppliers.CreateDirectPayment)
 				r.Post("/{id}/payments/{paymentId}/void", d.Suppliers.VoidDirectPayment)
 			})
+			// Taşeron Paneli (migration 0075): giriş açma ve proje izni bir
+			// erişim kararıdır -- kullanıcı yönetimi izniyle (Sahip/Yönetici).
+			r.With(perm(domain.PermOrganizationSuppliersRead), perm(domain.PermOrganizationUsersRead)).
+				Get("/{id}/portal", d.Suppliers.GetPortalSettings)
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermOrganizationSuppliersRead), perm(domain.PermOrganizationUsersManage))
+				r.Post("/{id}/portal/users", d.Suppliers.CreatePortalUser)
+				r.Post("/{id}/portal/users/{userId}/password", d.Suppliers.ResetPortalUserPassword)
+				r.Post("/{id}/portal/users/{userId}/active", d.Suppliers.SetPortalUserActive)
+				r.Put("/{id}/portal/projects", d.Suppliers.SetPortalProjects)
+			})
+		})
+
+		// Taşeron Paneli -- YALNIZCA taşeron hesapları (users.supplier_id).
+		// allowPortal kapıdan önce: taşeron hesabı varsayılan retle
+		// karşılanır, yalnızca böyle işaretlenen uçlara geçer.
+		r.Route("/portal", func(r chi.Router) {
+			r.Use(requireAuth, requireTenant, allowPortal, requireOnboarded, appmw.RequirePortalUser())
+			r.Get("/overview", d.Suppliers.GetPortalOverview)
 		})
 
 		// Stok Takibi (migration 0072): projelerden bağımsız depo/stok.

@@ -51,6 +51,9 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (*Se
 	}
 
 	user := repository.ToDomainUser(row)
+	if err := s.requirePortalCardActive(ctx, user); err != nil {
+		return nil, err
+	}
 	org, err := s.loadOrgForAccess(ctx, user)
 	if err != nil {
 		return nil, err
@@ -115,6 +118,9 @@ func (s *AuthService) Refresh(ctx context.Context, rawRefreshToken string) (*Ses
 	user := repository.ToDomainUser(userRow)
 	if !user.IsActive {
 		return nil, domain.ErrInactiveUser
+	}
+	if err := s.requirePortalCardActive(ctx, user); err != nil {
+		return nil, err
 	}
 	org, err := s.loadOrgForAccess(ctx, user)
 	if err != nil {
@@ -223,4 +229,29 @@ func (s *AuthService) issueSession(ctx context.Context, user domain.User, org *d
 		return nil, err
 	}
 	return &Session{User: user, Organization: org, AccessToken: access, RefreshToken: rawRefresh}, nil
+}
+
+// requirePortalCardActive: taşeron hesabının (Taşeron Paneli, migration
+// 0075) kartı arşive alındıysa hesap pasif kullanıcı gibi kapanır -- yeni
+// giriş de oturum yenileme de reddedilir (oturum kapısı her istekte aynı
+// kuralı uygular).
+func (s *AuthService) requirePortalCardActive(ctx context.Context, user domain.User) error {
+	if user.SupplierID == nil {
+		return nil
+	}
+	sid, err := repository.StringToUUID(*user.SupplierID)
+	if err != nil {
+		return domain.ErrInactiveUser
+	}
+	active, err := s.q.GetSupplierIsActive(ctx, sid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrInactiveUser
+		}
+		return err
+	}
+	if !active {
+		return domain.ErrInactiveUser
+	}
+	return nil
 }

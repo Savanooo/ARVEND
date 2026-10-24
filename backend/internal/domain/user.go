@@ -55,6 +55,11 @@ type User struct {
 	LinkedEmployeeID     *string
 	LinkedEmployeeName   string
 	LinkedEmployeeActive bool
+	// SupplierID: dolu ise hesap bir taşeron hesabıdır (Taşeron Paneli,
+	// migration 0075) ve yalnızca o kartın kayıtlarını görür.
+	SupplierID *string
 }
+
+func (u User) IsPortalUser() bool { return u.SupplierID != nil }
 
 func (u User) IsDeleted() bool { return u.DeletedAt != nil }

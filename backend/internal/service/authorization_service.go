@@ -152,7 +152,7 @@ func (s *AuthorizationService) ListOrganizationRoles(ctx context.Context, organi
 	}
 	out := make([]domain.OrganizationRole, 0, len(rows))
 	for _, r := range rows {
-		if !includeLegacy && r.Code == domain.OrgRoleLegacyUser {
+		if !includeLegacy && !domain.OrgRoleAssignable(r.Code) {
 			continue
 		}
 		dr := repository.ToDomainOrganizationRole(r)
@@ -220,6 +220,11 @@ func (s *AuthorizationService) SetRolePermissions(ctx context.Context, roleID, o
 	// mobildeki kilitle aynı kural.
 	if role.Code == domain.OrgRoleOwner {
 		return nil, domain.ErrOwnerRoleLocked
+	}
+	// Taşeron rolüne işletme izni eklenemez (Taşeron Paneli varsayılan retle
+	// çalışır; bkz. docs/taseron-paneli.md).
+	if role.Code == domain.OrgRoleSubcontractor {
+		return nil, domain.ErrPortalRoleLocked
 	}
 
 	clean, err := s.cleanPermissionCodes(ctx, permissionCodes)
@@ -394,6 +399,9 @@ func (s *AuthorizationService) SetUserPermissions(ctx context.Context, userID, o
 	}
 	if role.Code == domain.OrgRoleOwner {
 		return nil, domain.ErrOwnerPermissionsFixed
+	}
+	if user.SupplierID.Valid {
+		return nil, domain.ErrPortalUserLocked
 	}
 
 	rolePerms, err := s.q.ListPermissionsForRole(ctx, role.ID)
@@ -577,6 +585,9 @@ func (s *AuthorizationService) AddProjectUser(ctx context.Context, projectID, or
 	}
 	if target.Role == string(domain.RoleSuperAdmin) {
 		return nil, domain.ErrCrossOrgMembership
+	}
+	if target.SupplierID.Valid {
+		return nil, domain.ErrPortalUserLocked
 	}
 	// Pasif (ve silinmiş -- deleteUser is_active'i de false yapar, bkz.
 	// migration 0043) bir kullanıcı YENİ bir proje ataması alamaz.

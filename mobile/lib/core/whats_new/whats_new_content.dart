@@ -44,6 +44,21 @@ class WhatsNewRelease {
 
 /// En yeni sürüm en üstte.
 const kWhatsNewReleases = <WhatsNewRelease>[
+  // Taşeron Paneli (backend 0075): firma taşerona giriş açar ve proje
+  // izni verir; taşeron kendi işlerini ve ödemelerini görür.
+  WhatsNewRelease(
+    build: 29,
+    version: '1.5.21',
+    items: [
+      WhatsNewItem(
+        icon: Icons.badge_outlined,
+        title: 'Taşeron Paneli',
+        body: 'Taşeronun sayfasında "Giriş aç" ile taşerona hesap aç, hangi projeleri göreceğini seç; '
+            'taşeron kendi işlerini, kalan alacağını ve ödemelerini kendi telefonundan görür.',
+        permission: 'organization.users.manage',
+      ),
+    ],
+  ),
   // Maliyet tanımları (backend 0073): tahakkuk esaslı gerçekleşen maliyet,
   // taşeron avansı ve "İşe say"; siparişten teslim alma ve faturayı
   // siparişe bağlama (backend 0074).

@@ -129,6 +129,10 @@ func ToDomainUser(u sqlc.User) domain.User {
 		id := u.DeletedBy.String()
 		du.DeletedBy = &id
 	}
+	if u.SupplierID.Valid {
+		id := u.SupplierID.String()
+		du.SupplierID = &id
+	}
 	return du
 }
 

@@ -21,6 +21,11 @@ var (
 	// ErrRoleNotAssignable, yeni atama hedefi olamayacak bir organizasyon
 	// rolü (legacy_user -- yalnızca migration artığı) istendiğinde döner.
 	ErrRoleNotAssignable = errors.New("bu rol yeni atama için kullanılamaz")
+	// ErrPortalUserLocked: taşeron hesabı (Taşeron Paneli) firma kullanıcısı
+	// gibi yönetilemez -- rolü, kişiye özel yetkisi ve proje ekibi yok.
+	ErrPortalUserLocked = errors.New("taşeron hesabı taşeron kartından yönetilir; rolü, yetkileri ve proje ekibi değiştirilemez")
+	// ErrPortalRoleLocked: Taşeron rolünün izinleri sabittir.
+	ErrPortalRoleLocked = errors.New("Taşeron rolünün yetkileri değiştirilemez")
 	// ErrAlreadyDeleted, zaten silinmiş bir kullanıcı/firma tekrar
 	// silinmeye çalışıldığında döner (deleted_at IS NULL koşulu WHERE'de
 	// zaten 0 satır günceller -- bu, o durumun net bir hataya çevrilmiş

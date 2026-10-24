@@ -65,6 +65,13 @@ class User {
   final int? trialDaysLeft;
   final bool trialExpired;
 
+  /// Taşeron Paneli (backend migration 0075): dolu ise hesap bir taşeron
+  /// firmanın girişidir. Uygulama ona firma ekranlarını değil yalnızca
+  /// Taşeron Paneli'ni açar (sunucu da yalnızca oraya geçirir).
+  final String? supplierId;
+
+  bool get isSubcontractor => supplierId != null || organizationRoleCode == 'subcontractor';
+
   const User({
     required this.id,
     this.organizationId,
@@ -83,6 +90,7 @@ class User {
     this.trialEndsOn,
     this.trialDaysLeft,
     this.trialExpired = false,
+    this.supplierId,
   });
 
   bool hasPermission(String code) => permissions.contains(code);
@@ -108,6 +116,7 @@ class User {
         trialEndsOn: json['trial_ends_on'] as String?,
         trialDaysLeft: (json['trial_days_left'] as num?)?.toInt(),
         trialExpired: json['trial_expired'] as bool? ?? false,
+        supplierId: json['supplier_id'] as String?,
       );
 
   /// `fromJson`'un tersi (backend alan adlarıyla) -- yalnızca son bilinen
@@ -130,5 +139,6 @@ class User {
         'trial_ends_on': trialEndsOn,
         'trial_days_left': trialDaysLeft,
         'trial_expired': trialExpired,
+        'supplier_id': supplierId,
       };
 }

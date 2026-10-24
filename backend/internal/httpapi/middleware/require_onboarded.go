@@ -59,7 +59,8 @@ func RequireOnboarded(q *sqlc.Queries) func(http.Handler) http.Handler {
 			// Pasifleştirilen/silinen kullanıcı ve düşürülen rol, token'ın
 			// ömrünü beklemeden burada etkili olur (aynı satırdan, ek sorgu
 			// yok) -- bkz. applyUserGate.
-			r, ok = applyUserGate(w, r, status.IsActive, status.UserDeleted, status.Role, status.OrganizationID)
+			r, ok = applyUserGate(w, r, status.IsActive, status.UserDeleted, status.Role, status.OrganizationID,
+				status.SupplierID, status.SupplierActive)
 			if !ok {
 				return
 			}

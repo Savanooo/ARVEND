@@ -119,7 +119,7 @@ func (s *UserService) Create(ctx context.Context, organizationID, username, pass
 
 	var orgRole sqlc.OrganizationRole
 	if organizationRoleCode != "" {
-		if organizationRoleCode == domain.OrgRoleLegacyUser {
+		if !domain.OrgRoleAssignable(organizationRoleCode) {
 			return nil, domain.ErrRoleNotAssignable
 		}
 		orgRole, err = s.q.GetOrganizationRoleByCode(ctx, sqlc.GetOrganizationRoleByCodeParams{
@@ -222,7 +222,7 @@ func (s *UserService) CreateMember(ctx context.Context, organizationID, actorUse
 	if !domain.ValidPasswordLength(password) {
 		return nil, nil, domain.ErrPasswordTooShort
 	}
-	if organizationRoleCode == domain.OrgRoleLegacyUser {
+	if !domain.OrgRoleAssignable(organizationRoleCode) {
 		return nil, nil, domain.ErrRoleNotAssignable
 	}
 	// bcrypt transaction'ı açık tutmasın diye önce.

@@ -30,6 +30,7 @@ import '../features/onboarding/presentation/onboarding_pending_screen.dart';
 import '../features/onboarding/presentation/onboarding_wizard_screen.dart';
 import '../features/onboarding/presentation/organization_settings_screen.dart';
 import '../features/notifications/presentation/notifications_screen.dart';
+import '../features/portal/presentation/portal_home_screen.dart';
 import '../features/profile/presentation/about_screen.dart';
 import '../features/profile/presentation/other_menu_screen.dart';
 import '../features/products/products_routes.dart';
@@ -76,6 +77,13 @@ const _onboardingRoute = '/kurulum';
 const _onboardingPendingRoute = '/kurulum-bekleniyor';
 const _superAdminUnsupportedRoute = '/hesap-yonetim-web';
 const _accountBlockedRoute = '/hesap-erisimi-kapali';
+
+/// Taşeron Paneli (backend migration 0075): taşeron hesabı YALNIZCA bu
+/// rotanın altını açar; firma kullanıcısı buraya giremez.
+const _portalHomeRoute = '/taseron';
+
+bool _isPortalLocation(String location) =>
+    location == _portalHomeRoute || location.startsWith('$_portalHomeRoute/');
 
 /// Kullanıcının BULUNMASI GEREKEN zorunlu rota (varsa) -- yoksa null
 /// (serbest gezinme). Sıra: super_admin ÖNCE (organizasyonu YOKTUR, bu
@@ -154,6 +162,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (forcedRoute != null) {
         return currentLocation == forcedRoute ? null : forcedRoute;
       }
+      // Taşeron hesabı firma ekranlarına hiç girmez (sunucu da girmesine
+      // izin vermez): her konum Taşeron Paneli'ne döner.
+      if (user.isSubcontractor) {
+        return _isPortalLocation(currentLocation) ? null : _portalHomeRoute;
+      }
+      if (_isPortalLocation(currentLocation)) return '/ana-sayfa';
       // Zorunlu bir rota yok -- giriş/şifre-belirle/kurulum ekranlarından
       // birindeyse (ör. az önce tamamlandı) ana sayfaya çıkılır; başka bir
       // rotadaysa (serbest gezinme) dokunulmaz.
@@ -173,6 +187,18 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: _accountBlockedRoute,
         builder: (context, state) => const AccountAccessBlockedScreen(),
+      ),
+      // Taşeron Paneli: firma kabuğunun (alt menü) DIŞINDA kendi sayfaları.
+      GoRoute(
+        path: _portalHomeRoute,
+        builder: (context, state) => const PortalHomeScreen(),
+        routes: [
+          GoRoute(
+            path: 'profil',
+            builder: (context, state) => const ProfileScreen(aboutRoute: '$_portalHomeRoute/hakkinda'),
+          ),
+          GoRoute(path: 'hakkinda', builder: (context, state) => const AboutScreen()),
+        ],
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) => AppShell(navigationShell: navigationShell),

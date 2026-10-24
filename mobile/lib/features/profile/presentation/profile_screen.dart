@@ -18,7 +18,11 @@ import '../../auth/domain/user.dart';
 import '../../../core/widgets/app_sheet.dart';
 
 class ProfileScreen extends ConsumerWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({super.key, this.aboutRoute = '/diger/hakkinda'});
+
+  /// "Hakkında"nın açılacağı rota: Taşeron Paneli kendi yolunu verir
+  /// (taşeron hesabı firma kabuğuna giremez).
+  final String aboutRoute;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -99,7 +103,7 @@ class ProfileScreen extends ConsumerWidget {
                     Icons.chevron_right,
                     color: AppColors.textMuted,
                   ),
-                  onTap: () => context.push('/diger/hakkinda'),
+                  onTap: () => context.push(aboutRoute),
                 ),
                 // Hesap silme Süper Admin'de yok: platform hesabı firmaya
                 // bağlı değil, uç da firma oturumu ister.
