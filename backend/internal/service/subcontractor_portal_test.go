@@ -157,4 +157,57 @@ func TestSubcontractorPortal(t *testing.T) {
 			t.Errorf("izin geri alınınca iş görünmemeli: %+v", o.Engagements)
 		}
 	})
+
+	// Taşeron hesabı firmanın personeli değildir ve proje ekibine giremez:
+	// Ana Sayfa'nın "projesi olmayan" / "personel kaydı olmayan" uyarıları
+	// onu saymamalı (hiç kapanmayan uyarı olurdu), personele bağlanamamalı.
+	t.Run("3_not_staff", func(t *testing.T) {
+		before, err := q.DashboardUserCounts(ctx, orgUUID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, err := supplierSvc.CreatePortalUser(ctx, org, card.ID, service.PortalUserInput{
+			FullName: "Veli Usta", Username: "kalip_veli_portal", TemporaryPassword: "GeciciSifre123!",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		after, err := q.DashboardUserCounts(ctx, orgUUID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after.Active != before.Active+1 {
+			t.Errorf("aktif kullanıcı sayısı taşeron hesabını saymalı: %d -> %d", before.Active, after.Active)
+		}
+		if after.RestrictedWithoutProject != before.RestrictedWithoutProject || after.WithoutEmployeeLink != before.WithoutEmployeeLink {
+			t.Errorf("taşeron hesabı uyarılara sayılmamalı: önce %+v, sonra %+v", before, after)
+		}
+		top, err := q.DashboardUsersWithoutProjectTop(ctx, orgUUID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, u := range top {
+			if u.ID.String() == second.ID || u.ID.String() == portalUser.ID {
+				t.Errorf("taşeron hesabı 'projesi olmayan' listesinde: %+v", u)
+			}
+		}
+
+		employees := service.NewEmployeeService(e.pool, q)
+		if _, err := employees.Create(ctx, org, service.EmployeeInput{FullName: "Bağlanamaz", IsActive: true, UserID: &second.ID}); !errors.Is(err, service.ErrEmployeeUserIsPortal) {
+			t.Errorf("taşeron hesabı personele bağlanmamalı: %v", err)
+		}
+		// Aynı adlı personel olsa da bağlama önerisi çıkmamalı.
+		if _, err := employees.Create(ctx, org, service.EmployeeInput{FullName: "Veli Usta", IsActive: true}); err != nil {
+			t.Fatal(err)
+		}
+		sugg, err := employees.LinkSuggestions(ctx, org)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, sg := range sugg {
+			if sg.UserID == second.ID {
+				t.Errorf("taşeron hesabı personel bağlama önerisinde: %+v", sg)
+			}
+		}
+	})
 }

@@ -73,6 +73,10 @@ class OrgUser {
 
   /// Sahip/Yönetici -- web'deki gold rozetin koşulu.
   bool get isOwnerOrAdmin => organizationRoleCode == 'owner' || organizationRoleCode == 'admin';
+
+  /// Taşeron Paneli hesabı (backend 0075): taşeron kartından yönetilir;
+  /// rolü, yetkileri ve proje ekibi değişmez, personele bağlanmaz.
+  bool get isSubcontractor => organizationRoleCode == 'subcontractor';
 }
 
 /// `POST /users` cevabındaki `employee_link`: hesap açılırken personel

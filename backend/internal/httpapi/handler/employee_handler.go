@@ -243,7 +243,8 @@ func (h *EmployeeHandler) writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		httpjson.Error(w, http.StatusNotFound, "personel bulunamadı")
-	case errors.Is(err, service.ErrEmployeeUserAlreadyLinked):
+	case errors.Is(err, service.ErrEmployeeUserAlreadyLinked),
+		errors.Is(err, service.ErrEmployeeUserIsPortal):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrEmployeeUserCrossOrg):
 		httpjson.Error(w, http.StatusBadRequest, err.Error())

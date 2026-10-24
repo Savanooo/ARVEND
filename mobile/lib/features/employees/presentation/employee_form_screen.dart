@@ -423,7 +423,9 @@ class _EmployeeFormBodyState extends ConsumerState<_EmployeeFormBody> {
         'Kullanıcı listesi alınamadı; mevcut bağlantı korunur. (${e is ApiException ? e.message : 'bağlantı hatası'})',
         tone: NoteTone.warning,
       ),
-      data: (users) {
+      data: (all) {
+        // Taşeron hesabı personele bağlanamaz (sunucu da reddeder).
+        final users = all.where((u) => !u.isSubcontractor).toList();
         final known = users.any((u) => u.id == _linkedUserId);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -554,7 +556,8 @@ class _EmployeeFormBodyState extends ConsumerState<_EmployeeFormBody> {
     return usersAsync.when(
       loading: () => const SizedBox(height: 56, child: LoadingState()),
       error: (e, _) => InfoNote(e is ApiException ? e.message : 'Kullanıcı listesi alınamadı.', tone: NoteTone.danger),
-      data: (users) {
+      data: (all) {
+        final users = all.where((u) => !u.isSubcontractor).toList();
         final known = [...users, ..._createdUsers.where((c) => !users.any((u) => u.id == c.id))];
         return DropdownButtonFormField<String>(
           key: ValueKey('mevcut-$_existingUserId'),

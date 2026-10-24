@@ -62,6 +62,10 @@ var ErrEmployeeUserAlreadyLinked = errors.New("bu kullanıcı hesabı zaten baş
 // okunaklı bir hata için TEKRAR doğrulanır).
 var ErrEmployeeUserCrossOrg = errors.New("bağlanacak kullanıcı hesabı aynı organizasyona ait olmalıdır")
 
+// ErrEmployeeUserIsPortal: taşeron hesabı (Taşeron Paneli, migration 0075)
+// firmanın personeli değildir; personel kaydına bağlanamaz.
+var ErrEmployeeUserIsPortal = errors.New("taşeron hesabı personel kaydına bağlanamaz")
+
 // resolveEmployeeUserLink, UserID girdisini pgtype.UUID'ye çevirir ve
 // AYNI organizasyona ait olduğunu doğrular (nil ise dokunma anlamına
 // gelen bir "değişmesin" sinyali — çağıran bunu ayrıca ele alır).
@@ -73,11 +77,15 @@ func (s *EmployeeService) resolveEmployeeUserLink(ctx context.Context, userID *s
 	if err != nil {
 		return pgtype.UUID{}, domain.ErrNotFound
 	}
-	if _, err := s.q.GetUserByIDInOrg(ctx, sqlc.GetUserByIDInOrgParams{ID: uid, OrganizationID: orgID}); err != nil {
+	u, err := s.q.GetUserByIDInOrg(ctx, sqlc.GetUserByIDInOrgParams{ID: uid, OrganizationID: orgID})
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return pgtype.UUID{}, ErrEmployeeUserCrossOrg
 		}
 		return pgtype.UUID{}, err
+	}
+	if u.SupplierID.Valid {
+		return pgtype.UUID{}, ErrEmployeeUserIsPortal
 	}
 	return uid, nil
 }

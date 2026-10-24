@@ -72,21 +72,32 @@ class UserDetailScreen extends ConsumerWidget {
               // Kişiye bağlı anahtar: yenileme (ör. Rol ve Yetkiler kaydı
               // detayı tazeler) yazılmakta olan adı silmez -- didUpdateWidget.
               _UserInfoCard(key: ValueKey('bilgi-${u.id}'), user: u, canManage: canManage),
-              const SizedBox(height: AppSpacing.xl),
-              const AppSectionHeader(title: 'Personel Kaydı'),
-              const SizedBox(height: AppSpacing.sm),
-              UserEmployeeCard(user: u),
-              const SizedBox(height: AppSpacing.xl),
-              const AppSectionHeader(title: 'Atandığı Projeler'),
-              const SizedBox(height: AppSpacing.sm),
-              _UserProjectsSection(userId: userId),
+              // Taşeron hesabı: proje izinleri taşeron kartında; personel
+              // kaydı, proje ekibi ve rol/yetki bu hesapta yoktur.
+              if (u.isSubcontractor) ...[
+                const SizedBox(height: AppSpacing.xl),
+                const ReadOnlyNotice(
+                  'Bu bir taşeron hesabı. Proje izinlerini ve girişini taşeronun sayfasından '
+                  '(Diğer > Taşeronlar) yönetin; rolü ve yetkileri değiştirilemez.',
+                  key: ValueKey('kullanici-taseron-notu'),
+                ),
+              ] else ...[
+                const SizedBox(height: AppSpacing.xl),
+                const AppSectionHeader(title: 'Personel Kaydı'),
+                const SizedBox(height: AppSpacing.sm),
+                UserEmployeeCard(user: u),
+                const SizedBox(height: AppSpacing.xl),
+                const AppSectionHeader(title: 'Atandığı Projeler'),
+                const SizedBox(height: AppSpacing.sm),
+                _UserProjectsSection(userId: userId),
+              ],
               if (canManage) ...[
                 const SizedBox(height: AppSpacing.xl),
                 const AppSectionHeader(title: 'Şifre Sıfırla'),
                 const SizedBox(height: AppSpacing.sm),
                 _PasswordResetCard(userId: userId),
               ],
-              if (canReadAccess) ...[
+              if (canReadAccess && !u.isSubcontractor) ...[
                 const SizedBox(height: AppSpacing.xl),
                 const AppSectionHeader(title: 'Rol ve Yetkiler'),
                 const SizedBox(height: AppSpacing.sm),

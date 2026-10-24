@@ -115,7 +115,8 @@ WHERE e.organization_id = $1;
 -- name: ListUsersWithoutEmployee :many
 -- "Bağlantı önerileri": personel kaydı olmayan (silinmemiş) giriş
 -- hesapları. Eşleştirme Go'da, yalnızca birebir aynı normalize adla.
+-- Taşeron hesapları (supplier_id) personel değildir, önerilmez.
 SELECT u.id, u.username, u.full_name FROM users u
-WHERE u.organization_id = $1 AND u.deleted_at IS NULL
+WHERE u.organization_id = $1 AND u.deleted_at IS NULL AND u.supplier_id IS NULL
   AND NOT EXISTS (SELECT 1 FROM employees e WHERE e.user_id = u.id)
 ORDER BY u.full_name, u.id;

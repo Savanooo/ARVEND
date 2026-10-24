@@ -4019,10 +4019,11 @@ SELECT
     (count(*) FILTER (WHERE NOT u.is_active))::int AS inactive,
     (count(*) FILTER (WHERE u.is_active AND u.last_login_at IS NULL))::int AS never_logged_in,
     (count(*) FILTER (WHERE u.is_active AND r.code NOT IN ('owner', 'admin', 'legacy_user')
+                        AND u.supplier_id IS NULL
                         AND NOT EXISTS (SELECT 1 FROM project_users pu
                                         WHERE pu.user_id = u.id AND pu.organization_id = $1::uuid)))::int
         AS restricted_without_project,
-    (count(*) FILTER (WHERE u.is_active AND NOT EXISTS (
+    (count(*) FILTER (WHERE u.is_active AND u.supplier_id IS NULL AND NOT EXISTS (
                         SELECT 1 FROM employees e
                         WHERE e.user_id = u.id AND e.organization_id = $1::uuid)))::int AS without_employee_link
 FROM users u
@@ -4041,7 +4042,9 @@ type DashboardUserCountsRow struct {
 // ============================================================ users
 // Silinmiş (deleted_at) kullanıcılar sayılmaz. "Projesi olmayan":
 // üyelik kısıtlı bir rolde olup hiçbir project_users satırı olmayan aktif
-// kullanıcılar -- hiçbir projeyi göremezler.
+// kullanıcılar -- hiçbir projeyi göremezler. Taşeron hesapları (supplier_id,
+// migration 0075) proje ekibine giremez ve personel değildir: bu iki uyarıya
+// sayılmazlar (yoksa hiç kapanmayan bir uyarı olurdu).
 func (q *Queries) DashboardUserCounts(ctx context.Context, orgID pgtype.UUID) (DashboardUserCountsRow, error) {
 	row := q.db.QueryRow(ctx, dashboardUserCounts, orgID)
 	var i DashboardUserCountsRow
@@ -4113,6 +4116,7 @@ FROM users u
 JOIN organization_roles r ON r.id = u.organization_role_id
 WHERE u.organization_id = $1::uuid AND u.deleted_at IS NULL AND u.is_active
   AND r.code NOT IN ('owner', 'admin', 'legacy_user')
+  AND u.supplier_id IS NULL
   AND NOT EXISTS (SELECT 1 FROM project_users pu
                   WHERE pu.user_id = u.id AND pu.organization_id = $1::uuid)
 ORDER BY u.full_name ASC, u.id
