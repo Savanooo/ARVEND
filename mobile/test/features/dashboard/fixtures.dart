@@ -32,6 +32,8 @@ const kAllPermissions = <String>[
   'offers.internal_pricing.read',
   'offers.read',
   'offers.update',
+  // Firma Grubu (backend 0077): Taşeron dışındaki her rolde.
+  'organization.chat.use',
   'organization.cost_codes.manage',
   'organization.cost_codes.read',
   'organization.roles.manage',
@@ -90,6 +92,7 @@ const kFieldPermissions = <String>[
   'projects.operations.manage',
   'attendance.read',
   'notifications.read',
+  'organization.chat.use',
 ];
 
 /// Finans rolünün varsayılan izinleri (spec §8.4; 0066: masraf girer,
@@ -123,6 +126,7 @@ const kFinancePermissions = <String>[
   'organization.suppliers.read',
   'organization.suppliers.manage',
   'notifications.read',
+  'organization.chat.use',
 ];
 
 User _user({

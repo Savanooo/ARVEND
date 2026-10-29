@@ -17,6 +17,7 @@ import 'package:arvend/core/api/api_providers.dart';
 import 'package:arvend/core/auth/auth_controller.dart';
 import 'package:arvend/core/theme/app_theme.dart';
 import 'package:arvend/features/auth/domain/user.dart';
+import 'package:arvend/features/chat/data/chat_providers.dart' show chatUnreadCountProvider;
 import 'package:arvend/features/dashboard/data/dashboard_providers.dart';
 import 'package:arvend/features/dashboard/domain/dashboard.dart';
 import 'package:arvend/features/dashboard/presentation/attention_screen.dart';
@@ -96,6 +97,8 @@ void main() {
         authControllerProvider.overrideWith(() => _FakeAuth(userFor(persona))),
         dashboardProvider.overrideWith((ref) async => Dashboard.fromJson(fixtures[persona]!)),
         unreadNotificationCountProvider.overrideWith((ref) async => 4),
+        // Firma Grubu (backend 0077): zilin yanında rozetli giriş.
+        chatUnreadCountProvider.overrideWith((ref) async => 2),
       ],
       child: MaterialApp.router(
         debugShowCheckedModeBanner: false,

@@ -34,11 +34,13 @@ DELETE FROM push_devices WHERE user_id = $1;
 -- name: ClaimPendingPushNotifications :many
 -- Gönderilecek bildirimleri alır ve aynı anda işaretler (iki gönderici
 -- aynı satırı almasın). En fazla bir kez gönderim: telefona ulaşmadıysa
--- bildirim zilde yine durur.
+-- bildirim zilde yine durur. Gönderilmeden okunmuş bildirim (ör. Firma
+-- Grubu ekranı açıkken gelen mesaj) telefonu çaldırmaz; pencereden çıkınca
+-- SkipStalePushNotifications işaretler.
 UPDATE notifications SET pushed_at = now()
 WHERE id IN (
     SELECT n.id FROM notifications n
-    WHERE n.pushed_at IS NULL AND n.created_at > sqlc.arg(since)::timestamptz
+    WHERE n.pushed_at IS NULL AND n.read_at IS NULL AND n.created_at > sqlc.arg(since)::timestamptz
     ORDER BY n.created_at
     LIMIT sqlc.arg(max_rows)::int
     FOR UPDATE SKIP LOCKED

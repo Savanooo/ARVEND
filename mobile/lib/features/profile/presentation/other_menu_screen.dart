@@ -13,6 +13,9 @@ import '../../../core/widgets/app_section_header.dart';
 import '../../access/access_routes.dart';
 import '../../attendance/domain/attendance_access.dart';
 import '../../calc_admin/calc_admin_routes.dart';
+import '../../chat/data/chat_providers.dart' show canUseChat;
+import '../../chat/domain/chat_message.dart' show kChatRoute;
+import '../../chat/presentation/chat_entry.dart';
 import '../../onboarding/presentation/organization_settings_screen.dart' show kPermOrganizationSettingsRead;
 import '../../cost_codes/cost_codes_routes.dart';
 import '../../employees/employees_routes.dart';
@@ -65,6 +68,16 @@ class OtherMenuScreen extends ConsumerWidget {
     bool canSee(String code) => noPermissionData || user.hasPermission(code);
 
     final toolItems = [
+      // Firma Grubu (backend 0077): firmanın tek grup sohbeti -- en çok
+      // açılacak araç, ilk sırada ve okunmamış sayısıyla. İzin KATI
+      // denetlenir (canUseChat): izinsiz istek rozet için 403 üretirdi.
+      if (canUseChat(user))
+        _MenuItem(
+          icon: Icons.forum_outlined,
+          label: 'Firma Grubu',
+          onTap: () => context.push(kChatRoute),
+          badge: const ChatUnreadPill(),
+        ),
       // Herkes masraf girer (backend 0066); genel (projesiz) ve projeli
       // masraflar tek yerde (backend 0068). Finans okuma izni olan herkesinkini,
       // olmayan kendi girdiklerini görür.
@@ -212,10 +225,14 @@ class _MenuItem {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.badge,
   });
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+
+  /// Ok işaretinin solunda (ör. Firma Grubu'nun okunmamış sayısı).
+  final Widget? badge;
 }
 
 class _MenuTile extends StatelessWidget {
@@ -224,10 +241,13 @@ class _MenuTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const chevron = Icon(Icons.chevron_right, color: AppColors.textMuted);
     return AppListCard(
       title: item.label,
       leading: Icon(item.icon, color: AppColors.gold),
-      trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
+      trailing: item.badge == null
+          ? chevron
+          : Row(mainAxisSize: MainAxisSize.min, children: [item.badge!, const SizedBox(width: AppSpacing.xs), chevron]),
       onTap: item.onTap,
     );
   }

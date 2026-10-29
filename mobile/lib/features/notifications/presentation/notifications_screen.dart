@@ -203,6 +203,8 @@ class _NotificationTile extends StatelessWidget {
     'project_file' => Icons.attach_file,
     'project_expense' => Icons.receipt_outlined,
     'inventory' => Icons.inventory_2_outlined,
+    // Firma Grubu (backend 0077) -- Ana Sayfa'daki girişle aynı simge.
+    'chat_message' => Icons.forum_outlined,
     _ => Icons.notifications_outlined,
   };
 

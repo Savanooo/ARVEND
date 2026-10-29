@@ -37,6 +37,9 @@ final localDocumentsProvider = Provider<LocalDocuments>((ref) => LocalDocuments(
 /// Şantiye fotoğrafı önbelleğinin dizini (bkz. ProjectPhotoCache).
 const kProjectPhotoCacheDirectory = 'proje-fotograflari';
 
+/// Firma Grubu'nun son mesajları ve fotoğrafları (bkz. ChatCache).
+const kChatCacheDirectory = 'firma-grubu';
+
 /// share_plus'ın paylaşmadan önce dosyayı kopyaladığı dizin (eklentinin
 /// FileProvider'ı yalnızca buradan verir; bir sonraki paylaşıma kadar kalır).
 const kSharePlusDirectory = 'share_plus';
@@ -67,6 +70,7 @@ class LocalUserFiles {
   static const directories = [
     LocalDocuments.directoryName,
     kProjectPhotoCacheDirectory,
+    kChatCacheDirectory,
     kSharePlusDirectory,
     kFilePickerDirectory,
   ];

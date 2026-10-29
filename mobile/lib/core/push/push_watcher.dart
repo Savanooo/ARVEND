@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../../features/chat/data/chat_providers.dart' show chatPushTickProvider, chatUnreadCountProvider;
+import '../../features/chat/domain/chat_message.dart' show kChatNotificationType, kChatRoute;
 import '../../features/notifications/data/notifications_providers.dart';
 import '../auth/auth_controller.dart';
 import '../auth/last_user_store.dart';
@@ -23,7 +25,9 @@ final rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 ///   gösterir,
 /// - dokunulan bildirimi okundu işaretler ve hedef ekranını açar (oturum
 ///   yoksa girişten sonra -- yalnızca bildirimin sahibi giriş yaparsa),
-/// - uygulama öne gelince zil sayacını tazeler.
+/// - uygulama öne gelince zil sayacını (ve Firma Grubu rozetini) tazeler,
+/// - Firma Grubu bildirimi gelince açık sohbeti hemen yoklatır; sohbet zaten
+///   ekrandaysa alt bant göstermez.
 class PushWatcher extends ConsumerStatefulWidget {
   const PushWatcher({super.key, required this.router, required this.child});
 
@@ -92,6 +96,7 @@ class _PushWatcherState extends ConsumerState<PushWatcher> {
     }
     ref.invalidate(unreadNotificationCountProvider);
     ref.invalidate(notificationsListProvider);
+    ref.invalidate(chatUnreadCountProvider);
   }
 
   void _onAuthChanged() {
@@ -179,6 +184,13 @@ class _PushWatcherState extends ConsumerState<PushWatcher> {
   void _onForeground(PushMessage m) {
     ref.invalidate(unreadNotificationCountProvider);
     ref.invalidate(notificationsListProvider);
+    if (m.type == kChatNotificationType) {
+      // Firma Grubu: rozet tazelenir, açık sohbet beklemeden yoklar. Sohbet
+      // zaten ekrandaysa alt bant gösterilmez -- mesaj birazdan listeye düşer.
+      ref.invalidate(chatUnreadCountProvider);
+      ref.read(chatPushTickProvider.notifier).state++;
+      if (widget.router.routerDelegate.currentConfiguration.uri.path == kChatRoute) return;
+    }
     final messenger = rootScaffoldMessengerKey.currentState;
     if (messenger == null || m.title.isEmpty) return;
     messenger.showSnackBar(

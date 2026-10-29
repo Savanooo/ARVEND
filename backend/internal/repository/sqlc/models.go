@@ -394,6 +394,38 @@ type Organization struct {
 	DeletedBy             pgtype.UUID        `json:"deleted_by"`
 }
 
+type OrganizationChat struct {
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	LastSeq        int64              `json:"last_seq"`
+	LastMessageAt  pgtype.Timestamptz `json:"last_message_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type OrganizationChatMember struct {
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	LastReadSeq    int64              `json:"last_read_seq"`
+	LastReadAt     pgtype.Timestamptz `json:"last_read_at"`
+	Muted          bool               `json:"muted"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type OrganizationChatMessage struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	Seq            int64              `json:"seq"`
+	AuthorID       pgtype.UUID        `json:"author_id"`
+	Body           string             `json:"body"`
+	ClientID       pgtype.UUID        `json:"client_id"`
+	PhotoKey       *string            `json:"photo_key"`
+	PhotoMime      *string            `json:"photo_mime"`
+	PhotoSize      *int64             `json:"photo_size"`
+	PhotoSha256    *string            `json:"photo_sha256"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+	DeletedBy      pgtype.UUID        `json:"deleted_by"`
+}
+
 type OrganizationCommercialSetting struct {
 	OrganizationID       pgtype.UUID        `json:"organization_id"`
 	DefaultCurrency      string             `json:"default_currency"`

@@ -47,8 +47,13 @@ type Message struct {
 	Body  string
 	// Tag: aynı etiketli yeni bildirim telefondakinin yerine geçer
 	// (gruplanan bildirim büyüdüğünde ikinci bir kart açılmasın).
-	Tag  string
-	Data map[string]string
+	Tag string
+	// CollapseKey (isteğe bağlı): telefon çevrimdışıyken Firebase'de bekleyen
+	// aynı anahtarlı mesajlardan yalnızca sonuncusu teslim edilir. Firebase
+	// cihaz başına en çok 4 farklı anahtar tutar -- bu yüzden her bildirime
+	// değil, yalnızca sabit anahtarlı akışlara (Firma Grubu) verilir.
+	CollapseKey string
+	Data        map[string]string
 }
 
 type Client struct {
@@ -165,16 +170,20 @@ func (c *Client) Send(ctx context.Context, m Message) error {
 		androidNotif["tag"] = m.Tag
 		apns["headers"] = map[string]string{"apns-collapse-id": m.Tag}
 	}
+	android := map[string]any{
+		"priority":     "high",
+		"notification": androidNotif,
+	}
+	if m.CollapseKey != "" {
+		android["collapse_key"] = m.CollapseKey
+	}
 	payload := map[string]any{
 		"message": map[string]any{
 			"token":        m.Token,
 			"notification": map[string]string{"title": m.Title, "body": m.Body},
 			"data":         m.Data,
-			"android": map[string]any{
-				"priority":     "high",
-				"notification": androidNotif,
-			},
-			"apns": apns,
+			"android":      android,
+			"apns":         apns,
 		},
 	}
 	buf, err := json.Marshal(payload)

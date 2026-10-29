@@ -102,6 +102,10 @@ const (
 	// Günlük stok uyarısı (migration 0072): her sabah, SKT'si geçen/yaklaşan
 	// parti ya da azalan stok varsa inventory.manage sahiplerine (günde bir).
 	NotificationInventoryAlert = "inventory_alert"
+	// Firma Grubu'na yeni mesaj (migration 0077): yazar ve sessize alanlar
+	// dışındaki üyelere. Kişi başına TEK okunmamış satır: okunana kadar
+	// yeni mesajlar o satırı büyütür ("Firma Grubu: 3 yeni mesaj").
+	NotificationOrganizationChat = "organization_chat"
 )
 
 // Varlık türleri -- mobil/web istemcinin ActionTarget'ı yorumlamadan,
@@ -123,4 +127,5 @@ const (
 	NotificationEntityProjectFile            = "project_file"
 	NotificationEntityProjectExpense         = "project_expense"
 	NotificationEntityInventory              = "inventory"
+	NotificationEntityChatMessage            = "chat_message"
 )
