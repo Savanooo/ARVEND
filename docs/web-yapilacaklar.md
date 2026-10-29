@@ -165,6 +165,23 @@ linkinde müşteri Kabul Et / Reddet görmüyor. Kural: `mobile/API_CONTRACT.md`
 - Müşteri sayfası (`paylas/[token]`) taslak linkte artık "Bu teklif henüz onaya
   açılmadı…" notunu gösteriyor (yapıldı).
 
+## 12. Proje fotoğrafları galerisi (mobil, 2026-10-29)
+Şikâyet: "resimler sıra sıra kaymıyor, galeri değil". Mobilde fotoğrafa
+dokununca tam ekran galeri açılıyor (`mobile/lib/features/projects/
+presentation/project_photo_gallery.dart`); web'de (`projeler/[id]/
+OperationSections.tsx` PhotosSection) her fotoğraf yeni sekmede tek başına
+açılıyor.
+- Tıklanan fotoğrafta açılan bir görüntüleyici (lightbox): önceki/sonraki
+  (oklar + klavye ←/→), "3 / 12" sayacı, aşama · açıklama · tarih, Esc ile
+  kapanma. Sıra ızgaranınki: önce → süreç → sonra, aşama içinde backend
+  sırası (bütün aşamalar arasında gezilir).
+- Paylaş/indir ve Sil o an görünen fotoğrafa; silince sıradaki gelir, son
+  fotoğraf silinince kapanır (`projects.operations.manage`).
+- Günlük rapordaki "O gün çekilen fotoğraflar" da aynı görüntüleyicide
+  açılmalı (mobilde öyle).
+- Küçük resimler §5'teki gibi doğrudan API adresinden yükleniyor; görüntüleyici
+  de aynı oturum yenileme düzeltmesini kullanmalı.
+
 ## Bilinen tutarsızlıklar (web + backend)
 - Katalog fiyatı TL; teklifin para birimi TL değilse (firma varsayılanı
   USD/EUR) katalogdan seçilen fiyat çevrilmeden yazılıyor — web ve mobil

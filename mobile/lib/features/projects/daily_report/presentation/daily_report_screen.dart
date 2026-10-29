@@ -23,9 +23,11 @@ import '../../../../core/widgets/unsaved_changes_scope.dart';
 import '../../../auth/domain/user.dart';
 import '../../../subcontractors/presentation/subcontractor_picker_sheet.dart';
 import '../../data/projects_providers.dart';
+import '../../domain/project.dart' show ProjectPhoto;
 import '../../ops_team/domain/ops_dates.dart';
 import '../../ops_team/domain/ops_permissions.dart';
 import '../../ops_team/presentation/widgets/ops_common.dart';
+import '../../presentation/project_photo_gallery.dart';
 import '../daily_report_paths.dart';
 import '../data/daily_report_repository.dart';
 import '../domain/daily_report.dart';
@@ -376,7 +378,16 @@ class _DailyReportScreenState extends ConsumerState<DailyReportScreen> {
                       else
                         _ReadOnlyReport(report: r),
                       const SizedBox(height: AppSpacing.lg),
-                      _AutoSection(projectId: widget.projectId, report: r),
+                      _AutoSection(
+                        projectId: widget.projectId,
+                        report: r,
+                        // Galeriden silinen fotoğraf rapordan (ve PDF'ten) da
+                        // düşer. Form yeniden DOLMAZ (bkz. _fill işareti).
+                        onPhotoDeleted: () {
+                          ref.invalidate(dailyReportProvider(_key));
+                          ref.invalidate(dailyReportsProvider(widget.projectId));
+                        },
+                      ),
                     ],
                   ),
                 ),
@@ -824,10 +835,37 @@ class _ReadOnlyReport extends StatelessWidget {
 
 /// Sunucudan gelen günün verileri: tamamlanan görevler ve fotoğraflar.
 class _AutoSection extends ConsumerWidget {
-  const _AutoSection({required this.projectId, required this.report});
+  const _AutoSection({required this.projectId, required this.report, required this.onPhotoDeleted});
 
   final String projectId;
   final DailyReport report;
+  final VoidCallback onPhotoDeleted;
+
+  /// Günün fotoğrafları Dokümanlar'daki galeride açılır (aynı hareketler,
+  /// paylaş/sil). Raporun fotoğraf satırında yalnızca kimlik, aşama ve
+  /// açıklama var; tarih zaten raporun günü.
+  void _openGallery(BuildContext context, WidgetRef ref, int index) {
+    final photos = [
+      for (final p in report.photos)
+        ProjectPhoto(
+          id: p.id,
+          originalName: '',
+          mimeType: '',
+          sizeBytes: 0,
+          stage: p.stage,
+          description: p.description,
+          createdAt: '',
+        ),
+    ];
+    showProjectPhotoGallery(
+      context,
+      projectId: projectId,
+      photos: photos,
+      initialIndex: index,
+      canDelete: ref.read(authControllerProvider).valueOrNull.can(kProjectOpsManagePermission),
+      onDeleted: (_) => onPhotoDeleted(),
+    );
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -872,7 +910,12 @@ class _AutoSection extends ConsumerWidget {
               scrollDirection: Axis.horizontal,
               itemCount: r.photos.length,
               separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
-              itemBuilder: (context, i) => _PhotoThumb(projectId: projectId, photoId: r.photos[i].id),
+              itemBuilder: (context, i) => _PhotoThumb(
+                key: ValueKey('gunluk-rapor-foto-${r.photos[i].id}'),
+                projectId: projectId,
+                photoId: r.photos[i].id,
+                onTap: () => _openGallery(context, ref, i),
+              ),
             ),
           ),
       ],
@@ -881,10 +924,11 @@ class _AutoSection extends ConsumerWidget {
 }
 
 class _PhotoThumb extends ConsumerWidget {
-  const _PhotoThumb({required this.projectId, required this.photoId});
+  const _PhotoThumb({super.key, required this.projectId, required this.photoId, required this.onTap});
 
   final String projectId;
   final String photoId;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -895,7 +939,7 @@ class _PhotoThumb extends ConsumerWidget {
       child: Icon(Icons.broken_image_outlined, color: AppColors.textMuted),
     );
     return GestureDetector(
-      onTap: () => context.push('/projeler/${Uri.encodeComponent(projectId)}?grup=dokumanlar&alt=dosyalar'),
+      onTap: onTap,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppRadius.control),
         child: SizedBox(
