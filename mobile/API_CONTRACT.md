@@ -630,7 +630,24 @@ Kurallar: `docs/procurement.md` §12.
   - PUT'ta alan yoksa bağ korunur, `""` gönderilirse kalkar.
   - Masraf satırları `purchase_order_id` taşır.
   - Finans izni olmayan (yalnızca kendi masrafını giren) kişi bağ yazamaz.
-- **Finans özeti** `received_not_costed`: teslim alınmış, faturası girilmemiş tutar. Maliyet değildir.
+- **Finans özeti** `received_not_costed`: teslim alınmış, faturası girilmemiş tutar. Migration 0078'den beri sipariş tutarıyla maliyetin İÇİNDEDİR ("fatura bekleniyor" bilgisi).
+
+## Satın almalar proje maliyetine girer (2026-10, migration 0078)
+
+Kurallar: `docs/maliyet-tanimlari.md` "Satın almalar", `docs/procurement.md` §13.
+
+- **Talep / sipariş yanıtları** `include_in_project_cost` (bool) taşır; talep ayrıca `cost_estimate` (null = kalemlerin toplamı), sipariş `purchase_request_id`.
+- **`project_cost`** (liste, detay, onay ve karar yanıtlarında; diğer yazma yanıtlarında yok): `{included, amount, potential, source: estimate|orders|order|invoices|none, unpriced_items, warning?}`; siparişte ayrıca `order_amount`, `invoiced_amount`. `amount` bugün maliyete giren, `potential` eklenseydi girecek tutar (onay ekranındaki "maliyete eklenecek"). KDV dahil.
+- **Talep onayı** `POST .../purchase-requests/{prId}/approve` gövde opsiyonel: `{include_in_project_cost?, cost_estimate?}`. Gövdesiz = evet, tahmin kalemlerden. Negatif tahmin / bilinmeyen alan 400. Tamamlanmış/iptal proje 409. Fiyatsız talepte (`estimate` 0, siparişi yok) `project_cost.warning` = "Bu talepte fiyat yok; maliyete 0 TL girer." (onaydan önce detayda da).
+- **Sipariş oluşturma** opsiyonel `purchase_request_id` (bu projenin onaylı talebi; değilse 409); RFQ'dan açılan sipariş RFQ'nun talebine kendiliğinden bağlanır, çelişirse 409. Sipariş talebin kararını devralır.
+- **Sipariş onayı** `POST .../purchase-orders/{poId}/approve` gövde opsiyonel: `{include_in_project_cost?}` (yoksa mevcut karar).
+- **Kararı sonradan değiştirme** (`projects.procurement.approve`):
+  - `POST /projects/{id}/purchase-requests/{prId}/project-cost {include_in_project_cost?, cost_estimate?}` — yalnızca onaylı talep (409), boş gövde 400. Karar talebin açık (taslak/onaylı) siparişlerine de uygulanır.
+  - `POST /projects/{id}/purchase-orders/{poId}/project-cost {include_in_project_cost}` — taslak/onaylı sipariş (kapatılmış/iptal 409), alan zorunlu (400).
+  - Tamamlanmış/iptal edilmiş projede 409. Yanıt talep/sipariş + `project_cost`.
+- **Finans özeti** yeni alanlar: `expense_cost` (masraf satırı; siparişe bağlı faturalar hariç), `purchase_cost` ("Satın almalar (onaylı)"), `purchase_cost_vat`, `purchase_cost_uncoded`, `purchase_excluded` (maliyete eklenmeyen, bilgi), `realized_cost_vat` (`*_cost_net` bundan). `realized_cost = expense_cost + purchase_cost + subcontractor_work_paid + new_subcontract_accrued`. `total_expenses` bütün onaylı masraflar (nakit) olarak kaldı.
+- **Maliyet Kontrolü** özet ve satırları `purchase_actual_cost` (actual_cost'un satın alma payı) taşır; `actual_cost` onaylı satın almaları içerir.
+- Olaylar: `purchase_request_cost_decision`, `purchase_order_cost_decision` (metadata `included`, tahmin `amount`).
 
 ## Taşeron Paneli (2026-10-24, migration 0075; mobile 1.5.21)
 

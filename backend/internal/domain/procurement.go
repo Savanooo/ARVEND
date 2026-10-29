@@ -42,6 +42,9 @@ const (
 	ProjectEventPurchaseRequestApproved  = "purchase_request_approved"
 	ProjectEventPurchaseRequestRejected  = "purchase_request_rejected"
 	ProjectEventPurchaseRequestCancelled = "purchase_request_cancelled"
+	// Onaylı talebin "proje maliyetine eklensin mi" kararı (ya da tahmini
+	// tutarı) sonradan değişti (migration 0078).
+	ProjectEventPurchaseRequestCostDecision = "purchase_request_cost_decision"
 )
 
 // PurchaseRequest, purchase_requests satırının domain karşılığıdır.
@@ -56,6 +59,13 @@ type PurchaseRequest struct {
 	NeededBy       *time.Time
 	Status         string
 	EstimatedTotal float64
+
+	// Satın alma proje maliyetine girer (migration 0078): onaylayan "proje
+	// maliyetine eklensin mi" diye karar verir (varsayılan evet; depo/stok ya
+	// da genel kullanım için hayır). CostEstimate onayda girilen tahmini
+	// tutardır (kalemlerde fiyat yokken); nil ise maliyete EstimatedTotal girer.
+	IncludeInProjectCost bool
+	CostEstimate         *float64
 
 	RequestedBy *string
 
@@ -253,6 +263,9 @@ const (
 
 	ProjectEventPurchaseReceiptRecorded = "purchase_receipt_recorded"
 	ProjectEventPurchaseReceiptVoided   = "purchase_receipt_voided"
+
+	// Siparişin "proje maliyetine eklensin mi" kararı değişti (migration 0078).
+	ProjectEventPurchaseOrderCostDecision = "purchase_order_cost_decision"
 )
 
 // PurchaseOrder, purchase_orders satırının domain karşılığıdır.
@@ -271,6 +284,11 @@ type PurchaseOrder struct {
 
 	SourceRFQID       *string
 	SourceQuotationID *string
+	// PurchaseRequestID: siparişin talebi (migration 0078). Talepten açılan
+	// sipariş, onaylanınca talebin tahmini tutarının YERİNE maliyete girer ve
+	// talebin "maliyete eklensin mi" kararını devralır.
+	PurchaseRequestID    *string
+	IncludeInProjectCost bool
 
 	Currency string
 	Status   string
@@ -376,4 +394,38 @@ type PurchaseOrderReceiptSummary struct {
 	AcceptedGross     float64
 	Costed            float64
 	ReceivedNotCosted float64
+}
+
+// ---------- Satın almanın proje maliyetine katkısı (migration 0078) ----------
+
+// PurchaseCost kaynakları: maliyete ne giriyor.
+const (
+	PurchaseCostSourceNone     = "none"     // henüz maliyete girmez (taslak/gönderilmiş/iptal)
+	PurchaseCostSourceEstimate = "estimate" // onaylı talebin tahmini tutarı
+	PurchaseCostSourceOrders   = "orders"   // talebin onaylı siparişleri (tahminin yerine)
+	PurchaseCostSourceOrder    = "order"    // siparişin tutarı
+	PurchaseCostSourceInvoices = "invoices" // siparişe bağlı faturalar sipariş tutarını aştı
+)
+
+// PurchaseCostNoPriceWarning: onaylanacak/onaylı talebin maliyete girecek
+// tutarı 0 (kalemlerde fiyat yok) -- onaylayan tahmini tutar girebilir.
+const PurchaseCostNoPriceWarning = "Bu talepte fiyat yok; maliyete 0 TL girer."
+
+// PurchaseCost, bir talebin ya da siparişin proje maliyetine katkısı
+// (purchase_request_cost_basis / purchase_order_cost_basis görünümleri).
+// Amount bugün maliyete giren tutardır; Potential "maliyete eklenseydi"
+// tutarıdır (karar ekranında "maliyete eklenecek: X" ve "Maliyete
+// eklenmedi" durumunda gösterilen). Tutarlar KDV dahildir.
+type PurchaseCost struct {
+	Included  bool
+	Amount    float64
+	Potential float64
+	Source    string
+	// Yalnızca siparişte: sipariş tutarı (kısa kapatılmışsa teslim alınan
+	// değer) ve siparişe bağlı onaylı faturalar.
+	OrderAmount    float64
+	InvoicedAmount float64
+	// UnpricedItems: talepte fiyatı girilmemiş kalem sayısı.
+	UnpricedItems int
+	Warning       string
 }

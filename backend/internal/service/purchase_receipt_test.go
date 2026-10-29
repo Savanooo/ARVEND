@@ -113,8 +113,10 @@ func TestPurchaseReceipts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !near(fs.ReceivedNotCosted, 66000) || !near(fs.RealizedCost, 0) {
-			t.Fatalf("teslim maliyet yazmaz ama maliyeti girilmemiş tutar görünür: %v %v", fs.ReceivedNotCosted, fs.RealizedCost)
+		// Onaylı sipariş maliyettir (migration 0078): 100.500 + %20 = 120.600.
+		// Teslim maliyeti değiştirmez; faturası girilmemiş teslim ayrıca görünür.
+		if !near(fs.ReceivedNotCosted, 66000) || !near(fs.RealizedCost, 120600) || !near(fs.PurchaseCost, 120600) {
+			t.Fatalf("teslim maliyet yazmaz ama faturası girilmemiş tutar görünür: %v %v", fs.ReceivedNotCosted, fs.RealizedCost)
 		}
 	})
 

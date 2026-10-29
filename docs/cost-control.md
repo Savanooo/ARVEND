@@ -316,11 +316,11 @@ Her bütçe kalemi (ve her "bütçe dışı" satır) için:
 | **Approved Adjustments** | `Σ(status='approved' olan adjustment.amount)` |
 | **Revised** | `Original + Approved Adjustments` |
 | **Committed** | `Σ(project_commitments WHERE status='active')` — tek kaynak, bkz. §5 (Sprint 5 düzeltmesi) |
-| **Actual** | `Σ(project_expenses WHERE voided_at IS NULL AND approval_status='approved')` — **tek gerçek kaynak** (onay bekleyen/reddedilen masraf sayılmaz, migration 0060). KDV DAHİL (ödenen tutar) |
+| **Actual** | `Σ(project_cost_lines)` — finans özetinin gerçekleşeniyle aynı satırlar (migration 0078): onaylı masraflar (onay bekleyen/reddedilen sayılmaz, migration 0060) + **onaylı satın almalar** (siparişsiz onaylı talebin kalemleri, onaylı/kapatılmış siparişin kalemleri ya da siparişi aşan bağlı faturalar). Satın almanın içindeki fatura ikinci kez sayılmaz; "maliyete eklenmesin" denmiş satın alma girmez. KDV DAHİL. Satın alma payı `purchase_actual_cost` (bkz. `docs/maliyet-tanimlari.md` "Satın almalar") |
 | **ETC** (Estimate To Complete) | Varsa `project_cost_forecasts.etc_amount` (manuel override); YOKSA varsayılan `GREATEST(Revised − Actual, 0)` |
 | **EAC** (Estimate At Completion) | `Actual + ETC` — **Committed'i İÇERMEZ** (spec: "committed ile ETC'yi ÇİFT SAYMA") |
 | **Variance** | `Revised − EAC` (**pozitif = bütçe altında**, negatif = bütçe aşımı — bu kural API/UI/testte HER YERDE aynıdır) |
-| **Actual (KDV hariç)** · `actual_cost_net` | `Actual − Σ(aynı masrafların vat_amount'ı)` — oranı belirtilmemiş masrafta `vat_amount` NULL'dır, tutarın tamamı kalır (2026-10-09) |
+| **Actual (KDV hariç)** · `actual_cost_net` | `Actual − Σ(aynı satırların KDV'si)` — oranı belirtilmemiş masrafta `vat_amount` NULL'dır, tutarın tamamı kalır (2026-10-09); sipariş kaleminde siparişin KDV payı, talep tahmininde 0 |
 | **EAC (KDV hariç)** · `eac_net` | `actual_cost_net + ETC` — ETC KDV dahil Actual'dan türer ve KDV'si bilinmez, olduğu gibi kalır |
 
 **Proje toplamı, satır toplamlarının TOPLAMIDIR** (spec §13'ün

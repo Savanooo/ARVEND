@@ -350,11 +350,32 @@ func (s *ProjectService) WithdrawPurchaseRequest(ctx context.Context, projectID,
 		}, ErrPurchaseRequestNotWithdrawable, domain.ProjectEventPurchaseRequestWithdrawn, userID, nil, nil)
 }
 
+// ApprovePurchaseRequest: kararsız onay (eski istemci) -- satın alma proje
+// maliyetine eklenir, tahmin kalemlerin toplamıdır.
 func (s *ProjectService) ApprovePurchaseRequest(ctx context.Context, projectID, prID, organizationID, userID string) (*domain.PurchaseRequest, error) {
+	return s.ApprovePurchaseRequestWithCost(ctx, projectID, prID, organizationID, userID, PurchaseCostDecision{})
+}
+
+// ApprovePurchaseRequestWithCost: onay, satın almayı proje maliyetine sokar
+// (migration 0078). Onaylayan "proje maliyetine eklensin mi" kararını
+// (varsayılan evet) ve fiyatsız talepte tahmini tutarı verir. Proje
+// rakamları değiştiği için tamamlanmış/iptal edilmiş projede onaylanamaz
+// (ApprovePurchaseOrder ile aynı kilit).
+func (s *ProjectService) ApprovePurchaseRequestWithCost(ctx context.Context, projectID, prID, organizationID, userID string, d PurchaseCostDecision) (*domain.PurchaseRequest, error) {
+	if err := d.validate(); err != nil {
+		return nil, err
+	}
+	meta := d.eventMetadata()
 	return s.transitionPurchaseRequest(ctx, projectID, prID, organizationID,
 		func(ctx context.Context, txq *sqlc.Queries, id, orgID, pid pgtype.UUID) (sqlc.PurchaseRequest, error) {
-			return txq.ApprovePurchaseRequest(ctx, sqlc.ApprovePurchaseRequestParams{ID: id, OrganizationID: orgID, ProjectID: pid, ApprovedBy: actorUUID(userID)})
-		}, ErrPurchaseRequestNotApprovable, domain.ProjectEventPurchaseRequestApproved, userID, nil,
+			if _, err := s.requireOpenProject(ctx, txq, pid, orgID); err != nil {
+				return sqlc.PurchaseRequest{}, err
+			}
+			return txq.ApprovePurchaseRequest(ctx, sqlc.ApprovePurchaseRequestParams{
+				ID: id, OrganizationID: orgID, ProjectID: pid, ApprovedBy: actorUUID(userID),
+				IncludeInProjectCost: d.Include, CostEstimate: repository.Float64PtrToNumeric(d.CostEstimate),
+			})
+		}, ErrPurchaseRequestNotApprovable, domain.ProjectEventPurchaseRequestApproved, userID, meta,
 		func(ctx context.Context, txq *sqlc.Queries, orgID, pid pgtype.UUID, row sqlc.PurchaseRequest) error {
 			return createNotification(ctx, txq, CreateNotificationInput{
 				OrganizationID: orgID, UserID: row.RequestedBy, Type: domain.NotificationPurchaseRequestApproved,

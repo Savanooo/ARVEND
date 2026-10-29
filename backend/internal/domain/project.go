@@ -95,9 +95,10 @@ type Project struct {
 	// finans özetindeki new_subcontract_paid İLE AYNI.
 	NewSubcontractPaid float64
 	// RealizedCostTotal: gerçekleşen maliyet, finans özetiyle AYNI görünümden
-	// (project_cost_basis): onaylı masraflar + basit taşeronun iş ödemeleri +
-	// sözleşmeli taşeronun onaylı işi. Ödemelerin toplamı DEĞİLDİR (açık
-	// avans hariç, ödenmemiş onaylı hakediş dahil).
+	// (project_cost_basis): masraflar + onaylı satın almalar (migration 0078)
+	// + basit taşeronun iş ödemeleri + sözleşmeli taşeronun onaylı işi.
+	// Ödemelerin toplamı DEĞİLDİR (açık avans hariç, ödenmemiş onaylı
+	// hakediş dahil).
 	RealizedCostTotal float64
 	InvoiceCount      int64
 	PaidInvoiceCount  int64
@@ -106,8 +107,9 @@ type Project struct {
 	// ChangeOrderNet -- projects tablosunda TUTULMAZ (bkz. Faz 8, 0027
 	// migration).
 	ChangeOrderNet float64
-	// KDV (finans özetiyle AYNI kaynaklar): ExpenseVATTotal onaylı, iptal
-	// edilmemiş masrafların içindeki KDV; ContractVATAmount güncel proje
+	// KDV (finans özetiyle AYNI kaynaklar): ExpenseVATTotal gerçekleşen
+	// maliyetin içindeki bilinen KDV (finans özetinin realized_cost_vat'ı:
+	// masraf satırı + onaylı satın almalar, migration 0078); ContractVATAmount güncel proje
 	// bedelinin içindeki KDV (kaynak revizyon + onaylı ek işler -
 	// eksiltmeler); ContractVATKnown bedelin KDV'sinin bilinip bilinmediği.
 	// KDV hariç maliyet/kâr bunlardan domain.VATBasis ile türetilir.

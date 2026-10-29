@@ -40,24 +40,29 @@ func (q *Queries) AddRFQSupplier(ctx context.Context, arg AddRFQSupplierParams) 
 }
 
 const approvePurchaseOrder = `-- name: ApprovePurchaseOrder :one
-UPDATE purchase_orders SET status = 'approved', approved_at = now(), approved_by = $4
+UPDATE purchase_orders SET status = 'approved', approved_at = now(), approved_by = $4,
+    include_in_project_cost = COALESCE($5::boolean, include_in_project_cost)
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'draft'
-RETURNING id, organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency, status, issue_date, expected_delivery_date, payment_terms, delivery_address, notes, subtotal, tax_rate, tax, total, created_by, approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason, closed_by, closed_at, created_at, updated_at
+RETURNING id, organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency, status, issue_date, expected_delivery_date, payment_terms, delivery_address, notes, subtotal, tax_rate, tax, total, created_by, approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason, closed_by, closed_at, created_at, updated_at, purchase_request_id, include_in_project_cost
 `
 
 type ApprovePurchaseOrderParams struct {
-	ID             pgtype.UUID `json:"id"`
-	OrganizationID pgtype.UUID `json:"organization_id"`
-	ProjectID      pgtype.UUID `json:"project_id"`
-	ApprovedBy     pgtype.UUID `json:"approved_by"`
+	ID                   pgtype.UUID `json:"id"`
+	OrganizationID       pgtype.UUID `json:"organization_id"`
+	ProjectID            pgtype.UUID `json:"project_id"`
+	ApprovedBy           pgtype.UUID `json:"approved_by"`
+	IncludeInProjectCost *bool       `json:"include_in_project_cost"`
 }
 
+// Onaylı sipariş proje maliyetine girer (migration 0078); karar
+// gönderilmezse siparişin mevcut kararı (talepten devralınan) kalır.
 func (q *Queries) ApprovePurchaseOrder(ctx context.Context, arg ApprovePurchaseOrderParams) (PurchaseOrder, error) {
 	row := q.db.QueryRow(ctx, approvePurchaseOrder,
 		arg.ID,
 		arg.OrganizationID,
 		arg.ProjectID,
 		arg.ApprovedBy,
+		arg.IncludeInProjectCost,
 	)
 	var i PurchaseOrder
 	err := row.Scan(
@@ -89,29 +94,41 @@ func (q *Queries) ApprovePurchaseOrder(ctx context.Context, arg ApprovePurchaseO
 		&i.ClosedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PurchaseRequestID,
+		&i.IncludeInProjectCost,
 	)
 	return i, err
 }
 
 const approvePurchaseRequest = `-- name: ApprovePurchaseRequest :one
-UPDATE purchase_requests SET status = 'approved', approved_at = now(), approved_by = $4
+UPDATE purchase_requests SET status = 'approved', approved_at = now(), approved_by = $4,
+    include_in_project_cost = COALESCE($5::boolean, include_in_project_cost),
+    cost_estimate = COALESCE($6::numeric, cost_estimate)
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'submitted'
-RETURNING id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at
+RETURNING id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at, include_in_project_cost, cost_estimate
 `
 
 type ApprovePurchaseRequestParams struct {
-	ID             pgtype.UUID `json:"id"`
-	OrganizationID pgtype.UUID `json:"organization_id"`
-	ProjectID      pgtype.UUID `json:"project_id"`
-	ApprovedBy     pgtype.UUID `json:"approved_by"`
+	ID                   pgtype.UUID    `json:"id"`
+	OrganizationID       pgtype.UUID    `json:"organization_id"`
+	ProjectID            pgtype.UUID    `json:"project_id"`
+	ApprovedBy           pgtype.UUID    `json:"approved_by"`
+	IncludeInProjectCost *bool          `json:"include_in_project_cost"`
+	CostEstimate         pgtype.Numeric `json:"cost_estimate"`
 }
 
+// Onay, satın almayı proje maliyetine sokar (migration 0078): onaylayan
+// "maliyete eklensin mi" kararını ve fiyatsız talepte tahmini tutarı aynı
+// anda verir. Gönderilmezse (eski istemci) karar "eklensin" kalır, tahmin
+// kalemlerin toplamıdır.
 func (q *Queries) ApprovePurchaseRequest(ctx context.Context, arg ApprovePurchaseRequestParams) (PurchaseRequest, error) {
 	row := q.db.QueryRow(ctx, approvePurchaseRequest,
 		arg.ID,
 		arg.OrganizationID,
 		arg.ProjectID,
 		arg.ApprovedBy,
+		arg.IncludeInProjectCost,
+		arg.CostEstimate,
 	)
 	var i PurchaseRequest
 	err := row.Scan(
@@ -136,6 +153,8 @@ func (q *Queries) ApprovePurchaseRequest(ctx context.Context, arg ApprovePurchas
 		&i.CancelReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IncludeInProjectCost,
+		&i.CostEstimate,
 	)
 	return i, err
 }
@@ -210,7 +229,7 @@ func (q *Queries) AwardRFQ(ctx context.Context, arg AwardRFQParams) (Rfq, error)
 const cancelPurchaseOrder = `-- name: CancelPurchaseOrder :one
 UPDATE purchase_orders SET status = 'cancelled', cancelled_at = now(), cancelled_by = $4, cancel_reason = $5
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status IN ('draft','approved')
-RETURNING id, organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency, status, issue_date, expected_delivery_date, payment_terms, delivery_address, notes, subtotal, tax_rate, tax, total, created_by, approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason, closed_by, closed_at, created_at, updated_at
+RETURNING id, organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency, status, issue_date, expected_delivery_date, payment_terms, delivery_address, notes, subtotal, tax_rate, tax, total, created_by, approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason, closed_by, closed_at, created_at, updated_at, purchase_request_id, include_in_project_cost
 `
 
 type CancelPurchaseOrderParams struct {
@@ -259,6 +278,8 @@ func (q *Queries) CancelPurchaseOrder(ctx context.Context, arg CancelPurchaseOrd
 		&i.ClosedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PurchaseRequestID,
+		&i.IncludeInProjectCost,
 	)
 	return i, err
 }
@@ -266,7 +287,7 @@ func (q *Queries) CancelPurchaseOrder(ctx context.Context, arg CancelPurchaseOrd
 const cancelPurchaseRequest = `-- name: CancelPurchaseRequest :one
 UPDATE purchase_requests SET status = 'cancelled', cancelled_at = now(), cancelled_by = $4, cancel_reason = $5
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status IN ('draft','submitted','approved')
-RETURNING id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at
+RETURNING id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at, include_in_project_cost, cost_estimate
 `
 
 type CancelPurchaseRequestParams struct {
@@ -308,6 +329,8 @@ func (q *Queries) CancelPurchaseRequest(ctx context.Context, arg CancelPurchaseR
 		&i.CancelReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IncludeInProjectCost,
+		&i.CostEstimate,
 	)
 	return i, err
 }
@@ -349,10 +372,39 @@ func (q *Queries) CancelRFQ(ctx context.Context, arg CancelRFQParams) (Rfq, erro
 	return i, err
 }
 
+const cascadePurchaseRequestCostDecision = `-- name: CascadePurchaseRequestCostDecision :execrows
+UPDATE purchase_orders SET include_in_project_cost = $4::boolean
+WHERE purchase_request_id = $1 AND organization_id = $2 AND project_id = $3
+  AND status IN ('draft', 'approved') AND include_in_project_cost <> $4::boolean
+`
+
+type CascadePurchaseRequestCostDecisionParams struct {
+	PurchaseRequestID    pgtype.UUID `json:"purchase_request_id"`
+	OrganizationID       pgtype.UUID `json:"organization_id"`
+	ProjectID            pgtype.UUID `json:"project_id"`
+	IncludeInProjectCost bool        `json:"include_in_project_cost"`
+}
+
+// Talebin kararı, talepten açılmış AÇIK (taslak/onaylı) siparişlerine de
+// uygulanır: talepte "Hayır" denince satın almanın tamamı maliyetten çıkar.
+// Kapatılmış ya da iptal edilmiş sipariş değişmez.
+func (q *Queries) CascadePurchaseRequestCostDecision(ctx context.Context, arg CascadePurchaseRequestCostDecisionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cascadePurchaseRequestCostDecision,
+		arg.PurchaseRequestID,
+		arg.OrganizationID,
+		arg.ProjectID,
+		arg.IncludeInProjectCost,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const closePurchaseOrder = `-- name: ClosePurchaseOrder :one
 UPDATE purchase_orders SET status = 'closed', closed_at = now(), closed_by = $4
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'approved'
-RETURNING id, organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency, status, issue_date, expected_delivery_date, payment_terms, delivery_address, notes, subtotal, tax_rate, tax, total, created_by, approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason, closed_by, closed_at, created_at, updated_at
+RETURNING id, organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency, status, issue_date, expected_delivery_date, payment_terms, delivery_address, notes, subtotal, tax_rate, tax, total, created_by, approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason, closed_by, closed_at, created_at, updated_at, purchase_request_id, include_in_project_cost
 `
 
 type ClosePurchaseOrderParams struct {
@@ -399,6 +451,8 @@ func (q *Queries) ClosePurchaseOrder(ctx context.Context, arg ClosePurchaseOrder
 		&i.ClosedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PurchaseRequestID,
+		&i.IncludeInProjectCost,
 	)
 	return i, err
 }
@@ -467,9 +521,10 @@ const createPurchaseOrder = `-- name: CreatePurchaseOrder :one
 
 INSERT INTO purchase_orders (
     organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency,
-    issue_date, expected_delivery_date, payment_terms, delivery_address, notes, tax_rate, created_by
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-RETURNING id, organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency, status, issue_date, expected_delivery_date, payment_terms, delivery_address, notes, subtotal, tax_rate, tax, total, created_by, approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason, closed_by, closed_at, created_at, updated_at
+    issue_date, expected_delivery_date, payment_terms, delivery_address, notes, tax_rate, created_by,
+    purchase_request_id, include_in_project_cost
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+RETURNING id, organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency, status, issue_date, expected_delivery_date, payment_terms, delivery_address, notes, subtotal, tax_rate, tax, total, created_by, approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason, closed_by, closed_at, created_at, updated_at, purchase_request_id, include_in_project_cost
 `
 
 type CreatePurchaseOrderParams struct {
@@ -487,6 +542,8 @@ type CreatePurchaseOrderParams struct {
 	Notes                string         `json:"notes"`
 	TaxRate              pgtype.Numeric `json:"tax_rate"`
 	CreatedBy            pgtype.UUID    `json:"created_by"`
+	PurchaseRequestID    pgtype.UUID    `json:"purchase_request_id"`
+	IncludeInProjectCost bool           `json:"include_in_project_cost"`
 }
 
 // ============ Purchase Order ============
@@ -506,6 +563,8 @@ func (q *Queries) CreatePurchaseOrder(ctx context.Context, arg CreatePurchaseOrd
 		arg.Notes,
 		arg.TaxRate,
 		arg.CreatedBy,
+		arg.PurchaseRequestID,
+		arg.IncludeInProjectCost,
 	)
 	var i PurchaseOrder
 	err := row.Scan(
@@ -537,6 +596,8 @@ func (q *Queries) CreatePurchaseOrder(ctx context.Context, arg CreatePurchaseOrd
 		&i.ClosedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PurchaseRequestID,
+		&i.IncludeInProjectCost,
 	)
 	return i, err
 }
@@ -602,7 +663,7 @@ const createPurchaseRequest = `-- name: CreatePurchaseRequest :one
 
 INSERT INTO purchase_requests (organization_id, project_id, pr_no, title, description, needed_by, requested_by)
 VALUES ($1,$2,$3,$4,$5,$6,$7)
-RETURNING id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at
+RETURNING id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at, include_in_project_cost, cost_estimate
 `
 
 type CreatePurchaseRequestParams struct {
@@ -649,6 +710,8 @@ func (q *Queries) CreatePurchaseRequest(ctx context.Context, arg CreatePurchaseR
 		&i.CancelReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IncludeInProjectCost,
+		&i.CostEstimate,
 	)
 	return i, err
 }
@@ -1117,7 +1180,7 @@ func (q *Queries) DeleteSupplierQuotation(ctx context.Context, arg DeleteSupplie
 }
 
 const getPurchaseOrder = `-- name: GetPurchaseOrder :one
-SELECT id, organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency, status, issue_date, expected_delivery_date, payment_terms, delivery_address, notes, subtotal, tax_rate, tax, total, created_by, approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason, closed_by, closed_at, created_at, updated_at FROM purchase_orders WHERE id = $1 AND organization_id = $2 AND project_id = $3
+SELECT id, organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency, status, issue_date, expected_delivery_date, payment_terms, delivery_address, notes, subtotal, tax_rate, tax, total, created_by, approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason, closed_by, closed_at, created_at, updated_at, purchase_request_id, include_in_project_cost FROM purchase_orders WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type GetPurchaseOrderParams struct {
@@ -1158,12 +1221,14 @@ func (q *Queries) GetPurchaseOrder(ctx context.Context, arg GetPurchaseOrderPara
 		&i.ClosedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PurchaseRequestID,
+		&i.IncludeInProjectCost,
 	)
 	return i, err
 }
 
 const getPurchaseOrderForUpdate = `-- name: GetPurchaseOrderForUpdate :one
-SELECT id, organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency, status, issue_date, expected_delivery_date, payment_terms, delivery_address, notes, subtotal, tax_rate, tax, total, created_by, approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason, closed_by, closed_at, created_at, updated_at FROM purchase_orders WHERE id = $1 AND organization_id = $2 AND project_id = $3 FOR UPDATE
+SELECT id, organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency, status, issue_date, expected_delivery_date, payment_terms, delivery_address, notes, subtotal, tax_rate, tax, total, created_by, approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason, closed_by, closed_at, created_at, updated_at, purchase_request_id, include_in_project_cost FROM purchase_orders WHERE id = $1 AND organization_id = $2 AND project_id = $3 FOR UPDATE
 `
 
 type GetPurchaseOrderForUpdateParams struct {
@@ -1204,12 +1269,14 @@ func (q *Queries) GetPurchaseOrderForUpdate(ctx context.Context, arg GetPurchase
 		&i.ClosedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PurchaseRequestID,
+		&i.IncludeInProjectCost,
 	)
 	return i, err
 }
 
 const getPurchaseRequest = `-- name: GetPurchaseRequest :one
-SELECT id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at FROM purchase_requests WHERE id = $1 AND organization_id = $2 AND project_id = $3
+SELECT id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at, include_in_project_cost, cost_estimate FROM purchase_requests WHERE id = $1 AND organization_id = $2 AND project_id = $3
 `
 
 type GetPurchaseRequestParams struct {
@@ -1243,12 +1310,14 @@ func (q *Queries) GetPurchaseRequest(ctx context.Context, arg GetPurchaseRequest
 		&i.CancelReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IncludeInProjectCost,
+		&i.CostEstimate,
 	)
 	return i, err
 }
 
 const getPurchaseRequestForUpdate = `-- name: GetPurchaseRequestForUpdate :one
-SELECT id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at FROM purchase_requests WHERE id = $1 AND organization_id = $2 AND project_id = $3 FOR UPDATE
+SELECT id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at, include_in_project_cost, cost_estimate FROM purchase_requests WHERE id = $1 AND organization_id = $2 AND project_id = $3 FOR UPDATE
 `
 
 type GetPurchaseRequestForUpdateParams struct {
@@ -1282,6 +1351,8 @@ func (q *Queries) GetPurchaseRequestForUpdate(ctx context.Context, arg GetPurcha
 		&i.CancelReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IncludeInProjectCost,
+		&i.CostEstimate,
 	)
 	return i, err
 }
@@ -1536,6 +1607,55 @@ func (q *Queries) IssueRFQ(ctx context.Context, arg IssueRFQParams) (Rfq, error)
 	return i, err
 }
 
+const listPurchaseOrderCosts = `-- name: ListPurchaseOrderCosts :many
+SELECT purchase_order_id, organization_id, project_id, purchase_request_id, status, include_in_project_cost, counted, order_amount, order_vat, invoiced_amount, invoiced_vat, invoice_led, cost_amount, cost_vat FROM purchase_order_cost_basis
+WHERE project_id = $1::uuid AND organization_id = $2::uuid
+  AND ($3::uuid IS NULL OR purchase_order_id = $3::uuid)
+`
+
+type ListPurchaseOrderCostsParams struct {
+	ProjectID       pgtype.UUID `json:"project_id"`
+	OrganizationID  pgtype.UUID `json:"organization_id"`
+	PurchaseOrderID pgtype.UUID `json:"purchase_order_id"`
+}
+
+// Sipariş başına maliyete katkı (purchase_order_cost_basis, migration 0078).
+// purchase_order_id verilirse yalnızca o sipariş.
+func (q *Queries) ListPurchaseOrderCosts(ctx context.Context, arg ListPurchaseOrderCostsParams) ([]PurchaseOrderCostBasis, error) {
+	rows, err := q.db.Query(ctx, listPurchaseOrderCosts, arg.ProjectID, arg.OrganizationID, arg.PurchaseOrderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PurchaseOrderCostBasis
+	for rows.Next() {
+		var i PurchaseOrderCostBasis
+		if err := rows.Scan(
+			&i.PurchaseOrderID,
+			&i.OrganizationID,
+			&i.ProjectID,
+			&i.PurchaseRequestID,
+			&i.Status,
+			&i.IncludeInProjectCost,
+			&i.Counted,
+			&i.OrderAmount,
+			&i.OrderVat,
+			&i.InvoicedAmount,
+			&i.InvoicedVat,
+			&i.InvoiceLed,
+			&i.CostAmount,
+			&i.CostVat,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPurchaseOrderItems = `-- name: ListPurchaseOrderItems :many
 SELECT id, organization_id, project_id, purchase_order_id, wbs_node_id, cost_code_id, budget_line_id, description, quantity, unit, unit_price, line_total, sort_order FROM purchase_order_items WHERE purchase_order_id = $1 ORDER BY sort_order ASC
 `
@@ -1575,7 +1695,7 @@ func (q *Queries) ListPurchaseOrderItems(ctx context.Context, purchaseOrderID pg
 }
 
 const listPurchaseOrders = `-- name: ListPurchaseOrders :many
-SELECT po.id, po.organization_id, po.project_id, po.po_no, po.supplier_id, po.source_rfq_id, po.source_quotation_id, po.currency, po.status, po.issue_date, po.expected_delivery_date, po.payment_terms, po.delivery_address, po.notes, po.subtotal, po.tax_rate, po.tax, po.total, po.created_by, po.approved_by, po.approved_at, po.cancelled_by, po.cancelled_at, po.cancel_reason, po.closed_by, po.closed_at, po.created_at, po.updated_at, s.code AS supplier_code, s.legal_name AS supplier_legal_name
+SELECT po.id, po.organization_id, po.project_id, po.po_no, po.supplier_id, po.source_rfq_id, po.source_quotation_id, po.currency, po.status, po.issue_date, po.expected_delivery_date, po.payment_terms, po.delivery_address, po.notes, po.subtotal, po.tax_rate, po.tax, po.total, po.created_by, po.approved_by, po.approved_at, po.cancelled_by, po.cancelled_at, po.cancel_reason, po.closed_by, po.closed_at, po.created_at, po.updated_at, po.purchase_request_id, po.include_in_project_cost, s.code AS supplier_code, s.legal_name AS supplier_legal_name
 FROM purchase_orders po
 JOIN suppliers s ON s.id = po.supplier_id
 WHERE po.project_id = $1 AND po.organization_id = $2
@@ -1616,6 +1736,8 @@ type ListPurchaseOrdersRow struct {
 	ClosedAt             pgtype.Timestamptz `json:"closed_at"`
 	CreatedAt            pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+	PurchaseRequestID    pgtype.UUID        `json:"purchase_request_id"`
+	IncludeInProjectCost bool               `json:"include_in_project_cost"`
 	SupplierCode         string             `json:"supplier_code"`
 	SupplierLegalName    string             `json:"supplier_legal_name"`
 }
@@ -1658,8 +1780,56 @@ func (q *Queries) ListPurchaseOrders(ctx context.Context, arg ListPurchaseOrders
 			&i.ClosedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PurchaseRequestID,
+			&i.IncludeInProjectCost,
 			&i.SupplierCode,
 			&i.SupplierLegalName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPurchaseRequestCosts = `-- name: ListPurchaseRequestCosts :many
+SELECT purchase_request_id, organization_id, project_id, status, include_in_project_cost, estimate, has_order, orders_amount, unpriced_items, estimate_amount, project_cost FROM purchase_request_cost_basis
+WHERE project_id = $1::uuid AND organization_id = $2::uuid
+  AND ($3::uuid IS NULL OR purchase_request_id = $3::uuid)
+`
+
+type ListPurchaseRequestCostsParams struct {
+	ProjectID         pgtype.UUID `json:"project_id"`
+	OrganizationID    pgtype.UUID `json:"organization_id"`
+	PurchaseRequestID pgtype.UUID `json:"purchase_request_id"`
+}
+
+// Talep başına maliyete katkı (purchase_request_cost_basis, migration 0078).
+// purchase_request_id verilirse yalnızca o talep.
+func (q *Queries) ListPurchaseRequestCosts(ctx context.Context, arg ListPurchaseRequestCostsParams) ([]PurchaseRequestCostBasis, error) {
+	rows, err := q.db.Query(ctx, listPurchaseRequestCosts, arg.ProjectID, arg.OrganizationID, arg.PurchaseRequestID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PurchaseRequestCostBasis
+	for rows.Next() {
+		var i PurchaseRequestCostBasis
+		if err := rows.Scan(
+			&i.PurchaseRequestID,
+			&i.OrganizationID,
+			&i.ProjectID,
+			&i.Status,
+			&i.IncludeInProjectCost,
+			&i.Estimate,
+			&i.HasOrder,
+			&i.OrdersAmount,
+			&i.UnpricedItems,
+			&i.EstimateAmount,
+			&i.ProjectCost,
 		); err != nil {
 			return nil, err
 		}
@@ -1711,7 +1881,7 @@ func (q *Queries) ListPurchaseRequestItems(ctx context.Context, purchaseRequestI
 }
 
 const listPurchaseRequests = `-- name: ListPurchaseRequests :many
-SELECT id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at FROM purchase_requests WHERE project_id = $1 AND organization_id = $2 ORDER BY created_at DESC
+SELECT id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at, include_in_project_cost, cost_estimate FROM purchase_requests WHERE project_id = $1 AND organization_id = $2 ORDER BY created_at DESC
 `
 
 type ListPurchaseRequestsParams struct {
@@ -1750,6 +1920,8 @@ func (q *Queries) ListPurchaseRequests(ctx context.Context, arg ListPurchaseRequ
 			&i.CancelReason,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.IncludeInProjectCost,
+			&i.CostEstimate,
 		); err != nil {
 			return nil, err
 		}
@@ -2226,7 +2398,7 @@ SET subtotal = sub.total,
 FROM (SELECT COALESCE(sum(line_total),0)::numeric(18,2) AS total
       FROM purchase_order_items WHERE purchase_order_id = $1) sub
 WHERE po.id = $1 AND po.organization_id = $2 AND po.project_id = $3
-RETURNING po.id, po.organization_id, po.project_id, po.po_no, po.supplier_id, po.source_rfq_id, po.source_quotation_id, po.currency, po.status, po.issue_date, po.expected_delivery_date, po.payment_terms, po.delivery_address, po.notes, po.subtotal, po.tax_rate, po.tax, po.total, po.created_by, po.approved_by, po.approved_at, po.cancelled_by, po.cancelled_at, po.cancel_reason, po.closed_by, po.closed_at, po.created_at, po.updated_at
+RETURNING po.id, po.organization_id, po.project_id, po.po_no, po.supplier_id, po.source_rfq_id, po.source_quotation_id, po.currency, po.status, po.issue_date, po.expected_delivery_date, po.payment_terms, po.delivery_address, po.notes, po.subtotal, po.tax_rate, po.tax, po.total, po.created_by, po.approved_by, po.approved_at, po.cancelled_by, po.cancelled_at, po.cancel_reason, po.closed_by, po.closed_at, po.created_at, po.updated_at, po.purchase_request_id, po.include_in_project_cost
 `
 
 type RecomputePurchaseOrderTotalsParams struct {
@@ -2267,6 +2439,8 @@ func (q *Queries) RecomputePurchaseOrderTotals(ctx context.Context, arg Recomput
 		&i.ClosedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PurchaseRequestID,
+		&i.IncludeInProjectCost,
 	)
 	return i, err
 }
@@ -2277,7 +2451,7 @@ SET estimated_total = sub.total
 FROM (SELECT COALESCE(sum(estimated_total),0)::numeric(18,2) AS total
       FROM purchase_request_items WHERE purchase_request_id = $1) sub
 WHERE pr.id = $1 AND pr.organization_id = $2 AND pr.project_id = $3
-RETURNING pr.id, pr.organization_id, pr.project_id, pr.pr_no, pr.title, pr.description, pr.needed_by, pr.status, pr.estimated_total, pr.requested_by, pr.submitted_at, pr.approved_at, pr.approved_by, pr.rejected_at, pr.rejected_by, pr.rejection_reason, pr.cancelled_at, pr.cancelled_by, pr.cancel_reason, pr.created_at, pr.updated_at
+RETURNING pr.id, pr.organization_id, pr.project_id, pr.pr_no, pr.title, pr.description, pr.needed_by, pr.status, pr.estimated_total, pr.requested_by, pr.submitted_at, pr.approved_at, pr.approved_by, pr.rejected_at, pr.rejected_by, pr.rejection_reason, pr.cancelled_at, pr.cancelled_by, pr.cancel_reason, pr.created_at, pr.updated_at, pr.include_in_project_cost, pr.cost_estimate
 `
 
 type RecomputePurchaseRequestTotalParams struct {
@@ -2311,6 +2485,8 @@ func (q *Queries) RecomputePurchaseRequestTotal(ctx context.Context, arg Recompu
 		&i.CancelReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IncludeInProjectCost,
+		&i.CostEstimate,
 	)
 	return i, err
 }
@@ -2366,7 +2542,7 @@ func (q *Queries) RecomputeSupplierQuotationTotals(ctx context.Context, arg Reco
 const rejectPurchaseRequest = `-- name: RejectPurchaseRequest :one
 UPDATE purchase_requests SET status = 'rejected', rejected_at = now(), rejected_by = $4, rejection_reason = $5
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'submitted'
-RETURNING id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at
+RETURNING id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at, include_in_project_cost, cost_estimate
 `
 
 type RejectPurchaseRequestParams struct {
@@ -2408,6 +2584,120 @@ func (q *Queries) RejectPurchaseRequest(ctx context.Context, arg RejectPurchaseR
 		&i.CancelReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IncludeInProjectCost,
+		&i.CostEstimate,
+	)
+	return i, err
+}
+
+const setPurchaseOrderCostDecision = `-- name: SetPurchaseOrderCostDecision :one
+UPDATE purchase_orders SET include_in_project_cost = $4::boolean
+WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status IN ('draft', 'approved')
+RETURNING id, organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency, status, issue_date, expected_delivery_date, payment_terms, delivery_address, notes, subtotal, tax_rate, tax, total, created_by, approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason, closed_by, closed_at, created_at, updated_at, purchase_request_id, include_in_project_cost
+`
+
+type SetPurchaseOrderCostDecisionParams struct {
+	ID                   pgtype.UUID `json:"id"`
+	OrganizationID       pgtype.UUID `json:"organization_id"`
+	ProjectID            pgtype.UUID `json:"project_id"`
+	IncludeInProjectCost bool        `json:"include_in_project_cost"`
+}
+
+// Açık (taslak/onaylı) siparişin maliyet kararı. Kapatılmış sipariş kesinleşmiştir.
+func (q *Queries) SetPurchaseOrderCostDecision(ctx context.Context, arg SetPurchaseOrderCostDecisionParams) (PurchaseOrder, error) {
+	row := q.db.QueryRow(ctx, setPurchaseOrderCostDecision,
+		arg.ID,
+		arg.OrganizationID,
+		arg.ProjectID,
+		arg.IncludeInProjectCost,
+	)
+	var i PurchaseOrder
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ProjectID,
+		&i.PoNo,
+		&i.SupplierID,
+		&i.SourceRfqID,
+		&i.SourceQuotationID,
+		&i.Currency,
+		&i.Status,
+		&i.IssueDate,
+		&i.ExpectedDeliveryDate,
+		&i.PaymentTerms,
+		&i.DeliveryAddress,
+		&i.Notes,
+		&i.Subtotal,
+		&i.TaxRate,
+		&i.Tax,
+		&i.Total,
+		&i.CreatedBy,
+		&i.ApprovedBy,
+		&i.ApprovedAt,
+		&i.CancelledBy,
+		&i.CancelledAt,
+		&i.CancelReason,
+		&i.ClosedBy,
+		&i.ClosedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.PurchaseRequestID,
+		&i.IncludeInProjectCost,
+	)
+	return i, err
+}
+
+const setPurchaseRequestCostDecision = `-- name: SetPurchaseRequestCostDecision :one
+UPDATE purchase_requests SET
+    include_in_project_cost = COALESCE($4::boolean, include_in_project_cost),
+    cost_estimate = COALESCE($5::numeric, cost_estimate)
+WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'approved'
+RETURNING id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at, include_in_project_cost, cost_estimate
+`
+
+type SetPurchaseRequestCostDecisionParams struct {
+	ID                   pgtype.UUID    `json:"id"`
+	OrganizationID       pgtype.UUID    `json:"organization_id"`
+	ProjectID            pgtype.UUID    `json:"project_id"`
+	IncludeInProjectCost *bool          `json:"include_in_project_cost"`
+	CostEstimate         pgtype.Numeric `json:"cost_estimate"`
+}
+
+// Onaylı talebin maliyet kararı sonradan değiştirilir (çağıran talebi
+// kilitli okur ve durumu denetler). NULL gelen alan değişmez.
+func (q *Queries) SetPurchaseRequestCostDecision(ctx context.Context, arg SetPurchaseRequestCostDecisionParams) (PurchaseRequest, error) {
+	row := q.db.QueryRow(ctx, setPurchaseRequestCostDecision,
+		arg.ID,
+		arg.OrganizationID,
+		arg.ProjectID,
+		arg.IncludeInProjectCost,
+		arg.CostEstimate,
+	)
+	var i PurchaseRequest
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ProjectID,
+		&i.PrNo,
+		&i.Title,
+		&i.Description,
+		&i.NeededBy,
+		&i.Status,
+		&i.EstimatedTotal,
+		&i.RequestedBy,
+		&i.SubmittedAt,
+		&i.ApprovedAt,
+		&i.ApprovedBy,
+		&i.RejectedAt,
+		&i.RejectedBy,
+		&i.RejectionReason,
+		&i.CancelledAt,
+		&i.CancelledBy,
+		&i.CancelReason,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IncludeInProjectCost,
+		&i.CostEstimate,
 	)
 	return i, err
 }
@@ -2415,7 +2705,7 @@ func (q *Queries) RejectPurchaseRequest(ctx context.Context, arg RejectPurchaseR
 const submitPurchaseRequest = `-- name: SubmitPurchaseRequest :one
 UPDATE purchase_requests SET status = 'submitted', submitted_at = now()
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'draft'
-RETURNING id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at
+RETURNING id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at, include_in_project_cost, cost_estimate
 `
 
 type SubmitPurchaseRequestParams struct {
@@ -2449,6 +2739,8 @@ func (q *Queries) SubmitPurchaseRequest(ctx context.Context, arg SubmitPurchaseR
 		&i.CancelReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IncludeInProjectCost,
+		&i.CostEstimate,
 	)
 	return i, err
 }
@@ -2458,7 +2750,7 @@ UPDATE purchase_orders SET
     issue_date = $4, expected_delivery_date = $5, payment_terms = $6, delivery_address = $7,
     notes = $8, tax_rate = $9, supplier_id = $10
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'draft'
-RETURNING id, organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency, status, issue_date, expected_delivery_date, payment_terms, delivery_address, notes, subtotal, tax_rate, tax, total, created_by, approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason, closed_by, closed_at, created_at, updated_at
+RETURNING id, organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency, status, issue_date, expected_delivery_date, payment_terms, delivery_address, notes, subtotal, tax_rate, tax, total, created_by, approved_by, approved_at, cancelled_by, cancelled_at, cancel_reason, closed_by, closed_at, created_at, updated_at, purchase_request_id, include_in_project_cost
 `
 
 type UpdatePurchaseOrderFieldsParams struct {
@@ -2519,6 +2811,8 @@ func (q *Queries) UpdatePurchaseOrderFields(ctx context.Context, arg UpdatePurch
 		&i.ClosedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PurchaseRequestID,
+		&i.IncludeInProjectCost,
 	)
 	return i, err
 }
@@ -2526,7 +2820,7 @@ func (q *Queries) UpdatePurchaseOrderFields(ctx context.Context, arg UpdatePurch
 const updatePurchaseRequestFields = `-- name: UpdatePurchaseRequestFields :one
 UPDATE purchase_requests SET title = $4, description = $5, needed_by = $6
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'draft'
-RETURNING id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at
+RETURNING id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at, include_in_project_cost, cost_estimate
 `
 
 type UpdatePurchaseRequestFieldsParams struct {
@@ -2572,6 +2866,8 @@ func (q *Queries) UpdatePurchaseRequestFields(ctx context.Context, arg UpdatePur
 		&i.CancelReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IncludeInProjectCost,
+		&i.CostEstimate,
 	)
 	return i, err
 }
@@ -2760,7 +3056,7 @@ func (q *Queries) UpdateSupplierQuotationFields(ctx context.Context, arg UpdateS
 const withdrawPurchaseRequest = `-- name: WithdrawPurchaseRequest :one
 UPDATE purchase_requests SET status = 'draft'
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'submitted'
-RETURNING id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at
+RETURNING id, organization_id, project_id, pr_no, title, description, needed_by, status, estimated_total, requested_by, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason, cancelled_at, cancelled_by, cancel_reason, created_at, updated_at, include_in_project_cost, cost_estimate
 `
 
 type WithdrawPurchaseRequestParams struct {
@@ -2794,6 +3090,8 @@ func (q *Queries) WithdrawPurchaseRequest(ctx context.Context, arg WithdrawPurch
 		&i.CancelReason,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IncludeInProjectCost,
+		&i.CostEstimate,
 	)
 	return i, err
 }

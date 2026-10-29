@@ -35,6 +35,48 @@ type purchaseRequestResponse struct {
 	CancelReason    string  `json:"cancel_reason,omitempty"`
 	CreatedAt       string  `json:"created_at"`
 	UpdatedAt       string  `json:"updated_at"`
+	// Proje maliyeti (migration 0078): onaylayanın kararı ve onayda girilen
+	// tahmini tutar (null = kalemlerin toplamı). project_cost talebin bugün
+	// maliyete giren tutarıdır -- liste, detay, onay ve karar yanıtlarında
+	// dolu; diğer yazma yanıtlarında yok.
+	IncludeInProjectCost bool                  `json:"include_in_project_cost"`
+	CostEstimate         *float64              `json:"cost_estimate"`
+	ProjectCost          *purchaseCostResponse `json:"project_cost,omitempty"`
+}
+
+// purchaseCostResponse: talebin/siparişin proje maliyetine katkısı (KDV
+// dahil). amount bugün maliyete giren; potential "maliyete eklenseydi"
+// (onay ekranındaki "maliyete eklenecek" ve "Maliyete eklenmedi"
+// durumundaki tutar); source estimate|orders|order|invoices|none; warning
+// fiyatsız talepte "maliyete 0 TL girer" uyarısı.
+type purchaseCostResponse struct {
+	Included       bool     `json:"included"`
+	Amount         float64  `json:"amount"`
+	Potential      float64  `json:"potential"`
+	Source         string   `json:"source"`
+	OrderAmount    *float64 `json:"order_amount,omitempty"`
+	InvoicedAmount *float64 `json:"invoiced_amount,omitempty"`
+	UnpricedItems  int      `json:"unpriced_items"`
+	Warning        string   `json:"warning,omitempty"`
+}
+
+func toPurchaseCostResponse(c domain.PurchaseCost, order bool) *purchaseCostResponse {
+	out := &purchaseCostResponse{
+		Included: c.Included, Amount: c.Amount, Potential: c.Potential, Source: c.Source,
+		UnpricedItems: c.UnpricedItems, Warning: c.Warning,
+	}
+	if order {
+		out.OrderAmount, out.InvoicedAmount = &c.OrderAmount, &c.InvoicedAmount
+	}
+	return out
+}
+
+// withRequestCost: talebin maliyet katkısını yanıta ekler (bulunamadıysa boş bırakır).
+func withRequestCost(resp purchaseRequestResponse, costs map[string]domain.PurchaseCost) purchaseRequestResponse {
+	if c, ok := costs[resp.ID]; ok {
+		resp.ProjectCost = toPurchaseCostResponse(c, false)
+	}
+	return resp
 }
 
 func toPurchaseRequestResponse(p domain.PurchaseRequest) purchaseRequestResponse {
@@ -46,6 +88,7 @@ func toPurchaseRequestResponse(p domain.PurchaseRequest) purchaseRequestResponse
 		RejectedAt: tsStrPtr(p.RejectedAt), RejectedBy: p.RejectedBy, RejectionReason: p.RejectionReason,
 		CancelledAt: tsStrPtr(p.CancelledAt), CancelledBy: p.CancelledBy, CancelReason: p.CancelReason,
 		CreatedAt: p.CreatedAt.Format(rfc3339), UpdatedAt: p.UpdatedAt.Format(rfc3339),
+		IncludeInProjectCost: p.IncludeInProjectCost, CostEstimate: p.CostEstimate,
 	}
 }
 
@@ -111,9 +154,14 @@ func (h *ProjectHandler) ListPurchaseRequests(w http.ResponseWriter, r *http.Req
 		h.writeError(w, err)
 		return
 	}
+	costs, err := h.svc.PurchaseRequestCosts(r.Context(), chi.URLParam(r, "id"), "", orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
 	out := make([]purchaseRequestResponse, len(rows))
 	for i, p := range rows {
-		out[i] = toPurchaseRequestResponse(p)
+		out[i] = withRequestCost(toPurchaseRequestResponse(p), costs)
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"purchase_requests": out})
 }
@@ -146,11 +194,16 @@ func (h *ProjectHandler) GetPurchaseRequest(w http.ResponseWriter, r *http.Reque
 		h.writeError(w, err)
 		return
 	}
+	costs, err := h.svc.PurchaseRequestCosts(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "prId"), orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
 	itemsOut := make([]purchaseRequestItemResponse, len(items))
 	for i, it := range items {
 		itemsOut[i] = toPurchaseRequestItemResponse(it)
 	}
-	resp := toPurchaseRequestResponse(*p)
+	resp := withRequestCost(toPurchaseRequestResponse(*p), costs)
 	httpjson.Write(w, http.StatusOK, map[string]any{"purchase_request": resp, "items": itemsOut})
 }
 
@@ -192,15 +245,63 @@ func (h *ProjectHandler) WithdrawPurchaseRequest(w http.ResponseWriter, r *http.
 	httpjson.Write(w, http.StatusOK, toPurchaseRequestResponse(*p))
 }
 
-func (h *ProjectHandler) ApprovePurchaseRequest(w http.ResponseWriter, r *http.Request) {
-	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	userID, _ := middleware.UserIDFromContext(r.Context())
-	p, err := h.svc.ApprovePurchaseRequest(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "prId"), orgID, userID)
+// purchaseCostDecisionRequest: "proje maliyetine eklensin mi" kararı
+// (migration 0078). Alan gönderilmezse değişmez -- gövdesiz onay (eski
+// istemci) "eklensin" ve kalemlerin toplamıyla onaylar.
+type purchaseCostDecisionRequest struct {
+	IncludeInProjectCost *bool    `json:"include_in_project_cost"`
+	CostEstimate         *float64 `json:"cost_estimate"`
+}
+
+func (req purchaseCostDecisionRequest) toDecision() service.PurchaseCostDecision {
+	return service.PurchaseCostDecision{Include: req.IncludeInProjectCost, CostEstimate: req.CostEstimate}
+}
+
+// writePurchaseRequestWithCost: talep + maliyet katkısı (onay ve karar
+// yanıtları; uyarı -- "Bu talepte fiyat yok; maliyete 0 TL girer." -- burada döner).
+func (h *ProjectHandler) writePurchaseRequestWithCost(w http.ResponseWriter, r *http.Request, p *domain.PurchaseRequest, orgID string) {
+	costs, err := h.svc.PurchaseRequestCosts(r.Context(), chi.URLParam(r, "id"), p.ID, orgID)
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toPurchaseRequestResponse(*p))
+	httpjson.Write(w, http.StatusOK, withRequestCost(toPurchaseRequestResponse(*p), costs))
+}
+
+// ApprovePurchaseRequest: POST .../approve {include_in_project_cost?, cost_estimate?}.
+func (h *ProjectHandler) ApprovePurchaseRequest(w http.ResponseWriter, r *http.Request) {
+	var req purchaseCostDecisionRequest
+	if err := decodeOptionalBody(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	p, err := h.svc.ApprovePurchaseRequestWithCost(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "prId"), orgID, userID, req.toDecision())
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writePurchaseRequestWithCost(w, r, p, orgID)
+}
+
+// SetPurchaseRequestCost: POST .../purchase-requests/{prId}/project-cost
+// {include_in_project_cost?, cost_estimate?} (projects.procurement.approve) --
+// onaylı talebin maliyet kararını sonradan değiştirir.
+func (h *ProjectHandler) SetPurchaseRequestCost(w http.ResponseWriter, r *http.Request) {
+	var req purchaseCostDecisionRequest
+	if err := httpjson.Decode(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	p, err := h.svc.SetPurchaseRequestCost(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "prId"), orgID, userID, req.toDecision())
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writePurchaseRequestWithCost(w, r, p, orgID)
 }
 
 func (h *ProjectHandler) RejectPurchaseRequest(w http.ResponseWriter, r *http.Request) {

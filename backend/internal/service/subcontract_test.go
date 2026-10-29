@@ -752,8 +752,11 @@ func TestSubcontracts(t *testing.T) {
 		if after3.CommittedCost != 630000 {
 			t.Fatalf("eksiltme onayı SONRASI committed 630000 OLMALI, geldi %v", after3.CommittedCost)
 		}
-		if after3.ActualCost != 0 {
-			t.Fatalf("Actual DEĞİŞMEMELİ, geldi %v", after3.ActualCost)
+		// Taşeron aktivasyonu/ek/eksiltme gerçekleşeni değiştirmez; gerçekleşen
+		// yalnızca onaylı siparişin tutarıdır (satın alma onaylanınca maliyete
+		// girer, migration 0078).
+		if after3.ActualCost != 100000 {
+			t.Fatalf("Actual yalnızca onaylı sipariş (100.000) olmalı, geldi %v", after3.ActualCost)
 		}
 		if after3.OriginalBudget != 700000 || after3.RevisedBudget != 700000 {
 			t.Fatalf("Budget DEĞİŞMEMELİ, geldi original=%v revised=%v", after3.OriginalBudget, after3.RevisedBudget)

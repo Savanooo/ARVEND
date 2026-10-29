@@ -323,4 +323,114 @@ func TestProcurementSecurityMatrix(t *testing.T) {
 			t.Errorf("bozuk gövde 400 olmalı: %d", rec.Code)
 		}
 	})
+
+	// Satın almanın proje maliyeti kararı (migration 0078): onay gövdesi
+	// kararı ve tahmini tutarı taşır, gövdesiz onay (web) "eklensin" ile
+	// onaylar; fiyatsız talepte yanıt uyarır; karar sonradan yalnızca onay
+	// izniyle değişir; başka projenin talebine bu projenin URL'siyle dokunulamaz.
+	t.Run("21_purchase_cost_decision_matrix", func(t *testing.T) {
+		newSubmitted := func(projectID, body string) string {
+			rec, out := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+projectID+"/purchase-requests", ownerToken, body)
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("PR: %d %v", rec.Code, out)
+			}
+			id, _ := out["id"].(string)
+			if rec, out := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+projectID+"/purchase-requests/"+id+"/submit", ownerToken, ""); rec.Code != http.StatusOK {
+				t.Fatalf("submit: %d %v", rec.Code, out)
+			}
+			return id
+		}
+		noPrice := `{"title":"Fiyatsız","items":[{"cost_code_id":"` + cc.ID + `","description":"Kum","quantity":3}]}`
+
+		// Fiyatsız talep: onay ekranı uyarısı detayda, onay yanıtında tahmin ve karar.
+		prID := newSubmitted(pA.ID, noPrice)
+		_, detail := rbacDo(t, d.router, http.MethodGet, "/api/v1/projects/"+pA.ID+"/purchase-requests/"+prID, finToken, "")
+		pr, _ := detail["purchase_request"].(map[string]any)
+		cost, _ := pr["project_cost"].(map[string]any)
+		if cost["warning"] != domain.PurchaseCostNoPriceWarning || pr["include_in_project_cost"] != true {
+			t.Fatalf("fiyatsız talep detayda uyarmalı: %v", pr)
+		}
+		if rec, _ := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-requests/"+prID+"/approve", pmToken,
+			`{"include_in_project_cost":true}`); rec.Code != http.StatusForbidden {
+			t.Errorf("PM onaylayamaz: %d", rec.Code)
+		}
+		if rec, _ := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-requests/"+prID+"/approve", finToken,
+			`{"cost_estimate":-1}`); rec.Code != http.StatusBadRequest {
+			t.Errorf("negatif tahmin 400 olmalı: %d", rec.Code)
+		}
+		if rec, _ := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-requests/"+prID+"/approve", finToken,
+			`{"bilinmeyen":1}`); rec.Code != http.StatusBadRequest {
+			t.Errorf("bilinmeyen alan 400 olmalı: %d", rec.Code)
+		}
+		rec, out := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-requests/"+prID+"/approve", finToken,
+			`{"include_in_project_cost":true,"cost_estimate":2500}`)
+		cost, _ = out["project_cost"].(map[string]any)
+		if rec.Code != http.StatusOK || out["cost_estimate"] != 2500.0 || cost["amount"] != 2500.0 || cost["warning"] != nil {
+			t.Fatalf("onay yanıtı tahmini ve katkıyı taşımalı: %d %v", rec.Code, out)
+		}
+
+		// Gövdesiz onay (web): eklensin; fiyat yoksa yanıt uyarır.
+		bare := newSubmitted(pA.ID, noPrice)
+		rec, out = rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-requests/"+bare+"/approve", finToken, "")
+		cost, _ = out["project_cost"].(map[string]any)
+		if rec.Code != http.StatusOK || out["include_in_project_cost"] != true || cost["warning"] != domain.PurchaseCostNoPriceWarning {
+			t.Fatalf("gövdesiz onay: %d %v", rec.Code, out)
+		}
+
+		// Karar sonradan: onay izni gerekir.
+		decide := `{"include_in_project_cost":false}`
+		if rec, _ := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-requests/"+prID+"/project-cost", pmToken, decide); rec.Code != http.StatusForbidden {
+			t.Errorf("PM kararı değiştiremez: %d", rec.Code)
+		}
+		if rec, _ := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-requests/"+prID+"/project-cost", legacyToken, decide); rec.Code != http.StatusForbidden {
+			t.Errorf("eski sistem kullanıcısı kararı değiştiremez: %d", rec.Code)
+		}
+		rec, out = rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-requests/"+prID+"/project-cost", finToken, decide)
+		cost, _ = out["project_cost"].(map[string]any)
+		if rec.Code != http.StatusOK || out["include_in_project_cost"] != false || cost["amount"] != 0.0 || cost["potential"] != 2500.0 {
+			t.Fatalf("karar değişmeli: %d %v", rec.Code, out)
+		}
+		if rec, _ := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-requests/"+prID+"/project-cost", finToken, `{}`); rec.Code != http.StatusBadRequest {
+			t.Errorf("boş karar 400 olmalı: %d", rec.Code)
+		}
+
+		// Başka projenin talebi bu projenin URL'siyle: 404.
+		prB := newSubmitted(pB.ID, noPrice)
+		if rec, _ := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-requests/"+prB+"/approve", finToken, ""); rec.Code != http.StatusNotFound {
+			t.Errorf("çapraz proje onay 404 olmalı: %d", rec.Code)
+		}
+		if rec, _ := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-requests/"+prB+"/project-cost", finToken, decide); rec.Code != http.StatusNotFound {
+			t.Errorf("çapraz proje karar 404 olmalı: %d", rec.Code)
+		}
+
+		// Sipariş: talepten açılınca kararı devralır; karar onay izniyle değişir.
+		rec, out = rbacDo(t, d.router, http.MethodPost, "/api/v1/organization/suppliers", ownerToken, `{"code":"SEC-MLY","legal_name":"Maliyet Tedarikçisi"}`)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("tedarikçi: %d %v", rec.Code, out)
+		}
+		supID, _ := out["id"].(string)
+		rec, out = rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-orders", finToken,
+			`{"supplier_id":"`+supID+`","purchase_request_id":"`+prID+`","issue_date":"2026-10-29","tax_rate":20,"items":[{"cost_code_id":"`+cc.ID+`","description":"Kum","quantity":3,"unit_price":1000}]}`)
+		if rec.Code != http.StatusCreated || out["purchase_request_id"] != prID || out["include_in_project_cost"] != false {
+			t.Fatalf("talepten açılan sipariş talebe bağlanıp kararı devralmalı: %d %v", rec.Code, out)
+		}
+		poID, _ := out["id"].(string)
+		if rec, _ := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-orders/"+poID+"/project-cost", pmToken, `{"include_in_project_cost":true}`); rec.Code != http.StatusForbidden {
+			t.Errorf("PM sipariş kararını değiştiremez: %d", rec.Code)
+		}
+		if rec, _ := rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-orders/"+poID+"/project-cost", finToken, `{}`); rec.Code != http.StatusBadRequest {
+			t.Errorf("kararsız gövde 400 olmalı: %d", rec.Code)
+		}
+		rec, out = rbacDo(t, d.router, http.MethodPost, "/api/v1/projects/"+pA.ID+"/purchase-orders/"+poID+"/approve", finToken, `{"include_in_project_cost":true}`)
+		cost, _ = out["project_cost"].(map[string]any)
+		if rec.Code != http.StatusOK || out["include_in_project_cost"] != true || cost["amount"] != 3600.0 || cost["source"] != domain.PurchaseCostSourceOrder {
+			t.Fatalf("onayda verilen karar yazılmalı, katkı 3.600: %d %v", rec.Code, out)
+		}
+		_, fs := rbacDo(t, d.router, http.MethodGet, "/api/v1/projects/"+pA.ID+"/financial-summary", ownerToken, "")
+		for _, k := range []string{"purchase_cost", "expense_cost", "realized_cost_vat", "purchase_excluded", "purchase_cost_uncoded"} {
+			if _, ok := fs[k]; !ok {
+				t.Errorf("finans özeti %s taşımalı: %v", k, fs)
+			}
+		}
+	})
 }

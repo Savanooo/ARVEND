@@ -47,6 +47,20 @@ type purchaseOrderResponse struct {
 	// (KDV dahil). Liste ve detayda dolu; tekil yazma yanıtlarında yok.
 	ReceiptStatus     string   `json:"receipt_status,omitempty"`
 	ReceivedNotCosted *float64 `json:"received_not_costed,omitempty"`
+	// Proje maliyeti (migration 0078): siparişin talebi, "maliyete eklensin
+	// mi" kararı ve maliyete katkısı (max(sipariş tutarı, bağlı onaylı
+	// faturalar)). project_cost liste, detay, onay ve karar yanıtlarında dolu.
+	PurchaseRequestID    *string               `json:"purchase_request_id,omitempty"`
+	IncludeInProjectCost bool                  `json:"include_in_project_cost"`
+	ProjectCost          *purchaseCostResponse `json:"project_cost,omitempty"`
+}
+
+// withOrderCost: siparişin maliyet katkısını yanıta ekler.
+func withOrderCost(resp purchaseOrderResponse, costs map[string]domain.PurchaseCost) purchaseOrderResponse {
+	if c, ok := costs[resp.ID]; ok {
+		resp.ProjectCost = toPurchaseCostResponse(c, true)
+	}
+	return resp
 }
 
 func withReceiptSummary(resp purchaseOrderResponse, sum domain.PurchaseOrderReceiptSummary, ok bool) purchaseOrderResponse {
@@ -71,6 +85,7 @@ func toPurchaseOrderResponse(p domain.PurchaseOrder) purchaseOrderResponse {
 		CancelledAt: tsStrPtr(p.CancelledAt), CancelledBy: p.CancelledBy, CancelReason: p.CancelReason,
 		ClosedAt: tsStrPtr(p.ClosedAt), ClosedBy: p.ClosedBy,
 		CreatedAt: p.CreatedAt.Format(rfc3339), UpdatedAt: p.UpdatedAt.Format(rfc3339),
+		PurchaseRequestID: p.PurchaseRequestID, IncludeInProjectCost: p.IncludeInProjectCost,
 	}
 }
 
@@ -167,9 +182,11 @@ type purchaseOrderItemRequest struct {
 }
 
 type purchaseOrderRequest struct {
-	SupplierID           string                     `json:"supplier_id"`
-	SourceRFQID          string                     `json:"source_rfq_id"`
-	SourceQuotationID    string                     `json:"source_quotation_id"`
+	SupplierID        string `json:"supplier_id"`
+	SourceRFQID       string `json:"source_rfq_id"`
+	SourceQuotationID string `json:"source_quotation_id"`
+	// Yalnızca oluşturmada: siparişin açıldığı onaylı talep (migration 0078).
+	PurchaseRequestID    string                     `json:"purchase_request_id"`
 	IssueDate            string                     `json:"issue_date"`
 	ExpectedDeliveryDate *string                    `json:"expected_delivery_date"`
 	PaymentTerms         string                     `json:"payment_terms"`
@@ -189,6 +206,7 @@ func (req purchaseOrderRequest) toInput(userID string) service.PurchaseOrderInpu
 	}
 	in := service.PurchaseOrderInput{
 		SupplierID: req.SupplierID, SourceRFQID: req.SourceRFQID, SourceQuotationID: req.SourceQuotationID,
+		PurchaseRequestID:    req.PurchaseRequestID,
 		ExpectedDeliveryDate: parseDateParam(req.ExpectedDeliveryDate), PaymentTerms: req.PaymentTerms,
 		DeliveryAddress: req.DeliveryAddress, Notes: req.Notes, TaxRate: req.TaxRate, Items: items, UserID: userID,
 	}
@@ -216,10 +234,15 @@ func (h *ProjectHandler) ListPurchaseOrders(w http.ResponseWriter, r *http.Reque
 		h.writeError(w, err)
 		return
 	}
+	costs, err := h.svc.PurchaseOrderCosts(r.Context(), chi.URLParam(r, "id"), "", orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
 	out := make([]purchaseOrderResponse, len(rows))
 	for i, p := range rows {
 		sum, ok := sums[p.ID]
-		out[i] = withReceiptSummary(toPurchaseOrderDetailedResponse(p), sum, ok)
+		out[i] = withOrderCost(withReceiptSummary(toPurchaseOrderDetailedResponse(p), sum, ok), costs)
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"purchase_orders": out})
 }
@@ -293,12 +316,17 @@ func (h *ProjectHandler) GetPurchaseOrder(w http.ResponseWriter, r *http.Request
 	for i, rc := range receipts {
 		receiptsOut[i] = toPurchaseReceiptResponse(rc)
 	}
+	costs, err := h.svc.PurchaseOrderCosts(r.Context(), projectID, poID, orgID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
 	sum, ok := sums[p.ID]
 	if !ok {
 		sum = domain.PurchaseOrderReceiptSummary{Status: domain.ReceiptStatusNone}
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{
-		"purchase_order": withReceiptSummary(toPurchaseOrderResponse(*p), sum, true), "items": itemsOut,
+		"purchase_order": withOrderCost(withReceiptSummary(toPurchaseOrderResponse(*p), sum, true), costs), "items": itemsOut,
 		"commitments": commitmentsOut, "receipts": receiptsOut,
 		"receipt_summary": receiptSummaryResponse{
 			Status: sum.Status, AcceptedTotal: sum.AcceptedGross, CostedTotal: sum.Costed, ReceivedNotCosted: sum.ReceivedNotCosted,
@@ -390,15 +418,55 @@ func (h *ProjectHandler) UpdatePurchaseOrder(w http.ResponseWriter, r *http.Requ
 	httpjson.Write(w, http.StatusOK, toPurchaseOrderResponse(*p))
 }
 
-func (h *ProjectHandler) ApprovePurchaseOrder(w http.ResponseWriter, r *http.Request) {
-	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
-	userID, _ := middleware.UserIDFromContext(r.Context())
-	p, err := h.svc.ApprovePurchaseOrder(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "poId"), orgID, userID)
+// purchaseOrderCostRequest: siparişin "proje maliyetine eklensin mi" kararı.
+type purchaseOrderCostRequest struct {
+	IncludeInProjectCost *bool `json:"include_in_project_cost"`
+}
+
+// writePurchaseOrderWithCost: sipariş + maliyet katkısı (onay ve karar yanıtları).
+func (h *ProjectHandler) writePurchaseOrderWithCost(w http.ResponseWriter, r *http.Request, p *domain.PurchaseOrder, orgID string) {
+	costs, err := h.svc.PurchaseOrderCosts(r.Context(), chi.URLParam(r, "id"), p.ID, orgID)
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
-	httpjson.Write(w, http.StatusOK, toPurchaseOrderResponse(*p))
+	httpjson.Write(w, http.StatusOK, withOrderCost(toPurchaseOrderResponse(*p), costs))
+}
+
+// SetPurchaseOrderCost: POST .../purchase-orders/{poId}/project-cost
+// {include_in_project_cost} (projects.procurement.approve).
+func (h *ProjectHandler) SetPurchaseOrderCost(w http.ResponseWriter, r *http.Request) {
+	var req purchaseOrderCostRequest
+	if err := httpjson.Decode(r, &req); err != nil || req.IncludeInProjectCost == nil {
+		httpjson.Error(w, http.StatusBadRequest, "include_in_project_cost zorunludur")
+		return
+	}
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	p, err := h.svc.SetPurchaseOrderCost(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "poId"), orgID, userID, *req.IncludeInProjectCost)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writePurchaseOrderWithCost(w, r, p, orgID)
+}
+
+// ApprovePurchaseOrder: POST .../approve {include_in_project_cost?} -- karar
+// gönderilmezse siparişin mevcut kararı (talepten devralınan) kalır.
+func (h *ProjectHandler) ApprovePurchaseOrder(w http.ResponseWriter, r *http.Request) {
+	var req purchaseOrderCostRequest
+	if err := decodeOptionalBody(r, &req); err != nil {
+		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
+		return
+	}
+	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
+	p, err := h.svc.ApprovePurchaseOrderWithCost(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "poId"), orgID, userID, req.IncludeInProjectCost)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writePurchaseOrderWithCost(w, r, p, orgID)
 }
 
 func (h *ProjectHandler) CancelPurchaseOrder(w http.ResponseWriter, r *http.Request) {

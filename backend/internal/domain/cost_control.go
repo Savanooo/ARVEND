@@ -243,6 +243,10 @@ type CostControlLine struct {
 	// KDV'si bilinmez, olduğu gibi kalır). ActualCost/EAC KDV DAHİL kalır.
 	ActualCostNet float64
 	EACNet        float64
+	// PurchaseActualCost: ActualCost'un onaylı satın alma payı (migration
+	// 0078; talep tahmini, sipariş kalemleri ya da sipariş tutarını aşan
+	// faturalar). Gerçekleşen bunu zaten İÇERİR -- ayrıca eklenmez.
+	PurchaseActualCost float64
 }
 
 // CostControlSummary, proje seviyesinde Maliyet Kontrolü özet KPI'larıdır.
@@ -277,6 +281,10 @@ type CostControlSummary struct {
 	ContractValueNet         float64
 	ForecastProfitNet        float64
 	ForecastMarginPercentNet float64
+	// PurchaseActualCost: ActualCost'un onaylı satın alma payı (migration
+	// 0078). Maliyet koduna bağlı satın almalardır; finans özetinin
+	// purchase_cost'u = bu + kodsuz satın almalar (purchase_cost_uncoded).
+	PurchaseActualCost float64
 	// HasBudget, bu projenin HENÜZ bir bütçesi olup olmadığını belirtir --
 	// "bütçesiz proje" geçerli bir durumdur (spec §42), false ise diğer
 	// TÜM alanlar (ContractValue hariç) 0'dır.

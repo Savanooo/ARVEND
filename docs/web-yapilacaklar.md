@@ -266,6 +266,38 @@ ekran yok. Kural ve uçlar: `mobile/API_CONTRACT.md` "Firma Grubu",
 - Roller ekranı yeni "İletişim" kategorisini API'den okur (değişiklik
   gerekmez); Taşeron rolü zaten kilitli.
 
+## 16. Satın almalar proje maliyetine girer (backend migration 0078, mobil)
+Ürün sahibi: talep ONAYLANINCA maliyete girsin, onaylarken "proje maliyetine
+eklensin mi" diye sorsun. Backend ve mobil hazır; web'de yok. Kural:
+`docs/maliyet-tanimlari.md` "Satın almalar", uçlar `docs/procurement.md` §13.
+- Talep onayı (web PR detay "Onayla"): mobil gibi karar penceresi —
+  "Proje maliyetine eklensin mi?", "Evet, maliyete ekle" (varsayılan) /
+  "Hayır (depo/stok ya da genel kullanım)", eklenecek tutar
+  (`project_cost.potential`), fiyatsız talepte uyarı
+  ("Bu talepte fiyat yok; maliyete 0 TL girer.") ve isteğe bağlı tahmini
+  tutar alanı → `POST .../approve {include_in_project_cost, cost_estimate}`.
+  Web bugün gövdesiz onaylıyor: geçerli, "evet" sayılır.
+- Sipariş onayı: aynı karar (`{include_in_project_cost}`), varsayılan
+  siparişin mevcut kararı (talepten devralınan).
+- Talep/sipariş detayı: "Maliyete eklendi: X" ya da "Maliyete eklenmedi"
+  (`project_cost.amount` / `included`) ve onay izniyle "Değiştir"
+  (`POST .../project-cost`). Sipariş listesinde "Maliyeti girilmemiş X"
+  ifadesi artık yanlış: "Faturası gelmemiş X" olmalı (tutar maliyetin içinde).
+- Finans özeti / kârlılık (`ProfitabilitySection.tsx`, `FinanceSummary.tsx`):
+  "Masraflar" satırı `total_expenses` yerine `expense_cost` olmalı ve
+  altına "Satın almalar (onaylı)" `purchase_cost` eklenmeli; yoksa
+  satırların toplamı gerçekleşen maliyeti vermez (siparişe bağlı faturalar
+  `total_expenses`'te de var). `purchase_excluded > 0` ise "Maliyete
+  eklenmeyen satın almalar" bilgi satırı; `received_not_costed` etiketi
+  "Teslim alınmış, faturası gelmemiş". KPI kartı ipucu "Masraf X + taşeron Y"
+  da `expense_cost` + `purchase_cost` ile güncellenmeli.
+- Maliyet Kontrolü: Gerçekleşen artık satın almaları içeriyor
+  (`purchase_actual_cost`); web "Gerçekleşen" sekmesi yalnızca masrafları
+  listeliyor — not ya da satın alma satırları eklenmeli.
+- Olay etiketleri: `purchase_request_cost_decision` ("Talebin maliyet kararı
+  değişti"), `purchase_order_cost_decision` ("Siparişin maliyet kararı
+  değişti") `lib/events.ts`'e.
+
 ## Bilinen tutarsızlıklar (web + backend)
 - Katalog fiyatı TL; teklifin para birimi TL değilse (firma varsayılanı
   USD/EUR) katalogdan seçilen fiyat çevrilmeden yazılıyor — web ve mobil

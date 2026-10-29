@@ -94,9 +94,39 @@ WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'submitt
 RETURNING *;
 
 -- name: ApprovePurchaseRequest :one
-UPDATE purchase_requests SET status = 'approved', approved_at = now(), approved_by = $4
+-- Onay, satın almayı proje maliyetine sokar (migration 0078): onaylayan
+-- "maliyete eklensin mi" kararını ve fiyatsız talepte tahmini tutarı aynı
+-- anda verir. Gönderilmezse (eski istemci) karar "eklensin" kalır, tahmin
+-- kalemlerin toplamıdır.
+UPDATE purchase_requests SET status = 'approved', approved_at = now(), approved_by = $4,
+    include_in_project_cost = COALESCE(sqlc.narg(include_in_project_cost)::boolean, include_in_project_cost),
+    cost_estimate = COALESCE(sqlc.narg(cost_estimate)::numeric, cost_estimate)
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'submitted'
 RETURNING *;
+
+-- name: SetPurchaseRequestCostDecision :one
+-- Onaylı talebin maliyet kararı sonradan değiştirilir (çağıran talebi
+-- kilitli okur ve durumu denetler). NULL gelen alan değişmez.
+UPDATE purchase_requests SET
+    include_in_project_cost = COALESCE(sqlc.narg(include_in_project_cost)::boolean, include_in_project_cost),
+    cost_estimate = COALESCE(sqlc.narg(cost_estimate)::numeric, cost_estimate)
+WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'approved'
+RETURNING *;
+
+-- name: CascadePurchaseRequestCostDecision :execrows
+-- Talebin kararı, talepten açılmış AÇIK (taslak/onaylı) siparişlerine de
+-- uygulanır: talepte "Hayır" denince satın almanın tamamı maliyetten çıkar.
+-- Kapatılmış ya da iptal edilmiş sipariş değişmez.
+UPDATE purchase_orders SET include_in_project_cost = sqlc.arg(include_in_project_cost)::boolean
+WHERE purchase_request_id = $1 AND organization_id = $2 AND project_id = $3
+  AND status IN ('draft', 'approved') AND include_in_project_cost <> sqlc.arg(include_in_project_cost)::boolean;
+
+-- name: ListPurchaseRequestCosts :many
+-- Talep başına maliyete katkı (purchase_request_cost_basis, migration 0078).
+-- purchase_request_id verilirse yalnızca o talep.
+SELECT * FROM purchase_request_cost_basis
+WHERE project_id = sqlc.arg(project_id)::uuid AND organization_id = sqlc.arg(organization_id)::uuid
+  AND (sqlc.narg(purchase_request_id)::uuid IS NULL OR purchase_request_id = sqlc.narg(purchase_request_id)::uuid);
 
 -- name: RejectPurchaseRequest :one
 UPDATE purchase_requests SET status = 'rejected', rejected_at = now(), rejected_by = $4, rejection_reason = $5
@@ -288,8 +318,9 @@ WHERE sq.rfq_id = $1 AND sq.organization_id = $2 AND sq.project_id = $3;
 -- name: CreatePurchaseOrder :one
 INSERT INTO purchase_orders (
     organization_id, project_id, po_no, supplier_id, source_rfq_id, source_quotation_id, currency,
-    issue_date, expected_delivery_date, payment_terms, delivery_address, notes, tax_rate, created_by
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+    issue_date, expected_delivery_date, payment_terms, delivery_address, notes, tax_rate, created_by,
+    purchase_request_id, include_in_project_cost
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 RETURNING *;
 
 -- name: ListPurchaseOrders :many
@@ -334,9 +365,25 @@ WHERE po.id = $1 AND po.organization_id = $2 AND po.project_id = $3
 RETURNING po.*;
 
 -- name: ApprovePurchaseOrder :one
-UPDATE purchase_orders SET status = 'approved', approved_at = now(), approved_by = $4
+-- Onaylı sipariş proje maliyetine girer (migration 0078); karar
+-- gönderilmezse siparişin mevcut kararı (talepten devralınan) kalır.
+UPDATE purchase_orders SET status = 'approved', approved_at = now(), approved_by = $4,
+    include_in_project_cost = COALESCE(sqlc.narg(include_in_project_cost)::boolean, include_in_project_cost)
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status = 'draft'
 RETURNING *;
+
+-- name: SetPurchaseOrderCostDecision :one
+-- Açık (taslak/onaylı) siparişin maliyet kararı. Kapatılmış sipariş kesinleşmiştir.
+UPDATE purchase_orders SET include_in_project_cost = sqlc.arg(include_in_project_cost)::boolean
+WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND status IN ('draft', 'approved')
+RETURNING *;
+
+-- name: ListPurchaseOrderCosts :many
+-- Sipariş başına maliyete katkı (purchase_order_cost_basis, migration 0078).
+-- purchase_order_id verilirse yalnızca o sipariş.
+SELECT * FROM purchase_order_cost_basis
+WHERE project_id = sqlc.arg(project_id)::uuid AND organization_id = sqlc.arg(organization_id)::uuid
+  AND (sqlc.narg(purchase_order_id)::uuid IS NULL OR purchase_order_id = sqlc.narg(purchase_order_id)::uuid);
 
 -- name: CancelPurchaseOrder :one
 UPDATE purchase_orders SET status = 'cancelled', cancelled_at = now(), cancelled_by = $4, cancel_reason = $5

@@ -1064,7 +1064,8 @@ per AS (
            pn.contract_amount + COALESCE(co.net, 0) AS current_value,
            COALESCE(coll.total, 0) AS collected,
            cb.realized_cost AS realized,
-           cb.expense_approved_vat AS realized_vat,
+           -- Gerçekleşen maliyetin içindeki KDV (masraf + satın alma, migration 0078).
+           cb.realized_cost_vat AS realized_vat,
            cb.paid_cost AS paid,
            COALESCE(od.cnt, 0) AS od_cnt, COALESCE(od.amount, 0) AS od_amount, od.oldest AS od_oldest,
            COALESCE(inv.cnt, 0) AS inv_cnt, COALESCE(inv.amount, 0) AS inv_amount, inv.oldest AS inv_oldest
@@ -1123,9 +1124,10 @@ type DashboardFinanceByCurrencyRow struct {
 // Güncel bedel GetProjectFinancialSummary co_effect formülü; maliyetler
 // finans özetiyle AYNI görünümden (project_cost_basis, migration 0073):
 // realized_cost gerçekleşen maliyet (onaylı hakediş dahil, açık avans
-// hariç), paid_cost ödenen (nakit; avans dahil). Hepsi KDV DAHİL;
-// realized_cost_net finans özetinin kuralı: onaylı masrafların içindeki KDV
-// düşülür (oranı belirtilmemiş masraf tamamıyla, taşeron olduğu gibi).
+// hariç, onaylı satın almalar dahil), paid_cost ödenen (nakit; avans dahil).
+// Hepsi KDV DAHİL; realized_cost_net finans özetinin kuralı: gerçekleşen
+// maliyetin içindeki bilinen KDV (masraf + sipariş) düşülür (oranı
+// belirtilmemiş masraf ve talep tahmini tamamıyla, taşeron olduğu gibi).
 // Açık alacak proje BAŞINA sıfırın altına düşürülmez.
 func (q *Queries) DashboardFinanceByCurrency(ctx context.Context, arg DashboardFinanceByCurrencyParams) ([]DashboardFinanceByCurrencyRow, error) {
 	rows, err := q.db.Query(ctx, dashboardFinanceByCurrency, arg.OrgID, arg.RestrictToUserID, arg.Today)
@@ -3142,10 +3144,12 @@ adj AS (
     GROUP BY a.project_id
 ),
 act AS (
-    -- Yalnızca onaylı masraflar (migration 0060; maliyet kontrolüyle aynı).
+    -- Maliyet Kontrolü'nün gerçekleşeniyle aynı satırlar (project_cost_lines,
+    -- migration 0078): onaylı masraflar (0060) + onaylı satın almalar; satın
+    -- almanın içindeki fatura iki kez sayılmaz.
     SELECT e.project_id, sum(e.amount) AS total
-    FROM project_expenses e
-    WHERE e.organization_id = $1::uuid AND e.voided_at IS NULL AND e.approval_status = 'approved'
+    FROM project_cost_lines e
+    WHERE e.organization_id = $1::uuid
       AND e.budget_line_id IS NOT NULL
       AND e.project_id IN (SELECT pb.project_id FROM pb)
     GROUP BY e.project_id

@@ -354,6 +354,12 @@ func ToDomainFinancialSummary(r sqlc.GetProjectFinancialSummaryRow) domain.Proje
 		ContractVATAmount:            NumericToFloat64(r.ContractVatAmount),
 		ContractVATKnown:             r.ContractVatKnown,
 		ExpenseVATTotal:              NumericToFloat64(r.ExpenseVatTotal),
+		ExpenseCost:                  NumericToFloat64(r.ExpenseCost),
+		PurchaseCost:                 NumericToFloat64(r.PurchaseCost),
+		PurchaseCostVAT:              NumericToFloat64(r.PurchaseCostVat),
+		PurchaseCostUncoded:          NumericToFloat64(r.PurchaseCostUncoded),
+		PurchaseExcluded:             NumericToFloat64(r.PurchaseExcluded),
+		RealizedCostVAT:              NumericToFloat64(r.RealizedCostVat),
 	}
 }
 
