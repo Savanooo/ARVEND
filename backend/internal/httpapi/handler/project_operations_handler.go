@@ -613,14 +613,34 @@ type photoResponse struct {
 	Description  string  `json:"description"`
 	TakenAt      *string `json:"taken_at"`
 	CreatedAt    string  `json:"created_at"`
+	// AIGenerated + AI (migration 0079): yapay zekâ ile üretilmiş görsel --
+	// istemciler rozet ve "kaynak: <tarih>" gösterir. Normal fotoğrafta ai null.
+	AIGenerated bool             `json:"ai_generated"`
+	AI          *photoAIResponse `json:"ai"`
+}
+
+type photoAIResponse struct {
+	Kind          string  `json:"kind"`
+	Prompt        string  `json:"prompt"`
+	SourcePhotoID *string `json:"source_photo_id"`
+	// SourceDate: kaynak fotoğrafın çekildiği (yoksa yüklendiği) an; yalnızca
+	// listede dolu.
+	SourceDate *string `json:"source_date"`
 }
 
 func toPhotoResponse(p domain.ProjectPhoto) photoResponse {
-	return photoResponse{
+	resp := photoResponse{
 		ID: p.ID, OriginalName: p.OriginalName, MIMEType: p.MIMEType, SizeBytes: p.SizeBytes,
 		Stage: p.Stage, Description: p.Description, TakenAt: tsStrPtr(p.TakenAt),
 		CreatedAt: p.CreatedAt.Format(rfc3339),
 	}
+	if p.AI != nil {
+		resp.AIGenerated = true
+		resp.AI = &photoAIResponse{
+			Kind: p.AI.Kind, Prompt: p.AI.Prompt, SourcePhotoID: p.AI.SourcePhotoID, SourceDate: tsStrPtr(p.AI.SourceDate),
+		}
+	}
+	return resp
 }
 
 func (h *ProjectHandler) ListPhotos(w http.ResponseWriter, r *http.Request) {

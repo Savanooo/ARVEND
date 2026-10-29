@@ -31,6 +31,9 @@ import '../../../core/widgets/async_state_view.dart';
 import '../../../core/widgets/money_text.dart';
 import '../../../core/widgets/quick_action_button.dart';
 import '../../../core/widgets/status_badge.dart';
+import '../../ai_images/data/ai_images_providers.dart';
+import '../../ai_images/presentation/ai_badge.dart';
+import '../../ai_images/presentation/ai_image_sheet.dart' show kAiPreparingText, showAiGenerateSheet;
 import '../../auth/domain/user.dart';
 import '../../tasks/domain/task_filters.dart';
 import '../../tasks/presentation/task_complete_checkbox.dart';
@@ -1601,12 +1604,14 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
   }
 
   /// Galeri ızgaranın listesiyle (aynı sıra) dokunulan fotoğrafta açılır.
+  /// Yapay zekâ düğmesi fotoğraf yüklenebilen yerde (kapalı projede değil).
   Future<void> _openPhotoGallery(List<ProjectPhoto> photos, int index) => showProjectPhotoGallery(
         context,
         projectId: projectId,
         photos: photos,
         initialIndex: index,
         canDelete: _canManage,
+        canUseAi: _canManage && !widget.locked,
       );
 
   /// Bayt indirilip telefonun belgeler dizinine yazılır, ardından OS'un
@@ -1669,6 +1674,11 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
     final canManage = _canManage;
     // Kapalı projede yükleme reddedilir; silme backend'de serbest.
     final canUpload = canManage && !widget.locked;
+    // Yapay zekâ: yükleme yetkisi + ai.images.use + sunucuda anahtar. İzni
+    // olmayan için durum hiç sorulmaz (bkz. aiImageStatusProvider).
+    final canUseAi = canUpload && ref.watch(aiImagesAvailableProvider);
+    ref.watch(aiImageJobsProvider);
+    final aiActive = ref.read(aiImageJobsProvider.notifier).activeFor(projectId);
     // "Fotoğraf Ekle" (Özet): yükleme düğmelerinin olduğu başa dön.
     ref.listen(_subViewRequestProvider(projectId), (_, next) {
       if (next?.alt == 'dosyalar' && _scroll.hasClients) {
@@ -1732,6 +1742,22 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
                       onPressed: _uploading ? null : _pickAndUploadFile,
                     ),
                   ),
+                  if (canUseAi) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    SizedBox(
+                      width: double.infinity,
+                      child: SecondaryButton(
+                        key: const ValueKey('ai-generate-button'),
+                        icon: Icons.auto_awesome_outlined,
+                        label: 'Yapay zekâ ile görsel oluştur',
+                        onPressed: () => showAiGenerateSheet(
+                          context,
+                          projectId: projectId,
+                          photos: photosAsync.valueOrNull ?? const [],
+                        ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: AppSpacing.lg),
                 ],
                 const AppSectionHeader(title: 'Dosyalar'),
@@ -1763,6 +1789,27 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
                   ].join(' '),
                 ),
                 const SizedBox(height: AppSpacing.sm),
+                // Sayfa kapatılsa da süren yapay zekâ işi burada görünür.
+                if (aiActive.isNotEmpty) ...[
+                  Row(
+                    key: const ValueKey('ai-preparing'),
+                    children: [
+                      const Icon(Icons.auto_awesome, size: 16, color: AiBadge.color),
+                      const SizedBox(width: AppSpacing.xs),
+                      Expanded(
+                        child: Text(
+                          aiActive.length == 1
+                              ? 'Yapay zekâ görseli: $kAiPreparingText'
+                              : '${aiActive.length} yapay zekâ görseli: $kAiPreparingText',
+                          style: AppTypography.metadata,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  const LinearProgressIndicator(),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
               ]),
             ),
           ),
@@ -1939,6 +1986,8 @@ class _PhotoTile extends ConsumerWidget {
                 bottom: 4,
                 child: StatusRegistry.build(photo.stage, StatusRegistry.photoStage),
               ),
+              // Üretilmiş görsel gerçek şantiye fotoğrafıyla karışmasın.
+              if (photo.isAiGenerated) const Positioned(left: 4, top: 4, child: AiBadge()),
             ],
           ),
         ),

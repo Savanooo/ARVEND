@@ -674,6 +674,11 @@ class ProjectPhoto {
   final String description;
   final String createdAt;
 
+  /// Yapay zekâ ile üretilmiş görsel (backend migration 0079): ızgarada ve
+  /// galeride "Yapay zekâ" rozetiyle gösterilir -- kimse gerçek şantiye
+  /// kaydı sanmasın. Normal fotoğrafta null.
+  final ProjectPhotoAi? ai;
+
   const ProjectPhoto({
     required this.id,
     required this.originalName,
@@ -682,16 +687,45 @@ class ProjectPhoto {
     required this.stage,
     required this.description,
     required this.createdAt,
+    this.ai,
   });
 
-  factory ProjectPhoto.fromJson(Map<String, dynamic> json) => ProjectPhoto(
-        id: json['id'] as String,
-        originalName: json['original_name'] as String? ?? '',
-        mimeType: json['mime_type'] as String? ?? '',
-        sizeBytes: (json['size_bytes'] as num?)?.toInt() ?? 0,
-        stage: json['stage'] as String? ?? 'progress',
-        description: json['description'] as String? ?? '',
-        createdAt: json['created_at'] as String? ?? '',
+  bool get isAiGenerated => ai != null;
+
+  factory ProjectPhoto.fromJson(Map<String, dynamic> json) {
+    final ai = json['ai'];
+    return ProjectPhoto(
+      id: json['id'] as String,
+      originalName: json['original_name'] as String? ?? '',
+      mimeType: json['mime_type'] as String? ?? '',
+      sizeBytes: (json['size_bytes'] as num?)?.toInt() ?? 0,
+      stage: json['stage'] as String? ?? 'progress',
+      description: json['description'] as String? ?? '',
+      createdAt: json['created_at'] as String? ?? '',
+      // Eski sunucu `ai` alanını hiç göndermez; `ai_generated` tek başına
+      // gelirse de rozet kaybolmasın.
+      ai: ai is Map<String, dynamic>
+          ? ProjectPhotoAi.fromJson(ai)
+          : (json['ai_generated'] == true ? const ProjectPhotoAi(kind: '', prompt: '') : null),
+    );
+  }
+}
+
+/// Üretilmiş görselin nasıl üretildiği. [sourceDate]: kaynak fotoğrafın
+/// çekildiği (yoksa yüklendiği) an -- galeri "kaynak: `tarih`" yazar.
+class ProjectPhotoAi {
+  final String kind; // before_after | enhance | generate
+  final String prompt;
+  final String? sourcePhotoId;
+  final String? sourceDate;
+
+  const ProjectPhotoAi({required this.kind, required this.prompt, this.sourcePhotoId, this.sourceDate});
+
+  factory ProjectPhotoAi.fromJson(Map<String, dynamic> json) => ProjectPhotoAi(
+        kind: json['kind'] as String? ?? '',
+        prompt: json['prompt'] as String? ?? '',
+        sourcePhotoId: json['source_photo_id'] as String?,
+        sourceDate: json['source_date'] as String?,
       );
 }
 

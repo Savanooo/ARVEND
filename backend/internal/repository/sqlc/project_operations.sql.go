@@ -102,6 +102,78 @@ func (q *Queries) CountProjectTaskStats(ctx context.Context, arg CountProjectTas
 	return i, err
 }
 
+const createAIProjectPhoto = `-- name: CreateAIProjectPhoto :one
+INSERT INTO project_photos (
+    organization_id, project_id, original_name, object_key, mime_type,
+    size_bytes, sha256, stage, description, uploaded_by,
+    ai_generated, ai_kind, ai_prompt, ai_source_photo_id
+) VALUES (
+    $1, $2, $3, $4,
+    $5, $6, $7, $8, $9,
+    $10, true, $11, $12, $13
+)
+RETURNING id, organization_id, project_id, original_name, object_key, mime_type, size_bytes, sha256, stage, description, taken_at, uploaded_by, created_at, deleted_at, deleted_by, ai_generated, ai_kind, ai_prompt, ai_source_photo_id
+`
+
+type CreateAIProjectPhotoParams struct {
+	OrganizationID  pgtype.UUID `json:"organization_id"`
+	ProjectID       pgtype.UUID `json:"project_id"`
+	OriginalName    string      `json:"original_name"`
+	ObjectKey       string      `json:"object_key"`
+	MimeType        string      `json:"mime_type"`
+	SizeBytes       int64       `json:"size_bytes"`
+	Sha256          string      `json:"sha256"`
+	Stage           string      `json:"stage"`
+	Description     string      `json:"description"`
+	UploadedBy      pgtype.UUID `json:"uploaded_by"`
+	AiKind          *string     `json:"ai_kind"`
+	AiPrompt        string      `json:"ai_prompt"`
+	AiSourcePhotoID pgtype.UUID `json:"ai_source_photo_id"`
+}
+
+// Yapay zekâ görseli (migration 0079): her zaman YENİ satır, kaynak
+// fotoğrafa dokunulmaz. taken_at boş -- çekilmiş bir fotoğraf değil.
+func (q *Queries) CreateAIProjectPhoto(ctx context.Context, arg CreateAIProjectPhotoParams) (ProjectPhoto, error) {
+	row := q.db.QueryRow(ctx, createAIProjectPhoto,
+		arg.OrganizationID,
+		arg.ProjectID,
+		arg.OriginalName,
+		arg.ObjectKey,
+		arg.MimeType,
+		arg.SizeBytes,
+		arg.Sha256,
+		arg.Stage,
+		arg.Description,
+		arg.UploadedBy,
+		arg.AiKind,
+		arg.AiPrompt,
+		arg.AiSourcePhotoID,
+	)
+	var i ProjectPhoto
+	err := row.Scan(
+		&i.ID,
+		&i.OrganizationID,
+		&i.ProjectID,
+		&i.OriginalName,
+		&i.ObjectKey,
+		&i.MimeType,
+		&i.SizeBytes,
+		&i.Sha256,
+		&i.Stage,
+		&i.Description,
+		&i.TakenAt,
+		&i.UploadedBy,
+		&i.CreatedAt,
+		&i.DeletedAt,
+		&i.DeletedBy,
+		&i.AiGenerated,
+		&i.AiKind,
+		&i.AiPrompt,
+		&i.AiSourcePhotoID,
+	)
+	return i, err
+}
+
 const createProjectFile = `-- name: CreateProjectFile :one
 
 INSERT INTO project_files (
@@ -254,7 +326,7 @@ INSERT INTO project_photos (
     organization_id, project_id, original_name, object_key, mime_type,
     size_bytes, sha256, stage, description, taken_at, uploaded_by
 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-RETURNING id, organization_id, project_id, original_name, object_key, mime_type, size_bytes, sha256, stage, description, taken_at, uploaded_by, created_at, deleted_at, deleted_by
+RETURNING id, organization_id, project_id, original_name, object_key, mime_type, size_bytes, sha256, stage, description, taken_at, uploaded_by, created_at, deleted_at, deleted_by, ai_generated, ai_kind, ai_prompt, ai_source_photo_id
 `
 
 type CreateProjectPhotoParams struct {
@@ -303,6 +375,10 @@ func (q *Queries) CreateProjectPhoto(ctx context.Context, arg CreateProjectPhoto
 		&i.CreatedAt,
 		&i.DeletedAt,
 		&i.DeletedBy,
+		&i.AiGenerated,
+		&i.AiKind,
+		&i.AiPrompt,
+		&i.AiSourcePhotoID,
 	)
 	return i, err
 }
@@ -638,7 +714,7 @@ func (q *Queries) GetProjectMember(ctx context.Context, arg GetProjectMemberPara
 }
 
 const getProjectPhoto = `-- name: GetProjectPhoto :one
-SELECT id, organization_id, project_id, original_name, object_key, mime_type, size_bytes, sha256, stage, description, taken_at, uploaded_by, created_at, deleted_at, deleted_by FROM project_photos
+SELECT id, organization_id, project_id, original_name, object_key, mime_type, size_bytes, sha256, stage, description, taken_at, uploaded_by, created_at, deleted_at, deleted_by, ai_generated, ai_kind, ai_prompt, ai_source_photo_id FROM project_photos
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND deleted_at IS NULL
 `
 
@@ -668,12 +744,16 @@ func (q *Queries) GetProjectPhoto(ctx context.Context, arg GetProjectPhotoParams
 		&i.CreatedAt,
 		&i.DeletedAt,
 		&i.DeletedBy,
+		&i.AiGenerated,
+		&i.AiKind,
+		&i.AiPrompt,
+		&i.AiSourcePhotoID,
 	)
 	return i, err
 }
 
 const getProjectPhotoBySHA = `-- name: GetProjectPhotoBySHA :one
-SELECT id, organization_id, project_id, original_name, object_key, mime_type, size_bytes, sha256, stage, description, taken_at, uploaded_by, created_at, deleted_at, deleted_by FROM project_photos
+SELECT id, organization_id, project_id, original_name, object_key, mime_type, size_bytes, sha256, stage, description, taken_at, uploaded_by, created_at, deleted_at, deleted_by, ai_generated, ai_kind, ai_prompt, ai_source_photo_id FROM project_photos
 WHERE project_id = $1 AND sha256 = $2 AND deleted_at IS NULL
 `
 
@@ -701,6 +781,10 @@ func (q *Queries) GetProjectPhotoBySHA(ctx context.Context, arg GetProjectPhotoB
 		&i.CreatedAt,
 		&i.DeletedAt,
 		&i.DeletedBy,
+		&i.AiGenerated,
+		&i.AiKind,
+		&i.AiPrompt,
+		&i.AiSourcePhotoID,
 	)
 	return i, err
 }
@@ -1178,9 +1262,11 @@ func (q *Queries) ListProjectNotes(ctx context.Context, arg ListProjectNotesPara
 }
 
 const listProjectPhotos = `-- name: ListProjectPhotos :many
-SELECT id, organization_id, project_id, original_name, object_key, mime_type, size_bytes, sha256, stage, description, taken_at, uploaded_by, created_at, deleted_at, deleted_by FROM project_photos
-WHERE project_id = $1 AND organization_id = $2 AND deleted_at IS NULL
-ORDER BY stage ASC, COALESCE(taken_at, created_at) DESC
+SELECT p.id, p.organization_id, p.project_id, p.original_name, p.object_key, p.mime_type, p.size_bytes, p.sha256, p.stage, p.description, p.taken_at, p.uploaded_by, p.created_at, p.deleted_at, p.deleted_by, p.ai_generated, p.ai_kind, p.ai_prompt, p.ai_source_photo_id, COALESCE(src.taken_at, src.created_at) AS ai_source_date
+FROM project_photos p
+LEFT JOIN project_photos src ON src.id = p.ai_source_photo_id AND src.project_id = p.project_id
+WHERE p.project_id = $1 AND p.organization_id = $2 AND p.deleted_at IS NULL
+ORDER BY p.stage ASC, COALESCE(p.taken_at, p.created_at) DESC
 `
 
 type ListProjectPhotosParams struct {
@@ -1188,31 +1274,45 @@ type ListProjectPhotosParams struct {
 	OrganizationID pgtype.UUID `json:"organization_id"`
 }
 
-func (q *Queries) ListProjectPhotos(ctx context.Context, arg ListProjectPhotosParams) ([]ProjectPhoto, error) {
+type ListProjectPhotosRow struct {
+	ProjectPhoto ProjectPhoto       `json:"project_photo"`
+	AiSourceDate pgtype.Timestamptz `json:"ai_source_date"`
+}
+
+// ai_source_date: yapay zekâ görselinin kaynak fotoğrafının tarihi (galeri
+// "kaynak: <tarih>" yazar). Kaynak sonradan silinse de tarih görünsün diye
+// silinmiş satır da eşleşir; aynı proje şartı kaynak bağını proje dışına
+// taşımaz.
+func (q *Queries) ListProjectPhotos(ctx context.Context, arg ListProjectPhotosParams) ([]ListProjectPhotosRow, error) {
 	rows, err := q.db.Query(ctx, listProjectPhotos, arg.ProjectID, arg.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ProjectPhoto
+	var items []ListProjectPhotosRow
 	for rows.Next() {
-		var i ProjectPhoto
+		var i ListProjectPhotosRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.OrganizationID,
-			&i.ProjectID,
-			&i.OriginalName,
-			&i.ObjectKey,
-			&i.MimeType,
-			&i.SizeBytes,
-			&i.Sha256,
-			&i.Stage,
-			&i.Description,
-			&i.TakenAt,
-			&i.UploadedBy,
-			&i.CreatedAt,
-			&i.DeletedAt,
-			&i.DeletedBy,
+			&i.ProjectPhoto.ID,
+			&i.ProjectPhoto.OrganizationID,
+			&i.ProjectPhoto.ProjectID,
+			&i.ProjectPhoto.OriginalName,
+			&i.ProjectPhoto.ObjectKey,
+			&i.ProjectPhoto.MimeType,
+			&i.ProjectPhoto.SizeBytes,
+			&i.ProjectPhoto.Sha256,
+			&i.ProjectPhoto.Stage,
+			&i.ProjectPhoto.Description,
+			&i.ProjectPhoto.TakenAt,
+			&i.ProjectPhoto.UploadedBy,
+			&i.ProjectPhoto.CreatedAt,
+			&i.ProjectPhoto.DeletedAt,
+			&i.ProjectPhoto.DeletedBy,
+			&i.ProjectPhoto.AiGenerated,
+			&i.ProjectPhoto.AiKind,
+			&i.ProjectPhoto.AiPrompt,
+			&i.ProjectPhoto.AiSourcePhotoID,
+			&i.AiSourceDate,
 		); err != nil {
 			return nil, err
 		}
@@ -1594,7 +1694,7 @@ func (q *Queries) SoftDeleteProjectFile(ctx context.Context, arg SoftDeleteProje
 const softDeleteProjectPhoto = `-- name: SoftDeleteProjectPhoto :one
 UPDATE project_photos SET deleted_at = now(), deleted_by = $3
 WHERE id = $1 AND organization_id = $2 AND project_id = $4 AND deleted_at IS NULL
-RETURNING id, organization_id, project_id, original_name, object_key, mime_type, size_bytes, sha256, stage, description, taken_at, uploaded_by, created_at, deleted_at, deleted_by
+RETURNING id, organization_id, project_id, original_name, object_key, mime_type, size_bytes, sha256, stage, description, taken_at, uploaded_by, created_at, deleted_at, deleted_by, ai_generated, ai_kind, ai_prompt, ai_source_photo_id
 `
 
 type SoftDeleteProjectPhotoParams struct {
@@ -1629,6 +1729,10 @@ func (q *Queries) SoftDeleteProjectPhoto(ctx context.Context, arg SoftDeleteProj
 		&i.CreatedAt,
 		&i.DeletedAt,
 		&i.DeletedBy,
+		&i.AiGenerated,
+		&i.AiKind,
+		&i.AiPrompt,
+		&i.AiSourcePhotoID,
 	)
 	return i, err
 }

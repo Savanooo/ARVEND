@@ -8,6 +8,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AiImageJob struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	UserID         pgtype.UUID        `json:"user_id"`
+	Kind           string             `json:"kind"`
+	Prompt         string             `json:"prompt"`
+	SourcePhotoID  pgtype.UUID        `json:"source_photo_id"`
+	Status         string             `json:"status"`
+	Error          string             `json:"error"`
+	ResultPhotoID  pgtype.UUID        `json:"result_photo_id"`
+	Model          string             `json:"model"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	StartedAt      pgtype.Timestamptz `json:"started_at"`
+	FinishedAt     pgtype.Timestamptz `json:"finished_at"`
+}
+
 type AttendanceLog struct {
 	ID             pgtype.UUID        `json:"id"`
 	EmployeeID     pgtype.UUID        `json:"employee_id"`
@@ -1002,21 +1019,25 @@ type ProjectPaymentPlanItem struct {
 }
 
 type ProjectPhoto struct {
-	ID             pgtype.UUID        `json:"id"`
-	OrganizationID pgtype.UUID        `json:"organization_id"`
-	ProjectID      pgtype.UUID        `json:"project_id"`
-	OriginalName   string             `json:"original_name"`
-	ObjectKey      string             `json:"object_key"`
-	MimeType       string             `json:"mime_type"`
-	SizeBytes      int64              `json:"size_bytes"`
-	Sha256         string             `json:"sha256"`
-	Stage          string             `json:"stage"`
-	Description    string             `json:"description"`
-	TakenAt        pgtype.Timestamptz `json:"taken_at"`
-	UploadedBy     pgtype.UUID        `json:"uploaded_by"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
-	DeletedBy      pgtype.UUID        `json:"deleted_by"`
+	ID              pgtype.UUID        `json:"id"`
+	OrganizationID  pgtype.UUID        `json:"organization_id"`
+	ProjectID       pgtype.UUID        `json:"project_id"`
+	OriginalName    string             `json:"original_name"`
+	ObjectKey       string             `json:"object_key"`
+	MimeType        string             `json:"mime_type"`
+	SizeBytes       int64              `json:"size_bytes"`
+	Sha256          string             `json:"sha256"`
+	Stage           string             `json:"stage"`
+	Description     string             `json:"description"`
+	TakenAt         pgtype.Timestamptz `json:"taken_at"`
+	UploadedBy      pgtype.UUID        `json:"uploaded_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	DeletedAt       pgtype.Timestamptz `json:"deleted_at"`
+	DeletedBy       pgtype.UUID        `json:"deleted_by"`
+	AiGenerated     bool               `json:"ai_generated"`
+	AiKind          *string            `json:"ai_kind"`
+	AiPrompt        string             `json:"ai_prompt"`
+	AiSourcePhotoID pgtype.UUID        `json:"ai_source_photo_id"`
 }
 
 type ProjectScheduleItem struct {

@@ -48,6 +48,7 @@ type Deps struct {
 	Feedback          *handler.FeedbackHandler
 	Dashboard         *handler.DashboardHandler
 	AppReleases       *handler.AppReleaseHandler
+	AIImages          *handler.AIImageHandler
 	CORSOrigins       []string
 }
 
@@ -628,6 +629,19 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/daily-reports/{date}/submit", d.Projects.SubmitDailyReport)
 			})
 
+			// --- Yapay zekâ görselleri (migration 0079) --- Görsel projeye
+			// fotoğraf olarak eklendiği için iş açmak fotoğraf yükleme izni
+			// (operations.manage) + proje erişimi, okumak operations.read
+			// ister; her ikisi ayrıca ai.images.use (maliyetli, varsayılan
+			// Sahip/Yönetici). Sunucuda anahtar yoksa 503 ai_disabled.
+			r.With(perm(domain.PermAIImagesUse), projPerm(domain.PermProjectsOperationsManage)).
+				Post("/{id}/ai-image-jobs", d.AIImages.CreateJob)
+			r.Group(func(r chi.Router) {
+				r.Use(perm(domain.PermAIImagesUse), projPerm(domain.PermProjectsOperationsRead))
+				r.Get("/{id}/ai-image-jobs", d.AIImages.ListJobs)
+				r.Get("/{id}/ai-image-jobs/{jobId}", d.AIImages.GetJob)
+			})
+
 			// Görev/plan formlarının "kime" seçicisi: ücretsiz personel
 			// listesi (proje yöneticisinde employees.read yok).
 			r.With(projPerm(domain.PermProjectsRead)).Get("/{id}/assignees", d.Projects.ListAssignees)
@@ -727,6 +741,14 @@ func NewRouter(d Deps) http.Handler {
 		// (oluşturma) ucu YOK -- bildirimler yalnızca backend'in kendi iş
 		// akışları tarafından üretilir, bkz. NotificationService.Create
 		// çağrı noktaları.
+		// Yapay zekâ görsellerinin durumu: uygulama girişleri buna göre
+		// gösterir. İzin istemez (izni olmayana yalnızca "açık/kapalı" ve
+		// can_use=false döner); taşeron hesabı oturum kapısında kalır.
+		r.Route("/ai", func(r chi.Router) {
+			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
+			r.Get("/status", d.AIImages.Status)
+		})
+
 		r.Route("/notifications", func(r chi.Router) {
 			r.Use(requireAuth, requireTenant, allowPortal, requireOnboarded, loadAuthorization, perm(domain.PermNotificationsRead))
 			r.Get("/", d.Notifications.List)

@@ -92,7 +92,16 @@ Kod, migration 0034'ün gerçek router.go endpoint envanterinden
 
 Kategoriler: Projeler, Finans, Görevler, Operasyon, Proje Erişimi,
 Teklifler, Metraj, Ürünler, Müşteriler, Personel, Puantaj, Firma
-Yönetimi (sonradan: Stok, Taşeron, İletişim).
+Yönetimi (sonradan: Stok, Taşeron, İletişim, Yapay Zekâ).
+
+`ai.images.use` (Yapay Zekâ, migration 0079): yapay zekâ ile görsel üretme
+(önce/sonra, iyileştirme, yeni görsel). Her görsel firmanın OpenAI
+hesabından ücretlenir: varsayılan YALNIZCA Sahip/Yönetici (seed'de
+"bütün izinler"le gelir, seed fonksiyonu değişmedi); Proje Yöneticisi'ne
+bilerek verilmedi (aylık hak firma başına ortak, bir kişi tüketebilir) —
+firma rol ya da kişiye özel izinle açar. Uç ayrıca
+`projects.operations.manage` (iş açma) / `.read` + proje erişimi ister.
+Taşeron hesabı oturum kapısında kalır.
 
 `organization.chat.use` (İletişim, migration 0077): Firma Grubu — firma
 başına tek grup mesajlaşması. Taşeron dışındaki her role verilir; Taşeron

@@ -2024,9 +2024,10 @@ SELECT
       JOIN ap ON ap.id = si.project_id AND ap.status <> 'cancelled'
       WHERE si.organization_id = $1::uuid AND si.status IN ('planned', 'active')
         AND si.end_date < $2::date)::date AS milestones_overdue_oldest,
+    -- Şantiye hareketi: yapay zekâ görselleri (migration 0079) sayılmaz.
     (SELECT count(*) FROM project_photos ph
       JOIN ap ON ap.id = ph.project_id
-      WHERE ph.organization_id = $1::uuid AND ph.deleted_at IS NULL
+      WHERE ph.organization_id = $1::uuid AND ph.deleted_at IS NULL AND NOT ph.ai_generated
         AND ph.created_at >= $4::timestamptz)::int AS photos_7d
 `
 

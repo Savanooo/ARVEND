@@ -19,6 +19,7 @@ import (
 	"github.com/Savanooo/ARVEND/backend/internal/httpapi/handler"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/crypto"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/fcm"
+	"github.com/Savanooo/ARVEND/backend/internal/platform/openai"
 	"github.com/Savanooo/ARVEND/backend/internal/platform/storage"
 	"github.com/Savanooo/ARVEND/backend/internal/repository"
 	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
@@ -89,6 +90,38 @@ func main() {
 		log.Println("telefona bildirim kapalı (FCM_SERVICE_ACCOUNT_FILE yok)")
 	}
 	pushSvc := service.NewPushService(q, pushSender)
+	// Yapay zekâ görselleri: anahtar dosyası yoksa ya da okunamazsa kapalı
+	// (uçlar 503, uygulama girişleri gizler). Anahtarın kendisi loglanmaz.
+	var imageGen service.ImageGenerator
+	aiOffReason := "OPENAI_API_KEY_FILE yok"
+	if cfg.OpenAIKeyFile != "" {
+		if c, err := openai.NewFromKeyFile(cfg.OpenAIKeyFile); err != nil {
+			aiOffReason = err.Error() // yol ve neden; anahtar içeriği değil
+		} else {
+			imageGen = c
+			if openai.KeyFileTooOpen(cfg.OpenAIKeyFile) {
+				log.Printf("UYARI: %s başka kullanıcılarca okunabiliyor; chmod 600 yapın", cfg.OpenAIKeyFile)
+			}
+		}
+	}
+	aiImageSvc := service.NewAIImageService(pool, q, projectSvc, imageGen, service.AIImageConfig{
+		Model: cfg.OpenAIImageModel, Quality: cfg.OpenAIImageQuality, MonthlyLimit: cfg.AIImageMonthlyLimit,
+		UserHourlyLimit: cfg.AIImageUserHourlyLimit, Workers: cfg.AIImageWorkers,
+	})
+	if aiImageSvc.Enabled() {
+		ac := aiImageSvc.Config()
+		log.Printf("yapay zekâ görselleri açık (model %s, kalite %s, firma başına aylık %d görsel, %d işçi)",
+			ac.Model, ac.Quality, ac.MonthlyLimit, ac.Workers)
+	} else {
+		log.Printf("yapay zekâ görselleri kapalı (%s)", aiOffReason)
+	}
+	// Önceki süreçte yarım kalan işler "hazırlanıyor"da asılı kalmasın --
+	// özellik kapalıyken de (anahtar kaldırıldıysa) kapatılır.
+	if n, err := aiImageSvc.RecoverInterrupted(ctx); err != nil {
+		log.Printf("UYARI: yarım kalan yapay zekâ işleri kapatılamadı: %v", err)
+	} else if n > 0 {
+		log.Printf("yarım kalan %d yapay zekâ işi başarısız olarak kapatıldı", n)
+	}
 	priceSourceSvc := service.NewPriceSourceService(pool, q, service.HTTPPriceFetchers(nil, service.NewDBPriceSnapshotStore(q)))
 	dashboardSvc := service.NewDashboardService(pool, q)
 	appReleaseSvc := service.NewAppReleaseService(cfg.AppReleasesDir)
@@ -128,6 +161,7 @@ func main() {
 		Feedback:          handler.NewFeedbackHandler(service.NewFeedbackService(q)),
 		Dashboard:         handler.NewDashboardHandler(dashboardSvc),
 		AppReleases:       handler.NewAppReleaseHandler(appReleaseSvc),
+		AIImages:          handler.NewAIImageHandler(aiImageSvc),
 		CORSOrigins:       cfg.CORSOrigins,
 	})
 
@@ -176,6 +210,15 @@ func main() {
 		go func() {
 			defer background.Done()
 			pushSvc.Run(runCtx)
+		}()
+	}
+
+	// Yapay zekâ görsel işçileri (sınırlı sayıda, AI_IMAGE_WORKERS).
+	if aiImageSvc.Enabled() {
+		background.Add(1)
+		go func() {
+			defer background.Done()
+			aiImageSvc.Run(runCtx)
 		}()
 	}
 

@@ -1323,7 +1323,7 @@ func (s *ProjectService) ListPhotos(ctx context.Context, projectID, organization
 	}
 	out := make([]domain.ProjectPhoto, len(rows))
 	for i, r := range rows {
-		out[i] = repository.ToDomainProjectPhoto(r)
+		out[i] = repository.ToDomainProjectPhotoListRow(r)
 	}
 	return out, nil
 }

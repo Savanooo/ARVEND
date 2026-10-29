@@ -1,6 +1,10 @@
 package repository
 
 import (
+	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/Savanooo/ARVEND/backend/internal/domain"
 	"github.com/Savanooo/ARVEND/backend/internal/repository/sqlc"
 )
@@ -141,7 +145,63 @@ func ToDomainProjectPhoto(p sqlc.ProjectPhoto) domain.ProjectPhoto {
 		s := p.UploadedBy.String()
 		dp.UploadedBy = &s
 	}
+	if p.AiGenerated {
+		ai := &domain.ProjectPhotoAI{Prompt: p.AiPrompt}
+		if p.AiKind != nil {
+			ai.Kind = *p.AiKind
+		}
+		if p.AiSourcePhotoID.Valid {
+			s := p.AiSourcePhotoID.String()
+			ai.SourcePhotoID = &s
+		}
+		dp.AI = ai
+	}
 	return dp
+}
+
+// ToDomainProjectPhotoListRow: liste satırı -- yapay zekâ görselinde kaynak
+// fotoğrafın tarihiyle.
+func ToDomainProjectPhotoListRow(r sqlc.ListProjectPhotosRow) domain.ProjectPhoto {
+	dp := ToDomainProjectPhoto(r.ProjectPhoto)
+	if dp.AI != nil && r.AiSourceDate.Valid {
+		t := r.AiSourceDate.Time
+		dp.AI.SourceDate = &t
+	}
+	return dp
+}
+
+func ToDomainAIImageJob(j sqlc.AiImageJob) domain.AIImageJob {
+	dj := domain.AIImageJob{
+		ID:             j.ID.String(),
+		OrganizationID: j.OrganizationID.String(),
+		ProjectID:      j.ProjectID.String(),
+		Kind:           j.Kind,
+		Prompt:         j.Prompt,
+		Status:         j.Status,
+		Error:          j.Error,
+		Model:          j.Model,
+		CreatedAt:      j.CreatedAt.Time,
+	}
+	uuidPtr := func(u pgtype.UUID) *string {
+		if !u.Valid {
+			return nil
+		}
+		s := u.String()
+		return &s
+	}
+	timePtr := func(t pgtype.Timestamptz) *time.Time {
+		if !t.Valid {
+			return nil
+		}
+		v := t.Time
+		return &v
+	}
+	dj.UserID = uuidPtr(j.UserID)
+	dj.SourcePhotoID = uuidPtr(j.SourcePhotoID)
+	dj.ResultPhotoID = uuidPtr(j.ResultPhotoID)
+	dj.StartedAt = timePtr(j.StartedAt)
+	dj.FinishedAt = timePtr(j.FinishedAt)
+	return dj
 }
 
 func ToDomainProjectNote(n sqlc.ProjectNote) domain.ProjectNote {

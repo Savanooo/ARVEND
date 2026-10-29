@@ -229,6 +229,12 @@ const (
 	// yazma, fotoğraf. Taşeron dışındaki her role verilir; Taşeron rolüne
 	// verilemez (rol kilitli) ve taşeron hesabı kişiye özel de alamaz.
 	PermOrganizationChatUse = "organization.chat.use"
+
+	// Yapay zekâ görselleri (migration 0079): her görsel firmanın OpenAI
+	// hesabından ücretlenir -- varsayılan yalnızca Sahip/Yönetici, firma
+	// başkasına Roller & Yetkiler'den verir. Görsel projeye fotoğraf olarak
+	// eklendiği için uç ayrıca projects.operations.manage + proje erişimi ister.
+	PermAIImagesUse = "ai.images.use"
 )
 
 // adminRoleOnlyPermissions, uçları izne EK OLARAK kaba requireAdmin
