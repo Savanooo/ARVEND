@@ -92,7 +92,14 @@ Kod, migration 0034'ün gerçek router.go endpoint envanterinden
 
 Kategoriler: Projeler, Finans, Görevler, Operasyon, Proje Erişimi,
 Teklifler, Metraj, Ürünler, Müşteriler, Personel, Puantaj, Firma
-Yönetimi.
+Yönetimi (sonradan: Stok, Taşeron, İletişim).
+
+`organization.chat.use` (İletişim, migration 0077): Firma Grubu — firma
+başına tek grup mesajlaşması. Taşeron dışındaki her role verilir; Taşeron
+rolüne verilemez (rol kilitli), taşeron hesabı kişiye özel de alamaz ve
+oturum kapısı `/organization/chat` uçlarını ona hiç açmaz (`allowPortal`
+yok). Herkesin mesajını silme izin değil roldür: Sahip/Yönetici
+(`domain.CanModerateChat`); diğerleri yalnızca kendi mesajını siler.
 
 **Deny-by-default**: `role_permissions`'ta olmayan bir izin =
 erişim yok. `AuthorizationService.SetRolePermissions`, `permissions`

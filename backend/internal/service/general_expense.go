@@ -35,9 +35,11 @@ const (
 	OrgEventGeneralExpenseRejected = "general_expense_rejected"
 )
 
-// generalExpensesTarget: genel masraf bildirimlerinin açtığı yer (mobil
-// "Masraflar" ekranı).
-const generalExpensesTarget = "/diger/masraflar"
+// pendingExpensesTarget: onay bildiriminin açtığı yer -- mobil "Masraflar"
+// ekranı, "Onay bekliyor" süzgeciyle. Finans okuma izni olmayan onaylayıcı
+// da orada karar vereceği masrafları görür (ListExpensesFilter.
+// ApproverScope); projenin Finans görünümünü ise göremez.
+const pendingExpensesTarget = "/diger/masraflar?durum=pending"
 
 var ErrGeneralExpenseNotFound error = &NotFoundError{What: "genel masraf"}
 
@@ -163,10 +165,13 @@ func (s *ProjectService) UpdateGeneralExpense(ctx context.Context, expenseID, or
 	if err := notifyGeneralExpensePending(ctx, txq, orgID, row, actor); err != nil {
 		return nil, err
 	}
+	out := repository.ToDomainExpense(row)
+	if out.Attachments, err = listAttachments(ctx, txq, orgID, eid); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	out := repository.ToDomainExpense(row)
 	return &out, nil
 }
 
@@ -302,6 +307,13 @@ type ExpenseListFilter struct {
 	DateTo    *time.Time
 	// OnlyCreatedBy doluysa yalnızca o kişinin girdikleri.
 	OnlyCreatedBy string
+	// ApproverScope (OnlyCreatedBy ile birlikte): finans okuma izni olmayan
+	// onaylayıcı -- kendi masraflarına ek olarak karar verebileceği
+	// (onay bekleyen) ve son domain.ExpenseApproverRecentDays günde karara
+	// bağlanmış masraflar. Bildirim onaylayıcıyı bu listeye getiriyor;
+	// eskiden yalnızca kendi masraflarını gördüğü için onaylayacağı masrafı
+	// bulamıyordu.
+	ApproverScope bool
 	// RestrictToUserID: üyelikle sınırlı rolde projeli satırlar yalnızca
 	// üyesi olduğu projelerden.
 	RestrictToUserID string
@@ -342,13 +354,21 @@ func (s *ProjectService) ListExpensesAll(ctx context.Context, organizationID str
 			return nil, ErrInvalidExpenseFilter
 		}
 	}
+	if f.ApproverScope && params.CreatedBy.Valid {
+		params.DecidableSince = pgTimestamptz(approverDecidedSince(time.Now()))
+	}
 	rows, err := s.q.ListExpensesFiltered(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]domain.MyExpense, len(rows))
+	ptrs := make([]*domain.Expense, len(rows))
 	for i, r := range rows {
 		out[i] = repository.ToDomainListedExpense(r)
+		ptrs[i] = &out[i].Expense
+	}
+	if err := attachExpenseAttachments(ctx, s.q, orgID, ptrs); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -445,7 +465,7 @@ func notifyGeneralExpensePending(ctx context.Context, txq *sqlc.Queries, orgID p
 		Type: domain.NotificationExpensePendingApproval, EntityType: domain.NotificationEntityProjectExpense,
 		EntityID: row.ID, Title: expensePendingTitle,
 		Body:   joinNonEmpty(" · ", "Genel masraf", who),
-		Target: generalExpensesTarget,
+		Target: pendingExpensesTarget,
 	})
 }
 
@@ -463,6 +483,9 @@ func notifyGeneralExpenseDecision(ctx context.Context, txq *sqlc.Queries, orgID 
 		OrganizationID: orgID, UserID: row.CreatedBy, Type: notifType,
 		Title: title, Body: truncateRunes(body, 500),
 		EntityType: domain.NotificationEntityProjectExpense, EntityID: row.ID,
-		ActionTarget: generalExpensesTarget,
+		// Karar bildirimi masrafı girene gider: Masraflarım o masrafın
+		// ayrıntısını (ret nedeni, belgeler, Düzenle) açar -- genel masraf
+		// artık orada da listeleniyor.
+		ActionTarget: myExpenseTarget(row.ID),
 	})
 }

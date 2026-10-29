@@ -586,7 +586,12 @@ func (h *ProjectHandler) writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, service.ErrOwnExpenseDecision),
 		errors.Is(err, service.ErrExpenseNotOwn),
 		errors.Is(err, service.ErrExpenseApprovedLocked),
-		errors.Is(err, service.ErrExpenseIdempotencyKeyInUse):
+		errors.Is(err, service.ErrExpenseIdempotencyKeyInUse),
+		// Masraf belgeleri (migration 0076): kayda bağlı kurallar.
+		errors.Is(err, service.ErrExpenseAttachmentsApproved),
+		errors.Is(err, service.ErrExpenseAttachmentsVoided),
+		errors.Is(err, service.ErrExpenseAttachmentNotOwn),
+		errors.Is(err, service.ErrExpenseAttachmentLimit):
 		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrExpenseFinanceLinkForbidden):
 		// Gerçek bir izin eksikliği (finance.manage), kayda bağlı değil.

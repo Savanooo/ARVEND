@@ -15,7 +15,7 @@ const claimPendingPushNotifications = `-- name: ClaimPendingPushNotifications :m
 UPDATE notifications SET pushed_at = now()
 WHERE id IN (
     SELECT n.id FROM notifications n
-    WHERE n.pushed_at IS NULL AND n.created_at > $1::timestamptz
+    WHERE n.pushed_at IS NULL AND n.read_at IS NULL AND n.created_at > $1::timestamptz
     ORDER BY n.created_at
     LIMIT $2::int
     FOR UPDATE SKIP LOCKED
@@ -30,7 +30,9 @@ type ClaimPendingPushNotificationsParams struct {
 
 // Gönderilecek bildirimleri alır ve aynı anda işaretler (iki gönderici
 // aynı satırı almasın). En fazla bir kez gönderim: telefona ulaşmadıysa
-// bildirim zilde yine durur.
+// bildirim zilde yine durur. Gönderilmeden okunmuş bildirim (ör. Firma
+// Grubu ekranı açıkken gelen mesaj) telefonu çaldırmaz; pencereden çıkınca
+// SkipStalePushNotifications işaretler.
 func (q *Queries) ClaimPendingPushNotifications(ctx context.Context, arg ClaimPendingPushNotificationsParams) ([]Notification, error) {
 	rows, err := q.db.Query(ctx, claimPendingPushNotifications, arg.Since, arg.MaxRows)
 	if err != nil {

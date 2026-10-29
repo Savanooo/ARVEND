@@ -17,6 +17,7 @@ import '../../presentation/destructive_action_button.dart';
 import '../../presentation/expense_form_sheet.dart';
 import '../../domain/expense_actions.dart' show kExpenseOwnDecisionText;
 import '../../domain/project.dart';
+import '../../expense_attachments/presentation/expense_attachments_ui.dart' show ExpenseAttachmentsSection;
 import '../data/finance_ledger_providers.dart';
 import '../../../../core/widgets/app_sheet.dart';
 import '../domain/legacy_subcontractor.dart';
@@ -45,6 +46,11 @@ import '../domain/legacy_subcontractor.dart';
 /// istenmez; iz sunucuda: iptal eden = giren). [ownDecisionBlocked]:
 /// onaylayıcı kendi masrafında düğme yerine nedenini görür (Sahip hariç).
 /// [projectLabel]: "Masraflarım"da masrafın hangi projeye girildiği.
+///
+/// Fiş / belge (backend migration 0076): ayrıntının altında masrafın
+/// belgeleri (fotoğrafa dokununca tam ekran, PDF telefonun görüntüleyicisinde)
+/// -- onaylayıcı karar vermeden önce fişi görür. [canManageAttachments]
+/// (`ExpenseActions.canManageAttachments`) "Belge ekle" ve kaldırmayı açar.
 Future<bool?> showExpenseDetailSheet(
   BuildContext context, {
   required String projectId,
@@ -55,6 +61,7 @@ Future<bool?> showExpenseDetailSheet(
   bool canEdit = false,
   bool canWithdraw = false,
   bool ownDecisionBlocked = false,
+  bool canManageAttachments = false,
   String? projectLabel,
   String? changeOrderLabel,
   String? costCodeLabel,
@@ -90,6 +97,7 @@ Future<bool?> showExpenseDetailSheet(
     if (changeOrderLabel != null) AppDataRow(label: 'Ek İş', value: changeOrderLabel, multiline: true),
     if (costCodeLabel != null) AppDataRow(label: 'Maliyet Kodu', value: costCodeLabel, multiline: true),
     if (expense.notes.isNotEmpty) AppDataRow(label: 'Not', value: expense.notes, multiline: true),
+    ExpenseAttachmentsSection(projectId: projectId, expense: expense, canManage: canManageAttachments),
   ];
   return _showLedgerSheet(
     context,

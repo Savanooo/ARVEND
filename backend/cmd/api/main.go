@@ -156,6 +156,7 @@ func main() {
 		Suppliers:         handler.NewSupplierHandler(supplierSvc),
 		Inventory:         handler.NewInventoryHandler(inventorySvc),
 		Notifications:     handler.NewNotificationHandler(notificationSvc),
+		Chat:              handler.NewOrganizationChatHandler(service.NewOrganizationChatService(pool, q, fileStore)),
 		Push:              handler.NewPushHandler(pushSvc),
 		Feedback:          handler.NewFeedbackHandler(service.NewFeedbackService(q)),
 		Dashboard:         handler.NewDashboardHandler(dashboardSvc),

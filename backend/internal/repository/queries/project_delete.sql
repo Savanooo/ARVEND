@@ -17,10 +17,15 @@ SELECT
 
 -- name: ListProjectObjectKeys :many
 -- Silinen projenin depodaki dosya ve fotoğrafları (işlem bittikten sonra
--- depodan da silinir).
+-- depodan da silinir). Masraf fişleri (migration 0076) masraf satırıyla
+-- CASCADE gider; dosyaları da burada listelenir ki diskte sahipsiz kalmasın.
 SELECT object_key FROM project_files WHERE project_id = sqlc.arg(project_id)::uuid
 UNION ALL
-SELECT object_key FROM project_photos WHERE project_id = sqlc.arg(project_id)::uuid;
+SELECT object_key FROM project_photos WHERE project_id = sqlc.arg(project_id)::uuid
+UNION ALL
+SELECT a.object_key FROM expense_attachments a
+JOIN project_expenses e ON e.id = a.expense_id AND e.organization_id = a.organization_id
+WHERE e.project_id = sqlc.arg(project_id)::uuid;
 
 -- Projeye CASCADE ile bağlı OLMAYAN planlama kayıtları -- sırayla silinir
 -- (tahmin/taahhüt -> revizyon -> kalem -> bütçe -> WBS, sözleşme).

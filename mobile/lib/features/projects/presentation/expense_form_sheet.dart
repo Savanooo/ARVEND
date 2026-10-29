@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_controller.dart';
 import '../../../core/auth/permissions.dart';
 import '../../../core/errors/api_exception.dart';
+import '../../../core/files/device_picker.dart' show PickedDeviceFile;
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/utils/formatters.dart';
@@ -16,6 +17,8 @@ import '../data/projects_providers.dart';
 import '../domain/expense_actions.dart' show kExpenseFinanceManagePermission;
 import '../domain/procurement.dart' show PurchaseOrder;
 import '../domain/project.dart';
+import '../expense_attachments/data/expense_attachments_repository.dart';
+import '../expense_attachments/presentation/expense_attachments_ui.dart';
 import '../my_expenses/data/my_expenses_repository.dart';
 import '../finance_plan/domain/finance_dates.dart' show parseAmountInput, parseApiDate;
 import 'form_project_banner.dart';
@@ -38,6 +41,13 @@ import '../../../core/widgets/app_sheet.dart';
 /// olmayan kişide bağ seçicileri HİÇ görünmez ve bağlar boş gider -- sunucu
 /// dolu bağı 403 ile reddeder, boş bağ düzenlemede "kayıttakini koru"
 /// demektir (finansın eklediği bağ sahadaki düzeltmede kaybolmaz).
+///
+/// Fiş / belge (backend migration 0076): yeni masrafta "Fiş / Belge"
+/// bölümünde seçilen fotoğraf/PDF'ler masraf kaydedildikten SONRA tek tek
+/// yüklenir (ilerleme formda görünür). Biri yüklenemezse masraf yine
+/// kaydedilmiş sayılır; dosya masrafın ayrıntısında "Tekrar dene" ile bekler
+/// (FailedExpenseUploads). Düzenlemede bölüm yok: mevcut masrafın belgeleri
+/// ayrıntısında eklenip kaldırılır (orada hepsi bir arada görünür).
 Future<Expense?> showExpenseFormSheet(
   BuildContext context,
   String projectId, {
@@ -88,6 +98,11 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
   late double? _vatRate = widget.initial?.vatRate;
   bool _submitting = false;
   String? _error;
+
+  /// Kaydedince yüklenecek fiş/belgeler ve yükleme durumu (kaçıncı / toplam,
+  /// gönderilen oran).
+  List<PickedDeviceFile> _files = const [];
+  ({int index, int total, double fraction})? _upload;
 
   /// Form örneği başına SABİT anahtar -- ağ hatası sonrası yeniden deneme
   /// mükerrer masraf oluşturmaz (web ile aynı). Düzenlemede kullanılmaz.
@@ -190,27 +205,56 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
         );
       }
       if (!mounted) return;
+      // Belgeler masraf kaydedildikten sonra yüklenir: yükleme düşse de masraf
+      // kaybolmaz, dosya ayrıntıda "Tekrar dene" ile bekler.
+      var uploadedCount = 0;
+      var failedCount = 0;
+      if (_files.isNotEmpty) {
+        final outcome = await uploadExpenseFiles(
+          ref.read(expenseAttachmentsRepositoryProvider),
+          widget.projectId,
+          expense.id,
+          _files,
+          onProgress: (i, n, f) {
+            if (mounted) setState(() => _upload = (index: i, total: n, fraction: f));
+          },
+        );
+        uploadedCount = outcome.uploaded.length;
+        failedCount = outcome.failed.length;
+        ref.read(failedExpenseUploadsProvider.notifier).add(expense.id, outcome.failed);
+        if (!mounted) return;
+      }
       // Masraf onay bekleyerek doğar ve düzenlenince yeniden onaya düşer
       // (backend migration 0060): toplamda hemen görünmemesinin nedeni burada
       // söylenir. Mesaj formda verilir ki her açılış yeri (Finans, proje
       // Özeti, ana sayfa hızlı işlemi, masraf ayrıntısı) aynı şeyi göstersin.
       // "Masraflarım" her giriş yerinden (hızlı işlem dahil) yeni masrafı
       // göstersin; düzenleme ayrıntı sayfasından gelir ve o tazeler.
-      if (initial == null) {
+      if (initial == null || uploadedCount > 0) {
         ref.invalidate(myExpensesProvider);
         ref.invalidate(allExpensesProvider);
       }
+      final saved = initial == null ? 'Masraf onaya gönderildi' : 'Masraf güncellendi; yeniden onaya gönderildi';
+      final String message;
+      if (failedCount > 0) {
+        message = 'Masraf kaydedildi ama $failedCount belge yüklenemedi. Masrafın ayrıntısından tekrar deneyebilirsin.';
+      } else if (uploadedCount > 0) {
+        message = '$saved; $uploadedCount belge eklendi.';
+      } else {
+        message = '$saved.';
+      }
       final messenger = ScaffoldMessenger.maybeOf(context);
       Navigator.of(context).pop(expense);
-      messenger?.showSnackBar(
-        SnackBar(
-          content: Text(initial == null ? 'Masraf onaya gönderildi.' : 'Masraf güncellendi; yeniden onaya gönderildi.'),
-        ),
-      );
+      messenger?.showSnackBar(SnackBar(content: Text(message)));
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
-      if (mounted) setState(() => _submitting = false);
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _upload = null;
+        });
+      }
     }
   }
 
@@ -456,6 +500,17 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
                         ),
                     ],
                   ),
+                if (!_editing)
+                  AppFormSection(
+                    title: 'Fiş / Belge',
+                    children: [
+                      ExpenseAttachmentPickerField(
+                        files: _files,
+                        enabled: !_submitting,
+                        onChanged: (files) => setState(() => _files = files),
+                      ),
+                    ],
+                  ),
                 AppFormSection(
                   title: 'Not',
                   children: [
@@ -470,6 +525,16 @@ class _ExpenseFormSheetState extends ConsumerState<_ExpenseFormSheet> {
                 ),
                 if (_error != null) ...[
                   Text(_error!, style: AppTypography.error),
+                  const SizedBox(height: AppSpacing.md),
+                ],
+                if (_upload case final u?) ...[
+                  Text(
+                    'Belgeler yükleniyor (${u.index + 1}/${u.total})…',
+                    key: const ValueKey('masraf-belge-yukleniyor'),
+                    style: AppTypography.helper,
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  LinearProgressIndicator(value: (u.index + u.fraction) / u.total),
                   const SizedBox(height: AppSpacing.md),
                 ],
                 PrimaryButton(label: 'Kaydet', loading: _submitting, onPressed: _submit),

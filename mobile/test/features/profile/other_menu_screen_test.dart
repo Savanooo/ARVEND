@@ -10,6 +10,7 @@ import 'package:arvend/app/app_router.dart';
 import 'package:arvend/core/auth/auth_controller.dart';
 import 'package:arvend/core/theme/app_theme.dart';
 import 'package:arvend/features/auth/domain/user.dart';
+import 'package:arvend/features/chat/data/chat_providers.dart' show chatUnreadCountProvider;
 import 'package:arvend/features/profile/presentation/other_menu_screen.dart';
 
 import '../dashboard/fixtures.dart';
@@ -77,7 +78,11 @@ ThemeData _theme() {
 }
 
 Widget _harness(User? user) => ProviderScope(
-  overrides: [authControllerProvider.overrideWith(() => _FakeAuth(user))],
+  overrides: [
+    authControllerProvider.overrideWith(() => _FakeAuth(user)),
+    // Firma Grubu rozeti (backend 0077): ekran görüntüsünde sayı görünsün.
+    chatUnreadCountProvider.overrideWith((ref) async => 3),
+  ],
   child: MaterialApp(
     debugShowCheckedModeBanner: false,
     theme: _theme(),
@@ -127,6 +132,14 @@ void main() {
       for (final label in ['Müşteriler', 'Metraj Hesaplama', 'Mesai', 'Profil', 'Bildirimler', 'Hakkında']) {
         expect(find.text(label), findsOneWidget, reason: label);
       }
+      // Firma Grubu (backend 0077): İş Araçları'nın başında, okunmamış sayısıyla.
+      expect(_labelsInOrder(tester, ['İş Araçları', 'Firma Grubu', 'Masraflar']), ['İş Araçları', 'Firma Grubu', 'Masraflar']);
+      expect(find.text('3'), findsOneWidget);
+    });
+
+    testWidgets('Firma Grubu izni olmayan (ve taşeron) girişi görmez', (tester) async {
+      await _pumpTall(tester, _custom(role: UserRole.kullanici, permissions: const ['projects.read']));
+      expect(find.text('Firma Grubu'), findsNothing);
     });
 
     testWidgets('kaba rol admin değilse Kullanıcılar/Roller/E-posta/Firma Ayarları gizli (tüm izinler olsa da)',

@@ -219,6 +219,53 @@ açılıyor.
   `computeOfferTotals`); mobil bunları kayıttan önce kendi sözcükleriyle
   yakalıyor, web de yakalamalı. Backend metinleri ayrıca sadeleştirilebilir.
 
+## 14. Genel masraf görünürlüğü ve masraf fişi / belgesi (migration 0076)
+Şikâyetler: "Genel giren masraflar hiç gözükmüyor", "Masraf girme yerine resim
+ve dosya ekleme gibi bir yer olsun". Kurallar: `mobile/API_CONTRACT.md`
+"General expenses visible…" ve "Expense receipts / documents". Backend ve mobil
+hazır; web eksikleri:
+- Masraflarım (§8) yapılırken `GET /expenses/mine` artık genel (projesiz)
+  masrafları da döndürüyor (`is_general: true`, proje alanları boş): satırda
+  proje yerine "Genel masraf"; Düzenle/Geri çek `/expenses/general/{id}`
+  uçlarına gitmeli.
+- Web'de "Masraflar" (projeli + genel tek liste, `GET /expenses`) sayfası hiç
+  yok. Yapılırken yanıttaki `scope`a göre: `all` toplamlarla, `approver`
+  (finans okuması olmayan onaylayıcı: kendi + onay bekleyenler + son 30 günde
+  karara bağlananlar) toplamsız ama "giren" sütunlu, `mine` yalnızca kendi.
+- Bildirim linki `/diger/masraflar?durum=pending` (onay bekleyen masraf,
+  genel ya da finans okuması olmayan onaylayıcı) `webHrefForActionTarget`'ta
+  Masraflar sayfasına (onay bekleyenler süzgeciyle) eşlenmeli; şu an `null`.
+- Fiş / belge: masraf formunda (Finans > Masraf Ekle, FinanceSections.tsx)
+  fotoğraf/PDF seçme, kayıttan sonra `POST {base}/attachments` (multipart
+  `file`) ile yükleme; masraf satırında ataş ve sayı (`attachments` dizisi
+  listelerde geliyor), ayrıntıda küçük resimler (`GET …/content`, çerezle;
+  `<img>` doğrudan kullanılabilir, uç `inline` döner) ve PDF'i yeni sekmede
+  açma. Ekleme/silme yalnızca masrafı giren (bekleyen/reddedilen masrafında)
+  ve `projects.finance.manage`; onaylı/iptal masrafta salt okunur (409).
+  Onayla/Reddet'ten önce onaylayıcı fişi görmeli.
+
+## 15. Firma Grubu (backend migration 0077, mobil)
+Ürün sahibi: "Toplu mesaj kanalı olsun, grup mesajı gibi düşün" — firma başına
+TEK grup, metin + fotoğraf, telefona bildirim. Backend ve mobil hazır; web'de
+ekran yok. Kural ve uçlar: `mobile/API_CONTRACT.md` "Firma Grubu",
+`backend/internal/service/organization_chat.go`.
+- Uçlar `/organization/chat/*` (izin `organization.chat.use`, Taşeron hariç
+  herkeste): `GET messages` (en yeni sayfa / `before` / `after` +
+  `changed_since` ile yoklama), `POST messages`, `POST messages/photo`
+  (multipart), `GET messages/{id}/photo`, `DELETE messages/{id}`,
+  `GET status`, `POST read`, `PUT mute`.
+- Web ekranı: mobil `features/chat/presentation/chat_screen.dart` ile aynı —
+  alttan yukarı mesajlar, gün ayraçları, kendi mesajı sağda, fotoğraf
+  küçük resmi (tıklayınca büyük), "Mesaj silindi", gönderilemeyen mesajda
+  "Tekrar dene" (aynı `client_id`), sayfa açıkken ~5 sn'de bir yoklama,
+  görünürken `POST read`, menüde "Bildirimleri sessize al". Menüde rozetli
+  "Firma Grubu" girişi (`GET status`).
+- Bildirim hedefi mobil yolu `/diger/firma-grubu`; `lib/dashboard.ts`
+  `webHrefForActionTarget` bunu tanımıyor (zilde tıklanmaz) — web ekranı
+  gelince eşlenmeli. Bildirim türü `organization_chat`, varlık `chat_message`.
+- Roller ekranı yeni "İletişim" kategorisini API'den okur (değişiklik
+  gerekmez); Taşeron rolü zaten kilitli.
+
 ## Bilinen tutarsızlıklar (web + backend)
 - Katalog fiyatı TL; teklifin para birimi TL değilse (firma varsayılanı
   USD/EUR) katalogdan seçilen fiyat çevrilmeden yazılıyor — web ve mobil

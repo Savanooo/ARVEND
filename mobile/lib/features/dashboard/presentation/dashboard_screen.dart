@@ -10,6 +10,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../auth/domain/user.dart';
+import '../../chat/presentation/chat_entry.dart';
 import '../../notifications/data/notifications_providers.dart';
 import '../data/dashboard_providers.dart';
 import '../domain/dashboard.dart';
@@ -138,6 +139,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       appBar: buildAppBar(
         'Ana Sayfa',
         actions: [
+          // Firma Grubu (backend 0077): izni olmayanda (taşeron dahil) çizilmez.
+          const ChatAppBarButton(),
           IconButton(
             icon: Badge(
               label: Text('$unread'),

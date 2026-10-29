@@ -225,6 +225,11 @@ const (
 	PermInventoryManage = "inventory.manage"
 	PermInventoryAdjust = "inventory.adjust"
 
+	// Firma Grubu (migration 0077): firma içi grup mesajlaşması -- okuma,
+	// yazma, fotoğraf. Taşeron dışındaki her role verilir; Taşeron rolüne
+	// verilemez (rol kilitli) ve taşeron hesabı kişiye özel de alamaz.
+	PermOrganizationChatUse = "organization.chat.use"
+
 	// Yapay zekâ görselleri (migration 0079): her görsel firmanın OpenAI
 	// hesabından ücretlenir -- varsayılan yalnızca Sahip/Yönetici, firma
 	// başkasına Roller & Yetkiler'den verir. Görsel projeye fotoğraf olarak

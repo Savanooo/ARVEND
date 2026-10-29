@@ -16,6 +16,7 @@ class ExpenseActions {
     this.canWithdraw = false,
     this.canDecide = false,
     this.ownDecisionBlocked = false,
+    this.canManageAttachments = false,
   });
 
   /// "Düzenle": finans yöneticisi her masrafta; diğerleri yalnızca kendi
@@ -36,6 +37,12 @@ class ExpenseActions {
   /// Onaylayıcı ama masrafı kendisi girdi (Sahip değil): düğmeler yerine
   /// nedenini söyleyen kısa not.
   final bool ownDecisionBlocked;
+
+  /// Fiş / belge ekleme-kaldırma (backend migration 0076): finans yöneticisi
+  /// ya da giren, YALNIZCA onay bekleyen/reddedilen masrafta -- onaylanmış
+  /// masrafın belgeleri finans yöneticisi için de salt okunur (onaylayıcı
+  /// gördüğüne karar verdi).
+  final bool canManageAttachments;
 }
 
 /// [open]: proje açık mı (tamamlanmış/iptal projede finans hareketi yok).
@@ -54,6 +61,7 @@ ExpenseActions expenseActionsFor(User? user, Expense e, {required bool open}) {
     canWithdraw: live && !manage && ownEditable,
     canDecide: decidable && (!own || isOwner),
     ownDecisionBlocked: decidable && own && !isOwner,
+    canManageAttachments: live && !e.isApproved && (manage || ownEditable),
   );
 }
 

@@ -43,6 +43,7 @@ type Deps struct {
 	Suppliers         *handler.SupplierHandler
 	Inventory         *handler.InventoryHandler
 	Notifications     *handler.NotificationHandler
+	Chat              *handler.OrganizationChatHandler
 	Push              *handler.PushHandler
 	Feedback          *handler.FeedbackHandler
 	Dashboard         *handler.DashboardHandler
@@ -366,6 +367,22 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/expenses/{expenseId}/approve", d.Projects.ApproveExpense)
 				r.Post("/{id}/expenses/{expenseId}/reject", d.Projects.RejectExpense)
 			})
+			// Masraf fişi / belgesi (migration 0076). Okuma masrafı okuyabilen
+			// herkese -- finans okuyucusu, masrafı giren (yalnızca kendi
+			// masrafında) ve karar vermeden önce fişi görmesi gereken
+			// onaylayıcı; yazma masrafı yazabilenlere (kendi bekleyen/
+			// reddedilen masrafı ya da finance.manage). Masrafa göre karar
+			// serviste (service.ExpenseViewer), kapalı proje kilidi orada.
+			r.Group(func(r chi.Router) {
+				r.Use(projAnyPerm(domain.PermProjectsFinanceRead, domain.PermProjectsExpensesCreate, domain.PermProjectsExpensesApprove))
+				r.Get("/{id}/expenses/{expenseId}/attachments", d.Projects.ListExpenseAttachments)
+				r.Get("/{id}/expenses/{expenseId}/attachments/{attachmentId}/content", d.Projects.DownloadExpenseAttachment)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(projAnyPerm(domain.PermProjectsFinanceManage, domain.PermProjectsExpensesCreate))
+				r.Post("/{id}/expenses/{expenseId}/attachments", d.Projects.UploadExpenseAttachment)
+				r.Delete("/{id}/expenses/{expenseId}/attachments/{attachmentId}", d.Projects.DeleteExpenseAttachment)
+			})
 
 			// Müşteri telefonla/yazılı onayladıysa (ya da reddettiyse) kararı
 			// personel kaydeder -- sözleşme bedelini değiştirdiği için
@@ -669,9 +686,13 @@ func NewRouter(d Deps) http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(perm(domain.PermProjectsExpensesCreate))
 				r.Get("/mine", d.Projects.ListMyExpenses)
-				r.Get("/", d.Projects.ListAllExpenses)
 				r.Post("/general", d.Projects.CreateGeneralExpense)
 			})
+			// "Masraflar" onaylayıcıya da açık: firma masraf girme iznini bir
+			// rolden kaldırsa bile onaylayıcı karar vereceği masrafları görür
+			// (kapsam handler'da, bkz. ListAllExpenses).
+			r.With(anyPerm(domain.PermProjectsExpensesCreate, domain.PermProjectsExpensesApprove)).
+				Get("/", d.Projects.ListAllExpenses)
 			r.Group(func(r chi.Router) {
 				r.Use(anyPerm(domain.PermProjectsFinanceManage, domain.PermProjectsExpensesCreate))
 				r.Put("/general/{expenseId}", d.Projects.UpdateGeneralExpense)
@@ -681,6 +702,18 @@ func NewRouter(d Deps) http.Handler {
 				r.Use(perm(domain.PermProjectsExpensesApprove))
 				r.Post("/general/{expenseId}/approve", d.Projects.ApproveGeneralExpense)
 				r.Post("/general/{expenseId}/reject", d.Projects.RejectGeneralExpense)
+			})
+			// Genel masrafın fişi / belgesi (migration 0076) -- projeli uçlarla
+			// aynı kapılar ve aynı servis kuralları.
+			r.Group(func(r chi.Router) {
+				r.Use(anyPerm(domain.PermProjectsFinanceRead, domain.PermProjectsExpensesCreate, domain.PermProjectsExpensesApprove))
+				r.Get("/general/{expenseId}/attachments", d.Projects.ListExpenseAttachments)
+				r.Get("/general/{expenseId}/attachments/{attachmentId}/content", d.Projects.DownloadExpenseAttachment)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(anyPerm(domain.PermProjectsFinanceManage, domain.PermProjectsExpensesCreate))
+				r.Post("/general/{expenseId}/attachments", d.Projects.UploadExpenseAttachment)
+				r.Delete("/general/{expenseId}/attachments/{attachmentId}", d.Projects.DeleteExpenseAttachment)
 			})
 		})
 
@@ -741,6 +774,26 @@ func NewRouter(d Deps) http.Handler {
 		// Firma yöneticisinin kendi ekibine duyurusu.
 		r.With(requireAuth, requireTenant, requireOnboarded, loadAuthorization, perm(domain.PermOrganizationUsersManage)).
 			Post("/announcements", d.Push.SendOrganizationAnnouncement)
+
+		// Firma Grubu (migration 0077): firma başına tek grup, herkes yazar
+		// (duyurunun aksine iki yönlü). allowPortal BİLİNÇLİ OLARAK yok:
+		// taşeron hesabı oturum kapısında 403 portal_only alır, grubu hiç
+		// görmez. Kişi ve firma oturumdan; silme kuralı (kendi mesajı /
+		// Sahip-Yönetici herkesinki) serviste. (Test router'ı Chat vermezse
+		// rota yok.)
+		if d.Chat != nil {
+			r.Route("/organization/chat", func(r chi.Router) {
+				r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization, perm(domain.PermOrganizationChatUse))
+				r.Get("/messages", d.Chat.List)
+				r.Post("/messages", d.Chat.Send)
+				r.Post("/messages/photo", d.Chat.SendPhoto)
+				r.Get("/messages/{id}/photo", d.Chat.Photo)
+				r.Delete("/messages/{id}", d.Chat.Delete)
+				r.Get("/status", d.Chat.Status)
+				r.Post("/read", d.Chat.MarkRead)
+				r.Put("/mute", d.Chat.SetMuted)
+			})
+		}
 
 		r.Route("/customers", func(r chi.Router) {
 			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)

@@ -12,6 +12,7 @@ import '../features/auth/presentation/set_initial_password_screen.dart';
 import '../features/auth/presentation/super_admin_unsupported_screen.dart';
 import '../features/calc_admin/calc_admin_routes.dart';
 import '../features/calculations/presentation/metraj_screen.dart';
+import '../features/chat/presentation/chat_screen.dart';
 import '../features/cost_codes/cost_codes_routes.dart';
 import '../features/customers/presentation/customer_detail_screen.dart';
 import '../features/customers/presentation/customers_screen.dart';
@@ -479,6 +480,9 @@ final routerProvider = Provider<GoRouter>((ref) {
               builder: (context, state) => const OtherMenuScreen(),
               routes: [
                 GoRoute(path: 'bildirimler', builder: (context, state) => const NotificationsScreen()),
+                // Firma Grubu (backend 0077): firmanın tek grup sohbeti; Firma
+                // Grubu bildirimi buraya açılır (kChatRoute).
+                GoRoute(path: 'firma-grubu', builder: (context, state) => const ChatScreen()),
                 // Öneri (herkes -> ARVEND ekibi) ve duyuru (yönetici -> ekip).
                 GoRoute(path: 'oneri', builder: (context, state) => const FeedbackScreen()),
                 GoRoute(path: 'duyuru', builder: (context, state) => const AnnouncementScreen()),

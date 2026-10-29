@@ -162,12 +162,22 @@ func pushMessage(n sqlc.Notification, token string) fcm.Message {
 	if n.ProjectID.Valid {
 		data["project_id"] = n.ProjectID.String()
 	}
-	return fcm.Message{
+	m := fcm.Message{
 		Token: token, Title: n.Title, Body: n.Body,
 		// Gruplanan bildirim büyüyünce telefondaki aynı kartın yerine geçer.
 		Tag:  n.ID.String(),
 		Data: data,
 	}
+	// Firma Grubu (migration 0077): telefonda TEK kart. Okunduktan sonra
+	// açılan yeni bildirim satırının kimliği farklıdır; sabit etiket onu da
+	// aynı kartın yerine koyar. Telefon kapalıyken biriken mesajlar da
+	// Firebase'de tek mesaja iner (collapse key) -- açılınca 20 bildirim
+	// yağmasın.
+	if n.Type == domain.NotificationOrganizationChat {
+		m.Tag = domain.ChatPushTag
+		m.CollapseKey = domain.ChatPushTag
+	}
+	return m
 }
 
 // ---------- Duyurular ----------
