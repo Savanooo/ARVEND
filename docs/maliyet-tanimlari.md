@@ -162,11 +162,15 @@ Talep/sipariş başına katkı `purchase_request_cost_basis` /
 talebine bağlandı. **Satın alması olan projelerin gerçekleşen maliyeti
 onaylı satın almaları kadar artar, kârı o kadar düşer** — onaylı ama
 siparişi olmayan talepler tahminleriyle, onaylı siparişler tutarlarıyla
-(faturası girilmiş kısım zaten sayılıyordu, ikinci kez sayılmaz). Deneme
-verisinde: 1.100 TL gerçekleşen maliyet (500 masraf + 600 sipariş faturası)
-19.100 TL'ye çıktı (siparişler 14.400 + 1.200, siparişsiz talep 3.000,
-masraf 500). Depo/stok ya da genel kullanım için alınmış eski satın almalar
-talep ya da sipariş ekranından "Maliyete eklenmesin" yapılmalıdır.
+(faturası girilmiş kısım zaten sayılıyordu, ikinci kez sayılmaz).
+
+Geliştirme veritabanının kopyasında (2026-10-29, 9 proje) 2 proje etkilendi:
+- PRJ-2026-0001: 81.355,06 → 90.355,06 TL (+9.000: siparişsiz onaylı talep).
+- PRJ-2026-0002: 4.701.150 → 7.057.710 TL (+2.356.560: talepsiz iki onaylı
+  sipariş 1.864.800 + 59.760 ve siparişsiz onaylı talep 432.000).
+Onay bekleyen (gönderilmiş) talepler girmedi. Depo/stok ya da genel kullanım
+için alınmış eski satın almalar talep ya da sipariş ekranından "Maliyete
+eklenmesin" yapılmalıdır.
 
 ## Maliyet Kontrolü ile mutabakat
 
