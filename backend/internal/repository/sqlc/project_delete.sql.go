@@ -388,10 +388,15 @@ const listProjectObjectKeys = `-- name: ListProjectObjectKeys :many
 SELECT object_key FROM project_files WHERE project_id = $1::uuid
 UNION ALL
 SELECT object_key FROM project_photos WHERE project_id = $1::uuid
+UNION ALL
+SELECT a.object_key FROM expense_attachments a
+JOIN project_expenses e ON e.id = a.expense_id AND e.organization_id = a.organization_id
+WHERE e.project_id = $1::uuid
 `
 
 // Silinen projenin depodaki dosya ve fotoğrafları (işlem bittikten sonra
-// depodan da silinir).
+// depodan da silinir). Masraf fişleri (migration 0076) masraf satırıyla
+// CASCADE gider; dosyaları da burada listelenir ki diskte sahipsiz kalmasın.
 func (q *Queries) ListProjectObjectKeys(ctx context.Context, projectID pgtype.UUID) ([]string, error) {
 	rows, err := q.db.Query(ctx, listProjectObjectKeys, projectID)
 	if err != nil {

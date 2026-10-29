@@ -170,16 +170,29 @@ func myExpenseTarget(expenseID pgtype.UUID) string {
 // Masraflarım. İzin, bildirim anındaki haliyle (rol + kişiye özel ayar)
 // okunur.
 func expenseDecisionTarget(ctx context.Context, txq *sqlc.Queries, orgID, userID pgtype.UUID, row sqlc.ProjectExpense) (string, error) {
-	perms, err := txq.GetUserPermissions(ctx, sqlc.GetUserPermissionsParams{ID: userID, OrganizationID: orgID})
+	financeRead, err := userHasPermission(ctx, txq, orgID, userID, domain.PermProjectsFinanceRead)
 	if err != nil {
 		return "", err
 	}
-	for _, code := range perms {
-		if code == domain.PermProjectsFinanceRead {
-			return expenseFinanceTarget(row.ProjectID), nil
-		}
+	if financeRead {
+		return expenseFinanceTarget(row.ProjectID), nil
 	}
 	return myExpenseTarget(row.ID), nil
+}
+
+// userHasPermission: kişinin bildirim anındaki etkin izni (rol + kişiye
+// özel ayar).
+func userHasPermission(ctx context.Context, txq *sqlc.Queries, orgID, userID pgtype.UUID, code string) (bool, error) {
+	perms, err := txq.GetUserPermissions(ctx, sqlc.GetUserPermissionsParams{ID: userID, OrganizationID: orgID})
+	if err != nil {
+		return false, err
+	}
+	for _, p := range perms {
+		if p == code {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func expensePendingTitle(n int) string {
@@ -201,14 +214,25 @@ func notifyExpensePendingApproval(ctx context.Context, txq *sqlc.Queries, projec
 	if err != nil {
 		return err
 	}
-	approvers := all[:0:0]
+	// Finans okuyabilen onaylayıcı projenin Finans görünümüne, okuyamayan
+	// "Masraflar"ın onay bekleyenlerine gider -- Finans görünümü ona "yetkin
+	// yok" diyordu ve karar vereceği masrafı hiçbir yerde göremiyordu.
+	var withFinance, withoutFinance []pgtype.UUID
 	for _, uid := range all {
 		if row.CreatedBy.Valid && uid == row.CreatedBy {
 			continue
 		}
-		approvers = append(approvers, uid)
+		financeRead, err := userHasPermission(ctx, txq, project.OrganizationID, uid, domain.PermProjectsFinanceRead)
+		if err != nil {
+			return err
+		}
+		if financeRead {
+			withFinance = append(withFinance, uid)
+		} else {
+			withoutFinance = append(withoutFinance, uid)
+		}
 	}
-	if len(approvers) == 0 {
+	if len(withFinance) == 0 && len(withoutFinance) == 0 {
 		return nil
 	}
 	who := ""
@@ -217,12 +241,17 @@ func notifyExpensePendingApproval(ctx context.Context, txq *sqlc.Queries, projec
 			who = u.FullName
 		}
 	}
-	return notifyUsersGrouped(ctx, txq, project.OrganizationID, project.ID, approvers, actor, groupedNotice{
+	notice := groupedNotice{
 		Type: domain.NotificationExpensePendingApproval, EntityType: domain.NotificationEntityProjectExpense,
 		EntityID: row.ID, Title: expensePendingTitle,
 		Body:   joinNonEmpty(" · ", project.Name, who),
 		Target: expenseFinanceTarget(project.ID),
-	})
+	}
+	if err := notifyUsersGrouped(ctx, txq, project.OrganizationID, project.ID, withFinance, actor, notice); err != nil {
+		return err
+	}
+	notice.Target = pendingExpensesTarget
+	return notifyUsersGrouped(ctx, txq, project.OrganizationID, project.ID, withoutFinance, actor, notice)
 }
 
 // notifyExpenseDecision: kararı masrafı girene bildirir (ret gerekçesiyle).

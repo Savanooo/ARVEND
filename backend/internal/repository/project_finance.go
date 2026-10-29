@@ -164,7 +164,7 @@ func ToDomainMyExpense(r sqlc.ListMyExpensesRow) domain.MyExpense {
 			VoidedAt: r.VoidedAt, VoidedBy: r.VoidedBy, VoidReason: r.VoidReason, IdempotencyKey: r.IdempotencyKey,
 			ChangeOrderID: r.ChangeOrderID, CostCodeID: r.CostCodeID, BudgetLineID: r.BudgetLineID,
 			ApprovalStatus: r.ApprovalStatus, DecidedBy: r.DecidedBy, DecidedAt: r.DecidedAt, DecisionNote: r.DecisionNote,
-			VatRate: r.VatRate, VatAmount: r.VatAmount,
+			VatRate: r.VatRate, VatAmount: r.VatAmount, PurchaseOrderID: r.PurchaseOrderID,
 		}),
 		ProjectName: r.ProjectName, ProjectNo: r.ProjectNo, ProjectStatus: r.ProjectStatus,
 	}
@@ -390,9 +390,23 @@ func ToDomainListedExpense(r sqlc.ListExpensesFilteredRow) domain.MyExpense {
 			VoidedAt: r.VoidedAt, VoidedBy: r.VoidedBy, VoidReason: r.VoidReason, IdempotencyKey: r.IdempotencyKey,
 			ChangeOrderID: r.ChangeOrderID, CostCodeID: r.CostCodeID, BudgetLineID: r.BudgetLineID,
 			ApprovalStatus: r.ApprovalStatus, DecidedBy: r.DecidedBy, DecidedAt: r.DecidedAt, DecisionNote: r.DecisionNote,
-			VatRate: r.VatRate, VatAmount: r.VatAmount,
+			VatRate: r.VatRate, VatAmount: r.VatAmount, PurchaseOrderID: r.PurchaseOrderID,
 		}),
 		ProjectName: r.ProjectName, ProjectNo: r.ProjectNo, ProjectStatus: r.ProjectStatus,
 		CreatedByName: r.CreatedByName,
 	}
+}
+
+// ToDomainExpenseAttachment: masraf fişi / belgesi (migration 0076). Depo
+// anahtarı (object_key) domain'e çıkmaz -- istemciye hiçbir yoldan sızmasın.
+func ToDomainExpenseAttachment(a sqlc.ExpenseAttachment) domain.ExpenseAttachment {
+	out := domain.ExpenseAttachment{
+		ID: a.ID.String(), ExpenseID: a.ExpenseID.String(), OriginalName: a.OriginalName,
+		MIMEType: a.MimeType, SizeBytes: a.SizeBytes, SHA256: a.Sha256, CreatedAt: a.CreatedAt.Time,
+	}
+	if a.UploadedBy.Valid {
+		s := a.UploadedBy.String()
+		out.UploadedBy = &s
+	}
+	return out
 }

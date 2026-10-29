@@ -249,7 +249,48 @@ type Expense struct {
 	// içindeki KDV'dir, DB'de oranla birlikte üretilir (oran nil ise nil).
 	VATRate   *float64
 	VATAmount *float64
+	// Attachments: fiş / belge ekleri (migration 0076). Yalnızca listeler
+	// (Finans, Masraflarım, Masraflar) ve düzenleme yanıtı doldurur; nil =
+	// "yüklenmedi" (yanıtta alan hiç yok), boş dilim = "eki yok".
+	Attachments []ExpenseAttachment
 }
+
+// ExpenseAttachment: masrafın fişi, faturası ya da başka belgesi (migration
+// 0076). İçerik depoda (storage.Store); okuma masrafın okuma kuralıyla.
+type ExpenseAttachment struct {
+	ID           string
+	ExpenseID    string
+	OriginalName string
+	MIMEType     string
+	SizeBytes    int64
+	SHA256       string
+	UploadedBy   *string
+	CreatedAt    time.Time
+}
+
+// ExpenseAttachmentsMax: bir masrafa en fazla bu kadar belge. Bir fişin
+// birkaç sayfası ve faturası sığar; sınırsız yükleme telefonda yanlışlıkla
+// seçilen bir galerinin tamamını masrafa bağlardı.
+const ExpenseAttachmentsMax = 10
+
+// ExpenseAttachmentMIMETypes: kabul edilen içerik türleri (içerikten tespit
+// edilir, istemcinin beyanına bakılmaz). Telefon kamerası/galerisi JPEG
+// gönderir (uygulama HEIC'i JPEG'e çevirir); HEIC/HEIF yine de kabul edilir
+// ki başka bir istemcinin doğrudan yüklediği iPhone fotoğrafı reddedilmesin.
+var ExpenseAttachmentMIMETypes = map[string]bool{
+	"image/jpeg":      true,
+	"image/png":       true,
+	"image/webp":      true,
+	"image/heic":      true,
+	"image/heif":      true,
+	"application/pdf": true,
+}
+
+// ExpenseApproverRecentDays: finans okuma izni olmayan onaylayıcı "Masraflar"
+// listesinde onay bekleyenlerin yanında son bu kadar günde karara bağlanmış
+// masrafları da görür (kendi verdiği/arkadaşının verdiği kararı izleyebilsin);
+// daha eskisi finans okuma ister.
+const ExpenseApproverRecentDays = 30
 
 // MyExpense: "Masraflarım" satırı (GET /expenses/mine) -- kişinin kendi
 // masrafı ve hangi projeye girildiği. Proje durumu, istemcinin kapalı

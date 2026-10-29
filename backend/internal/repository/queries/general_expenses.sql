@@ -62,6 +62,13 @@ RETURNING *;
 --           'rejected' (bu üçü iptal edilmemişler) | 'voided'
 --   created_by: doluysa yalnızca o kişinin girdikleri (finans okuma izni
 --           olmayan kişi yalnızca kendi masraflarını görür).
+--   decidable_since: created_by ile birlikte doluysa ONAYLAYICI kapsamı
+--           (projects.expenses.approve, finans okuma izni yok): kişinin
+--           kendi masraflarına ek olarak başkalarının iptal edilmemiş, onay
+--           bekleyen ya da bu andan sonra karara bağlanmış masrafları --
+--           onaylayıcı karar vereceği masrafı görebilmeli (bildirim onu
+--           buraya getiriyor), ama finans okuması olmadan firmanın bütün
+--           masraf geçmişini ve toplamları değil.
 --   restrict_to_user_id: üyelikle sınırlı rolde projeli satırlar yalnızca
 --           üyesi olduğu projelerden (genel masraf projeye bağlı değildir).
 SELECT e.*,
@@ -80,7 +87,9 @@ WHERE e.organization_id = sqlc.arg(organization_id)::uuid
   AND (sqlc.arg(status)::text = ''
        OR (sqlc.arg(status)::text = 'voided' AND e.voided_at IS NOT NULL)
        OR (e.voided_at IS NULL AND e.approval_status = sqlc.arg(status)::text))
-  AND (sqlc.narg(created_by)::uuid IS NULL OR e.created_by = sqlc.narg(created_by)::uuid)
+  AND (sqlc.narg(created_by)::uuid IS NULL OR e.created_by = sqlc.narg(created_by)::uuid
+       OR (sqlc.narg(decidable_since)::timestamptz IS NOT NULL AND e.voided_at IS NULL
+           AND (e.approval_status = 'pending' OR e.decided_at >= sqlc.narg(decidable_since)::timestamptz)))
   AND (sqlc.narg(date_from)::date IS NULL OR e.expense_date >= sqlc.narg(date_from)::date)
   AND (sqlc.narg(date_to)::date IS NULL OR e.expense_date <= sqlc.narg(date_to)::date)
   AND (e.project_id IS NULL OR sqlc.narg(restrict_to_user_id)::uuid IS NULL OR EXISTS (

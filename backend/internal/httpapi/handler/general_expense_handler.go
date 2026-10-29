@@ -19,12 +19,24 @@ import (
 // karar projects.expenses.approve.
 
 // listedExpenseResponse: "Masraflar" satırı -- masraf + proje (genel
-// masrafta boş) + giren.
+// masrafta boş, is_general) + giren.
 type listedExpenseResponse struct {
 	myExpenseResponse
-	IsGeneral     bool   `json:"is_general"`
 	CreatedByName string `json:"created_by_name"`
 }
+
+// Masraflar listesinin kapsamı (yanıtta "scope").
+const (
+	// expenseScopeAll: projects.finance.read -- herkesin masrafı, toplamlarla.
+	expenseScopeAll = "all"
+	// expenseScopeApprover: projects.expenses.approve, finans okuması yok --
+	// kendi masrafları + karar verebileceği (onay bekleyen) ve son
+	// domain.ExpenseApproverRecentDays günde karara bağlanmış masraflar;
+	// toplam yok.
+	expenseScopeApprover = "approver"
+	// expenseScopeMine: yalnızca kendi girdikleri, toplam yok.
+	expenseScopeMine = "mine"
+)
 
 // expenseTotalsResponse: para birimi başına onaylı ve bekleyen toplam
 // (iptaller hariç) -- yalnızca herkesin masrafını görebilene döner.
@@ -35,17 +47,32 @@ type expenseTotalsResponse struct {
 }
 
 // ListAllExpenses: GET /expenses?kind=&status=&project_id=&date_from=&date_to=&mine=1
-// (projects.expenses.create). projects.finance.read taşıyan herkesin
-// masraflarını görür (üyelikle sınırlı rolde yalnızca üyesi olduğu
-// projelerdeki projeli masraflar + bütün genel masraflar) ve toplamları
-// alır; taşımayan yalnızca kendi girdiklerini görür (mine=1 aynısını
-// herkes için ister).
+// (projects.expenses.create ya da projects.expenses.approve). Kapsam
+// (yanıtta "scope"):
+//   - all: projects.finance.read taşıyan herkesin masraflarını görür
+//     (üyelikle sınırlı rolde yalnızca üyesi olduğu projelerdeki projeli
+//     masraflar + bütün genel masraflar) ve toplamları alır;
+//   - approver: finans okuması olmayan onaylayıcı kendi masraflarına ek
+//     olarak karar verebileceklerini (onay bekleyen) ve son günlerde karara
+//     bağlananları görür -- aynı üyelik süzgeciyle, toplam olmadan. Onay
+//     bildirimi onu buraya getirir; eskiden yalnızca kendi masraflarını
+//     gördüğü için onaylayacağı masrafı bulamıyordu;
+//   - mine: diğerleri (ve mine=1 herkes için) yalnızca kendi girdiklerini.
 func (h *ProjectHandler) ListAllExpenses(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
 	q := r.URL.Query()
 	authz, ok := middleware.AuthzContextFromRequest(r.Context())
-	seeAll := ok && authz.HasPermission(domain.PermProjectsFinanceRead) && q.Get("mine") != "1"
+	scope := expenseScopeMine
+	if ok && q.Get("mine") != "1" {
+		switch {
+		case authz.HasPermission(domain.PermProjectsFinanceRead):
+			scope = expenseScopeAll
+		case authz.HasPermission(domain.PermProjectsExpensesApprove):
+			scope = expenseScopeApprover
+		}
+	}
+	seeAll := scope == expenseScopeAll
 
 	f := service.ExpenseListFilter{
 		Kind: strings.TrimSpace(q.Get("kind")), Status: strings.TrimSpace(q.Get("status")),
@@ -69,6 +96,7 @@ func (h *ProjectHandler) ListAllExpenses(w http.ResponseWriter, r *http.Request)
 	}
 	if !seeAll {
 		f.OnlyCreatedBy = userID
+		f.ApproverScope = scope == expenseScopeApprover
 	}
 	if !ok || !authz.BypassesProjectMembership() {
 		f.RestrictToUserID = userID
@@ -82,13 +110,7 @@ func (h *ProjectHandler) ListAllExpenses(w http.ResponseWriter, r *http.Request)
 	sums := map[string]*expenseTotalsResponse{}
 	var order []string
 	for i, e := range rows {
-		out[i] = listedExpenseResponse{
-			myExpenseResponse: myExpenseResponse{
-				expenseResponse: toExpenseResponse(e.Expense),
-				ProjectName:     e.ProjectName, ProjectNo: e.ProjectNo, ProjectStatus: e.ProjectStatus,
-			},
-			IsGeneral: e.IsGeneral(), CreatedByName: e.CreatedByName,
-		}
+		out[i] = listedExpenseResponse{myExpenseResponse: toMyExpenseResponse(e), CreatedByName: e.CreatedByName}
 		if e.VoidedAt != nil || e.ApprovalStatus == domain.ExpenseApprovalRejected {
 			continue
 		}
@@ -107,6 +129,10 @@ func (h *ProjectHandler) ListAllExpenses(w http.ResponseWriter, r *http.Request)
 	resp := map[string]any{
 		"expenses": out, "limit": domain.ExpensesListLimit,
 		"truncated": len(rows) >= domain.ExpensesListLimit, "can_see_all": seeAll,
+		"scope": scope,
+	}
+	if scope == expenseScopeApprover {
+		resp["approver_recent_days"] = domain.ExpenseApproverRecentDays
 	}
 	if seeAll {
 		totals := make([]expenseTotalsResponse, 0, len(order))

@@ -365,6 +365,22 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/expenses/{expenseId}/approve", d.Projects.ApproveExpense)
 				r.Post("/{id}/expenses/{expenseId}/reject", d.Projects.RejectExpense)
 			})
+			// Masraf fişi / belgesi (migration 0076). Okuma masrafı okuyabilen
+			// herkese -- finans okuyucusu, masrafı giren (yalnızca kendi
+			// masrafında) ve karar vermeden önce fişi görmesi gereken
+			// onaylayıcı; yazma masrafı yazabilenlere (kendi bekleyen/
+			// reddedilen masrafı ya da finance.manage). Masrafa göre karar
+			// serviste (service.ExpenseViewer), kapalı proje kilidi orada.
+			r.Group(func(r chi.Router) {
+				r.Use(projAnyPerm(domain.PermProjectsFinanceRead, domain.PermProjectsExpensesCreate, domain.PermProjectsExpensesApprove))
+				r.Get("/{id}/expenses/{expenseId}/attachments", d.Projects.ListExpenseAttachments)
+				r.Get("/{id}/expenses/{expenseId}/attachments/{attachmentId}/content", d.Projects.DownloadExpenseAttachment)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(projAnyPerm(domain.PermProjectsFinanceManage, domain.PermProjectsExpensesCreate))
+				r.Post("/{id}/expenses/{expenseId}/attachments", d.Projects.UploadExpenseAttachment)
+				r.Delete("/{id}/expenses/{expenseId}/attachments/{attachmentId}", d.Projects.DeleteExpenseAttachment)
+			})
 
 			// Müşteri telefonla/yazılı onayladıysa (ya da reddettiyse) kararı
 			// personel kaydeder -- sözleşme bedelini değiştirdiği için
@@ -655,9 +671,13 @@ func NewRouter(d Deps) http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(perm(domain.PermProjectsExpensesCreate))
 				r.Get("/mine", d.Projects.ListMyExpenses)
-				r.Get("/", d.Projects.ListAllExpenses)
 				r.Post("/general", d.Projects.CreateGeneralExpense)
 			})
+			// "Masraflar" onaylayıcıya da açık: firma masraf girme iznini bir
+			// rolden kaldırsa bile onaylayıcı karar vereceği masrafları görür
+			// (kapsam handler'da, bkz. ListAllExpenses).
+			r.With(anyPerm(domain.PermProjectsExpensesCreate, domain.PermProjectsExpensesApprove)).
+				Get("/", d.Projects.ListAllExpenses)
 			r.Group(func(r chi.Router) {
 				r.Use(anyPerm(domain.PermProjectsFinanceManage, domain.PermProjectsExpensesCreate))
 				r.Put("/general/{expenseId}", d.Projects.UpdateGeneralExpense)
@@ -667,6 +687,18 @@ func NewRouter(d Deps) http.Handler {
 				r.Use(perm(domain.PermProjectsExpensesApprove))
 				r.Post("/general/{expenseId}/approve", d.Projects.ApproveGeneralExpense)
 				r.Post("/general/{expenseId}/reject", d.Projects.RejectGeneralExpense)
+			})
+			// Genel masrafın fişi / belgesi (migration 0076) -- projeli uçlarla
+			// aynı kapılar ve aynı servis kuralları.
+			r.Group(func(r chi.Router) {
+				r.Use(anyPerm(domain.PermProjectsFinanceRead, domain.PermProjectsExpensesCreate, domain.PermProjectsExpensesApprove))
+				r.Get("/general/{expenseId}/attachments", d.Projects.ListExpenseAttachments)
+				r.Get("/general/{expenseId}/attachments/{attachmentId}/content", d.Projects.DownloadExpenseAttachment)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(anyPerm(domain.PermProjectsFinanceManage, domain.PermProjectsExpensesCreate))
+				r.Post("/general/{expenseId}/attachments", d.Projects.UploadExpenseAttachment)
+				r.Delete("/general/{expenseId}/attachments/{attachmentId}", d.Projects.DeleteExpenseAttachment)
 			})
 		})
 

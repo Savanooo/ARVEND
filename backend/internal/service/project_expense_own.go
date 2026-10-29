@@ -144,7 +144,8 @@ func (s *ProjectService) WithdrawOwnExpense(ctx context.Context, projectID, expe
 }
 
 // ListMyExpenses: kişinin kendi girdiği masraflar (en yeni giriş önce, en
-// fazla domain.MyExpensesLimit). projectID boşsa tüm erişebildiği projeler;
+// fazla domain.MyExpensesLimit) -- genel (projesiz) masraflar dahil, fiş /
+// belge ekleriyle. projectID boşsa tüm erişebildiği projeler;
 // restrictToUserID dolu ise (üyelikle sınırlı rol) yalnızca üyesi olduğu
 // projeler -- bkz. ListMyExpenses SQL notu.
 func (s *ProjectService) ListMyExpenses(ctx context.Context, organizationID, userID, projectID, restrictToUserID string) ([]domain.MyExpense, error) {
@@ -176,8 +177,13 @@ func (s *ProjectService) ListMyExpenses(ctx context.Context, organizationID, use
 		return nil, err
 	}
 	out := make([]domain.MyExpense, len(rows))
+	ptrs := make([]*domain.Expense, len(rows))
 	for i, r := range rows {
 		out[i] = repository.ToDomainMyExpense(r)
+		ptrs[i] = &out[i].Expense
+	}
+	if err := attachExpenseAttachments(ctx, s.q, orgID, ptrs); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

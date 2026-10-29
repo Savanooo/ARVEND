@@ -119,6 +119,19 @@ type EmployeeWageHistory struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
+type ExpenseAttachment struct {
+	ID             pgtype.UUID        `json:"id"`
+	OrganizationID pgtype.UUID        `json:"organization_id"`
+	ExpenseID      pgtype.UUID        `json:"expense_id"`
+	ObjectKey      string             `json:"object_key"`
+	OriginalName   string             `json:"original_name"`
+	MimeType       string             `json:"mime_type"`
+	SizeBytes      int64              `json:"size_bytes"`
+	Sha256         string             `json:"sha256"`
+	UploadedBy     pgtype.UUID        `json:"uploaded_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type FeedbackMessage struct {
 	ID             pgtype.UUID        `json:"id"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`

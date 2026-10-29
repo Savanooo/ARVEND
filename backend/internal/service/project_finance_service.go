@@ -739,8 +739,15 @@ func (s *ProjectService) ListExpenses(ctx context.Context, projectID, organizati
 		return nil, err
 	}
 	out := make([]domain.Expense, len(rows))
+	ptrs := make([]*domain.Expense, len(rows))
 	for i, r := range rows {
 		out[i] = repository.ToDomainExpense(r)
+		ptrs[i] = &out[i]
+	}
+	// Fiş / belge ekleri (migration 0076): Finans listesindeki masraf
+	// ayrıntısı onları gösterir.
+	if err := attachExpenseAttachments(ctx, s.q, orgID, ptrs); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -852,10 +859,15 @@ func (s *ProjectService) UpdateExpense(ctx context.Context, projectID, expenseID
 	if err := notifyExpensePendingApproval(ctx, txq, project, row, actorUUID(in.UserID)); err != nil {
 		return nil, err
 	}
+	out := repository.ToDomainExpense(row)
+	// Düzenleme belgelere dokunmaz; yanıt onları da taşır ki istemci
+	// güncellenen satırı eksik göstermesin.
+	if out.Attachments, err = listAttachments(ctx, txq, orgID, eid); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	out := repository.ToDomainExpense(row)
 	return &out, nil
 }
 

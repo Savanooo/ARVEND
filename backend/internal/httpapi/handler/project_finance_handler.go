@@ -305,10 +305,13 @@ type expenseResponse struct {
 	VATRate   *float64 `json:"vat_rate"`
 	VATAmount *float64 `json:"vat_amount"`
 	NetAmount *float64 `json:"net_amount"`
+	// Attachments: fiş / belge ekleri (migration 0076) -- listelerde ve
+	// düzenleme yanıtında dolu (eki yoksa []); diğer yanıtlarda alan yok.
+	Attachments *[]expenseAttachmentResponse `json:"attachments,omitempty"`
 }
 
 func toExpenseResponse(e domain.Expense) expenseResponse {
-	return expenseResponse{
+	out := expenseResponse{
 		ID: e.ID, ProjectID: e.ProjectID, Category: e.Category, Description: e.Description, Amount: e.Amount,
 		Currency: e.Currency, ExpenseDate: e.ExpenseDate.Format(dateLayout),
 		SupplierName: e.SupplierName, InvoiceNo: e.InvoiceNo, Notes: e.Notes,
@@ -320,6 +323,14 @@ func toExpenseResponse(e domain.Expense) expenseResponse {
 		DecisionNote: e.DecisionNote,
 		VATRate:      e.VATRate, VATAmount: e.VATAmount, NetAmount: e.NetAmount(),
 	}
+	if e.Attachments != nil {
+		list := make([]expenseAttachmentResponse, len(e.Attachments))
+		for i, a := range e.Attachments {
+			list[i] = toExpenseAttachmentResponse(a)
+		}
+		out.Attachments = &list
+	}
+	return out
 }
 
 type expenseRequest struct {
@@ -381,18 +392,29 @@ func (h *ProjectHandler) ListExpenses(w http.ResponseWriter, r *http.Request) {
 }
 
 // myExpenseResponse: masraf + girildiği proje ("Masraflarım" satırı).
+// Genel (projesiz) masrafta proje alanları boş, is_general true.
 type myExpenseResponse struct {
 	expenseResponse
 	ProjectName   string `json:"project_name"`
 	ProjectNo     string `json:"project_no"`
 	ProjectStatus string `json:"project_status"`
+	IsGeneral     bool   `json:"is_general"`
+}
+
+func toMyExpenseResponse(e domain.MyExpense) myExpenseResponse {
+	return myExpenseResponse{
+		expenseResponse: toExpenseResponse(e.Expense),
+		ProjectName:     e.ProjectName, ProjectNo: e.ProjectNo, ProjectStatus: e.ProjectStatus,
+		IsGeneral: e.IsGeneral(),
+	}
 }
 
 // ListMyExpenses: GET /expenses/mine[?project_id=] (projects.expenses.
 // create). Yalnızca çağıranın girdiği masraflar, erişebildiği projelerde
-// (üyelikle sınırlı rolde yalnızca üyesi olduğu projeler), en yeni giriş
-// önce, en fazla domain.MyExpensesLimit. Toplam/özet DÖNMEZ: finans okuma
-// izni olmayan kişi yalnızca kendi kayıtlarının durumunu görür.
+// (üyelikle sınırlı rolde yalnızca üyesi olduğu projeler) ve genel
+// (projesiz) masrafları, en yeni giriş önce, en fazla domain.MyExpensesLimit.
+// Toplam/özet DÖNMEZ: finans okuma izni olmayan kişi yalnızca kendi
+// kayıtlarının durumunu görür.
 func (h *ProjectHandler) ListMyExpenses(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	userID, _ := middleware.UserIDFromContext(r.Context())
@@ -412,10 +434,7 @@ func (h *ProjectHandler) ListMyExpenses(w http.ResponseWriter, r *http.Request) 
 	}
 	out := make([]myExpenseResponse, len(rows))
 	for i, e := range rows {
-		out[i] = myExpenseResponse{
-			expenseResponse: toExpenseResponse(e.Expense),
-			ProjectName:     e.ProjectName, ProjectNo: e.ProjectNo, ProjectStatus: e.ProjectStatus,
-		}
+		out[i] = toMyExpenseResponse(e)
 	}
 	httpjson.Write(w, http.StatusOK, map[string]any{"expenses": out, "limit": domain.MyExpensesLimit})
 }
