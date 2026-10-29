@@ -272,6 +272,7 @@ var ActivityEventPermissions = map[string]string{
 	ProjectEventFileRemoved:       PermProjectsOperationsRead,
 	ProjectEventPhotoUploaded:     PermProjectsOperationsRead,
 	ProjectEventPhotoRemoved:      PermProjectsOperationsRead,
+	ProjectEventAIPhotoCreated:    PermProjectsOperationsRead,
 	ProjectEventNoteAdded:         PermProjectsOperationsRead,
 	// Günlük şantiye raporu (migration 0071).
 	ProjectEventDailyReportSubmitted: PermProjectsOperationsRead,

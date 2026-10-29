@@ -266,6 +266,13 @@ ekran yok. Kural ve uçlar: `mobile/API_CONTRACT.md` "Firma Grubu",
 - Roller ekranı yeni "İletişim" kategorisini API'den okur (değişiklik
   gerekmez); Taşeron rolü zaten kilitli.
 
+## 16. Yapay zekâ görselleri (backend migration 0079, mobil sonraki sürüm)
+- Web'de hiç ekranı yok. Uçlar ve kurallar: `mobile/API_CONTRACT.md` "Yapay zekâ görselleri".
+- Proje fotoğraf listesinde `ai_generated`/`ai` alanlarına göre "Yapay zekâ" rozeti ve "Yapay zekâ ile üretildi · kaynak: <tarih>" (web şu an üretilmiş görseli gerçek şantiye fotoğrafı gibi gösterir — ilk yapılacak bu).
+- Rol/izin ekranında yeni kategori "Yapay Zekâ" (`ai.images.use`) görünmeli; `frontend/lib/permissions.ts` etiketi.
+- Proje hareketlerinde yeni olay `ai_photo_created` → "Yapay zekâ görseli eklendi" (`frontend/lib/events.ts`).
+- İsteğe bağlı: galeride "Bitmiş halini göster" / "Fotoğrafı iyileştir", Dökümanlar'da "Yapay zekâ ile görsel oluştur" (iş açma 202 + yoklama), ilk kullanımda bilgilendirme, kalan hak ve Sahip/Yönetici için kişi kişi kullanım (`GET /ai/status`).
+
 ## Bilinen tutarsızlıklar (web + backend)
 - Katalog fiyatı TL; teklifin para birimi TL değilse (firma varsayılanı
   USD/EUR) katalogdan seçilen fiyat çevrilmeden yazılıyor — web ve mobil

@@ -86,8 +86,11 @@ const (
 	ProjectEventFileUploaded      = "file_uploaded"
 	ProjectEventFileRemoved       = "file_removed"
 	ProjectEventPhotoUploaded     = "photo_uploaded"
-	ProjectEventPhotoRemoved      = "photo_removed"
-	ProjectEventNoteAdded         = "note_added"
+	// ProjectEventAIPhotoCreated: yapay zekâ görseli projeye eklendi
+	// (migration 0079) -- "şantiye fotoğrafı yüklendi" ile karışmasın.
+	ProjectEventAIPhotoCreated = "ai_photo_created"
+	ProjectEventPhotoRemoved   = "photo_removed"
+	ProjectEventNoteAdded      = "note_added"
 	// Günlük şantiye raporu gönderildi (migration 0071).
 	ProjectEventDailyReportSubmitted = "daily_report_submitted"
 )

@@ -618,7 +618,7 @@ func (s *AIImageService) saveResult(ctx context.Context, job domain.AIImageJob, 
 		}
 		return err
 	}
-	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventPhotoUploaded, actorUUID(userID),
+	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventAIPhotoCreated, actorUUID(userID),
 		map[string]any{"photo_id": row.ID.String(), "stage": stage, "ai_kind": job.Kind}); err != nil {
 		_ = s.projects.store.Delete(ctx, key)
 		return err
