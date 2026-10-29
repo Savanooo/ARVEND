@@ -207,7 +207,7 @@ void main() {
   });
 
   group('OfferCreateScreen / OfferDetailScreen — iç fiyatlandırma ayrımı', () {
-    testWidgets('yetkili kullanıcı için "İç Fiyatlandırma" / "Müşteri görmez" kutusu görünür', (tester) async {
+    testWidgets('yetkili kullanıcı için "Maliyet ve Kâr" / "Müşteri görmez" kutusu görünür', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
         '/auth/me': [
           (status: 200, body: _meJson(permissions: ['offers.create', 'offers.internal_pricing.manage'])),
@@ -225,12 +225,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('İç Fiyatlandırma'), findsOneWidget);
+      expect(find.text('Maliyet ve Kâr'), findsOneWidget);
       expect(find.text('Müşteri görmez'), findsOneWidget);
       expect(find.byIcon(Icons.lock_outline), findsOneWidget);
     });
 
-    testWidgets('yetkisiz kullanıcı için iç fiyatlandırma kutusu hiç gösterilmez', (tester) async {
+    testWidgets('yetkisiz kullanıcı için "Maliyet ve Kâr" kutusu hiç gösterilmez', (tester) async {
       final adapter = FakeHttpClientAdapter(script: {
         '/auth/me': [(status: 200, body: _meJson(permissions: ['offers.read', 'offers.create']))],
       });
@@ -244,7 +244,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('İç Fiyatlandırma'), findsNothing);
+      expect(find.text('Maliyet ve Kâr'), findsNothing);
       expect(find.text('Müşteri görmez'), findsNothing);
     });
   });

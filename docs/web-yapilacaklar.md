@@ -165,6 +165,60 @@ linkinde müşteri Kabul Et / Reddet görmüyor. Kural: `mobile/API_CONTRACT.md`
 - Müşteri sayfası (`paylas/[token]`) taslak linkte artık "Bu teklif henüz onaya
   açılmadı…" notunu gösteriyor (yapıldı).
 
+## 12. Proje fotoğrafları galerisi (mobil, 2026-10-29)
+Şikâyet: "resimler sıra sıra kaymıyor, galeri değil". Mobilde fotoğrafa
+dokununca tam ekran galeri açılıyor (`mobile/lib/features/projects/
+presentation/project_photo_gallery.dart`); web'de (`projeler/[id]/
+OperationSections.tsx` PhotosSection) her fotoğraf yeni sekmede tek başına
+açılıyor.
+- Tıklanan fotoğrafta açılan bir görüntüleyici (lightbox): önceki/sonraki
+  (oklar + klavye ←/→), "3 / 12" sayacı, aşama · açıklama · tarih, Esc ile
+  kapanma. Sıra ızgaranınki: önce → süreç → sonra, aşama içinde backend
+  sırası (bütün aşamalar arasında gezilir).
+- Paylaş/indir ve Sil o an görünen fotoğrafa; silince sıradaki gelir, son
+  fotoğraf silinince kapanır (`projects.operations.manage`).
+- Günlük rapordaki "O gün çekilen fotoğraflar" da aynı görüntüleyicide
+  açılmalı (mobilde öyle).
+- Küçük resimler §5'teki gibi doğrudan API adresinden yükleniyor; görüntüleyici
+  de aynı oturum yenileme düzeltmesini kullanmalı.
+
+## 13. Teklif kaleminde "Maliyet ve Kâr" sözcükleri (mobil, 2026-10-29)
+Şikâyet: "Markup ve satış yerini kimse anlamıyor". API değerleri aynı
+(`pricing_mode: markup|manual`, `internal_subcontract_cost`,
+`markup_percent`); yalnızca etiketler ve canlı sonuç. Mobil kaynak:
+`mobile/lib/features/offers/presentation/offer_internal_pricing.dart`.
+- `OfferForm.tsx` ("İç Maliyet / Müşteri Görmez", "Taşeron Maliyeti",
+  "Fiyatlama: Maliyet üzerine % / Satış fiyatını elle gir", "Marj (%)",
+  "Müşteri Fiyatı", "Beklenen Kâr") mobille aynı olmalı:
+  - Bölüm: "Maliyet ve Kâr" + "Müşteri görmez".
+  - "Fiyat nasıl belirlensin?": "Satış fiyatını ben gireyim" (manual — "Müşteri
+    fiyatını sen yazarsın; kârın hesaplanır"), "Kâr oranıyla hesapla" (markup —
+    "Maliyetin üstüne kâr yüzdesi eklenir"), "Kullanma" (iç fiyat yok — "Bu
+    kalemde maliyet ve kâr tutulmaz"). Yeni kalem "Satış fiyatını ben gireyim"
+    açılır (web zaten manual açıyor); maliyet boşsa iç alan gönderilmez.
+  - Alanlar: "Bize maliyeti (birim)", "Kâr oranı (%)".
+  - Her iki modda canlı satır: "Müşteriye birim fiyat: X · Kârımız: Y (%Z)" ve
+    "Kalem toplamı: A · Kârımız: B"; zararda "Zararımız" ve kırmızı. Oran
+    maliyete göre (backend `EffectiveMarkupPercent`).
+  - Kâr oranıyla hesaplanan kalemde Birim Fiyat kilitli ve hesaplanan fiyatı
+    gösterir ("Birim Fiyat (otomatik)").
+  - Doğrulama: "Maliyeti yaz; müşteri fiyatı bundan hesaplanır.", "Kâr oranını
+    yaz (ör. 20).", "Kâr oranı -%100'den küçük olamaz.", "Kâr oranı en fazla
+    %9.999,99 olabilir."
+- Web önizlemesi `round2(cost * (1 + markup / 100))` kayan noktayla
+  hesaplıyor; yarım kuruşta sunucudan 1 kuruş sapar (ör. 1,15 + %50: sunucu
+  1,73, web 1,72). Mobil kuruş/tam sayıyla hesaplıyor (`previewMarkupUnitPrice`,
+  `offerLineTotal`).
+- Teklif detayı ve revizyon sayfasında (`teklifler/[id]`,
+  `teklifler/[id]/revizyonlar/[revisionId]`) kalem özeti: "Bize maliyeti: X /
+  birim", "Kâr oranı: %15 · fiyat bundan hesaplandı" ya da "Satış fiyatı elle
+  girildi", "Beklenen kâr: Y / birim (%Z) · bu kalemde B" (zararda "Beklenen
+  zarar").
+- Backend hata metinleri hâlâ eski sözcüklerle ("marj yüzdesi girilmelidir",
+  "iç taşeron maliyeti negatif olamaz", "geçersiz fiyatlama modu",
+  `computeOfferTotals`); mobil bunları kayıttan önce kendi sözcükleriyle
+  yakalıyor, web de yakalamalı. Backend metinleri ayrıca sadeleştirilebilir.
+
 ## Bilinen tutarsızlıklar (web + backend)
 - Katalog fiyatı TL; teklifin para birimi TL değilse (firma varsayılanı
   USD/EUR) katalogdan seçilen fiyat çevrilmeden yazılıyor — web ve mobil

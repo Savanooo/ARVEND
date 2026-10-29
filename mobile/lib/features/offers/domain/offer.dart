@@ -100,10 +100,54 @@ bool offerValidityExpired(String? validUntil, DateTime today) {
   return DateTime.utc(d.year, d.month, d.day).isBefore(DateTime.utc(today.year, today.month, today.day));
 }
 
-/// Markup modunda istemci önizlemesi — sunucu otoriterdir; bu yalnızca UX.
+/// "Kâr oranıyla hesapla" (`markup`) kaleminin müşteri birim fiyatı:
+/// maliyet × (1 + oran/100), kuruşa yuvarlanmış. Sunucu otoriterdir (kayıtta
+/// kendisi hesaplar); bu, formda kayıttan önce görünen sonuç. Hesap sunucunun
+/// decimal kuralıyla BİREBİR (bkz. [_mulDivRound]): eski kayan nokta çarpımı
+/// yarım kuruşlarda 1 kuruş sapabiliyordu.
 double? previewMarkupUnitPrice(double cost, double markupPercent) {
   if (cost < 0) return null;
-  return _round2(cost * (1 + markupPercent / 100));
+  return _mulDivRound(_hundredths(cost), 10000 + _hundredths(markupPercent), 10000) / 100;
+}
+
+/// Satır toplamı: miktar × birim fiyat, kuruşa yuvarlanmış (backend
+/// computeOfferTotals: ikisi de önce 2 haneye yuvarlanır, sonra çarpılır).
+double offerLineTotal(double quantity, double unitPrice) =>
+    _mulDivRound(_hundredths(quantity), _hundredths(unitPrice), 100) / 100;
+
+/// Kalemin kârı, maliyet girilmişse -- backend `OfferItem.ExpectedProfit` /
+/// `EffectiveMarkupPercent` ile aynı tanım: birim kâr = satış − maliyet,
+/// oran maliyete göre (maliyet 0 ise oran yok). Kalem kârı = satır toplamı
+/// − (miktar × maliyet); miktar geçersizse yok. Negatif = zarar.
+({double unitProfit, double? percent, double? lineProfit}) offerItemProfit({
+  required double unitPrice,
+  required double unitCost,
+  double? quantity,
+}) {
+  final price = _hundredths(unitPrice);
+  final cost = _hundredths(unitCost);
+  final unitProfit = (price - cost) / 100;
+  final percent = cost <= 0 ? null : _round2((price - cost) * 100 / cost);
+  double? lineProfit;
+  if (quantity != null && quantity > 0) {
+    final q = _hundredths(quantity);
+    lineProfit = (_mulDivRound(q, price, 100) - _mulDivRound(q, cost, 100)) / 100;
+  }
+  return (unitProfit: unitProfit, percent: percent, lineProfit: lineProfit);
+}
+
+/// 2 ondalıklı bir değerin yüzde birlik tam sayısı (tutarlarda kuruş). Form
+/// en çok 2 ondalık kabul eder; sunucu da önce 2 haneye yuvarlar.
+int _hundredths(double v) => (v * 100).round();
+
+/// a × b / [divisor], yarımda sıfırdan uzağa yuvarlanmış -- sunucunun
+/// `decimal.Round(2)` kuralı, kayan nokta gürültüsü olmadan. BigInt: miktar ×
+/// fiyat 64 biti aşabilir. [divisor] çift (100, 10000).
+int _mulDivRound(int a, int b, int divisor) {
+  final n = BigInt.from(a) * BigInt.from(b);
+  final d = BigInt.from(divisor);
+  final q = (n.abs() + d ~/ BigInt.two) ~/ d;
+  return (n.isNegative ? -q : q).toInt();
 }
 
 double _round2(double v) => (v * 100).roundToDouble() / 100.0;

@@ -168,3 +168,10 @@ each one; none needs a mobile change once fixed server-side.
   (`POST /projects/{id}/subcontractors`); a retried or double-submitted
   request creates a duplicate. The app blocks closing the sheet while the
   request is in flight.
+- **Photo uploader is not returned** (`GET /projects/{id}/photos`,
+  `photoResponse`: id, original_name, mime_type, size_bytes, stage,
+  description, taken_at, created_at). The gallery caption shows stage,
+  description and date only; "who took it" needs an `uploaded_by_name`
+  field. The daily report's `photos` rows carry only `{id, stage,
+  description}` (no date/name/mime), so the gallery opened from a report
+  shares them as `<id>.jpg`.

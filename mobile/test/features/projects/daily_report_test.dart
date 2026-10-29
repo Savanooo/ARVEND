@@ -11,6 +11,7 @@ import 'package:arvend/core/files/file_share.dart';
 import 'package:arvend/core/theme/app_theme.dart';
 import 'package:arvend/features/auth/domain/user.dart';
 import 'package:arvend/features/projects/daily_report/daily_report_routes.dart';
+import 'package:arvend/features/projects/data/projects_providers.dart' show ProjectPhotoCache, projectPhotoCacheProvider;
 
 import '../../test_utils/fake_api_client.dart';
 import '../../test_utils/fake_file_sharer.dart';
@@ -131,6 +132,8 @@ Future<FakeHttpClientAdapter> _pump(
         apiClientProvider.overrideWithValue(client),
         authControllerProvider.overrideWith(() => cc.FakeAuth(user)),
         if (sharer != null) fileSharerProvider.overrideWithValue(sharer),
+        // Sahte zamanda gerçek dosya G/Ç'si tamamlanmaz (fotoğraf baytları).
+        projectPhotoCacheProvider.overrideWithValue(ProjectPhotoCache(directory: () async => null)),
       ],
       child: MaterialApp.router(
         theme: AppTheme.light(),
@@ -279,6 +282,70 @@ void main() {
     expect(find.textContaining('Toplam 6 kişi'), findsOneWidget);
     expect(find.byKey(const ValueKey('gunluk-rapor-kaydet')), findsNothing);
     expect(find.byKey(const ValueKey('gunluk-rapor-hava-sunny')), findsNothing);
+  });
+
+  group('o günün fotoğrafları galeride açılır', () {
+    const dayPhotos = [
+      {'id': 'ph1', 'stage': 'before', 'description': 'Temel kazısı'},
+      {'id': 'ph2', 'stage': 'progress', 'description': 'Kalıp çakıldı'},
+    ];
+    Map<String, dynamic> withPhotos(List<Map<String, String>> photos) =>
+        {..._report(exists: true, status: 'submitted', workDone: 'İş'), 'photos': photos};
+    final contents = {
+      for (final p in dayPhotos)
+        '/projects/p1/photos/${p['id']}/content': [
+          for (var i = 0; i < 3; i++) (status: 200, body: <int>[0xFF, 0xD8, 0xFF, 0xE0]),
+        ],
+    };
+
+    testWidgets('dokunulan fotoğrafta açılır, kaydırınca öbürüne geçer; okuyan silemez', (tester) async {
+      await _pump(tester, user: _viewer, initial: '/projeler/p1/gunluk-rapor/$_day', script: {
+        '/projects/p1': [(status: 200, body: _project())],
+        _dayPath: [(status: 200, body: withPhotos(dayPhotos))],
+        ...contents,
+      });
+
+      await tester.tap(find.byKey(const ValueKey('gunluk-rapor-foto-ph2')));
+      await tester.pumpAndSettle();
+      expect(find.text('2 / 2'), findsOneWidget);
+      expect(find.text('Kalıp çakıldı'), findsOneWidget);
+      expect(find.byTooltip('Fotoğrafı sil'), findsNothing);
+
+      await tester.fling(find.byKey(const ValueKey('photo-gallery-pages')), const Offset(400, 0), 1500);
+      await tester.pumpAndSettle();
+      expect(find.text('1 / 2'), findsOneWidget);
+      expect(find.text('Temel kazısı'), findsOneWidget);
+    });
+
+    testWidgets('yetkili siler: rapor tazelenir, fotoğraf rapordan düşer', (tester) async {
+      final adapter = await _pump(tester, user: _field, initial: '/projeler/p1/gunluk-rapor/$_day', script: {
+        '/projects/p1': [(status: 200, body: _project())],
+        _dayPath: [
+          (status: 200, body: withPhotos(dayPhotos)),
+          (status: 200, body: withPhotos([dayPhotos.first])),
+        ],
+        '/projects/p1/daily-reports': [(status: 200, body: _list())],
+        '/projects/p1/photos/ph2': [(status: 200, body: {'ok': true})],
+        ...contents,
+      });
+
+      await tester.tap(find.byKey(const ValueKey('gunluk-rapor-foto-ph2')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Fotoğrafı sil'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, 'Sil').last);
+      await tester.pumpAndSettle();
+
+      expect(adapter.methods[adapter.calls.indexOf('/projects/p1/photos/ph2')], 'DELETE');
+      expect(find.text('1 / 1'), findsOneWidget);
+      // Galerinin geri oku (raporunki altında kalır).
+      await tester.tap(find.byType(BackButton).hitTestable());
+      await tester.pumpAndSettle();
+      expect(find.text('1 / 1'), findsNothing);
+      expect(find.byKey(const ValueKey('gunluk-rapor-foto-ph2')), findsNothing);
+      expect(find.byKey(const ValueKey('gunluk-rapor-foto-ph1')), findsOneWidget);
+      expect(find.text('O Gün Çekilen Fotoğraflar (1)'), findsOneWidget);
+    });
   });
 
   testWidgets('kapalı projede form açılmaz', (tester) async {

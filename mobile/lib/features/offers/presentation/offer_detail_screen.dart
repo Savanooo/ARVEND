@@ -26,6 +26,7 @@ import '../../projects/data/projects_providers.dart' show customerProjectsProvid
 import '../data/offers_providers.dart';
 import '../domain/offer.dart';
 import '../history/offer_history_routes.dart' show OfferHistorySection, invalidateOfferHistory;
+import 'offer_internal_pricing.dart';
 import 'offer_pdf.dart';
 import '../../../core/widgets/app_sheet.dart';
 
@@ -1425,47 +1426,7 @@ class _ItemCard extends StatelessWidget {
           ),
           if (showInternal && item.hasInternalPricing) ...[
             const SizedBox(height: AppSpacing.sm),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(AppSpacing.sm),
-              decoration: BoxDecoration(
-                color: AppColors.navDark.withValues(alpha: 0.04),
-                borderRadius: BorderRadius.circular(AppRadius.control),
-                border: Border.all(color: AppColors.navDark.withValues(alpha: 0.16)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.lock_outline, size: 14, color: AppColors.navDark),
-                      const SizedBox(width: 6),
-                      Text('İç Fiyatlandırma', style: AppTypography.helper.copyWith(
-                          color: AppColors.navDark, fontWeight: FontWeight.w700)),
-                    ],
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.only(left: 20, bottom: 4),
-                    child: Text('Müşteri görmez', style: AppTypography.helper),
-                  ),
-                  if (item.internalSubcontractCost != null)
-                    Text('İç maliyet: ${Formatters.money(item.internalSubcontractCost!, currency: currency)}',
-                        style: AppTypography.helper),
-                  Text(
-                    'Mod: ${item.pricingMode == OfferItem.pricingModeMarkup ? 'Markup' : item.pricingMode == OfferItem.pricingModeManual ? 'Manuel' : '-'}',
-                    style: AppTypography.helper,
-                  ),
-                  if (item.pricingMode == OfferItem.pricingModeMarkup && item.markupPercent != null)
-                    Text('Markup: %${item.markupPercent!.toStringAsFixed(2)}', style: AppTypography.helper),
-                  if (item.expectedProfit != null)
-                    Text('Beklenen kâr: ${Formatters.money(item.expectedProfit!, currency: currency)}',
-                        style: AppTypography.helper),
-                  if (item.effectiveMarkupPercent != null)
-                    Text('Efektif markup: %${item.effectiveMarkupPercent!.toStringAsFixed(2)}',
-                        style: AppTypography.helper),
-                ],
-              ),
-            ),
+            OfferItemProfitSummary(item: item, currency: currency),
           ],
         ],
       ),

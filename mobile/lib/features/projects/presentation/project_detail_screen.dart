@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -52,6 +51,7 @@ import '../finance_plan/finance_plan_routes.dart' show financePlanViews, kPaymen
 import '../ops_team/ops_team_sections.dart' show opsTeamSections;
 import '../projects_routes.dart';
 import 'note_form_sheet.dart';
+import 'project_photo_gallery.dart';
 import 'project_sub_view_bar.dart';
 
 /// RBAC/Project Membership sprint'i: gruplar kullanıcının izin kümesine
@@ -1600,11 +1600,14 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
     }
   }
 
-  Future<void> _openPhotoViewer(ProjectPhoto photo) async {
-    await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => _PhotoViewerScreen(projectId: projectId, photo: photo, canManage: _canManage),
-    ));
-  }
+  /// Galeri ızgaranın listesiyle (aynı sıra) dokunulan fotoğrafta açılır.
+  Future<void> _openPhotoGallery(List<ProjectPhoto> photos, int index) => showProjectPhotoGallery(
+        context,
+        projectId: projectId,
+        photos: photos,
+        initialIndex: index,
+        canDelete: _canManage,
+      );
 
   /// Bayt indirilip telefonun belgeler dizinine yazılır, ardından OS'un
   /// kendi görüntüleyicisiyle açılır (bkz. core/files/local_documents.dart)
@@ -1785,7 +1788,7 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
                         key: ValueKey('proje-foto-${photo.id}'),
                         projectId: projectId,
                         photo: photo,
-                        onTap: () => _openPhotoViewer(photo),
+                        onTap: () => _openPhotoGallery(photos, i),
                         onLongPress: canManage ? () => _deletePhoto(photo) : null,
                       );
                     },
@@ -1936,137 +1939,6 @@ class _PhotoTile extends ConsumerWidget {
                 bottom: 4,
                 child: StatusRegistry.build(photo.stage, StatusRegistry.photoStage),
               ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PhotoViewerScreen extends ConsumerWidget {
-  const _PhotoViewerScreen({required this.projectId, required this.photo, required this.canManage});
-  final String projectId;
-  final ProjectPhoto photo;
-  final bool canManage;
-
-  Future<void> _delete(BuildContext context, WidgetRef ref) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Fotoğrafı Sil'),
-        content: const Text('Bu fotoğraf silinsin mi?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Vazgeç')),
-          TextButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Sil')),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    try {
-      await ref.read(projectsRepositoryProvider).deletePhoto(projectId, photo.id);
-      unawaited(ref.read(projectPhotoCacheProvider).remove(photo.id));
-      ref.invalidate(projectPhotosProvider(projectId));
-      if (context.mounted) Navigator.of(context).pop();
-    } on ApiException catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
-      }
-    }
-  }
-
-  /// Fotoğrafı (açıklamasıyla) telefonun paylaşım menüsüyle gönderir --
-  /// görüntüleyebilen paylaşabilir.
-  Future<void> _share(BuildContext context, WidgetRef ref, Uint8List bytes) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final name = photo.originalName.trim().isEmpty ? '${photo.id}.jpg' : photo.originalName.trim();
-      final error = await ref
-          .read(fileSharerProvider)
-          .shareFile(name, bytes, mimeType: photo.mimeType, text: photo.description);
-      if (error != null) messenger.showSnackBar(SnackBar(content: Text(error)));
-    } on Exception catch (e, s) {
-      if (context.mounted) showDeviceIssue(context, ref, e, s, DeviceAction.saveFile, where: 'Proje fotoğrafı paylaşımı');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final bytesAsync = ref.watch(projectPhotoBytesProvider((projectId: projectId, photoId: photo.id)));
-    final bytes = bytesAsync.valueOrNull;
-    final description = photo.description.trim();
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        title: Text(photo.originalName, style: const TextStyle(fontSize: 14)),
-        actions: [
-          if (bytes != null)
-            IconButton(
-              icon: const Icon(Icons.share_outlined),
-              tooltip: 'Fotoğrafı paylaş',
-              onPressed: () => _share(context, ref, bytes),
-            ),
-          if (canManage)
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              tooltip: 'Fotoğrafı sil',
-              onPressed: () => _delete(context, ref),
-            ),
-        ],
-      ),
-      body: Center(
-        child: bytesAsync.when(
-          // Tam ekran: ekranın ~2 katı genişlikte çözülür (yakınlaştırmaya
-          // yeter; 12 MP'yi tam açıp yüzlerce MB harcamaz).
-          data: (bytes) => InteractiveViewer(
-            child: Image.memory(
-              bytes,
-              cacheWidth: (MediaQuery.sizeOf(context).width * MediaQuery.devicePixelRatioOf(context) * 2).ceil(),
-            ),
-          ),
-          loading: () => const CircularProgressIndicator(color: Colors.white),
-          error: (e, st) => const Icon(Icons.broken_image_outlined, color: Colors.white, size: 48),
-        ),
-      ),
-      // Aşama, tarih, tam açıklama ve görünür bir "Sil" -- silme eskiden
-      // yalnızca ızgarada uzun basışla (keşfedilemez) ya da etiketsiz bir
-      // simgeyle yapılabiliyordu.
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.sm, AppSpacing.sm, AppSpacing.sm),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              StatusRegistry.build(photo.stage, StatusRegistry.photoStage),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (description.isNotEmpty)
-                      Text(
-                        description,
-                        style: const TextStyle(color: Colors.white, fontSize: 13),
-                        maxLines: 4,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    Text(
-                      Formatters.dateTime(photo.createdAt),
-                      style: const TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              if (canManage)
-                TextButton.icon(
-                  style: TextButton.styleFrom(foregroundColor: Colors.white),
-                  onPressed: () => _delete(context, ref),
-                  icon: const Icon(Icons.delete_outline, size: 18),
-                  label: const Text('Sil'),
-                ),
             ],
           ),
         ),
