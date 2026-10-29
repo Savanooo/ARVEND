@@ -15,6 +15,7 @@ import '../../../core/widgets/money_text.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../data/offers_providers.dart';
 import '../domain/offer.dart';
+import 'offer_internal_pricing.dart';
 
 class OfferRevisionDetailScreen extends ConsumerWidget {
   const OfferRevisionDetailScreen({super.key, required this.offerId, required this.revisionId});
@@ -70,10 +71,13 @@ class OfferRevisionDetailScreen extends ConsumerWidget {
               else
                 ...rev.items.map((item) => AppListCard(
                       title: item.productName,
-                      subtitle:
-                          '${item.quantity} ${item.unit} × ${Formatters.money(item.unitPrice, currency: rev.currency)}'
-                          '${canReadInternal && item.hasInternalPricing && item.internalSubcontractCost != null ? '  ·  İç maliyet: ${Formatters.money(item.internalSubcontractCost!, currency: rev.currency)}' : ''}',
+                      subtitle: '${item.quantity} ${item.unit} × ${Formatters.money(item.unitPrice, currency: rev.currency)}',
                       trailing: MoneyText(item.lineTotal, currency: rev.currency, style: AppTypography.body.copyWith(fontWeight: FontWeight.w700)),
+                      // Teklif detayıyla aynı "Maliyet ve Kâr" özeti (eskiden
+                      // yalnızca "İç maliyet" yazıyordu).
+                      footer: canReadInternal && item.hasInternalPricing
+                          ? OfferItemProfitSummary(item: item, currency: rev.currency)
+                          : null,
                     )),
               AppCard(
                 margin: const EdgeInsets.only(top: AppSpacing.sm),

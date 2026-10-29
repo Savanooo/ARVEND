@@ -26,6 +26,7 @@ import '../../projects/finance_plan/domain/finance_dates.dart' show apiDate, par
 import '../data/offers_providers.dart';
 import '../domain/offer.dart';
 import 'customer_picker_sheet.dart';
+import 'offer_internal_pricing.dart';
 import 'product_suggestions.dart';
 
 /// Teklif kalemlerinin sayı alanları -- bütçe/masraf/ek iş formlarıyla AYNI
@@ -89,8 +90,14 @@ class _DraftItem {
   Object? calcSnapshot;
   bool fromCalc = false;
 
-  /// '' | markup | manual
-  String pricingMode = '';
+  /// '' (Kullanma) | markup (Kâr oranıyla hesapla) | manual (Satış fiyatını
+  /// ben gireyim). Yeni ve iç fiyatı olmayan kalem "Satış fiyatını ben
+  /// gireyim" açılır: kişi her zamanki gibi Birim Fiyat'ı yazar, isterse
+  /// maliyeti ekler ve kârı hemen görür; maliyet boşsa hiçbir şey kaydedilmez
+  /// (önceki "Yok" ile aynı sonuç). "Kâr oranıyla" varsayılan olsaydı fiyat
+  /// alanı kilitlenir, katalogdan seçilen fiyatlı kalem bile maliyet
+  /// yazılmadan kaydedilemezdi. Web formu da yeni satırı böyle açıyor.
+  String pricingMode = OfferItem.pricingModeManual;
   String internalCost = '';
   String markupPercent = '';
 
@@ -159,12 +166,13 @@ class _DraftItem {
   double? effectiveUnitPrice({required bool showInternal}) =>
       showInternal && pricingMode == OfferItem.pricingModeMarkup ? previewSellPrice : _num(unitPrice);
 
-  /// Satır toplamı önizlemesi (sunucu `round(q*p, 2)`); geçersizse `null`.
+  /// Satır toplamı önizlemesi (sunucunun kuralıyla, bkz. offerLineTotal);
+  /// geçersizse `null`.
   double? lineTotal({required bool showInternal}) {
     final q = _num(quantity, max: _kMaxQuantity);
     final p = effectiveUnitPrice(showInternal: showInternal);
     if (q == null || q <= 0 || p == null || p < 0) return null;
-    return _round2(q * p);
+    return offerLineTotal(q, p);
   }
 }
 
@@ -429,10 +437,15 @@ class _OfferCreateScreenState extends ConsumerState<OfferCreateScreen> {
       double? markup;
       String? mode;
       if (canManageInternal && i.pricingMode.isNotEmpty) {
-        mode = i.pricingMode;
         internalCost = _num(i.internalCost, max: _kMaxQuantity);
-        if (mode == OfferItem.pricingModeMarkup) {
-          markup = _num(i.markupPercent, max: _kMaxMarkup, allowNegative: true);
+        // Maliyeti boş "Satış fiyatını ben gireyim" kalemi iç fiyatsızdır
+        // (sunucu da öyle sayar); boş alanlar hiç gönderilmez. Kâr oranıyla
+        // hesaplanan kalemde maliyet zorunlu (doğrulama).
+        if (internalCost != null) {
+          mode = i.pricingMode;
+          if (mode == OfferItem.pricingModeMarkup) {
+            markup = _num(i.markupPercent, max: _kMaxMarkup, allowNegative: true);
+          }
         }
       }
 
@@ -902,6 +915,12 @@ class _ItemRowState extends State<_ItemRow> {
   late final _price = TextEditingController(text: widget.item.unitPrice);
 
   @override
+  void initState() {
+    super.initState();
+    _syncPrice();
+  }
+
+  @override
   void dispose() {
     _name.dispose();
     _unit.dispose();
@@ -909,11 +928,33 @@ class _ItemRowState extends State<_ItemRow> {
     super.dispose();
   }
 
+  /// "Kâr oranıyla hesapla" kaleminde Birim Fiyat alanı kilitli ve
+  /// hesaplanan müşteri fiyatını gösterir -- eskiden önceden elle yazılmış
+  /// fiyat duruyor, kayıtta sunucu başka bir fiyat yazıyordu. Hesap yoksa
+  /// (maliyet ya da oran eksik) alan boştur. Elle girişe dönünce son fiyat
+  /// (hesaplandıysa o) alanda kalır, yeniden yazmak gerekmez.
+  void _syncPrice() {
+    final item = widget.item;
+    var text = item.unitPrice;
+    if (widget.showInternal && item.pricingMode == OfferItem.pricingModeMarkup) {
+      final sell = item.previewSellPrice;
+      if (sell != null) item.unitPrice = formatTrDecimalInput(sell);
+      text = sell == null ? '' : item.unitPrice;
+    }
+    if (_price.text != text) _price.text = text;
+  }
+
+  void _pricingChanged() {
+    _syncPrice();
+    widget.onChanged();
+  }
+
   void _picked(Product p) {
     widget.item.pickProduct(p);
     _unit.text = widget.item.unit;
-    _price.text = widget.item.unitPrice;
-    widget.onChanged();
+    // Kâr oranıyla hesaplanan kalemde kilitli alan katalog fiyatını değil
+    // hesaplanan fiyatı göstermeye devam eder.
+    _pricingChanged();
   }
 
   @override
@@ -923,7 +964,6 @@ class _ItemRowState extends State<_ItemRow> {
     final currency = widget.currency;
     final onChanged = widget.onChanged;
     final onRemove = widget.onRemove;
-    final preview = item.previewSellPrice;
     final markupMode = showInternal && item.pricingMode == OfferItem.pricingModeMarkup;
     final lineTotal = item.lineTotal(showInternal: showInternal);
     return AppCard(
@@ -992,7 +1032,7 @@ class _ItemRowState extends State<_ItemRow> {
                 child: TextFormField(
                   controller: _price,
                   decoration: InputDecoration(
-                    labelText: item.pricingMode == OfferItem.pricingModeMarkup ? 'Satış (önizleme)' : 'Birim Fiyat',
+                    labelText: item.pricingMode == OfferItem.pricingModeMarkup ? 'Birim Fiyat (otomatik)' : 'Birim Fiyat',
                     isDense: true,
                     errorMaxLines: 3,
                   ),
@@ -1009,6 +1049,12 @@ class _ItemRowState extends State<_ItemRow> {
               ),
             ],
           ),
+          // Kilitli fiyat alanının nedeni: dar ekranda etiket "Birim Fi…"
+          // diye kesilir, "(otomatik)" görünmez.
+          if (markupMode) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Text('Birim fiyat, maliyet ve kâr oranından hesaplanır.', style: AppTypography.helper),
+          ],
           // Satır toplamı önizlemesi: "12.500" -> 12.500,00 TL mi yoksa
           // 12,50 TL mi, kayıttan önce görünsün.
           if (lineTotal != null) ...[
@@ -1020,7 +1066,7 @@ class _ItemRowState extends State<_ItemRow> {
           ],
           if (showInternal) ...[
             const SizedBox(height: AppSpacing.md),
-            _InternalPricingBox(item: item, preview: preview, currency: currency, onChanged: onChanged),
+            _InternalPricingBox(item: item, currency: currency, onChanged: _pricingChanged),
           ],
         ],
       ),
@@ -1028,115 +1074,134 @@ class _ItemRowState extends State<_ItemRow> {
   }
 }
 
-/// Bu kalemin müşteriye ASLA gösterilmeyen kısmı. Renkle SINIRLI kalmayan
-/// bir ayrım için: kilit ikonu + açık başlık + alt metin + FARKLI bir
-/// nötr/koyu ton (durum renklerinden -- success/warning/danger/info --
-/// KASITLI OLARAK ayrı, çünkü bu bir "durum" değil bir "gizlilik" ekseni).
+/// Bu kalemin müşteriye ASLA gösterilmeyen kısmı: fiyatın nasıl
+/// belirlendiği, bize maliyeti, kâr oranı ve canlı sonuç (bkz.
+/// offer_internal_pricing.dart -- detay ekranlarıyla aynı sözcükler).
 class _InternalPricingBox extends StatelessWidget {
   const _InternalPricingBox({
     required this.item,
-    required this.preview,
     required this.onChanged,
     this.currency = 'TRY',
   });
   final _DraftItem item;
-  final double? preview;
   final VoidCallback onChanged;
   final String currency;
 
+  /// Maliyet: kâr oranıyla hesaplanan kalemde zorunlu, elle fiyatlıda
+  /// isteğe bağlı (yazılırsa kâr görünür).
+  String? _costError(String? v) {
+    if (item.isBlank) return null;
+    if (item.pricingMode == OfferItem.pricingModeMarkup && (v ?? '').trim().isEmpty) {
+      return 'Maliyeti yaz; müşteri fiyatı bundan hesaplanır.';
+    }
+    return _numError(v, max: _kMaxQuantity, allowZero: true, required: false);
+  }
+
+  /// Kâr oranı -%100'ün altındaysa satış fiyatı negatif olur (sunucu
+  /// reddeder); %9.999,99 sütun sınırı (numeric(6,2)).
+  String? _markupError(String? v) {
+    if (item.isBlank) return null;
+    if ((v ?? '').trim().isEmpty) return 'Kâr oranını yaz (ör. 20).';
+    final parsed = parseTrDecimal(v!, allowNegative: true, max: double.infinity);
+    if (parsed.error != null) return parsed.error;
+    final m = parsed.value!;
+    if (m < -100) return "Kâr oranı -%100'den küçük olamaz.";
+    if (m > _kMaxMarkup) return 'Kâr oranı en fazla %9.999,99 olabilir.';
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.navDark.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(AppRadius.control),
-        border: Border.all(color: AppColors.navDark.withValues(alpha: 0.16)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.lock_outline, size: 16, color: AppColors.navDark),
-              const SizedBox(width: 6),
-              Text('İç Fiyatlandırma', style: AppTypography.cardTitle.copyWith(color: AppColors.navDark)),
-            ],
+    final mode = item.pricingMode;
+    final markup = mode == OfferItem.pricingModeMarkup;
+    return OfferPricingBox(
+      children: [
+        DropdownButtonFormField<String>(
+          key: const ValueKey('offer-pricing-mode'),
+          initialValue: kOfferPricingModes.containsKey(mode) ? mode : '',
+          isExpanded: true,
+          // Menüde her seçeneğin altında tek satır açıklama.
+          itemHeight: null,
+          decoration: InputDecoration(
+            labelText: kOfferPricingModeLabel,
+            isDense: true,
+            helperText: kOfferPricingModes[mode]?.$2,
+            helperMaxLines: 2,
           ),
-          Padding(
-            padding: const EdgeInsets.only(left: 22, top: 2, bottom: AppSpacing.sm),
-            child: Text('Müşteri görmez', style: AppTypography.helper),
-          ),
-          DropdownButtonFormField<String>(
-            initialValue: item.pricingMode.isEmpty ? '' : item.pricingMode,
-            decoration: const InputDecoration(labelText: 'Fiyat Modu', isDense: true),
-            items: const [
-              DropdownMenuItem(value: '', child: Text('Yok')),
-              DropdownMenuItem(value: OfferItem.pricingModeMarkup, child: Text('Markup')),
-              DropdownMenuItem(value: OfferItem.pricingModeManual, child: Text('Manuel satış')),
-            ],
+          selectedItemBuilder: (context) => [
+            for (final option in kOfferPricingModes.values)
+              Text(option.$1, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ],
+          items: [
+            for (final MapEntry(key: value, value: option) in kOfferPricingModes.entries)
+              DropdownMenuItem(
+                value: value,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(option.$1, style: AppTypography.body.copyWith(fontWeight: FontWeight.w600)),
+                      Text(option.$2, style: AppTypography.helper),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+          onChanged: (v) {
+            item.pricingMode = v ?? '';
+            if (item.pricingMode != OfferItem.pricingModeMarkup) item.markupPercent = '';
+            // "Kullanma": gizlenen maliyet ne boş satır sayımını bozsun ne kaydedilsin.
+            if (item.pricingMode.isEmpty) item.internalCost = '';
+            onChanged();
+          },
+        ),
+        // Alanlar alt alta: 360 dp'de yan yana "Bize maliyeti (…" diye
+        // kesiliyordu.
+        if (mode.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.sm),
+          TextFormField(
+            initialValue: item.internalCost,
+            decoration: const InputDecoration(
+              labelText: kOfferPricingCostLabel,
+              isDense: true,
+              errorMaxLines: 3,
+            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: _costError,
             onChanged: (v) {
-              item.pricingMode = v ?? '';
-              if (item.pricingMode != OfferItem.pricingModeMarkup) {
-                item.markupPercent = '';
-              }
+              item.internalCost = v;
               onChanged();
             },
           ),
-          if (item.pricingMode.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.sm),
-            TextFormField(
-              initialValue: item.internalCost,
-              decoration: const InputDecoration(labelText: 'İç taşeron maliyeti', isDense: true, errorMaxLines: 3),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              // Markup modunda satış fiyatı bu maliyetten hesaplanır: zorunlu.
-              validator: (v) => item.isBlank
-                  ? null
-                  : _numError(
-                      v,
-                      max: _kMaxQuantity,
-                      allowZero: true,
-                      required: item.pricingMode == OfferItem.pricingModeMarkup,
-                    ),
-              onChanged: (v) {
-                item.internalCost = v;
-                onChanged();
-              },
-            ),
-          ],
-          if (item.pricingMode == OfferItem.pricingModeMarkup) ...[
+          if (markup) ...[
             const SizedBox(height: AppSpacing.sm),
             TextFormField(
               initialValue: item.markupPercent,
-              decoration: const InputDecoration(labelText: 'Markup %', isDense: true, errorMaxLines: 3),
+              decoration: const InputDecoration(
+                labelText: kOfferPricingMarkupLabel,
+                isDense: true,
+                errorMaxLines: 3,
+              ),
               keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
-              validator: (v) {
-                if (item.isBlank) return null;
-                final error = _numError(v, max: _kMaxMarkup, allowNegative: true);
-                if (error != null) return error;
-                // Negatif satış fiyatlı kalemi sunucu sessizce atlardı.
-                final sell = item.previewSellPrice;
-                return sell != null && sell < 0 ? 'Satış fiyatı negatif olamaz (marj en az -%100).' : null;
-              },
+              validator: _markupError,
               onChanged: (v) {
                 item.markupPercent = v;
                 onChanged();
               },
             ),
-            if (preview != null) ...[
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Text('Önizleme satış: ', style: AppTypography.helper),
-                  MoneyText(preview!, currency: currency, style: AppTypography.helper.copyWith(fontWeight: FontWeight.w700)),
-                  Text(' (sunucu kesinleştirir)', style: AppTypography.helper),
-                ],
-              ),
-            ],
           ],
+          const SizedBox(height: AppSpacing.sm),
+          OfferPricingResult(
+            markup: markup,
+            unitPrice: item.effectiveUnitPrice(showInternal: true),
+            unitCost: _num(item.internalCost, max: _kMaxQuantity),
+            quantity: _num(item.quantity, max: _kMaxQuantity),
+            currency: currency,
+          ),
         ],
-      ),
+      ],
     );
   }
 }
