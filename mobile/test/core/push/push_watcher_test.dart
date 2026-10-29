@@ -12,6 +12,7 @@ import 'package:arvend/core/auth/auth_controller.dart';
 import 'package:arvend/core/push/push_messaging.dart';
 import 'package:arvend/core/push/push_watcher.dart';
 import 'package:arvend/features/auth/domain/user.dart';
+import 'package:arvend/features/chat/data/chat_providers.dart' show chatPushTickProvider;
 import 'package:arvend/features/notifications/data/notifications_providers.dart';
 
 import '../../test_utils/fake_api_client.dart';
@@ -101,6 +102,7 @@ Future<({FakeHttpClientAdapter adapter, ProviderContainer container, GoRouter ro
     routes: [
       GoRoute(path: '/', builder: (_, _) => const Scaffold(body: Text('ana'))),
       GoRoute(path: '/projeler/p1/gorevler/t1', builder: (_, _) => const Scaffold(body: Text('görev ekranı'))),
+      GoRoute(path: '/diger/firma-grubu', builder: (_, _) => const Scaffold(body: Text('sohbet ekranı'))),
     ],
   );
   final container = ProviderContainer(overrides: [
@@ -169,6 +171,37 @@ void main() {
     await tester.tap(find.text('Aç'));
     await tester.pumpAndSettle();
     expect(find.text('görev ekranı'), findsOneWidget);
+  });
+
+  // Firma Grubu (backend 0077): sohbet açıkken gelen mesajın alt bandı
+  // gösterilmez (mesaj listeye düşer), sohbet beklemeden yoklar.
+  testWidgets('Firma Grubu bildirimi: sohbet açıkken alt bant yok, sohbet yoklatılır', (tester) async {
+    final push = _FakePush();
+    final r = await _pump(tester, push, user: _user(), extra: {
+      '/notifications/unread-count': [for (var i = 0; i < 4; i++) (status: 200, body: {'unread_count': 1})],
+    });
+    const chat = PushMessage(
+      title: 'Firma Grubu',
+      body: 'Mehmet Usta: Beton geldi',
+      actionTarget: '/diger/firma-grubu',
+      type: 'organization_chat',
+    );
+    final tick = r.container.read(chatPushTickProvider);
+
+    r.router.go('/diger/firma-grubu');
+    await tester.pumpAndSettle();
+    push.foreground.add(chat);
+    await tester.pumpAndSettle();
+    expect(find.byType(SnackBar), findsNothing);
+    expect(r.container.read(chatPushTickProvider), tick + 1);
+
+    // Başka ekrandayken her bildirim gibi alt bant.
+    r.router.go('/');
+    await tester.pumpAndSettle();
+    push.foreground.add(chat);
+    await tester.pumpAndSettle();
+    expect(find.text('Firma Grubu\nMehmet Usta: Beton geldi'), findsOneWidget);
+    expect(r.container.read(chatPushTickProvider), tick + 2);
   });
 
   testWidgets('dokunulan bildirim hedef ekranı açar', (tester) async {
