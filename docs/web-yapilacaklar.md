@@ -219,6 +219,31 @@ açılıyor.
   `computeOfferTotals`); mobil bunları kayıttan önce kendi sözcükleriyle
   yakalıyor, web de yakalamalı. Backend metinleri ayrıca sadeleştirilebilir.
 
+## 14. Genel masraf görünürlüğü ve masraf fişi / belgesi (migration 0076)
+Şikâyetler: "Genel giren masraflar hiç gözükmüyor", "Masraf girme yerine resim
+ve dosya ekleme gibi bir yer olsun". Kurallar: `mobile/API_CONTRACT.md`
+"General expenses visible…" ve "Expense receipts / documents". Backend ve mobil
+hazır; web eksikleri:
+- Masraflarım (§8) yapılırken `GET /expenses/mine` artık genel (projesiz)
+  masrafları da döndürüyor (`is_general: true`, proje alanları boş): satırda
+  proje yerine "Genel masraf"; Düzenle/Geri çek `/expenses/general/{id}`
+  uçlarına gitmeli.
+- Web'de "Masraflar" (projeli + genel tek liste, `GET /expenses`) sayfası hiç
+  yok. Yapılırken yanıttaki `scope`a göre: `all` toplamlarla, `approver`
+  (finans okuması olmayan onaylayıcı: kendi + onay bekleyenler + son 30 günde
+  karara bağlananlar) toplamsız ama "giren" sütunlu, `mine` yalnızca kendi.
+- Bildirim linki `/diger/masraflar?durum=pending` (onay bekleyen masraf,
+  genel ya da finans okuması olmayan onaylayıcı) `webHrefForActionTarget`'ta
+  Masraflar sayfasına (onay bekleyenler süzgeciyle) eşlenmeli; şu an `null`.
+- Fiş / belge: masraf formunda (Finans > Masraf Ekle, FinanceSections.tsx)
+  fotoğraf/PDF seçme, kayıttan sonra `POST {base}/attachments` (multipart
+  `file`) ile yükleme; masraf satırında ataş ve sayı (`attachments` dizisi
+  listelerde geliyor), ayrıntıda küçük resimler (`GET …/content`, çerezle;
+  `<img>` doğrudan kullanılabilir, uç `inline` döner) ve PDF'i yeni sekmede
+  açma. Ekleme/silme yalnızca masrafı giren (bekleyen/reddedilen masrafında)
+  ve `projects.finance.manage`; onaylı/iptal masrafta salt okunur (409).
+  Onayla/Reddet'ten önce onaylayıcı fişi görmeli.
+
 ## Bilinen tutarsızlıklar (web + backend)
 - Katalog fiyatı TL; teklifin para birimi TL değilse (firma varsayılanı
   USD/EUR) katalogdan seçilen fiyat çevrilmeden yazılıyor — web ve mobil

@@ -24,7 +24,8 @@ class MyExpense {
   bool get isGeneral => expense.projectId.isEmpty;
 
   /// "PRJ-2026-001 · Ataşehir Konut" -- numara yoksa yalnızca ad; genel
-  /// masrafta "Genel masraf".
+  /// masrafta "Genel masraf" (Masraflarım'da da listelenir, backend 0076
+  /// sürümünden beri).
   String get projectLabel =>
       isGeneral ? 'Genel masraf' : (projectNo.isEmpty ? projectName : '$projectNo · $projectName');
 
@@ -86,15 +87,35 @@ class ExpenseTotals {
       );
 }
 
+/// "Masraflar" kapsamı (backend `scope`): herkesin masrafı toplamlarla,
+/// onaylayıcının karar verebilecekleri (finans okuması yok, toplam yok) ya
+/// da yalnızca kendi girdikleri.
+enum ExpensesScope { all, approver, mine }
+
 /// `GET /expenses` yanıtı. [canSeeAll]: kişi herkesin masrafını görüyor
 /// (finans okuma izni); değilse yalnızca kendi girdikleri, toplam yok.
+/// [scope] approver: finans okuması olmayan onaylayıcı -- kendi masraflarına
+/// ek olarak onay bekleyenler ve son [approverRecentDays] günde karara
+/// bağlananlar (bildirim onu buraya getirir).
 class ExpensesPage {
-  const ExpensesPage({required this.rows, required this.canSeeAll, required this.totals, required this.truncated});
+  const ExpensesPage({
+    required this.rows,
+    required this.canSeeAll,
+    required this.totals,
+    required this.truncated,
+    ExpensesScope? scope,
+    this.approverRecentDays = 30,
+  }) : scope = scope ?? (canSeeAll ? ExpensesScope.all : ExpensesScope.mine);
 
   final List<ListedExpense> rows;
   final bool canSeeAll;
   final List<ExpenseTotals> totals;
   final bool truncated;
+  final ExpensesScope scope;
+  final int approverRecentDays;
+
+  /// Satırda masrafı gireni göster (kendi listesinde gereksiz).
+  bool get showsOthers => scope != ExpensesScope.mine;
 
   factory ExpensesPage.fromJson(Map<String, dynamic> json) => ExpensesPage(
         rows: (json['expenses'] as List? ?? const [])
@@ -107,6 +128,14 @@ class ExpensesPage {
             .map(ExpenseTotals.fromJson)
             .toList(),
         truncated: json['truncated'] as bool? ?? false,
+        // Eski sunucu `scope` göndermez: can_see_all'dan türetilir.
+        scope: switch (json['scope']) {
+          'all' => ExpensesScope.all,
+          'approver' => ExpensesScope.approver,
+          'mine' => ExpensesScope.mine,
+          _ => null,
+        },
+        approverRecentDays: (json['approver_recent_days'] as num?)?.toInt() ?? 30,
       );
 }
 

@@ -185,6 +185,9 @@ class ExpensesLedgerSection extends ConsumerWidget {
                     if (e.description.isNotEmpty) e.description,
                     if (e.supplierName.isNotEmpty) e.supplierName,
                     if (e.changeOrderId != null) changeOrderNo(e.changeOrderId)!,
+                    // Fiş / belge sayısı (backend 0076): onaylayıcı fişli
+                    // masrafı listeden ayırt eder.
+                    if (e.attachmentCount > 0) '${e.attachmentCount} belge',
                   ],
                   amount: Formatters.money(e.amount, currency: e.currency.isEmpty ? project.currency : e.currency),
                   voided: e.isVoided,
@@ -207,6 +210,7 @@ class ExpensesLedgerSection extends ConsumerWidget {
                       canEdit: actions.canEdit,
                       canWithdraw: actions.canWithdraw,
                       ownDecisionBlocked: actions.ownDecisionBlocked,
+                      canManageAttachments: actions.canManageAttachments,
                       changeOrderLabel: changeOrderLabel(e.changeOrderId),
                       costCodeLabel: costCodeLabel(e.costCodeId),
                     );

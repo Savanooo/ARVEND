@@ -1516,14 +1516,18 @@ func (q *Queries) ListInvoices(ctx context.Context, arg ListInvoicesParams) ([]P
 }
 
 const listMyExpenses = `-- name: ListMyExpenses :many
-SELECT e.id, e.organization_id, e.project_id, e.category, e.description, e.amount, e.currency, e.expense_date, e.supplier_name, e.invoice_no, e.notes, e.created_by, e.created_at, e.updated_at, e.voided_at, e.voided_by, e.void_reason, e.idempotency_key, e.change_order_id, e.cost_code_id, e.budget_line_id, e.approval_status, e.decided_by, e.decided_at, e.decision_note, e.vat_rate, e.vat_amount, e.purchase_order_id, p.name AS project_name, p.project_no, p.status AS project_status
+SELECT e.id, e.organization_id, e.project_id, e.category, e.description, e.amount, e.currency, e.expense_date, e.supplier_name, e.invoice_no, e.notes, e.created_by, e.created_at, e.updated_at, e.voided_at, e.voided_by, e.void_reason, e.idempotency_key, e.change_order_id, e.cost_code_id, e.budget_line_id, e.approval_status, e.decided_by, e.decided_at, e.decision_note, e.vat_rate, e.vat_amount, e.purchase_order_id,
+       COALESCE(p.name, '')::text AS project_name,
+       COALESCE(p.project_no, '')::text AS project_no,
+       COALESCE(p.status, '')::text AS project_status
 FROM project_expenses e
-INNER JOIN projects p ON p.id = e.project_id AND p.organization_id = e.organization_id
+LEFT JOIN projects p ON p.id = e.project_id AND p.organization_id = e.organization_id
 WHERE e.organization_id = $1::uuid
   AND e.created_by = $2::uuid
   AND ($3::uuid IS NULL OR e.project_id = $3::uuid)
   AND (
-    $4::uuid IS NULL
+    e.project_id IS NULL
+    OR $4::uuid IS NULL
     OR EXISTS (
       SELECT 1 FROM project_users pu
       WHERE pu.project_id = e.project_id
@@ -1586,6 +1590,11 @@ type ListMyExpensesRow struct {
 // project_id opsiyonel: proje ekranındaki "Masraflarım" süzgeci. İptal
 // edilen (geri çekilen) masraflar da döner: kişi neyin iptal edildiğini
 // görebilmeli.
+// Genel (projesiz, migration 0068) masraflar da döner -- proje alanları
+// boş. Eskiden projeler tablosuna INNER JOIN vardı ve kişi girdiği genel
+// masrafı burada hiç göremiyordu ("genel giren masraflar hiç gözükmüyor").
+// Proje süzgeci verilince genel masraf doğal olarak düşer; genel masraf bir
+// projeye bağlı olmadığı için üyelik süzgecine de takılmaz.
 func (q *Queries) ListMyExpenses(ctx context.Context, arg ListMyExpensesParams) ([]ListMyExpensesRow, error) {
 	rows, err := q.db.Query(ctx, listMyExpenses,
 		arg.OrganizationID,

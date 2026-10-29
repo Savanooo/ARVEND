@@ -317,26 +317,29 @@ WHERE e.organization_id = $1::uuid
   AND ($4::text = ''
        OR ($4::text = 'voided' AND e.voided_at IS NOT NULL)
        OR (e.voided_at IS NULL AND e.approval_status = $4::text))
-  AND ($5::uuid IS NULL OR e.created_by = $5::uuid)
-  AND ($6::date IS NULL OR e.expense_date >= $6::date)
-  AND ($7::date IS NULL OR e.expense_date <= $7::date)
-  AND (e.project_id IS NULL OR $8::uuid IS NULL OR EXISTS (
+  AND ($5::uuid IS NULL OR e.created_by = $5::uuid
+       OR ($6::timestamptz IS NOT NULL AND e.voided_at IS NULL
+           AND (e.approval_status = 'pending' OR e.decided_at >= $6::timestamptz)))
+  AND ($7::date IS NULL OR e.expense_date >= $7::date)
+  AND ($8::date IS NULL OR e.expense_date <= $8::date)
+  AND (e.project_id IS NULL OR $9::uuid IS NULL OR EXISTS (
        SELECT 1 FROM project_users pu
-       WHERE pu.project_id = e.project_id AND pu.user_id = $8::uuid))
+       WHERE pu.project_id = e.project_id AND pu.user_id = $9::uuid))
 ORDER BY e.expense_date DESC, e.created_at DESC, e.id DESC
-LIMIT $9::int
+LIMIT $10::int
 `
 
 type ListExpensesFilteredParams struct {
-	OrganizationID   pgtype.UUID `json:"organization_id"`
-	Kind             string      `json:"kind"`
-	ProjectID        pgtype.UUID `json:"project_id"`
-	Status           string      `json:"status"`
-	CreatedBy        pgtype.UUID `json:"created_by"`
-	DateFrom         pgtype.Date `json:"date_from"`
-	DateTo           pgtype.Date `json:"date_to"`
-	RestrictToUserID pgtype.UUID `json:"restrict_to_user_id"`
-	RowLimit         int32       `json:"row_limit"`
+	OrganizationID   pgtype.UUID        `json:"organization_id"`
+	Kind             string             `json:"kind"`
+	ProjectID        pgtype.UUID        `json:"project_id"`
+	Status           string             `json:"status"`
+	CreatedBy        pgtype.UUID        `json:"created_by"`
+	DecidableSince   pgtype.Timestamptz `json:"decidable_since"`
+	DateFrom         pgtype.Date        `json:"date_from"`
+	DateTo           pgtype.Date        `json:"date_to"`
+	RestrictToUserID pgtype.UUID        `json:"restrict_to_user_id"`
+	RowLimit         int32              `json:"row_limit"`
 }
 
 type ListExpensesFilteredRow struct {
@@ -382,6 +385,13 @@ type ListExpensesFilteredRow struct {
 //	        'rejected' (bu üçü iptal edilmemişler) | 'voided'
 //	created_by: doluysa yalnızca o kişinin girdikleri (finans okuma izni
 //	        olmayan kişi yalnızca kendi masraflarını görür).
+//	decidable_since: created_by ile birlikte doluysa ONAYLAYICI kapsamı
+//	        (projects.expenses.approve, finans okuma izni yok): kişinin
+//	        kendi masraflarına ek olarak başkalarının iptal edilmemiş, onay
+//	        bekleyen ya da bu andan sonra karara bağlanmış masrafları --
+//	        onaylayıcı karar vereceği masrafı görebilmeli (bildirim onu
+//	        buraya getiriyor), ama finans okuması olmadan firmanın bütün
+//	        masraf geçmişini ve toplamları değil.
 //	restrict_to_user_id: üyelikle sınırlı rolde projeli satırlar yalnızca
 //	        üyesi olduğu projelerden (genel masraf projeye bağlı değildir).
 func (q *Queries) ListExpensesFiltered(ctx context.Context, arg ListExpensesFilteredParams) ([]ListExpensesFilteredRow, error) {
@@ -391,6 +401,7 @@ func (q *Queries) ListExpensesFiltered(ctx context.Context, arg ListExpensesFilt
 		arg.ProjectID,
 		arg.Status,
 		arg.CreatedBy,
+		arg.DecidableSince,
 		arg.DateFrom,
 		arg.DateTo,
 		arg.RestrictToUserID,

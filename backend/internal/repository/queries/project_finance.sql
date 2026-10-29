@@ -155,14 +155,23 @@ ORDER BY expense_date DESC, created_at DESC;
 -- project_id opsiyonel: proje ekranındaki "Masraflarım" süzgeci. İptal
 -- edilen (geri çekilen) masraflar da döner: kişi neyin iptal edildiğini
 -- görebilmeli.
-SELECT e.*, p.name AS project_name, p.project_no, p.status AS project_status
+-- Genel (projesiz, migration 0068) masraflar da döner -- proje alanları
+-- boş. Eskiden projeler tablosuna INNER JOIN vardı ve kişi girdiği genel
+-- masrafı burada hiç göremiyordu ("genel giren masraflar hiç gözükmüyor").
+-- Proje süzgeci verilince genel masraf doğal olarak düşer; genel masraf bir
+-- projeye bağlı olmadığı için üyelik süzgecine de takılmaz.
+SELECT e.*,
+       COALESCE(p.name, '')::text AS project_name,
+       COALESCE(p.project_no, '')::text AS project_no,
+       COALESCE(p.status, '')::text AS project_status
 FROM project_expenses e
-INNER JOIN projects p ON p.id = e.project_id AND p.organization_id = e.organization_id
+LEFT JOIN projects p ON p.id = e.project_id AND p.organization_id = e.organization_id
 WHERE e.organization_id = sqlc.arg(organization_id)::uuid
   AND e.created_by = sqlc.arg(created_by)::uuid
   AND (sqlc.narg(project_id)::uuid IS NULL OR e.project_id = sqlc.narg(project_id)::uuid)
   AND (
-    sqlc.narg(restrict_to_user_id)::uuid IS NULL
+    e.project_id IS NULL
+    OR sqlc.narg(restrict_to_user_id)::uuid IS NULL
     OR EXISTS (
       SELECT 1 FROM project_users pu
       WHERE pu.project_id = e.project_id
