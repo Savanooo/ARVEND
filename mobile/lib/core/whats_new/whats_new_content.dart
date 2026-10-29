@@ -44,6 +44,51 @@ class WhatsNewRelease {
 
 /// En yeni sürüm en üstte.
 const kWhatsNewReleases = <WhatsNewRelease>[
+  // Kullanıcı geri bildirimleri (29 Eki): firma grubu, masraf fişi, genel
+  // masraflar, kaydırmalı galeri, yapay zekâ görselleri, satın alma
+  // maliyeti, teklifte sade "Maliyet ve Kâr" dili.
+  WhatsNewRelease(
+    build: 30,
+    version: '1.5.22',
+    items: [
+      WhatsNewItem(
+        icon: Icons.forum_outlined,
+        title: 'Firma Grubu',
+        body: "Firmadaki herkesle tek grupta yazış, şantiyeden fotoğraf paylaş; Ana Sayfa'daki sohbet simgesinden aç.",
+        permission: 'organization.chat.use',
+      ),
+      WhatsNewItem(
+        icon: Icons.receipt_long_outlined,
+        title: 'Masrafa fiş ekle',
+        body: 'Masraf girerken fişin fotoğrafını çek ya da PDF ekle; genel masrafların da Masraflarım\'da görünür.',
+        permission: 'projects.expenses.create',
+      ),
+      WhatsNewItem(
+        icon: Icons.photo_library_outlined,
+        title: 'Kaydırmalı galeri',
+        body: 'Proje fotoğrafına dokununca tam ekran galeri açılır; sağa sola kaydırarak gez, iki parmakla yakınlaş.',
+        permission: 'projects.operations.read',
+      ),
+      WhatsNewItem(
+        icon: Icons.auto_awesome_outlined,
+        title: 'Yapay zekâ ile görsel',
+        body: 'Şantiye fotoğrafından işin bitmiş halini gör, karanlık fotoğrafı iyileştir; görseller ayrı rozetle durur.',
+        permission: 'ai.images.use',
+      ),
+      WhatsNewItem(
+        icon: Icons.shopping_cart_outlined,
+        title: 'Satın alma maliyette',
+        body: "Satın alma talebini onaylarken 'Proje maliyetine eklensin mi?' diye sorulur; onaylı alımlar kâra yansır.",
+        permission: 'projects.finance.read',
+      ),
+      WhatsNewItem(
+        icon: Icons.calculate_outlined,
+        title: 'Teklifte maliyet ve kâr',
+        body: 'Teklif kaleminde fiyatı kâr oranıyla hesaplat ya da kendin yaz; müşteriye fiyat ve kârımız anında görünür.',
+        permission: 'offers.internal_pricing.manage',
+      ),
+    ],
+  ),
   // Taşeron Paneli (backend 0075): firma taşerona giriş açar ve proje
   // izni verir; taşeron kendi işlerini ve ödemelerini görür.
   WhatsNewRelease(

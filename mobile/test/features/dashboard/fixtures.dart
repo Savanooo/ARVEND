@@ -13,6 +13,8 @@ Map<String, dynamic> fixtureJson(String name) =>
 
 /// Backend'in tüm izin kodları (domain Perm* sabitleri) -- Sahip/Yönetici.
 const kAllPermissions = <String>[
+  // Yapay zekâ görselleri (backend 0079): varsayılan Sahip/Yönetici.
+  'ai.images.use',
   'attendance.manage',
   'attendance.read',
   'calculations.manage',
