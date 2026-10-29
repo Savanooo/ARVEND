@@ -104,6 +104,9 @@ func TestSendFlow(t *testing.T) {
 		msg["android"].(map[string]any)["notification"].(map[string]any)["tag"] != "n1" {
 		t.Errorf("gövde: %v", lastBody)
 	}
+	if _, ok := msg["android"].(map[string]any)["collapse_key"]; ok {
+		t.Errorf("collapse_key yalnızca istendiğinde gönderilmeli: %v", msg["android"])
+	}
 	// İkinci gönderim önbellekteki belirteci kullanır.
 	if err := c.Send(ctx, Message{Token: "cihaz-2", Title: "t", Body: "b"}); err != nil {
 		t.Fatal(err)
@@ -117,6 +120,17 @@ func TestSendFlow(t *testing.T) {
 	// Token dışı bir alan hatası cihazı sildirmesin.
 	if err := c.Send(ctx, Message{Token: "bozuk-istek", Title: "t", Body: "b"}); err == nil || errors.Is(err, ErrUnregistered) {
 		t.Errorf("alan hatası cihaz silmemeli: %v", err)
+	}
+	// Firma Grubu: sabit etiket + collapse key (Android) / apns-collapse-id (iOS).
+	if err := c.Send(ctx, Message{Token: "cihaz-3", Title: "Firma Grubu", Body: "Ahmet: selam", Tag: "firma-grubu", CollapseKey: "firma-grubu"}); err != nil {
+		t.Fatal(err)
+	}
+	msg = lastBody["message"].(map[string]any)
+	android := msg["android"].(map[string]any)
+	headers := msg["apns"].(map[string]any)["headers"].(map[string]any)
+	if android["collapse_key"] != "firma-grubu" || android["notification"].(map[string]any)["tag"] != "firma-grubu" ||
+		headers["apns-collapse-id"] != "firma-grubu" {
+		t.Errorf("collapse: %v", msg)
 	}
 }
 

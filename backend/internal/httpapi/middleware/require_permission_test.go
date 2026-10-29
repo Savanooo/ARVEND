@@ -261,7 +261,11 @@ func setupRBACTestRouter(t *testing.T) *rbacTestDeps {
 		Inventory:         handler.NewInventoryHandler(service.NewInventoryService(pool, q, fileStore)),
 		Dashboard:         handler.NewDashboardHandler(dashboardSvc),
 		Notifications:     handler.NewNotificationHandler(service.NewNotificationService(q)),
-		CORSOrigins:       []string{"*"},
+		// Firma Grubu (migration 0077): rotaları burada olsun ki taşeron
+		// güvenlik taraması (subcontractor_portal_security_test.go) onları da
+		// gezsin.
+		Chat:        handler.NewOrganizationChatHandler(service.NewOrganizationChatService(pool, q, fileStore)),
+		CORSOrigins: []string{"*"},
 	})
 
 	return &rbacTestDeps{

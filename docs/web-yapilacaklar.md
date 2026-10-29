@@ -165,6 +165,28 @@ linkinde müşteri Kabul Et / Reddet görmüyor. Kural: `mobile/API_CONTRACT.md`
 - Müşteri sayfası (`paylas/[token]`) taslak linkte artık "Bu teklif henüz onaya
   açılmadı…" notunu gösteriyor (yapıldı).
 
+## 12. Firma Grubu (backend migration 0077, mobil)
+Ürün sahibi: "Toplu mesaj kanalı olsun, grup mesajı gibi düşün" — firma başına
+TEK grup, metin + fotoğraf, telefona bildirim. Backend ve mobil hazır; web'de
+ekran yok. Kural ve uçlar: `mobile/API_CONTRACT.md` "Firma Grubu",
+`backend/internal/service/organization_chat.go`.
+- Uçlar `/organization/chat/*` (izin `organization.chat.use`, Taşeron hariç
+  herkeste): `GET messages` (en yeni sayfa / `before` / `after` +
+  `changed_since` ile yoklama), `POST messages`, `POST messages/photo`
+  (multipart), `GET messages/{id}/photo`, `DELETE messages/{id}`,
+  `GET status`, `POST read`, `PUT mute`.
+- Web ekranı: mobil `features/chat/presentation/chat_screen.dart` ile aynı —
+  alttan yukarı mesajlar, gün ayraçları, kendi mesajı sağda, fotoğraf
+  küçük resmi (tıklayınca büyük), "Mesaj silindi", gönderilemeyen mesajda
+  "Tekrar dene" (aynı `client_id`), sayfa açıkken ~5 sn'de bir yoklama,
+  görünürken `POST read`, menüde "Bildirimleri sessize al". Menüde rozetli
+  "Firma Grubu" girişi (`GET status`).
+- Bildirim hedefi mobil yolu `/diger/firma-grubu`; `lib/dashboard.ts`
+  `webHrefForActionTarget` bunu tanımıyor (zilde tıklanmaz) — web ekranı
+  gelince eşlenmeli. Bildirim türü `organization_chat`, varlık `chat_message`.
+- Roller ekranı yeni "İletişim" kategorisini API'den okur (değişiklik
+  gerekmez); Taşeron rolü zaten kilitli.
+
 ## Bilinen tutarsızlıklar (web + backend)
 - Katalog fiyatı TL; teklifin para birimi TL değilse (firma varsayılanı
   USD/EUR) katalogdan seçilen fiyat çevrilmeden yazılıyor — web ve mobil

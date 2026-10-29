@@ -43,6 +43,7 @@ type Deps struct {
 	Suppliers         *handler.SupplierHandler
 	Inventory         *handler.InventoryHandler
 	Notifications     *handler.NotificationHandler
+	Chat              *handler.OrganizationChatHandler
 	Push              *handler.PushHandler
 	Feedback          *handler.FeedbackHandler
 	Dashboard         *handler.DashboardHandler
@@ -719,6 +720,26 @@ func NewRouter(d Deps) http.Handler {
 		// Firma yöneticisinin kendi ekibine duyurusu.
 		r.With(requireAuth, requireTenant, requireOnboarded, loadAuthorization, perm(domain.PermOrganizationUsersManage)).
 			Post("/announcements", d.Push.SendOrganizationAnnouncement)
+
+		// Firma Grubu (migration 0077): firma başına tek grup, herkes yazar
+		// (duyurunun aksine iki yönlü). allowPortal BİLİNÇLİ OLARAK yok:
+		// taşeron hesabı oturum kapısında 403 portal_only alır, grubu hiç
+		// görmez. Kişi ve firma oturumdan; silme kuralı (kendi mesajı /
+		// Sahip-Yönetici herkesinki) serviste. (Test router'ı Chat vermezse
+		// rota yok.)
+		if d.Chat != nil {
+			r.Route("/organization/chat", func(r chi.Router) {
+				r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization, perm(domain.PermOrganizationChatUse))
+				r.Get("/messages", d.Chat.List)
+				r.Post("/messages", d.Chat.Send)
+				r.Post("/messages/photo", d.Chat.SendPhoto)
+				r.Get("/messages/{id}/photo", d.Chat.Photo)
+				r.Delete("/messages/{id}", d.Chat.Delete)
+				r.Get("/status", d.Chat.Status)
+				r.Post("/read", d.Chat.MarkRead)
+				r.Put("/mute", d.Chat.SetMuted)
+			})
+		}
 
 		r.Route("/customers", func(r chi.Router) {
 			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
