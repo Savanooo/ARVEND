@@ -169,10 +169,30 @@ void main() {
       'Verilen avans (maliyet değil)',
       'Onay bekleyen (maliyet değil)',
       'Teslim alınmış, faturası yok',
+      'Satın almalar (onaylı)',
+      'Maliyete eklenmeyen satın almalar',
     ]) {
       expect(find.text(label), findsNothing, reason: label);
     }
     final s = FinancialSummary.fromJson(_base());
     expect(s.paidCost, s.realizedCost, reason: 'alan yoksa ödenen = gerçekleşen (eski sunucu nakit esaslıydı)');
+  });
+
+  // Satın almalar (backend migration 0078): onaylı satın almalar gerçekleşen
+  // maliyetin içindedir ve ayrı satırda görünür; "maliyete eklenmesin"
+  // denmiş satın almalar bilgi satırıdır (maliyet değil).
+  testWidgets('"Satın almalar (onaylı)" ve maliyete eklenmeyen satın almalar sunucunun rakamıyla', (tester) async {
+    await pump(tester, {
+      ..._base(),
+      'realized_cost': 134400,
+      'expense_cost': 120000,
+      'purchase_cost': 14400,
+      'purchase_excluded': 1200,
+    });
+    expect(find.text('134.400,00 TL'), findsOneWidget);
+    expect(find.text('Satın almalar (onaylı)'), findsOneWidget);
+    expect(find.text('14.400,00 TL'), findsOneWidget);
+    expect(find.text('Maliyete eklenmeyen satın almalar'), findsOneWidget);
+    expect(find.text('1.200,00 TL'), findsOneWidget);
   });
 }

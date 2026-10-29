@@ -205,8 +205,19 @@ class FinancialSummary {
 
   /// Siparişten teslim alınmış (kabul edilmiş) ama siparişe bağlı onaylı
   /// masrafı (faturası) girilmemiş tutar, KDV dahil (backend migration 0074).
-  /// Maliyet değildir; kaybolmasın diye ayrıca gösterilir.
+  /// Migration 0078'den beri sipariş tutarıyla maliyetin İÇİNDEDİR;
+  /// "fatura bekleniyor" bilgisi olarak gösterilir.
   final double receivedNotCosted;
+
+  /// Gerçekleşen maliyetin satın alma kırılımı (backend migration 0078):
+  /// [purchaseCost] "Satın almalar (onaylı)" -- onaylı talebin tahmini, onaylı
+  /// siparişin tutarı ya da (aşarsa) bağlı faturaları; [expenseCost]
+  /// satın almaya ait olmayan onaylı masraflar; [purchaseExcluded] "maliyete
+  /// eklenmesin" denmiş satın almalar (maliyet değil, bilgi). Eski sunucuda
+  /// alan yok: 0 (satırlar gizlenir).
+  final double purchaseCost;
+  final double expenseCost;
+  final double purchaseExcluded;
 
   const FinancialSummary({
     required this.currentContractValue,
@@ -243,6 +254,9 @@ class FinancialSummary {
     this.subcontractPayable = 0,
     this.subcontractRetention = 0,
     this.receivedNotCosted = 0,
+    this.purchaseCost = 0,
+    this.expenseCost = 0,
+    this.purchaseExcluded = 0,
   })  : paidCost = paidCost ?? realizedCost,
         currentContractValueNet = currentContractValueNet ?? currentContractValue,
         realizedGrossProfitNet = realizedGrossProfitNet ?? realizedGrossProfit,
@@ -302,6 +316,9 @@ class FinancialSummary {
         subcontractPayable: (json['new_subcontract_payable'] as num?)?.toDouble() ?? 0,
         subcontractRetention: (json['new_subcontract_retention'] as num?)?.toDouble() ?? 0,
         receivedNotCosted: (json['received_not_costed'] as num?)?.toDouble() ?? 0,
+        purchaseCost: (json['purchase_cost'] as num?)?.toDouble() ?? 0,
+        expenseCost: (json['expense_cost'] as num?)?.toDouble() ?? 0,
+        purchaseExcluded: (json['purchase_excluded'] as num?)?.toDouble() ?? 0,
       );
 }
 

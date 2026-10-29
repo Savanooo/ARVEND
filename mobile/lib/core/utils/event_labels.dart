@@ -76,6 +76,9 @@ const kProjectEventLabels = <String, String>{
   'purchase_order_closed': 'Sipariş kapatıldı',
   'purchase_receipt_recorded': 'Siparişten teslim alındı',
   'purchase_receipt_voided': 'Teslim iptal edildi',
+  // "Proje maliyetine eklensin mi" kararı değişti (backend migration 0078).
+  'purchase_request_cost_decision': 'Talebin maliyet kararı değişti',
+  'purchase_order_cost_decision': 'Siparişin maliyet kararı değişti',
   'rfq_created': 'RFQ oluşturuldu',
   'rfq_updated': 'RFQ güncellendi',
   'rfq_issued': 'RFQ tedarikçilere gönderildi',

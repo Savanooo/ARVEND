@@ -560,8 +560,44 @@ class ProjectsRepository {
     return PurchaseRequest.fromJson(json);
   }
 
-  Future<PurchaseRequest> approvePurchaseRequest(String projectId, String prId) async {
-    final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/purchase-requests/$prId/approve');
+  /// `submitted` -> `approved`. Onay satın almayı proje maliyetine sokar
+  /// (backend migration 0078): [includeInProjectCost] "proje maliyetine
+  /// eklensin mi" kararı, [costEstimate] fiyatsız talepte maliyete girecek
+  /// tahmini tutar (KDV dahil). İkisi de null ise gövdesiz gönderilir (eski
+  /// davranış: eklensin, tahmin kalemlerden).
+  Future<PurchaseRequest> approvePurchaseRequest(
+    String projectId,
+    String prId, {
+    bool? includeInProjectCost,
+    double? costEstimate,
+  }) async {
+    final body = <String, dynamic>{
+      'include_in_project_cost': ?includeInProjectCost,
+      'cost_estimate': ?costEstimate,
+    };
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/purchase-requests/$prId/approve',
+      data: body.isEmpty ? null : body,
+    );
+    return PurchaseRequest.fromJson(json);
+  }
+
+  /// Onaylı talebin maliyet kararını sonradan değiştirir
+  /// (`projects.procurement.approve`); karar talebin açık siparişlerine de
+  /// uygulanır. Null alan gönderilmez (değişmez).
+  Future<PurchaseRequest> setPurchaseRequestCost(
+    String projectId,
+    String prId, {
+    bool? includeInProjectCost,
+    double? costEstimate,
+  }) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/purchase-requests/$prId/project-cost',
+      data: {
+        'include_in_project_cost': ?includeInProjectCost,
+        'cost_estimate': ?costEstimate,
+      },
+    );
     return PurchaseRequest.fromJson(json);
   }
 
@@ -988,8 +1024,24 @@ class ProjectsRepository {
   /// `draft` -> `approved`. KALEM-başına, ONAY-SONRASI DEĞİŞMEZ bir
   /// commitment oluşturur (Taşeron'un void-yeniden-senkronize modelinden
   /// BİLİNÇLİ OLARAK FARKLI, bkz. Phase 1 doğrulaması).
-  Future<PurchaseOrder> approvePurchaseOrder(String projectId, String poId) async {
-    final json = await _client.post<Map<String, dynamic>>('/projects/$projectId/purchase-orders/$poId/approve');
+  ///
+  /// Onaylı sipariş proje maliyetine girer (backend migration 0078):
+  /// [includeInProjectCost] verilmezse siparişin mevcut kararı (talepten
+  /// devralınan) kalır.
+  Future<PurchaseOrder> approvePurchaseOrder(String projectId, String poId, {bool? includeInProjectCost}) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/purchase-orders/$poId/approve',
+      data: includeInProjectCost == null ? null : {'include_in_project_cost': includeInProjectCost},
+    );
+    return PurchaseOrder.fromJson(json);
+  }
+
+  /// Açık (taslak/onaylı) siparişin maliyet kararı (`projects.procurement.approve`).
+  Future<PurchaseOrder> setPurchaseOrderCost(String projectId, String poId, {required bool includeInProjectCost}) async {
+    final json = await _client.post<Map<String, dynamic>>(
+      '/projects/$projectId/purchase-orders/$poId/project-cost',
+      data: {'include_in_project_cost': includeInProjectCost},
+    );
     return PurchaseOrder.fromJson(json);
   }
 
