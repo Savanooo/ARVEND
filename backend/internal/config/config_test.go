@@ -85,3 +85,26 @@ func TestLoad_AppReleasesDirOverride(t *testing.T) {
 		t.Fatalf("AppReleasesDir = %q, want APP_RELEASES_DIR aynen", got)
 	}
 }
+
+func TestLoad_AIImageSettings(t *testing.T) {
+	for _, k := range []string{"OPENAI_API_KEY_FILE", "OPENAI_IMAGE_MODEL", "OPENAI_IMAGE_QUALITY",
+		"AI_IMAGE_MONTHLY_LIMIT", "AI_IMAGE_USER_HOURLY_LIMIT", "AI_IMAGE_WORKERS"} {
+		t.Setenv(k, "")
+	}
+	cfg := Load()
+	if cfg.OpenAIKeyFile != "" || cfg.OpenAIImageModel != "" || cfg.OpenAIImageQuality != "medium" ||
+		cfg.AIImageMonthlyLimit != 100 || cfg.AIImageUserHourlyLimit != 10 || cfg.AIImageWorkers != 2 {
+		t.Fatalf("varsayılanlar: %+v", cfg)
+	}
+
+	t.Setenv("OPENAI_API_KEY_FILE", "/etc/arvend/openai.key")
+	t.Setenv("OPENAI_IMAGE_QUALITY", "HIGH")
+	t.Setenv("AI_IMAGE_MONTHLY_LIMIT", "250")
+	t.Setenv("AI_IMAGE_USER_HOURLY_LIMIT", "abc") // geçersiz -> varsayılan
+	t.Setenv("AI_IMAGE_WORKERS", "50")            // aralık dışı -> varsayılan
+	cfg = Load()
+	if cfg.OpenAIKeyFile != "/etc/arvend/openai.key" || cfg.OpenAIImageQuality != "high" ||
+		cfg.AIImageMonthlyLimit != 250 || cfg.AIImageUserHourlyLimit != 10 || cfg.AIImageWorkers != 2 {
+		t.Fatalf("okunan: %+v", cfg)
+	}
+}

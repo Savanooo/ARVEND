@@ -17,7 +17,7 @@ SELECT r.id, r.report_date, r.weather, r.temperature_c, r.own_workers, r.status,
        COALESCE((SELECT sum(s.workers) FROM project_daily_report_subcontractors s WHERE s.report_id = r.id), 0)::int
            AS subcontractor_workers,
        (SELECT count(*) FROM project_photos ph
-        WHERE ph.project_id = r.project_id AND ph.deleted_at IS NULL
+        WHERE ph.project_id = r.project_id AND ph.deleted_at IS NULL AND NOT ph.ai_generated
           AND (ph.created_at AT TIME ZONE 'Europe/Istanbul')::date = r.report_date)::int AS photo_count
 FROM project_daily_reports r
 LEFT JOIN users cu ON cu.id = r.created_by
@@ -81,10 +81,12 @@ WHERE project_id = sqlc.arg(project_id) AND organization_id = sqlc.arg(organizat
 ORDER BY completed_at;
 
 -- name: ListPhotosTakenOn :many
+-- Yapay zekâ görselleri (migration 0079) günlük rapora girmez: rapor
+-- şantiyenin gerçek kaydıdır, üretilmiş görsel değil.
 SELECT id, object_key, mime_type, stage, description, original_name
 FROM project_photos
 WHERE project_id = sqlc.arg(project_id) AND organization_id = sqlc.arg(organization_id)
-  AND deleted_at IS NULL
+  AND deleted_at IS NULL AND NOT ai_generated
   AND (created_at AT TIME ZONE 'Europe/Istanbul')::date = sqlc.arg(report_date)::date
 ORDER BY created_at;
 

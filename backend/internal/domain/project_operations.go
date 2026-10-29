@@ -200,6 +200,18 @@ type ProjectPhoto struct {
 	TakenAt        *time.Time
 	UploadedBy     *string
 	CreatedAt      time.Time
+	// AI: yalnızca yapay zekâ ile üretilmiş görselde dolu (migration 0079)
+	// -- istemciler rozet gösterir, kimse gerçek şantiye kaydı sanmasın.
+	AI *ProjectPhotoAI
+}
+
+// ProjectPhotoAI, üretilmiş görselin nasıl üretildiği. SourceDate: kaynak
+// fotoğrafın çekildiği (yoksa yüklendiği) an; yalnızca liste uçunda dolar.
+type ProjectPhotoAI struct {
+	Kind          string
+	Prompt        string
+	SourcePhotoID *string
+	SourceDate    *time.Time
 }
 
 type ProjectNote struct {

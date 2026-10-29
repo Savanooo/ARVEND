@@ -224,6 +224,12 @@ const (
 	PermInventoryRead   = "inventory.read"
 	PermInventoryManage = "inventory.manage"
 	PermInventoryAdjust = "inventory.adjust"
+
+	// Yapay zekâ görselleri (migration 0079): her görsel firmanın OpenAI
+	// hesabından ücretlenir -- varsayılan yalnızca Sahip/Yönetici, firma
+	// başkasına Roller & Yetkiler'den verir. Görsel projeye fotoğraf olarak
+	// eklendiği için uç ayrıca projects.operations.manage + proje erişimi ister.
+	PermAIImagesUse = "ai.images.use"
 )
 
 // adminRoleOnlyPermissions, uçları izne EK OLARAK kaba requireAdmin

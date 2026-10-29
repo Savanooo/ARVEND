@@ -5,6 +5,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,6 +59,27 @@ type Config struct {
 	// (telefona bildirim). Boşsa ya da okunamazsa gönderim kapalıdır;
 	// bildirimler uygulama içinde durmaya devam eder.
 	FCMServiceAccountFile string
+	// OpenAIKeyFile, yapay zekâ görselleri için firmanın (sahibin) OpenAI
+	// API anahtarının dosya yolu (OPENAI_API_KEY_FILE; 600 izinli, servis
+	// kullanıcısına ait). Anahtar ASLA ortam değişkenine, depoya ya da
+	// veritabanına yazılmaz. Boşsa ya da okunamazsa özellik kapalıdır: uçlar
+	// 503 döner, uygulama girişleri gizler.
+	OpenAIKeyFile string
+	// OpenAIImageModel (OPENAI_IMAGE_MODEL): boşsa openai.DefaultImageModel
+	// (gpt-image-2.5-sunburst).
+	OpenAIImageModel string
+	// OpenAIImageQuality (OPENAI_IMAGE_QUALITY): low/medium/high/auto...;
+	// varsayılan medium (maliyet/süre dengesi).
+	OpenAIImageQuality string
+	// AIImageMonthlyLimit (AI_IMAGE_MONTHLY_LIMIT): firma başına aylık
+	// görsel hakkı (İstanbul takvim ayı), varsayılan 100.
+	AIImageMonthlyLimit int
+	// AIImageUserHourlyLimit (AI_IMAGE_USER_HOURLY_LIMIT): kişi başı saatlik
+	// istek sınırı, varsayılan 10.
+	AIImageUserHourlyLimit int
+	// AIImageWorkers (AI_IMAGE_WORKERS): aynı anda çalışan görsel işi,
+	// varsayılan 2 (1-8).
+	AIImageWorkers int
 }
 
 func Load() Config {
@@ -68,25 +90,45 @@ func Load() Config {
 	port := getEnv("PORT", "8080")
 	storageRoot := getEnv("STORAGE_ROOT", "./var/uploads")
 	return Config{
-		Port:                  port,
-		ListenAddr:            getEnv("LISTEN_ADDR", ":"+port),
-		CORSOrigins:           splitCSV(getEnv("CORS_ORIGINS", "http://localhost:3000")),
-		DatabaseURL:           getEnv("DB_URL", ""),
-		JWTSecret:             getEnv("JWT_SECRET", ""),
-		AccessTTL:             15 * time.Minute,
-		RefreshTTL:            30 * 24 * time.Hour,
-		CookieDomain:          getEnv("COOKIE_DOMAIN", ""),
-		CookieSecure:          getEnv("COOKIE_SECURE", "false") == "true",
-		SeedAdminUser:         getEnv("SEED_ADMIN_USERNAME", ""),
-		SeedAdminPass:         getEnv("SEED_ADMIN_PASSWORD", ""),
-		SeedAdminName:         getEnv("SEED_ADMIN_FULLNAME", "Yönetici"),
-		SettingsEncryptionKey: getEnv("SETTINGS_ENCRYPTION_KEY", ""),
-		FrontendURL:           getEnv("FRONTEND_URL", "http://localhost:3000"),
-		StorageRoot:           storageRoot,
-		AppReleasesDir:        getEnv("APP_RELEASES_DIR", defaultAppReleasesDir(storageRoot)),
-		PriceSyncScheduler:    envEnabled(getEnv("PRICE_SYNC_SCHEDULER", "on")),
-		FCMServiceAccountFile: getEnv("FCM_SERVICE_ACCOUNT_FILE", ""),
+		Port:                   port,
+		ListenAddr:             getEnv("LISTEN_ADDR", ":"+port),
+		CORSOrigins:            splitCSV(getEnv("CORS_ORIGINS", "http://localhost:3000")),
+		DatabaseURL:            getEnv("DB_URL", ""),
+		JWTSecret:              getEnv("JWT_SECRET", ""),
+		AccessTTL:              15 * time.Minute,
+		RefreshTTL:             30 * 24 * time.Hour,
+		CookieDomain:           getEnv("COOKIE_DOMAIN", ""),
+		CookieSecure:           getEnv("COOKIE_SECURE", "false") == "true",
+		SeedAdminUser:          getEnv("SEED_ADMIN_USERNAME", ""),
+		SeedAdminPass:          getEnv("SEED_ADMIN_PASSWORD", ""),
+		SeedAdminName:          getEnv("SEED_ADMIN_FULLNAME", "Yönetici"),
+		SettingsEncryptionKey:  getEnv("SETTINGS_ENCRYPTION_KEY", ""),
+		FrontendURL:            getEnv("FRONTEND_URL", "http://localhost:3000"),
+		StorageRoot:            storageRoot,
+		AppReleasesDir:         getEnv("APP_RELEASES_DIR", defaultAppReleasesDir(storageRoot)),
+		PriceSyncScheduler:     envEnabled(getEnv("PRICE_SYNC_SCHEDULER", "on")),
+		FCMServiceAccountFile:  getEnv("FCM_SERVICE_ACCOUNT_FILE", ""),
+		OpenAIKeyFile:          getEnv("OPENAI_API_KEY_FILE", ""),
+		OpenAIImageModel:       getEnv("OPENAI_IMAGE_MODEL", ""),
+		OpenAIImageQuality:     strings.ToLower(getEnv("OPENAI_IMAGE_QUALITY", "medium")),
+		AIImageMonthlyLimit:    envInt("AI_IMAGE_MONTHLY_LIMIT", 100, 0, 100000),
+		AIImageUserHourlyLimit: envInt("AI_IMAGE_USER_HOURLY_LIMIT", 10, 0, 1000),
+		AIImageWorkers:         envInt("AI_IMAGE_WORKERS", 2, 1, 8),
 	}
+}
+
+// envInt: sayı ayarı; boş, sayı olmayan ya da aralık dışı değer varsayılana
+// düşer (yanlış yazılmış bir sınır sınırı kaldırmasın).
+func envInt(key string, def, min, max int) int {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < min || n > max {
+		return def
+	}
+	return n
 }
 
 // defaultAppReleasesDir: STORAGE_ROOT'un kardeşi "app-releases" -- yüklenen

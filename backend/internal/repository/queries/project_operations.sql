@@ -167,14 +167,34 @@ INSERT INTO project_photos (
 RETURNING *;
 
 -- name: ListProjectPhotos :many
-SELECT * FROM project_photos
-WHERE project_id = $1 AND organization_id = $2 AND deleted_at IS NULL
-ORDER BY stage ASC, COALESCE(taken_at, created_at) DESC;
+-- ai_source_date: yapay zekâ görselinin kaynak fotoğrafının tarihi (galeri
+-- "kaynak: <tarih>" yazar). Kaynak sonradan silinse de tarih görünsün diye
+-- silinmiş satır da eşleşir; aynı proje şartı kaynak bağını proje dışına
+-- taşımaz.
+SELECT sqlc.embed(p), COALESCE(src.taken_at, src.created_at) AS ai_source_date
+FROM project_photos p
+LEFT JOIN project_photos src ON src.id = p.ai_source_photo_id AND src.project_id = p.project_id
+WHERE p.project_id = $1 AND p.organization_id = $2 AND p.deleted_at IS NULL
+ORDER BY p.stage ASC, COALESCE(p.taken_at, p.created_at) DESC;
 
 -- name: GetProjectPhoto :one
 -- project_id EKLENDİ (bkz. GetProjectFile notu).
 SELECT * FROM project_photos
 WHERE id = $1 AND organization_id = $2 AND project_id = $3 AND deleted_at IS NULL;
+
+-- name: CreateAIProjectPhoto :one
+-- Yapay zekâ görseli (migration 0079): her zaman YENİ satır, kaynak
+-- fotoğrafa dokunulmaz. taken_at boş -- çekilmiş bir fotoğraf değil.
+INSERT INTO project_photos (
+    organization_id, project_id, original_name, object_key, mime_type,
+    size_bytes, sha256, stage, description, uploaded_by,
+    ai_generated, ai_kind, ai_prompt, ai_source_photo_id
+) VALUES (
+    sqlc.arg(organization_id), sqlc.arg(project_id), sqlc.arg(original_name), sqlc.arg(object_key),
+    sqlc.arg(mime_type), sqlc.arg(size_bytes), sqlc.arg(sha256), sqlc.arg(stage), sqlc.arg(description),
+    sqlc.arg(uploaded_by), true, sqlc.arg(ai_kind), sqlc.arg(ai_prompt), sqlc.narg(ai_source_photo_id)
+)
+RETURNING *;
 
 -- name: GetProjectPhotoBySHA :one
 SELECT * FROM project_photos
