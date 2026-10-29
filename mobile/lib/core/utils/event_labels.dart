@@ -47,6 +47,8 @@ const kProjectEventLabels = <String, String>{
   'file_removed': 'Dosya silindi',
   'photo_uploaded': 'Şantiye fotoğrafı yüklendi',
   'photo_removed': 'Şantiye fotoğrafı silindi',
+  // Yapay zekâ görseli (backend migration 0079) -- gerçek fotoğraf değil.
+  'ai_photo_created': 'Yapay zekâ görseli eklendi',
   'note_added': 'Not eklendi',
   'daily_report_submitted': 'Günlük rapor gönderildi',
   // Faz 8: ek iş (değişiklik emri) olayları.

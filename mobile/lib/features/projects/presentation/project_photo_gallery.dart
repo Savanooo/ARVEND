@@ -10,6 +10,9 @@ import '../../../core/files/file_share.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/status_badge.dart';
+import '../../ai_images/data/ai_images_providers.dart';
+import '../../ai_images/presentation/ai_badge.dart';
+import '../../ai_images/presentation/ai_image_sheet.dart';
 import '../data/projects_providers.dart';
 import '../domain/project.dart';
 
@@ -26,12 +29,16 @@ import '../domain/project.dart';
 /// [canDelete]: silme düğmeleri (projects.operations.manage). [onDeleted]:
 /// silinen her fotoğraf için -- çağıran kendi listesini (ör. günlük rapor)
 /// tazelesin; proje fotoğraf listesini galeri kendisi tazeler.
+/// [canUseAi]: "Yapay zekâ" düğmesi bu bağlamda olabilir (fotoğraf
+/// yükleyebilen, açık proje); ayrıca izin ve sunucu açıklığı da aranır.
+/// Günlük rapor (gerçek şantiye kaydı) bunu açmaz.
 Future<void> showProjectPhotoGallery(
   BuildContext context, {
   required String projectId,
   required List<ProjectPhoto> photos,
   int initialIndex = 0,
   bool canDelete = false,
+  bool canUseAi = false,
   ValueChanged<ProjectPhoto>? onDeleted,
 }) {
   assert(photos.isNotEmpty);
@@ -44,6 +51,7 @@ Future<void> showProjectPhotoGallery(
       photos: photos,
       initialIndex: initialIndex,
       canDelete: canDelete,
+      canUseAi: canUseAi,
       onDeleted: onDeleted,
     ),
     transitionsBuilder: (_, animation, _, child) => FadeTransition(opacity: animation, child: child),
@@ -68,6 +76,7 @@ class ProjectPhotoGalleryScreen extends ConsumerStatefulWidget {
     required this.photos,
     this.initialIndex = 0,
     this.canDelete = false,
+    this.canUseAi = false,
     this.onDeleted,
   });
 
@@ -75,6 +84,7 @@ class ProjectPhotoGalleryScreen extends ConsumerStatefulWidget {
   final List<ProjectPhoto> photos;
   final int initialIndex;
   final bool canDelete;
+  final bool canUseAi;
   final ValueChanged<ProjectPhoto>? onDeleted;
 
   @override
@@ -222,6 +232,8 @@ class _ProjectPhotoGalleryScreenState extends ConsumerState<ProjectPhotoGalleryS
     final fade = (1 - _dismissDy.abs() / 400).clamp(0.0, 1.0);
     final chromeOpacity = _chrome && _dismissDy == 0 ? 1.0 : 0.0;
     final canPage = !_zoomed && _pointers < 2 && !_deleting;
+    // İzin + sunucu açıklığı yalnızca bağlam izin veriyorsa sorulur.
+    final showAi = widget.canUseAi && ref.watch(aiImagesAvailableProvider);
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
@@ -286,6 +298,15 @@ class _ProjectPhotoGalleryScreenState extends ConsumerState<ProjectPhotoGalleryS
                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
                     ),
                     actions: [
+                      if (showAi)
+                        IconButton(
+                          key: const ValueKey('photo-gallery-ai'),
+                          icon: const Icon(Icons.auto_awesome_outlined),
+                          tooltip: 'Yapay zekâ',
+                          onPressed: _deleting
+                              ? null
+                              : () => showAiPhotoSheet(context, projectId: widget.projectId, photo: photo),
+                        ),
                       IconButton(
                         icon: const Icon(Icons.share_outlined),
                         tooltip: 'Fotoğrafı paylaş',
@@ -329,7 +350,9 @@ class _ProjectPhotoGalleryScreenState extends ConsumerState<ProjectPhotoGalleryS
 /// Alttaki açıklama: aşama, tam açıklama, tarih ve görünür bir "Sil" --
 /// silme eskiden yalnızca ızgarada uzun basışla (keşfedilemez) ya da
 /// etiketsiz bir simgeyle yapılabiliyordu. Yükleyen kişi gösterilmez:
-/// fotoğraf yanıtında yok (bkz. backend photoResponse).
+/// fotoğraf yanıtında yok (bkz. backend photoResponse). Yapay zekâ
+/// görselinde rozet ve "Yapay zekâ ile üretildi · kaynak: `tarih`" --
+/// kimse onu gerçek şantiye kaydı sanmasın.
 class _Caption extends StatelessWidget {
   const _Caption({required this.photo, required this.deleting, required this.onDelete});
 
@@ -343,6 +366,7 @@ class _Caption extends StatelessWidget {
     final landscape = MediaQuery.orientationOf(context) == Orientation.landscape;
     final hasStage = StatusRegistry.photoStage.containsKey(photo.stage);
     final date = photo.createdAt.isEmpty ? '' : Formatters.dateTime(photo.createdAt);
+    final ai = photo.ai;
     return DecoratedBox(
       // Açık renkli bir fotoğrafın üstünde de beyaz yazı okunsun.
       decoration: const BoxDecoration(
@@ -364,15 +388,29 @@ class _Caption extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (hasStage) ...[
-                      // Rozet açık zemine göre renkli (yarı saydam ton);
-                      // koyu zeminde "İş Öncesi"nin grisi okunmuyordu.
-                      DecoratedBox(
-                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(6)),
-                        child: StatusRegistry.build(photo.stage, StatusRegistry.photoStage),
+                    if (hasStage || ai != null) ...[
+                      Wrap(
+                        spacing: AppSpacing.xs,
+                        runSpacing: AppSpacing.xs,
+                        children: [
+                          if (ai != null) const AiBadge(),
+                          // Rozet açık zemine göre renkli (yarı saydam ton);
+                          // koyu zeminde "İş Öncesi"nin grisi okunmuyordu.
+                          if (hasStage)
+                            DecoratedBox(
+                              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(6)),
+                              child: StatusRegistry.build(photo.stage, StatusRegistry.photoStage),
+                            ),
+                        ],
                       ),
                       const SizedBox(height: AppSpacing.xs),
                     ],
+                    if (ai != null)
+                      Text(
+                        aiCaption(ai),
+                        key: const ValueKey('photo-gallery-ai-caption'),
+                        style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600),
+                      ),
                     if (description.isNotEmpty)
                       Text(
                         description,

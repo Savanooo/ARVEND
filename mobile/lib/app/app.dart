@@ -7,6 +7,7 @@ import '../core/push/push_watcher.dart';
 import '../core/theme/app_theme.dart';
 import '../core/update/app_update_watcher.dart';
 import '../core/update/play_update.dart';
+import '../features/ai_images/presentation/ai_image_job_watcher.dart';
 import 'app_router.dart';
 
 class ArvendApp extends ConsumerWidget {
@@ -33,7 +34,12 @@ class ArvendApp extends ConsumerWidget {
           // aralıkla tazelenir (bkz. PermissionRefreshWatcher).
           child: PushWatcher(
             router: router,
-            child: PermissionRefreshWatcher(child: child ?? const SizedBox.shrink()),
+            // Yapay zekâ görseli bitince (sayfa kapanmış olsa da) "Görsel
+            // hazır · Göster" bandı; galeriyi kök Navigator'a açar.
+            child: AiImageJobWatcher(
+              navigatorKey: router.routerDelegate.navigatorKey,
+              child: PermissionRefreshWatcher(child: child ?? const SizedBox.shrink()),
+            ),
           ),
         ),
       ),
