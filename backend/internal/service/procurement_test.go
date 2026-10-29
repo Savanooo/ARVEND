@@ -515,12 +515,16 @@ func TestProcurement(t *testing.T) {
 			t.Errorf("beklenmedik award sonucu: %+v", awarded)
 		}
 		// Award TEK BAŞINA hiçbir commitment/actual cost OLUŞTURMAMALI.
+		// Gerçekleşen yalnızca onaylı talebin tahminidir (100 x 50 = 5.000;
+		// satın alma talep onayında maliyete girer, migration 0078) -- award
+		// bunu değiştirmez.
 		summary, err := projectSvc.CostControlSummary(ctx, p.ID, orgA.ID)
 		if err != nil {
 			t.Fatalf("özet alınamadı: %v", err)
 		}
-		if summary.CommittedCost != 0 || summary.ActualCost != 0 {
-			t.Errorf("award commitment/actual OLUŞTURMAMALI: committed=%v actual=%v", summary.CommittedCost, summary.ActualCost)
+		if summary.CommittedCost != 0 || summary.ActualCost != pr.EstimatedTotal || summary.PurchaseActualCost != 5000 {
+			t.Errorf("award commitment/actual OLUŞTURMAMALI (gerçekleşen = talep tahmini 5.000): committed=%v actual=%v",
+				summary.CommittedCost, summary.ActualCost)
 		}
 	})
 
@@ -816,6 +820,22 @@ func TestProcurement(t *testing.T) {
 		if err != nil || len(commitments) != 1 || commitments[0].CommittedAmount != 12375 {
 			t.Fatalf("commitment tutarı KDV HARİÇ kalem toplamıyla (12375) BİREBİR eşleşmeli: %+v, err=%v", commitments, err)
 		}
+		// PR -> RFQ -> teklif -> sipariş zinciri (migration 0078): sipariş
+		// RFQ'nun talebine bağlanır ve onaylanınca talebin tahmininin (5.000)
+		// YERİNE maliyete girer -- ikisi birden değil.
+		if approved.PurchaseRequestID == nil || *approved.PurchaseRequestID != pr.ID || !approved.IncludeInProjectCost {
+			t.Fatalf("RFQ'dan açılan sipariş RFQ'nun talebine bağlanmalı: %+v", approved.PurchaseRequestID)
+		}
+		fs, err := projectSvc.FinancialSummary(ctx, p.ID, orgA.ID)
+		if err != nil || fs.PurchaseCost != 14850 || fs.RealizedCost != 14850 {
+			t.Fatalf("satın alma = sipariş tutarı 14.850 (talep tahmini değil): %+v, err=%v", fs, err)
+		}
+		if _, err := projectSvc.CreatePurchaseOrder(ctx, p.ID, orgA.ID, service.PurchaseOrderInput{
+			SupplierID: sA.ID, SourceRFQID: rfq.ID, PurchaseRequestID: newApprovedPR(t, orgA.ID, p.ID, cc.ID).ID, IssueDate: time.Now(),
+			Items: []service.PurchaseOrderItemInput{{CostCodeID: cc.ID, Description: "Çimento", Quantity: 1, UnitPrice: 1}},
+		}); !errors.Is(err, service.ErrPurchaseOrderRequestMismatch) {
+			t.Fatalf("RFQ'nun talebiyle çelişen talep reddedilmeli: %v", err)
+		}
 	})
 
 	t.Run("37_po_source_quotation_rfq_mismatch_rejected", func(t *testing.T) {
@@ -891,8 +911,11 @@ func TestProcurement(t *testing.T) {
 		if afterApprove.CommittedCost != 40000 {
 			t.Fatalf("PO onayı SONRASI committed = 10000+30000 = 40000 OLMALI, geldi: %v", afterApprove.CommittedCost)
 		}
-		if afterApprove.ActualCost != 0 {
-			t.Fatalf("Actual DEĞİŞMEMELİ, geldi: %v", afterApprove.ActualCost)
+		// Ürün sahibi kararı (migration 0078): onaylı satın alma proje
+		// maliyetidir -- Sprint 4'ün "PO onayı Actual'ı değiştirmez" kuralı
+		// kalktı. Gerçekleşen = sipariş tutarı (KDV %0); taahhüt aynı kalır.
+		if afterApprove.ActualCost != 30000 || afterApprove.PurchaseActualCost != 30000 {
+			t.Fatalf("onaylı sipariş gerçekleşene girmeli (30.000), geldi: %v", afterApprove.ActualCost)
 		}
 		if afterApprove.OriginalBudget != 100000 || afterApprove.RevisedBudget != 100000 {
 			t.Fatalf("Budget DEĞİŞMEMELİ, geldi original=%v revised=%v", afterApprove.OriginalBudget, afterApprove.RevisedBudget)
@@ -916,8 +939,9 @@ func TestProcurement(t *testing.T) {
 		if afterCancel.CommittedCost != 10000 {
 			t.Fatalf("PO iptali SONRASI committed = 10000'E GERİ DÖNMELİ, geldi: %v", afterCancel.CommittedCost)
 		}
+		// İptal edilen sipariş maliyetten çıkar (talepsiz sipariş: geriye bir şey kalmaz).
 		if afterCancel.ActualCost != 0 || afterCancel.OriginalBudget != 100000 || afterCancel.ContractValue != 500000 {
-			t.Fatalf("Actual/Budget/Contract PO iptalinden de ETKİLENMEMELİ: %+v", afterCancel)
+			t.Fatalf("iptal edilen sipariş gerçekleşenden çıkmalı; Budget/Contract ETKİLENMEMELİ: %+v", afterCancel)
 		}
 		projAfterCancel, err := projectSvc.Get(ctx, p.ID, orgA.ID)
 		if err != nil || projAfterCancel.ContractAmount != 500000 {

@@ -66,15 +66,18 @@ func TestApplyForecast(t *testing.T) {
 		}
 	})
 
-	// Masraf KDV'si (migration 0065): onaylı masrafların içindeki KDV KDV
-	// hariç maliyetten düşülür; bütçe tahmininde Maliyet Kontrolü'nün kendi
-	// KDV hariç EAC'si (yalnızca kodlu masrafların KDV'si düşülmüş) kullanılır.
+	// Masraf KDV'si (migration 0065): gerçekleşen maliyetin içindeki KDV
+	// (migration 0078'den beri realized_cost_vat: masraf satırı + satın
+	// almalar) KDV hariç maliyetten düşülür; bütçe tahmininde Maliyet
+	// Kontrolü'nün kendi KDV hariç EAC'si (yalnızca kodlu satırların KDV'si
+	// düşülmüş) kullanılır. ExpenseVATTotal (bütün onaylı masrafların KDV'si)
+	// artık yalnızca bilgidir -- satın almanın içindeki fatura iki kez düşülmesin.
 	withExpenseVAT := func(known bool) domain.ProjectFinancialSummary {
 		s := domain.ProjectFinancialSummary{
 			CurrentContractValue: 1200000, ContractVATAmount: 200000, ContractVATKnown: known,
 			RealizedCost: 500000, CommittedCost: 900000,
 			SubcontractorPaid: 100000, SubcontractorWorkPaid: 100000, SubcontractorRemaining: 50000,
-			ExpenseVATTotal: 30000,
+			ExpenseVATTotal: 99999, RealizedCostVAT: 30000,
 		}
 		if !known {
 			s.ContractVATAmount = 0
@@ -103,6 +106,22 @@ func TestApplyForecast(t *testing.T) {
 		applyForecast(&s, &domain.CostControlSummary{HasBudget: true, RevisedBudget: 800000, EACTotal: 700000, EACNet: 690000})
 		if s.ForecastCost != 850000 || s.ForecastCostNet != 840000 || s.ForecastProfitNet != 160000 || s.ForecastMarginPercentNet != 16 {
 			t.Fatalf("%v %v %v %v", s.ForecastCost, s.ForecastCostNet, s.ForecastProfitNet, s.ForecastMarginPercentNet)
+		}
+	})
+
+	// Satın almalar (migration 0078): maliyet koduna bağlı olmayan satın alma
+	// Maliyet Kontrolü'nde görünmez; bütçe bazlı tahmine eski taşeron gibi
+	// ayrıca eklenir (KDV'si bilinmez, KDV hariç tahmine de aynı tutar).
+	t.Run("kodsuz satın alma bütçe tahminine ayrıca eklenir", func(t *testing.T) {
+		s := withExpenseVAT(true)
+		s.PurchaseCostUncoded = 7000
+		applyForecast(&s, &domain.CostControlSummary{HasBudget: true, RevisedBudget: 800000, EACTotal: 700000, EACNet: 690000})
+		if s.ForecastBasis != domain.ForecastBasisBudget || s.ForecastCost != 857000 || s.ForecastCostNet != 847000 {
+			t.Fatalf("%v %v %v", s.ForecastBasis, s.ForecastCost, s.ForecastCostNet)
+		}
+		applyForecast(&s, nil)
+		if s.ForecastCost != s.CommittedCost {
+			t.Fatalf("taahhüt bazlı tahmin gerçekleşeni (satın almalar dahil) zaten içerir: %v", s.ForecastCost)
 		}
 	})
 

@@ -902,6 +902,23 @@ type financialSummaryResponse struct {
 	NewSubcontractRetention     float64 `json:"new_subcontract_retention"`
 	NewSubcontractPendingClaims float64 `json:"new_subcontract_pending_claims"`
 
+	// Gerçekleşen maliyetin kırılımı (migration 0078): realized_cost =
+	// expense_cost + purchase_cost + subcontractor_work_paid +
+	// new_subcontract_accrued. total_expenses BÜTÜN onaylı masraflardır
+	// (nakit); expense_cost bunların satın almaya ait olmayanlarıdır
+	// (siparişe bağlı faturalar purchase_cost'un içinde). purchase_cost =
+	// "Satın almalar (onaylı)", purchase_cost_vat içindeki KDV,
+	// purchase_cost_uncoded maliyet kodu olmayan payı, purchase_excluded
+	// "maliyete eklenmesin" denmiş satın almalar (maliyet değil, bilgi).
+	// realized_cost_vat: gerçekleşen maliyetin içindeki bilinen KDV
+	// (*_cost_net bundan).
+	ExpenseCost         float64 `json:"expense_cost"`
+	PurchaseCost        float64 `json:"purchase_cost"`
+	PurchaseCostVAT     float64 `json:"purchase_cost_vat"`
+	PurchaseCostUncoded float64 `json:"purchase_cost_uncoded"`
+	PurchaseExcluded    float64 `json:"purchase_excluded"`
+	RealizedCostVAT     float64 `json:"realized_cost_vat"`
+
 	CommittedCost          float64 `json:"committed_cost"`
 	RealizedGrossProfit    float64 `json:"realized_gross_profit"`
 	EstimatedGrossProfit   float64 `json:"estimated_gross_profit"`
@@ -909,7 +926,8 @@ type financialSummaryResponse struct {
 	EstimatedMarginPercent float64 `json:"estimated_margin_percent"`
 
 	// KDV hariç karşılıklar (bkz. domain.ProjectFinancialSummary).
-	// expense_vat_total: onaylı masrafların içindeki KDV; *_cost_net bundan.
+	// expense_vat_total: onaylı masrafların içindeki KDV (bilgi); *_cost_net
+	// migration 0078'den beri realized_cost_vat'tan.
 	ContractVATAmount         float64 `json:"contract_vat_amount"`
 	ContractVATKnown          bool    `json:"contract_vat_known"`
 	CurrentContractValueNet   float64 `json:"current_contract_value_net"`
@@ -958,6 +976,8 @@ func (h *ProjectHandler) FinancialSummary(w http.ResponseWriter, r *http.Request
 		SubcontractorAdvanceOpen: s.SubcontractorAdvanceOpen, NewSubcontractAccrued: s.NewSubcontractAccrued,
 		NewSubcontractAdvanceOpen: s.NewSubcontractAdvanceOpen, NewSubcontractPayable: s.NewSubcontractPayable,
 		NewSubcontractRetention: s.NewSubcontractRetention, NewSubcontractPendingClaims: s.NewSubcontractPendingClaims,
+		ExpenseCost: s.ExpenseCost, PurchaseCost: s.PurchaseCost, PurchaseCostVAT: s.PurchaseCostVAT,
+		PurchaseCostUncoded: s.PurchaseCostUncoded, PurchaseExcluded: s.PurchaseExcluded, RealizedCostVAT: s.RealizedCostVAT,
 		RealizedGrossProfit: s.RealizedGrossProfit, EstimatedGrossProfit: s.EstimatedGrossProfit,
 		RealizedMarginPercent: s.RealizedMarginPercent, EstimatedMarginPercent: s.EstimatedMarginPercent,
 		ContractVATAmount: s.ContractVATAmount, ContractVATKnown: s.ContractVATKnown,

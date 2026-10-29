@@ -326,19 +326,25 @@ committed_by_line AS (
       AND COALESCE(c.budget_line_id, slc.budget_line_id) IS NOT NULL
     GROUP BY COALESCE(c.budget_line_id, slc.budget_line_id)
 ),
--- Gerçekleşen (actual) yalnızca ONAYLI masraflardan (migration 0060): onay
--- bekleyen/reddedilen masraf EAC'yi ve bütçe aşımını şişirmez.
--- vat: bu masrafların İÇİNDEKİ KDV (migration 0065; oranı belirtilmemiş
--- masrafta NULL -> sayılmaz). actual_cost/eac KDV DAHİL kalır;
--- actual_cost_net/eac_net bunu düşer (finans özetinin kuralı, bkz.
--- domain.VATBasis). ETC KDV dahil gerçekleşenden türer, KDV'si bilinmez.
+-- Gerçekleşen (actual) finans özetinin gerçekleşen maliyetiyle AYNI
+-- satırlardan (project_cost_lines, migration 0078): ONAYLI masraflar
+-- (migration 0060; onay bekleyen/reddedilen EAC'yi şişirmez) + onaylı
+-- satın almalar (talep tahmini, sipariş kalemleri ya da sipariş tutarını
+-- aşan faturalar). Satın almanın içindeki fatura ikinci kez sayılmaz;
+-- "maliyete eklenmesin" denmiş satın alma hiç girmez. purchase: bunun
+-- satın alma payı. vat: bu satırların İÇİNDEKİ KDV (migration 0065; oranı
+-- belirtilmemiş masrafta ve talep tahmininde NULL/0 -> sayılmaz).
+-- actual_cost/eac KDV DAHİL kalır; actual_cost_net/eac_net bunu düşer
+-- (finans özetinin kuralı, bkz. domain.VATBasis). ETC KDV dahil
+-- gerçekleşenden türer, KDV'si bilinmez.
 actual_by_line AS (
     SELECT COALESCE(e.budget_line_id, slc.budget_line_id) AS budget_line_id,
         COALESCE(sum(e.amount), 0)::numeric(18,2) AS total,
-        COALESCE(sum(e.vat_amount), 0)::numeric(18,2) AS vat
-    FROM project_expenses e
+        COALESCE(sum(e.vat), 0)::numeric(18,2) AS vat,
+        COALESCE(sum(e.amount) FILTER (WHERE e.source <> 'expense'), 0)::numeric(18,2) AS purchase
+    FROM project_cost_lines e
     LEFT JOIN single_line_codes slc ON e.budget_line_id IS NULL AND slc.cost_code_id = e.cost_code_id
-    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.approval_status = 'approved'
+    WHERE e.project_id = $1 AND e.organization_id = $2
       AND COALESCE(e.budget_line_id, slc.budget_line_id) IS NOT NULL
     GROUP BY COALESCE(e.budget_line_id, slc.budget_line_id)
 ),
@@ -359,7 +365,8 @@ budgeted AS (
         ((l.original_amount + COALESCE(adj.total, 0)) - (COALESCE(act.total, 0) + COALESCE(fc.etc_amount, GREATEST((l.original_amount + COALESCE(adj.total, 0)) - COALESCE(act.total, 0), 0))))::numeric(18,2) AS variance,
         false AS is_unbudgeted,
         (COALESCE(act.total, 0) - COALESCE(act.vat, 0))::numeric(18,2) AS actual_cost_net,
-        (COALESCE(act.total, 0) - COALESCE(act.vat, 0) + COALESCE(fc.etc_amount, GREATEST((l.original_amount + COALESCE(adj.total, 0)) - COALESCE(act.total, 0), 0)))::numeric(18,2) AS eac_net
+        (COALESCE(act.total, 0) - COALESCE(act.vat, 0) + COALESCE(fc.etc_amount, GREATEST((l.original_amount + COALESCE(adj.total, 0)) - COALESCE(act.total, 0), 0)))::numeric(18,2) AS eac_net,
+        COALESCE(act.purchase, 0)::numeric(18,2) AS purchase_actual_cost
     FROM lines l
     LEFT JOIN project_wbs_nodes wn ON wn.id = l.wbs_node_id
     JOIN organization_cost_codes cc ON cc.id = l.cost_code_id
@@ -377,9 +384,10 @@ unbudgeted_committed AS (
 ),
 unbudgeted_actual AS (
     SELECT e.cost_code_id, COALESCE(sum(e.amount), 0)::numeric(18,2) AS total,
-        COALESCE(sum(e.vat_amount), 0)::numeric(18,2) AS vat
-    FROM project_expenses e
-    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.approval_status = 'approved' AND e.budget_line_id IS NULL AND e.cost_code_id IS NOT NULL
+        COALESCE(sum(e.vat), 0)::numeric(18,2) AS vat,
+        COALESCE(sum(e.amount) FILTER (WHERE e.source <> 'expense'), 0)::numeric(18,2) AS purchase
+    FROM project_cost_lines e
+    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.budget_line_id IS NULL AND e.cost_code_id IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM single_line_codes slc WHERE slc.cost_code_id = e.cost_code_id)
     GROUP BY e.cost_code_id
 ),
@@ -403,7 +411,8 @@ unbudgeted AS (
         0::numeric(18,2) AS etc_amount, COALESCE(uact.total, 0)::numeric(18,2) AS eac,
         (0 - COALESCE(uact.total, 0))::numeric(18,2) AS variance, true AS is_unbudgeted,
         (COALESCE(uact.total, 0) - COALESCE(uact.vat, 0))::numeric(18,2) AS actual_cost_net,
-        (COALESCE(uact.total, 0) - COALESCE(uact.vat, 0))::numeric(18,2) AS eac_net
+        (COALESCE(uact.total, 0) - COALESCE(uact.vat, 0))::numeric(18,2) AS eac_net,
+        COALESCE(uact.purchase, 0)::numeric(18,2) AS purchase_actual_cost
     FROM unbudgeted_codes uc
     JOIN organization_cost_codes cc ON cc.id = uc.cost_code_id
     LEFT JOIN unbudgeted_committed ucom ON ucom.cost_code_id = uc.cost_code_id
@@ -477,19 +486,25 @@ committed_by_line AS (
       AND COALESCE(c.budget_line_id, slc.budget_line_id) IS NOT NULL
     GROUP BY COALESCE(c.budget_line_id, slc.budget_line_id)
 ),
--- Gerçekleşen (actual) yalnızca ONAYLI masraflardan (migration 0060): onay
--- bekleyen/reddedilen masraf EAC'yi ve bütçe aşımını şişirmez.
--- vat: bu masrafların İÇİNDEKİ KDV (migration 0065; oranı belirtilmemiş
--- masrafta NULL -> sayılmaz). actual_cost/eac KDV DAHİL kalır;
--- actual_cost_net/eac_net bunu düşer (finans özetinin kuralı, bkz.
--- domain.VATBasis). ETC KDV dahil gerçekleşenden türer, KDV'si bilinmez.
+-- Gerçekleşen (actual) finans özetinin gerçekleşen maliyetiyle AYNI
+-- satırlardan (project_cost_lines, migration 0078): ONAYLI masraflar
+-- (migration 0060; onay bekleyen/reddedilen EAC'yi şişirmez) + onaylı
+-- satın almalar (talep tahmini, sipariş kalemleri ya da sipariş tutarını
+-- aşan faturalar). Satın almanın içindeki fatura ikinci kez sayılmaz;
+-- "maliyete eklenmesin" denmiş satın alma hiç girmez. purchase: bunun
+-- satın alma payı. vat: bu satırların İÇİNDEKİ KDV (migration 0065; oranı
+-- belirtilmemiş masrafta ve talep tahmininde NULL/0 -> sayılmaz).
+-- actual_cost/eac KDV DAHİL kalır; actual_cost_net/eac_net bunu düşer
+-- (finans özetinin kuralı, bkz. domain.VATBasis). ETC KDV dahil
+-- gerçekleşenden türer, KDV'si bilinmez.
 actual_by_line AS (
     SELECT COALESCE(e.budget_line_id, slc.budget_line_id) AS budget_line_id,
         COALESCE(sum(e.amount), 0)::numeric(18,2) AS total,
-        COALESCE(sum(e.vat_amount), 0)::numeric(18,2) AS vat
-    FROM project_expenses e
+        COALESCE(sum(e.vat), 0)::numeric(18,2) AS vat,
+        COALESCE(sum(e.amount) FILTER (WHERE e.source <> 'expense'), 0)::numeric(18,2) AS purchase
+    FROM project_cost_lines e
     LEFT JOIN single_line_codes slc ON e.budget_line_id IS NULL AND slc.cost_code_id = e.cost_code_id
-    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.approval_status = 'approved'
+    WHERE e.project_id = $1 AND e.organization_id = $2
       AND COALESCE(e.budget_line_id, slc.budget_line_id) IS NOT NULL
     GROUP BY COALESCE(e.budget_line_id, slc.budget_line_id)
 ),
@@ -507,7 +522,8 @@ budgeted AS (
         (COALESCE(act.total, 0) + COALESCE(fc.etc_amount, GREATEST((l.original_amount + COALESCE(adj.total, 0)) - COALESCE(act.total, 0), 0)))::numeric(18,2) AS eac,
         ((l.original_amount + COALESCE(adj.total, 0)) - (COALESCE(act.total, 0) + COALESCE(fc.etc_amount, GREATEST((l.original_amount + COALESCE(adj.total, 0)) - COALESCE(act.total, 0), 0))))::numeric(18,2) AS variance,
         (COALESCE(act.total, 0) - COALESCE(act.vat, 0))::numeric(18,2) AS actual_cost_net,
-        (COALESCE(act.total, 0) - COALESCE(act.vat, 0) + COALESCE(fc.etc_amount, GREATEST((l.original_amount + COALESCE(adj.total, 0)) - COALESCE(act.total, 0), 0)))::numeric(18,2) AS eac_net
+        (COALESCE(act.total, 0) - COALESCE(act.vat, 0) + COALESCE(fc.etc_amount, GREATEST((l.original_amount + COALESCE(adj.total, 0)) - COALESCE(act.total, 0), 0)))::numeric(18,2) AS eac_net,
+        COALESCE(act.purchase, 0)::numeric(18,2) AS purchase_actual_cost
     FROM lines l
     LEFT JOIN adjustments adj ON adj.budget_line_id = l.budget_line_id
     LEFT JOIN committed_by_line com ON com.budget_line_id = l.budget_line_id
@@ -523,9 +539,10 @@ unbudgeted_committed AS (
 ),
 unbudgeted_actual AS (
     SELECT e.cost_code_id, COALESCE(sum(e.amount), 0)::numeric(18,2) AS total,
-        COALESCE(sum(e.vat_amount), 0)::numeric(18,2) AS vat
-    FROM project_expenses e
-    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.voided_at IS NULL AND e.approval_status = 'approved' AND e.budget_line_id IS NULL AND e.cost_code_id IS NOT NULL
+        COALESCE(sum(e.vat), 0)::numeric(18,2) AS vat,
+        COALESCE(sum(e.amount) FILTER (WHERE e.source <> 'expense'), 0)::numeric(18,2) AS purchase
+    FROM project_cost_lines e
+    WHERE e.project_id = $1 AND e.organization_id = $2 AND e.budget_line_id IS NULL AND e.cost_code_id IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM single_line_codes slc WHERE slc.cost_code_id = e.cost_code_id)
     GROUP BY e.cost_code_id
 ),
@@ -540,7 +557,8 @@ unbudgeted AS (
         COALESCE(ucom.total, 0)::numeric(18,2) AS committed_cost, COALESCE(uact.total, 0)::numeric(18,2) AS actual_cost,
         0::numeric(18,2) AS etc_amount, COALESCE(uact.total, 0)::numeric(18,2) AS eac, (0 - COALESCE(uact.total, 0))::numeric(18,2) AS variance,
         (COALESCE(uact.total, 0) - COALESCE(uact.vat, 0))::numeric(18,2) AS actual_cost_net,
-        (COALESCE(uact.total, 0) - COALESCE(uact.vat, 0))::numeric(18,2) AS eac_net
+        (COALESCE(uact.total, 0) - COALESCE(uact.vat, 0))::numeric(18,2) AS eac_net,
+        COALESCE(uact.purchase, 0)::numeric(18,2) AS purchase_actual_cost
     FROM unbudgeted_codes uc
     LEFT JOIN unbudgeted_committed ucom ON ucom.cost_code_id = uc.cost_code_id
     LEFT JOIN unbudgeted_actual uact ON uact.cost_code_id = uc.cost_code_id
@@ -560,7 +578,8 @@ totals AS (
         COALESCE(sum(etc_amount), 0)::numeric(18,2) AS etc_total,
         COALESCE(sum(eac), 0)::numeric(18,2) AS eac_total,
         COALESCE(sum(actual_cost_net), 0)::numeric(18,2) AS actual_cost_net,
-        COALESCE(sum(eac_net), 0)::numeric(18,2) AS eac_net
+        COALESCE(sum(eac_net), 0)::numeric(18,2) AS eac_net,
+        COALESCE(sum(purchase_actual_cost), 0)::numeric(18,2) AS purchase_actual_cost
     FROM all_rows
 )
 SELECT
@@ -587,5 +606,8 @@ SELECT
     totals.eac_net,
     (base_vat.total + co_effect.approved_vat_additions - co_effect.approved_vat_deductions)::numeric(18,2)
         AS contract_vat_amount,
-    base_vat.known::boolean AS contract_vat_known
+    base_vat.known::boolean AS contract_vat_known,
+    -- Gerçekleşenin satın alma payı (migration 0078; maliyet koduna bağlı
+    -- satın almalar -- kodsuz talep tahmini burada görünmez).
+    totals.purchase_actual_cost
 FROM proj, base_vat, co_effect, current_value, totals;

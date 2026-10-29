@@ -19,6 +19,7 @@ import '../../../core/widgets/money_text.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../data/projects_providers.dart';
 import '../domain/procurement.dart';
+import 'purchase_cost_decision.dart';
 
 /// P3 — Satın Alma Talebi detayı. Artık yalnızca görüntüleme DEĞİL --
 /// düzenleme + tam yaşam döngüsü aksiyonları (bkz. `_LifecycleActionsBar`).
@@ -99,6 +100,10 @@ class _PurchaseRequestDetailBody extends ConsumerWidget {
     void refreshAll() {
       ref.invalidate(purchaseRequestDetailProvider(args));
       ref.invalidate(projectPurchaseRequestsProvider(projectId));
+      // Onay ve maliyet kararı proje maliyetini değiştirir (backend migration 0078).
+      ref.invalidate(projectFinancialSummaryProvider(projectId));
+      ref.invalidate(projectCostControlProvider(projectId));
+      ref.invalidate(projectPurchaseOrdersProvider(projectId));
     }
 
     final pr = detail.request;
@@ -133,6 +138,19 @@ class _PurchaseRequestDetailBody extends ConsumerWidget {
             onChanged: refreshAll,
           ),
           const SizedBox(height: AppSpacing.lg),
+
+          if (pr.status == PurchaseRequest.statusSubmitted || pr.status == PurchaseRequest.statusApproved) ...[
+            const AppSectionHeader(title: 'Proje Maliyeti'),
+            PurchaseCostCard(
+              included: pr.includeInProjectCost,
+              cost: pr.projectCost,
+              currency: 'TRY',
+              onChange: canApprove && pr.canChangeProjectCost
+                  ? () => _changePurchaseRequestCost(context, ref, projectId, pr, refreshAll)
+                  : null,
+            ),
+            const SizedBox(height: AppSpacing.lg),
+          ],
 
           const AppSectionHeader(title: 'Talep'),
           AppCard(
@@ -375,15 +393,28 @@ class _LifecycleActionsBarState extends ConsumerState<_LifecycleActionsBar> {
           onPressed: _busy
               ? null
               : () async {
-                  final ok = await _confirm(
-                    'Onayla',
-                    'Bu talep onaylansın mı?',
+                  // Onay satın almayı proje maliyetine sokar (backend
+                  // migration 0078): onaylayan "maliyete eklensin mi"
+                  // kararını burada verir; fiyatsız talepte tahmini tutar
+                  // girebilir.
+                  final choice = await showPurchaseCostSheet(
+                    context,
+                    title: 'Talebi Onayla',
+                    note: 'Onaylanan talep proje maliyetine girer; sipariş onaylanınca tahminin yerine sipariş tutarı geçer.',
+                    amount: pr.costPotential,
+                    currency: 'TRY',
+                    initialInclude: pr.includeInProjectCost,
+                    allowEstimate: _needsEstimate(pr),
+                    initialEstimate: pr.costEstimate,
+                    warning: _noPriceWarning(pr),
                   );
-                  if (!ok) return;
+                  if (choice == null) return;
                   await _run(
                     () => repo.approvePurchaseRequest(
                       widget.projectId,
                       widget.prId,
+                      includeInProjectCost: choice.include,
+                      costEstimate: choice.costEstimate,
                     ),
                   );
                 },
@@ -434,6 +465,56 @@ class _LifecycleActionsBarState extends ConsumerState<_LifecycleActionsBar> {
     }
 
     return AppLifecycleActions(actions: actions);
+  }
+}
+
+/// Fiyatsız talep uyarısı: sunucunun metni, yoksa (eski sunucu) tahmin 0 iken.
+String _noPriceWarning(PurchaseRequest pr) {
+  final w = pr.projectCost?.warning ?? '';
+  if (w.isNotEmpty) return w;
+  return pr.projectCost == null && pr.estimatedTotal == 0 ? kPurchaseCostNoPriceWarning : '';
+}
+
+/// Tahmini tutar alanı: siparişi yokken ve kalemlerde fiyat eksikken (ya da
+/// daha önce tahmin girilmişse).
+bool _needsEstimate(PurchaseRequest pr) {
+  final c = pr.projectCost;
+  if (c != null && c.source == kPurchaseCostSourceOrders) return false;
+  return pr.estimatedTotal == 0 || (c?.unpricedItems ?? 0) > 0 || pr.costEstimate != null;
+}
+
+/// Onaylı talebin maliyet kararını değiştirir (`projects.procurement.approve`).
+Future<void> _changePurchaseRequestCost(
+  BuildContext context,
+  WidgetRef ref,
+  String projectId,
+  PurchaseRequest pr,
+  VoidCallback onChanged,
+) async {
+  final hasOrders = pr.projectCost?.source == kPurchaseCostSourceOrders;
+  final choice = await showPurchaseCostSheet(
+    context,
+    title: 'Maliyet Kararı',
+    note: hasOrders ? 'Karar talebin açık siparişlerine de uygulanır.' : null,
+    amount: pr.costPotential,
+    currency: 'TRY',
+    initialInclude: pr.includeInProjectCost,
+    allowEstimate: _needsEstimate(pr),
+    initialEstimate: pr.costEstimate,
+    warning: _noPriceWarning(pr),
+    confirmLabel: 'Kaydet',
+  );
+  if (choice == null) return;
+  try {
+    await ref.read(projectsRepositoryProvider).setPurchaseRequestCost(
+          projectId,
+          pr.id,
+          includeInProjectCost: choice.include,
+          costEstimate: choice.costEstimate,
+        );
+    onChanged();
+  } on ApiException catch (e) {
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
   }
 }
 

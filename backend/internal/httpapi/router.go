@@ -512,6 +512,10 @@ func NewRouter(d Deps) http.Handler {
 				r.Use(projPerm(domain.PermProjectsProcurementApprove))
 				r.Post("/{id}/purchase-requests/{prId}/approve", d.Projects.ApprovePurchaseRequest)
 				r.Post("/{id}/purchase-requests/{prId}/reject", d.Projects.RejectPurchaseRequest)
+				// "Proje maliyetine eklensin mi" kararı onaydan sonra da
+				// değiştirilebilir (migration 0078) -- onay izniyle.
+				r.Post("/{id}/purchase-requests/{prId}/project-cost", d.Projects.SetPurchaseRequestCost)
+				r.Post("/{id}/purchase-orders/{poId}/project-cost", d.Projects.SetPurchaseOrderCost)
 				r.Post("/{id}/rfqs/{rfqId}/award", d.Projects.AwardRFQ)
 				r.Post("/{id}/purchase-orders/{poId}/approve", d.Projects.ApprovePurchaseOrder)
 				r.Post("/{id}/purchase-orders/{poId}/cancel", d.Projects.CancelPurchaseOrder)

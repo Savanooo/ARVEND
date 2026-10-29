@@ -63,9 +63,14 @@ type PurchaseOrderItemInput struct {
 }
 
 type PurchaseOrderInput struct {
-	SupplierID           string
-	SourceRFQID          string
-	SourceQuotationID    string
+	SupplierID        string
+	SourceRFQID       string
+	SourceQuotationID string
+	// PurchaseRequestID (opsiyonel, yalnızca oluşturmada): siparişin
+	// doğrudan açıldığı onaylı talep (migration 0078). Kaynak RFQ bir
+	// talepten açıldıysa boş bırakılabilir -- sipariş RFQ'nun talebine
+	// bağlanır.
+	PurchaseRequestID    string
 	IssueDate            time.Time
 	ExpectedDeliveryDate *time.Time
 	PaymentTerms         string
@@ -230,6 +235,14 @@ func (s *ProjectService) CreatePurchaseOrder(ctx context.Context, projectID, org
 		rfqID = quotation.RfqID
 	}
 
+	// Talepten açılan sipariş talebe bağlanır ve talebin "proje maliyetine
+	// eklensin mi" kararını devralır (migration 0078): onaylanınca talebin
+	// tahmini tutarının YERİNE maliyete girer.
+	prID, include, err := resolvePurchaseOrderRequest(ctx, txq, strings.TrimSpace(in.PurchaseRequestID), rfqID, pid, orgID)
+	if err != nil {
+		return nil, err
+	}
+
 	poNo, err := s.generatePONo(ctx, txq, orgID)
 	if err != nil {
 		return nil, err
@@ -240,6 +253,7 @@ func (s *ProjectService) CreatePurchaseOrder(ctx context.Context, projectID, org
 		IssueDate: repository.TimeToDate(in.IssueDate), ExpectedDeliveryDate: repository.TimePtrToDate(in.ExpectedDeliveryDate),
 		PaymentTerms: in.PaymentTerms, DeliveryAddress: in.DeliveryAddress, Notes: in.Notes,
 		TaxRate: repository.Float64ToNumeric(in.TaxRate), CreatedBy: actorUUID(in.UserID),
+		PurchaseRequestID: prID, IncludeInProjectCost: include,
 	})
 	if err != nil {
 		return nil, err
@@ -412,6 +426,14 @@ func (s *ProjectService) UpdatePurchaseOrderDraft(ctx context.Context, projectID
 // "PO onaylandı ama bazı kalemler commitment'a dönüşmedi" durumu ASLA
 // oluşamaz.
 func (s *ProjectService) ApprovePurchaseOrder(ctx context.Context, projectID, poID, organizationID, userID string) (*domain.PurchaseOrder, error) {
+	return s.ApprovePurchaseOrderWithCost(ctx, projectID, poID, organizationID, userID, nil)
+}
+
+// ApprovePurchaseOrderWithCost: onaylı sipariş proje maliyetine girer
+// (migration 0078). include verilirse onaylayanın "proje maliyetine eklensin
+// mi" kararı yazılır; verilmezse siparişin mevcut kararı (talepten
+// devralınan, talepsizde evet) kalır.
+func (s *ProjectService) ApprovePurchaseOrderWithCost(ctx context.Context, projectID, poID, organizationID, userID string, include *bool) (*domain.PurchaseOrder, error) {
 	pid, orgID, err := s.scopedIDs(projectID, organizationID)
 	if err != nil {
 		return nil, err
@@ -449,7 +471,9 @@ func (s *ProjectService) ApprovePurchaseOrder(ctx context.Context, projectID, po
 		return nil, ErrPurchaseOrderItemsRequired
 	}
 
-	row, err := txq.ApprovePurchaseOrder(ctx, sqlc.ApprovePurchaseOrderParams{ID: id, OrganizationID: orgID, ProjectID: pid, ApprovedBy: actorUUID(userID)})
+	row, err := txq.ApprovePurchaseOrder(ctx, sqlc.ApprovePurchaseOrderParams{
+		ID: id, OrganizationID: orgID, ProjectID: pid, ApprovedBy: actorUUID(userID), IncludeInProjectCost: include,
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrPurchaseOrderNotApprovable
@@ -470,7 +494,8 @@ func (s *ProjectService) ApprovePurchaseOrder(ctx context.Context, projectID, po
 		}
 	}
 	if err := logProjectEvent(ctx, txq, orgID, pid, domain.ProjectEventPurchaseOrderApproved, actorUUID(userID),
-		map[string]any{"purchase_order_id": poID, "po_no": row.PoNo, "total": repository.NumericToFloat64(row.Total), "item_count": len(items)}); err != nil {
+		map[string]any{"purchase_order_id": poID, "po_no": row.PoNo, "total": repository.NumericToFloat64(row.Total), "item_count": len(items),
+			"included": row.IncludeInProjectCost}); err != nil {
 		return nil, err
 	}
 	if err := createNotification(ctx, txq, CreateNotificationInput{

@@ -339,10 +339,13 @@ RETURNING *;
 -- Maliyet tanımları TEK yerde: project_cost_basis / subcontract_cost_basis
 -- görünümleri (migration 0073, docs/maliyet-tanimlari.md). Proje listesi ve
 -- Ana Sayfa da aynı görünümü okur.
---   realized_cost  = onaylı masraflar + basit taşeronun İŞ ödemeleri +
---                    sözleşmeli taşeronun gerçekleşen işi (onaylı hakediş)
+--   realized_cost  = masraflar (satın almaya ait olmayan onaylı masraflar) +
+--                    onaylı satın almalar (migration 0078) + basit taşeronun
+--                    İŞ ödemeleri + sözleşmeli taşeronun gerçekleşen işi
 --   paid_cost      = onaylı masraflar + bütün taşeron ödemeleri (avans dahil)
 --   committed_cost = realized_cost + taşeron sözleşmelerinin KALAN taahhüdü
+--                    (satın alma onaylanınca tamamıyla gerçekleşendedir;
+--                    kalan taahhüdü yoktur)
 -- Kalan taahhüt sözleşme BAŞINA, negatife düşürülmeden: basit taşeronda
 -- sözleşme - iş ödemesi, sözleşmeli taşeronda güncel değer - gerçekleşen.
 -- Avans gerçekleşen değildir; kalan taahhüdün içinde kalır (iki kez sayılmaz).
@@ -513,6 +516,16 @@ SELECT
     basis.advance_open,
     basis.pending_cost,
     basis.received_not_costed,
+    -- Gerçekleşen maliyetin kırılımı (migration 0078): masraf satırı +
+    -- "Satın almalar (onaylı)"; maliyete eklenmeyen satın almalar bilgi
+    -- olarak; realized_cost_vat gerçekleşen maliyetin içindeki bilinen KDV
+    -- (KDV hariç maliyet Go'da bundan türetilir).
+    basis.expense_cost,
+    basis.purchase_cost,
+    basis.purchase_cost_vat,
+    basis.purchase_cost_uncoded,
+    basis.purchase_excluded,
+    basis.realized_cost_vat,
     (basis.realized_cost + subremaining.total + newsubremaining.total)::numeric(18,2) AS committed_cost,
     (current_value.total - basis.realized_cost)::numeric(18,2) AS realized_gross_profit,
     (current_value.total - (basis.realized_cost + subremaining.total + newsubremaining.total))::numeric(18,2)

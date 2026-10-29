@@ -31,7 +31,10 @@ Bu sprint boyunca kasıtlı olarak korunan sınırlar:
 - **Committed ≠ Actual.** PO onayı yalnızca **Committed** (taahhüt
   edilen) maliyeti değiştirir. **Actual** (gerçekleşen) maliyet, gelecekte
   Tedarikçi Faturası/Mal Kabul/Masraf kaydından gelecektir — bu sprintte
-  YOKTUR (bkz. §5).
+  YOKTUR (bkz. §5). **Güncelleme (migration 0078, §13):** ürün sahibi
+  kararıyla onaylı talep ve onaylı sipariş artık proje maliyetidir
+  (Maliyet Kontrolü'nün Actual'ı ve finans özetinin gerçekleşeni dahil);
+  taahhüt (Committed) davranışı değişmedi.
 - **Procurement (maliyet/gider tarafı) ≠ Contract/Change Order (gelir
   tarafı, Sprint 3).** İki zincir arasında HİÇBİR otomatik bağlantı
   yoktur ve olmamalıdır (bkz. §9, regresyon testi
@@ -298,7 +301,8 @@ kuraldır. **"PO PAID" diye bir kavram bu sprintte İCAT EDİLMEMİŞTİR** —
 
 - PO onayı **Actual (gerçekleşen) maliyeti ASLA değiştirmez** — Actual,
   gelecekte Tedarikçi Faturası/Mal Kabul/Masraf kaydından gelecektir
-  (bu sprintin kapsamı dışında, bkz. §10).
+  (bu sprintin kapsamı dışında, bkz. §10). **Migration 0078 ile kalktı:**
+  onaylı sipariş (ve siparişi yokken onaylı talep) Actual'a girer, bkz. §13.
 - PO onayı **Bütçeyi (Budget) ASLA değiştirmez.**
 - PO onayı **müşteri Sözleşme değerini (Contract value) ASLA değiştirmez**
   (bkz. §9).
@@ -605,3 +609,45 @@ listesinde ve proje kârlılığında (`received_not_costed`,
 - Tedarikçi faturası ayrı bir belge değildir: masraf + sipariş bağı
   kullanılır. Mükerrer fatura kontrolü (tedarikçi + fatura no / e-belge
   UUID) fatura belgesiyle birlikte gelecek.
+
+## 13. Satın almalar proje maliyetine girer (2026-10, migration 0078)
+
+Ürün sahibi: "Satın almalar maliyet eklemiyor; proje bedeline eklerse yine
+de burada 'proje dahil olsun mu olmasın' diye sorsun." Karar: satın alma
+**talebi onaylanınca** maliyete girer ve onaylarken sorulur. Kural ve
+örnek: `docs/maliyet-tanimlari.md` "Satın almalar". Özet:
+
+- Talepte ve siparişte `include_in_project_cost` (varsayılan evet).
+  Talep onayı `{include_in_project_cost, cost_estimate}` alır (gövdesiz onay
+  = evet, tahmin kalemlerden). Fiyatsız talepte onaylayan tahmini tutar
+  (`cost_estimate`, KDV dahil) girebilir; girmezse maliyete 0 girer ve yanıt
+  uyarır.
+- Sipariş talebe bağlanır (`purchase_orders.purchase_request_id`):
+  oluştururken doğrudan `purchase_request_id` (bu projenin onaylı talebi) ya
+  da kaynak RFQ'nun talebi. İkisi çelişirse 409. Sipariş talebin kararını
+  devralır; onayda `{include_in_project_cost}` ile değiştirilebilir.
+  Migration mevcut siparişleri kaynak RFQ'nun talebine bağladı.
+- Maliyete katkı: onaylı ve siparişsiz talep → tahmini; onaylı/kapatılmış
+  sipariş talebin yerine → `max(sipariş tutarı, bağlı onaylı faturalar)`;
+  kısa kapatılmış sipariş → teslim alınan değer; bağlı faturalar ayrıca
+  masraf sayılmaz; iptal edilen siparişte talebin tahminine dönülür.
+- Karar sonradan `projects.procurement.approve` ile değişir:
+  `POST /projects/{id}/purchase-requests/{prId}/project-cost`
+  `{include_in_project_cost?, cost_estimate?}` (onaylı talep; açık
+  siparişlerine de uygulanır) ve
+  `POST /projects/{id}/purchase-orders/{poId}/project-cost`
+  `{include_in_project_cost}` (taslak/onaylı sipariş). Kapatılmış sipariş
+  ve tamamlanmış/iptal edilmiş proje değişmez. Olaylar:
+  `purchase_request_cost_decision`, `purchase_order_cost_decision`.
+- Tamamlanmış/iptal edilmiş projede talep onaylanamaz (sipariş onayı gibi).
+- Talep ve sipariş yanıtları (liste, detay, onay, karar) `project_cost`
+  taşır: `included`, `amount` (bugün maliyete giren), `potential`
+  (eklenseydi), `source` (`estimate|orders|order|invoices|none`),
+  `unpriced_items`, `warning`; siparişte ayrıca `order_amount`,
+  `invoiced_amount`.
+- Maliyet Kontrolü'nde onaylı satın alma Actual'a girer (sipariş kalemleri
+  maliyet koduyla; `purchase_actual_cost`). Taahhüt (Committed) eskisi gibi
+  sipariş kalemlerinden (KDV hariç) gelir ve EAC'ye eklenmez.
+- §12'deki "teslim alınmış, maliyeti girilmemiş" artık "faturası
+  gelmemiş"tir: sipariş tutarı zaten maliyettedir, yalnızca maliyete
+  eklenen siparişler için gösterilir.

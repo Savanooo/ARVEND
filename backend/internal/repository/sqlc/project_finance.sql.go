@@ -1091,6 +1091,16 @@ SELECT
     basis.advance_open,
     basis.pending_cost,
     basis.received_not_costed,
+    -- Gerçekleşen maliyetin kırılımı (migration 0078): masraf satırı +
+    -- "Satın almalar (onaylı)"; maliyete eklenmeyen satın almalar bilgi
+    -- olarak; realized_cost_vat gerçekleşen maliyetin içindeki bilinen KDV
+    -- (KDV hariç maliyet Go'da bundan türetilir).
+    basis.expense_cost,
+    basis.purchase_cost,
+    basis.purchase_cost_vat,
+    basis.purchase_cost_uncoded,
+    basis.purchase_excluded,
+    basis.realized_cost_vat,
     (basis.realized_cost + subremaining.total + newsubremaining.total)::numeric(18,2) AS committed_cost,
     (current_value.total - basis.realized_cost)::numeric(18,2) AS realized_gross_profit,
     (current_value.total - (basis.realized_cost + subremaining.total + newsubremaining.total))::numeric(18,2)
@@ -1158,6 +1168,12 @@ type GetProjectFinancialSummaryRow struct {
 	AdvanceOpen                  pgtype.Numeric `json:"advance_open"`
 	PendingCost                  pgtype.Numeric `json:"pending_cost"`
 	ReceivedNotCosted            pgtype.Numeric `json:"received_not_costed"`
+	ExpenseCost                  pgtype.Numeric `json:"expense_cost"`
+	PurchaseCost                 pgtype.Numeric `json:"purchase_cost"`
+	PurchaseCostVat              pgtype.Numeric `json:"purchase_cost_vat"`
+	PurchaseCostUncoded          pgtype.Numeric `json:"purchase_cost_uncoded"`
+	PurchaseExcluded             pgtype.Numeric `json:"purchase_excluded"`
+	RealizedCostVat              pgtype.Numeric `json:"realized_cost_vat"`
 	CommittedCost                pgtype.Numeric `json:"committed_cost"`
 	RealizedGrossProfit          pgtype.Numeric `json:"realized_gross_profit"`
 	EstimatedGrossProfit         pgtype.Numeric `json:"estimated_gross_profit"`
@@ -1175,10 +1191,13 @@ type GetProjectFinancialSummaryRow struct {
 // görünümleri (migration 0073, docs/maliyet-tanimlari.md). Proje listesi ve
 // Ana Sayfa da aynı görünümü okur.
 //
-//	realized_cost  = onaylı masraflar + basit taşeronun İŞ ödemeleri +
-//	                 sözleşmeli taşeronun gerçekleşen işi (onaylı hakediş)
+//	realized_cost  = masraflar (satın almaya ait olmayan onaylı masraflar) +
+//	                 onaylı satın almalar (migration 0078) + basit taşeronun
+//	                 İŞ ödemeleri + sözleşmeli taşeronun gerçekleşen işi
 //	paid_cost      = onaylı masraflar + bütün taşeron ödemeleri (avans dahil)
 //	committed_cost = realized_cost + taşeron sözleşmelerinin KALAN taahhüdü
+//	                 (satın alma onaylanınca tamamıyla gerçekleşendedir;
+//	                 kalan taahhüdü yoktur)
 //
 // Kalan taahhüt sözleşme BAŞINA, negatife düşürülmeden: basit taşeronda
 // sözleşme - iş ödemesi, sözleşmeli taşeronda güncel değer - gerçekleşen.
@@ -1228,6 +1247,12 @@ func (q *Queries) GetProjectFinancialSummary(ctx context.Context, arg GetProject
 		&i.AdvanceOpen,
 		&i.PendingCost,
 		&i.ReceivedNotCosted,
+		&i.ExpenseCost,
+		&i.PurchaseCost,
+		&i.PurchaseCostVat,
+		&i.PurchaseCostUncoded,
+		&i.PurchaseExcluded,
+		&i.RealizedCostVat,
 		&i.CommittedCost,
 		&i.RealizedGrossProfit,
 		&i.EstimatedGrossProfit,

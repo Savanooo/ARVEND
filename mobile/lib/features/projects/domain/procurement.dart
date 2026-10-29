@@ -26,6 +26,15 @@ class PurchaseRequest {
   final String createdAt;
   final String updatedAt;
 
+  /// Proje maliyeti (backend migration 0078): onaylayanın "proje
+  /// maliyetine eklensin mi" kararı (varsayılan evet), onayda girilen
+  /// tahmini tutar (null = kalemlerin toplamı) ve talebin bugün maliyete
+  /// giren katkısı. Eski sunucuda ve bazı yazma yanıtlarında
+  /// [projectCost] yok (null).
+  final bool includeInProjectCost;
+  final double? costEstimate;
+  final PurchaseCost? projectCost;
+
   const PurchaseRequest({
     required this.id,
     required this.prNo,
@@ -46,6 +55,9 @@ class PurchaseRequest {
     required this.cancelReason,
     required this.createdAt,
     required this.updatedAt,
+    this.includeInProjectCost = true,
+    this.costEstimate,
+    this.projectCost,
   });
 
   factory PurchaseRequest.fromJson(Map<String, dynamic> json) => PurchaseRequest(
@@ -68,6 +80,9 @@ class PurchaseRequest {
         cancelReason: json['cancel_reason'] as String? ?? '',
         createdAt: json['created_at'] as String? ?? '',
         updatedAt: json['updated_at'] as String? ?? '',
+        includeInProjectCost: json['include_in_project_cost'] as bool? ?? true,
+        costEstimate: (json['cost_estimate'] as num?)?.toDouble(),
+        projectCost: PurchaseCost.maybeFromJson(json['project_cost']),
       );
 
   static const statusDraft = 'draft';
@@ -86,6 +101,13 @@ class PurchaseRequest {
   bool get canCancel => status == statusDraft || status == statusSubmitted || status == statusApproved;
   bool get canApprove => status == statusSubmitted;
   bool get canReject => status == statusSubmitted;
+
+  /// Maliyet kararı yalnızca onaylı talepte sonradan değişir (sunucu 409).
+  bool get canChangeProjectCost => status == statusApproved;
+
+  /// Onay ekranında "maliyete eklenecek" tutar: sunucunun hesabı, yoksa
+  /// (eski sunucu) talebin tahmini.
+  double get costPotential => projectCost?.potential ?? costEstimate ?? estimatedTotal;
 }
 
 class PurchaseRequestItem {
@@ -166,6 +188,13 @@ class PurchaseOrder {
   final String receiptStatus;
   final double? receivedNotCosted;
 
+  /// Proje maliyeti (backend migration 0078): siparişin talebi, talepten
+  /// devralınan (sonradan değiştirilebilen) "maliyete eklensin mi" kararı
+  /// ve maliyete katkısı -- max(sipariş tutarı, bağlı onaylı faturalar).
+  final String? purchaseRequestId;
+  final bool includeInProjectCost;
+  final PurchaseCost? projectCost;
+
   const PurchaseOrder({
     required this.id,
     required this.poNo,
@@ -196,6 +225,9 @@ class PurchaseOrder {
     required this.updatedAt,
     this.receiptStatus = kReceiptNone,
     this.receivedNotCosted,
+    this.purchaseRequestId,
+    this.includeInProjectCost = true,
+    this.projectCost,
   });
 
   factory PurchaseOrder.fromJson(Map<String, dynamic> json) => PurchaseOrder(
@@ -228,6 +260,9 @@ class PurchaseOrder {
         updatedAt: json['updated_at'] as String? ?? '',
         receiptStatus: json['receipt_status'] as String? ?? kReceiptNone,
         receivedNotCosted: (json['received_not_costed'] as num?)?.toDouble(),
+        purchaseRequestId: json['purchase_request_id'] as String?,
+        includeInProjectCost: json['include_in_project_cost'] as bool? ?? true,
+        projectCost: PurchaseCost.maybeFromJson(json['project_cost']),
       );
 
   static const statusDraft = 'draft';
@@ -249,7 +284,80 @@ class PurchaseOrder {
   /// Teslim yalnızca onaylı (kapatılmamış) siparişe girilir.
   bool get canReceive => status == statusApproved;
   bool get hasReceipts => receiptStatus != kReceiptNone;
+
+  /// Maliyet kararı açık (taslak/onaylı) siparişte değişir; kapatılmış
+  /// sipariş kesinleşmiştir (sunucu 409).
+  bool get canChangeProjectCost => status == statusDraft || status == statusApproved;
 }
+
+/// Satın almanın proje maliyetine katkısı (backend migration 0078,
+/// `project_cost`). [amount] bugün maliyete giren, [potential] "maliyete
+/// eklenseydi" girecek tutar (onay ekranı ve "Maliyete eklenmedi"
+/// durumu). Tutarlar KDV dahil.
+class PurchaseCost {
+  const PurchaseCost({
+    this.included = true,
+    this.amount = 0,
+    this.potential = 0,
+    this.source = kPurchaseCostSourceNone,
+    this.orderAmount,
+    this.invoicedAmount,
+    this.unpricedItems = 0,
+    this.warning = '',
+  });
+
+  final bool included;
+  final double amount;
+  final double potential;
+
+  /// [kPurchaseCostSourceEstimate] | [kPurchaseCostSourceOrders] |
+  /// [kPurchaseCostSourceOrder] | [kPurchaseCostSourceInvoices] |
+  /// [kPurchaseCostSourceNone].
+  final String source;
+  final double? orderAmount;
+  final double? invoicedAmount;
+  final int unpricedItems;
+
+  /// Fiyatsız talepte sunucunun uyarısı ("Bu talepte fiyat yok; maliyete
+  /// 0 TL girer.").
+  final String warning;
+
+  /// Maliyete giriyor mu (onaylı/kapatılmış ve karar evet).
+  bool get counts => source != kPurchaseCostSourceNone;
+
+  /// Satırın açıklaması: maliyete ne giriyor.
+  String get sourceLabel => switch (source) {
+        kPurchaseCostSourceEstimate => 'Talebin tahmini tutarı',
+        kPurchaseCostSourceOrders => 'Onaylı siparişlerin tutarı (tahminin yerine)',
+        kPurchaseCostSourceOrder => 'Sipariş tutarı',
+        kPurchaseCostSourceInvoices => 'Faturalar (sipariş tutarını aştı)',
+        _ => '',
+      };
+
+  static PurchaseCost? maybeFromJson(Object? json) =>
+      json is Map<String, dynamic> ? PurchaseCost.fromJson(json) : null;
+
+  factory PurchaseCost.fromJson(Map<String, dynamic> json) => PurchaseCost(
+        included: json['included'] as bool? ?? true,
+        amount: (json['amount'] as num?)?.toDouble() ?? 0,
+        potential: (json['potential'] as num?)?.toDouble() ?? 0,
+        source: json['source'] as String? ?? kPurchaseCostSourceNone,
+        orderAmount: (json['order_amount'] as num?)?.toDouble(),
+        invoicedAmount: (json['invoiced_amount'] as num?)?.toDouble(),
+        unpricedItems: (json['unpriced_items'] as num?)?.toInt() ?? 0,
+        warning: json['warning'] as String? ?? '',
+      );
+}
+
+const kPurchaseCostSourceNone = 'none';
+const kPurchaseCostSourceEstimate = 'estimate';
+const kPurchaseCostSourceOrders = 'orders';
+const kPurchaseCostSourceOrder = 'order';
+const kPurchaseCostSourceInvoices = 'invoices';
+
+/// Fiyatsız talep uyarısı -- sunucu metniyle aynı (domain.PurchaseCostNoPriceWarning);
+/// sunucu göndermezse (eski sunucu) talebin tahmini 0 iken gösterilir.
+const kPurchaseCostNoPriceWarning = 'Bu talepte fiyat yok; maliyete 0 TL girer.';
 
 /// Siparişin teslim durumu (backend migration 0074).
 const kReceiptNone = 'none';

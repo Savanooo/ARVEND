@@ -457,18 +457,39 @@ type ProjectFinancialSummary struct {
 	PendingExpenses    float64
 	IssuedInvoiceTotal float64
 	PaidInvoiceTotal   float64
-	// RealizedCost: onaylı masraflar + basit taşeronun iş ödemeleri +
-	// sözleşmeli taşeronun gerçekleşen işi (docs/maliyet-tanimlari.md).
+	// RealizedCost: masraflar + onaylı satın almalar + basit taşeronun iş
+	// ödemeleri + sözleşmeli taşeronun gerçekleşen işi
+	// (docs/maliyet-tanimlari.md). TotalExpenses BÜTÜN onaylı masraflardır
+	// (nakit); maliyetin masraf satırı ExpenseCost'tur -- satın almaya ait
+	// faturalar (siparişe bağlı masraflar) PurchaseCost'un içindedir.
 	RealizedCost float64
+	// Gerçekleşen maliyetin kırılımı (migration 0078):
+	//   RealizedCost = ExpenseCost + PurchaseCost + SubcontractorWorkPaid + NewSubcontractAccrued
+	// PurchaseCost "Satın almalar (onaylı)": onaylı talebin tahmini, onaylı
+	// siparişin tutarı ya da (aşarsa) bağlı faturaları; PurchaseCostVAT
+	// bunun içindeki bilinen KDV (sipariş KDV'si; talep tahmininin KDV'si
+	// bilinmez). PurchaseCostUncoded maliyet koduna bağlı olmayan satın
+	// alma (Maliyet Kontrolü'nün göremediği -- bütçe bazlı tahmine ayrıca
+	// eklenir). PurchaseExcluded "maliyete eklenmesin" denmiş satın almalar
+	// (bilgi; maliyete girmez).
+	ExpenseCost         float64
+	PurchaseCost        float64
+	PurchaseCostVAT     float64
+	PurchaseCostUncoded float64
+	PurchaseExcluded    float64
+	// RealizedCostVAT: gerçekleşen maliyetin içindeki bilinen KDV (masraf
+	// satırı + satın almalar); *CostNet bundan türetilir.
+	RealizedCostVAT float64
 	// PaidCost: onaylı masraflar + bütün taşeron ödemeleri (nakit, avans dahil).
 	PaidCost float64
 	// AdvanceOpen: mahsup edilmemiş taşeron avansları (maliyet değil).
 	AdvanceOpen float64
 	// PendingCost: onay bekleyen masraflar + onaya sunulmuş hakedişler.
 	PendingCost float64
-	// ReceivedNotCosted: siparişten teslim alınmış (kabul edilmiş) ama
-	// siparişe bağlı onaylı masrafı (faturası) girilmemiş tutar, KDV dahil.
-	// Maliyete girmez; kaybolmasın diye ayrıca gösterilir.
+	// ReceivedNotCosted: maliyete eklenen siparişlerde teslim alınmış
+	// (kabul edilmiş) ama siparişe bağlı onaylı faturası girilmemiş tutar,
+	// KDV dahil. Migration 0078'den beri sipariş tutarıyla maliyetin
+	// İÇİNDEDİR; "faturası bekleniyor" bilgisi olarak ayrıca gösterilir.
 	ReceivedNotCosted float64
 	// CommittedCost: gerçekleşen + taşeron sözleşmelerinin (legacy+yeni) kalan taahhüdü.
 	CommittedCost          float64
@@ -483,8 +504,11 @@ type ProjectFinancialSummary struct {
 	//
 	// Maliyetlerin KDV hariç karşılığı (2026-10-07): ExpenseVATTotal, onaylı
 	// ve iptal edilmemiş masrafların içindeki KDV'dir (KDV'si belirtilmemiş
-	// masraf tutarının tamamıyla maliyettir); *CostNet = maliyet - bu KDV.
-	// Taşeron ödemeleri KDV bilgisi taşımaz, oldukları gibi kalır.
+	// masraf tutarının tamamıyla maliyettir). Migration 0078'den beri
+	// *CostNet = maliyet - RealizedCostVAT (gerçekleşen maliyetin içindeki
+	// KDV: masraf satırı + satın almalar; satın almanın içindeki fatura
+	// sipariş KDV'siyle bir kez sayılır). Taşeron ödemeleri KDV bilgisi
+	// taşımaz, oldukları gibi kalır.
 	//
 	// ContractVATKnown=false ise proje tekliften açılmamıştır, sözleşmenin
 	// KDV'si bilinmez: KDV hariç kâr hesaplanamaz ve kâr/marj "net" alanları

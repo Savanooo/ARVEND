@@ -1702,15 +1702,16 @@ func (s *ProjectService) FinancialSummaryForViewer(ctx context.Context, projectI
 }
 
 // applyNetFigures: KDV hariç bedel, maliyet, kâr ve marjlar. Maliyetten
-// onaylı masrafların içindeki KDV düşülür (KDV'si belirtilmemiş masraf
-// tutarının tamamıyla kalır; taşeron ödemelerinde KDV bilgisi yok). Kural
-// domain.VATBasis/CostNet'te -- proje listesi, Maliyet Kontrolü ve ek iş
-// kârlılığı da aynılarını kullanır.
+// gerçekleşen maliyetin içindeki bilinen KDV düşülür: masraf satırının KDV'si
+// + onaylı satın almaların (sipariş) KDV'si (migration 0078; KDV'si
+// belirtilmemiş masraf ve talep tahmini tutarının tamamıyla kalır; taşeron
+// ödemelerinde KDV bilgisi yok). Kural domain.VATBasis/CostNet'te -- proje
+// listesi, Maliyet Kontrolü ve ek iş kârlılığı da aynılarını kullanır.
 func applyNetFigures(s *domain.ProjectFinancialSummary) {
 	b := contractVATBasis(s)
 	s.CurrentContractValueNet = b.Net()
-	s.RealizedCostNet = domain.CostNet(s.RealizedCost, s.ExpenseVATTotal)
-	s.CommittedCostNet = domain.CostNet(s.CommittedCost, s.ExpenseVATTotal)
+	s.RealizedCostNet = domain.CostNet(s.RealizedCost, s.RealizedCostVAT)
+	s.CommittedCostNet = domain.CostNet(s.CommittedCost, s.RealizedCostVAT)
 	s.RealizedGrossProfitNet = b.ProfitNet(s.RealizedCost, s.RealizedCostNet)
 	s.EstimatedGrossProfitNet = b.ProfitNet(s.CommittedCost, s.CommittedCostNet)
 	s.RealizedMarginPercentNet = domain.MarginPercent(s.RealizedGrossProfitNet, s.CurrentContractValueNet)
@@ -1738,12 +1739,18 @@ func roundKurus(v float64) float64 { return domain.RoundKurus(v) }
 // (EACNet = KDV hariç gerçekleşen + kalan; kalanın KDV'si bilinmediği için
 // olduğu gibi kalır). EAC yalnızca maliyet koduna bağlı masrafları içerir --
 // kodsuz masrafın KDV'si zaten hiç yok.
+//
+// Onaylı satın almalar (migration 0078) EAC'nin gerçekleşenindedir; maliyet
+// koduna bağlanmamış satın alma (kodsuz talep kalemi) Maliyet Kontrolü'nde
+// görünmez ve eski taşeron gibi ayrıca eklenir -- bütçe bazlı tahmin onaylı
+// satın almanın altında kalmasın. Talep tahmininin KDV'si bilinmez, KDV
+// hariç tahmine de aynı tutar eklenir.
 func applyForecast(s *domain.ProjectFinancialSummary, cc *domain.CostControlSummary) {
 	if cc != nil && cc.HasBudget && cc.RevisedBudget > 0 {
 		s.ForecastBasis = domain.ForecastBasisBudget
-		legacy := s.SubcontractorWorkPaid + s.SubcontractorRemaining
-		s.ForecastCost = roundKurus(cc.EACTotal + legacy)
-		s.ForecastCostNet = roundKurus(cc.EACNet + legacy)
+		outside := s.SubcontractorWorkPaid + s.SubcontractorRemaining + s.PurchaseCostUncoded
+		s.ForecastCost = roundKurus(cc.EACTotal + outside)
+		s.ForecastCostNet = roundKurus(cc.EACNet + outside)
 	} else {
 		s.ForecastBasis = domain.ForecastBasisCommitments
 		s.ForecastCost = s.CommittedCost

@@ -307,7 +307,9 @@ SELECT p.id, p.organization_id, p.project_no, p.name, p.project_type, p.source_o
     -- Maliyetler finans özetiyle AYNI görünümden (project_cost_basis,
     -- migration 0073): gerçekleşen maliyet liste ile detayda aynı çıkar.
     cb.expense_approved AS total_expenses,
-    cb.expense_approved_vat AS expense_vat_total,
+    -- Gerçekleşen maliyetin içindeki KDV (masraf + satın alma, migration
+    -- 0078): KDV hariç maliyet/kâr finans özetiyle aynı çıksın.
+    cb.realized_cost_vat AS expense_vat_total,
     cb.simple_paid AS subcontractor_paid,
     -- Kalan taahhüt: sözleşme - İŞ ödemesi (açık avans taahhüdün içinde kalır).
     COALESCE((SELECT sum(GREATEST(s.contract_amount - COALESCE((

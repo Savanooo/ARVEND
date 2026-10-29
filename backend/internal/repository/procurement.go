@@ -61,6 +61,7 @@ func ToDomainPurchaseRequest(p sqlc.PurchaseRequest) domain.PurchaseRequest {
 		CancelledAt:     nullableTimestamptzToPtr(p.CancelledAt), CancelledBy: nullableUUIDToPtr(p.CancelledBy),
 		CancelReason: p.CancelReason,
 		CreatedAt:    p.CreatedAt.Time, UpdatedAt: p.UpdatedAt.Time,
+		IncludeInProjectCost: p.IncludeInProjectCost, CostEstimate: NumericToFloat64Ptr(p.CostEstimate),
 	}
 }
 
@@ -157,6 +158,7 @@ func ToDomainPurchaseOrder(p sqlc.PurchaseOrder) domain.PurchaseOrder {
 		ID: p.ID.String(), OrganizationID: p.OrganizationID.String(), ProjectID: p.ProjectID.String(),
 		PONo: p.PoNo, SupplierID: p.SupplierID.String(),
 		SourceRFQID: nullableUUIDToPtr(p.SourceRfqID), SourceQuotationID: nullableUUIDToPtr(p.SourceQuotationID),
+		PurchaseRequestID: nullableUUIDToPtr(p.PurchaseRequestID), IncludeInProjectCost: p.IncludeInProjectCost,
 		Currency: p.Currency, Status: p.Status,
 		IssueDate: p.IssueDate.Time, ExpectedDeliveryDate: nullableDateToPtr(p.ExpectedDeliveryDate),
 		PaymentTerms: p.PaymentTerms, DeliveryAddress: p.DeliveryAddress, Notes: p.Notes,
@@ -186,6 +188,7 @@ func ToDomainPurchaseOrderDetailed(p sqlc.ListPurchaseOrdersRow) PurchaseOrderDe
 		CreatedBy: p.CreatedBy, ApprovedBy: p.ApprovedBy, ApprovedAt: p.ApprovedAt,
 		CancelledBy: p.CancelledBy, CancelledAt: p.CancelledAt, CancelReason: p.CancelReason,
 		ClosedBy: p.ClosedBy, ClosedAt: p.ClosedAt, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		PurchaseRequestID: p.PurchaseRequestID, IncludeInProjectCost: p.IncludeInProjectCost,
 	})
 	return PurchaseOrderDetailed{PurchaseOrder: base, SupplierCode: p.SupplierCode, SupplierName: p.SupplierLegalName}
 }
@@ -206,4 +209,55 @@ func int32PtrToIntPtr(v *int32) *int {
 	}
 	i := int(*v)
 	return &i
+}
+
+// ---------- Satın almanın proje maliyetine katkısı (migration 0078) ----------
+
+// ToDomainPurchaseRequestCost: talebin maliyete katkısı. Siparişi yokken
+// onaylı talebin tahmini girer; sayılan (onaylı/kapatılmış) siparişi varsa
+// siparişler tahminin yerine geçer. Uyarı yalnızca maliyete 0 girecekken
+// (fiyatsız talep, siparişi yok) verilir.
+func ToDomainPurchaseRequestCost(r sqlc.PurchaseRequestCostBasis) domain.PurchaseCost {
+	out := domain.PurchaseCost{
+		Included: r.IncludeInProjectCost, Amount: NumericToFloat64(r.ProjectCost),
+		UnpricedItems: int(r.UnpricedItems), Source: domain.PurchaseCostSourceNone,
+	}
+	estimate := NumericToFloat64(r.Estimate)
+	switch {
+	case r.HasOrder:
+		out.Source, out.Potential = domain.PurchaseCostSourceOrders, NumericToFloat64(r.OrdersAmount)
+	case r.Status == domain.PurchaseRequestStatusApproved:
+		out.Source, out.Potential = domain.PurchaseCostSourceEstimate, estimate
+	case r.Status == domain.PurchaseRequestStatusSubmitted:
+		// Onay bekleyen: onaylanırsa maliyete girecek tutar (onay ekranı).
+		out.Potential = estimate
+	}
+	if !r.HasOrder && estimate == 0 &&
+		(r.Status == domain.PurchaseRequestStatusSubmitted || r.Status == domain.PurchaseRequestStatusApproved) {
+		out.Warning = domain.PurchaseCostNoPriceWarning
+	}
+	return out
+}
+
+// ToDomainPurchaseOrderCost: siparişin maliyete katkısı -- max(sipariş
+// tutarı, bağlı onaylı faturalar); taslakta Potential onaylanırsa girecek
+// sipariş tutarıdır.
+func ToDomainPurchaseOrderCost(r sqlc.PurchaseOrderCostBasis) domain.PurchaseCost {
+	out := domain.PurchaseCost{
+		Included: r.IncludeInProjectCost, Source: domain.PurchaseCostSourceNone,
+		OrderAmount: NumericToFloat64(r.OrderAmount), InvoicedAmount: NumericToFloat64(r.InvoicedAmount),
+	}
+	if r.Counted != nil && *r.Counted {
+		out.Potential = NumericToFloat64(r.CostAmount)
+		out.Source = domain.PurchaseCostSourceOrder
+		if r.InvoiceLed {
+			out.Source = domain.PurchaseCostSourceInvoices
+		}
+		if r.IncludeInProjectCost {
+			out.Amount = out.Potential
+		}
+	} else if r.Status == domain.PurchaseOrderStatusDraft {
+		out.Potential = out.OrderAmount
+	}
+	return out
 }

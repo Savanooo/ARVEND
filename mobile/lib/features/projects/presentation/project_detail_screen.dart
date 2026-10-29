@@ -43,7 +43,7 @@ import '../budget/presentation/widgets/budget_ui.dart' show formatBudgetPercent;
 import '../contract_co/contract_co_sections.dart' show ContractCoSectionEntry, contractCoSections;
 import '../daily_report/presentation/daily_reports_tab.dart' show DailyReportsTab;
 import '../data/projects_providers.dart';
-import '../domain/procurement.dart' show kReceiptPartial, kReceiptComplete;
+import '../domain/procurement.dart' show PurchaseOrder, PurchaseRequest, kReceiptPartial, kReceiptComplete;
 import '../domain/project.dart';
 import '../domain/project_lock_text.dart';
 import '../finance_ledger/data/finance_ledger_providers.dart' show invalidateProjectLedger, kLedgerReadPermission;
@@ -801,6 +801,14 @@ class _FinancialSummaryCard extends StatelessWidget {
             const Text('Gerçekleşen', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppColors.textMuted)),
             const SizedBox(height: 4),
             _InfoRow(label: 'Gerçekleşen Maliyet', value: Formatters.money(s.realizedCost, currency: s.currency)),
+            // Onaylı satın almalar gerçekleşen maliyetin İÇİNDEDİR (backend
+            // migration 0078): talep onaylanınca tahmini, sipariş onaylanınca
+            // sipariş tutarı (faturası ayrıca sayılmaz).
+            if (s.purchaseCost > 0)
+              _InfoRow(
+                label: 'Satın almalar (onaylı)',
+                value: Formatters.money(s.purchaseCost, currency: s.currency),
+              ),
             // Masraflara girilen KDV düşülmüş maliyet (sunucunun rakamı);
             // KDV girilmemişse KDV dahille aynıdır ve gösterilmez.
             if (s.realizedCostNetDiffers)
@@ -847,11 +855,17 @@ class _FinancialSummaryCard extends StatelessWidget {
                 label: 'Verilen avans (maliyet değil)',
                 value: Formatters.money(s.advanceOpen, currency: s.currency),
               ),
+            // Sipariş tutarıyla maliyetin içinde; fatura bekleniyor (bilgi).
             if (s.receivedNotCosted > 0)
               _InfoRow(
                 label: 'Teslim alınmış, faturası yok',
                 value: Formatters.money(s.receivedNotCosted, currency: s.currency),
                 valueColor: AppStatusColors.warning,
+              ),
+            if (s.purchaseExcluded > 0)
+              _InfoRow(
+                label: 'Maliyete eklenmeyen satın almalar',
+                value: Formatters.money(s.purchaseExcluded, currency: s.currency),
               ),
             if (s.pendingCost > 0)
               _InfoRow(
@@ -1028,6 +1042,16 @@ class _ProcurementTabState extends ConsumerState<_ProcurementTab> {
   }
 }
 
+Widget? _purchaseOrderFooter(PurchaseOrder po) {
+  final lines = <String>[
+    if (!po.includeInProjectCost && po.status != PurchaseOrder.statusCancelled) 'Maliyete eklenmedi',
+    if ((po.receivedNotCosted ?? 0) > 0)
+      'Faturası gelmemiş ${Formatters.money(po.receivedNotCosted!, currency: po.currency)}',
+  ];
+  if (lines.isEmpty) return null;
+  return Text(lines.join(' · '), style: AppTypography.metadata.copyWith(color: AppStatusColors.warning));
+}
+
 class _PurchaseRequestsList extends ConsumerWidget {
   const _PurchaseRequestsList({required this.projectId, required this.canManage});
   final String projectId;
@@ -1060,6 +1084,11 @@ class _PurchaseRequestsList extends ConsumerWidget {
               children: requests
                   .map((pr) => AppListCard(
                         title: '${pr.prNo} — ${pr.title}',
+                        // Onaylı talep maliyete girer (backend migration 0078);
+                        // "Hayır" denmiş talep ayrıca belirtilir.
+                        footer: pr.status == PurchaseRequest.statusApproved && !pr.includeInProjectCost
+                            ? Text('Maliyete eklenmedi', style: AppTypography.metadata.copyWith(color: AppStatusColors.warning))
+                            : null,
                         onTap: () => context.push('/projeler/$projectId/satin-alma/talepler/${pr.id}'),
                         trailing: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -1165,12 +1194,10 @@ class _PurchaseOrdersList extends ConsumerWidget {
                           kReceiptComplete => 'Teslim alındı',
                           _ => null,
                         },
-                        footer: (po.receivedNotCosted ?? 0) > 0
-                            ? Text(
-                                'Maliyeti girilmemiş ${Formatters.money(po.receivedNotCosted!, currency: po.currency)}',
-                                style: AppTypography.metadata.copyWith(color: AppStatusColors.warning),
-                              )
-                            : null,
+                        // Sipariş tutarı maliyetin içinde (backend migration
+                        // 0078); teslim alınıp faturası gelmeyen kısım bilgi
+                        // olarak, "maliyete eklenmesin" denmiş sipariş ayrıca.
+                        footer: _purchaseOrderFooter(po),
                         onTap: () => context.push('/projeler/$projectId/satin-alma/siparisler/${po.id}'),
                         trailing: Column(
                           mainAxisAlignment: MainAxisAlignment.center,

@@ -220,6 +220,7 @@ func ToDomainCostControlLine(row sqlc.ListCostControlLinesRow) domain.CostContro
 		IsUnbudgeted:        row.IsUnbudgeted,
 		ActualCostNet:       NumericToFloat64(row.ActualCostNet),
 		EACNet:              NumericToFloat64(row.EacNet),
+		PurchaseActualCost:  NumericToFloat64(row.PurchaseActualCost),
 	}
 }
 
@@ -244,6 +245,7 @@ func ToDomainCostControlSummary(row sqlc.GetProjectCostControlSummaryRow) domain
 		ForecastMarginPercent: NumericToFloat64(row.ForecastMarginPercent),
 		ActualCostNet:         NumericToFloat64(row.ActualCostNet),
 		EACNet:                NumericToFloat64(row.EacNet),
+		PurchaseActualCost:    NumericToFloat64(row.PurchaseActualCost),
 		ContractVATAmount:     NumericToFloat64(row.ContractVatAmount),
 		ContractVATKnown:      row.ContractVatKnown,
 		HasBudget:             true,

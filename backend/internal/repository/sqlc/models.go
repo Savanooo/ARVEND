@@ -839,6 +839,13 @@ type ProjectCostBasis struct {
 	AdvanceOpen              pgtype.Numeric `json:"advance_open"`
 	PendingCost              pgtype.Numeric `json:"pending_cost"`
 	ReceivedNotCosted        pgtype.Numeric `json:"received_not_costed"`
+	ExpenseCost              pgtype.Numeric `json:"expense_cost"`
+	ExpenseCostVat           pgtype.Numeric `json:"expense_cost_vat"`
+	PurchaseCost             pgtype.Numeric `json:"purchase_cost"`
+	PurchaseCostVat          pgtype.Numeric `json:"purchase_cost_vat"`
+	PurchaseCostUncoded      pgtype.Numeric `json:"purchase_cost_uncoded"`
+	PurchaseExcluded         pgtype.Numeric `json:"purchase_excluded"`
+	RealizedCostVat          pgtype.Numeric `json:"realized_cost_vat"`
 }
 
 type ProjectCostForecast struct {
@@ -850,6 +857,19 @@ type ProjectCostForecast struct {
 	Note           string             `json:"note"`
 	UpdatedBy      pgtype.UUID        `json:"updated_by"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProjectCostLine struct {
+	OrganizationID    pgtype.UUID    `json:"organization_id"`
+	ProjectID         pgtype.UUID    `json:"project_id"`
+	Source            string         `json:"source"`
+	SourceID          pgtype.UUID    `json:"source_id"`
+	PurchaseOrderID   pgtype.UUID    `json:"purchase_order_id"`
+	PurchaseRequestID pgtype.UUID    `json:"purchase_request_id"`
+	CostCodeID        pgtype.UUID    `json:"cost_code_id"`
+	BudgetLineID      pgtype.UUID    `json:"budget_line_id"`
+	Amount            pgtype.Numeric `json:"amount"`
+	Vat               pgtype.Numeric `json:"vat"`
 }
 
 type ProjectCounter struct {
@@ -1218,6 +1238,25 @@ type PurchaseOrder struct {
 	ClosedAt             pgtype.Timestamptz `json:"closed_at"`
 	CreatedAt            pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+	PurchaseRequestID    pgtype.UUID        `json:"purchase_request_id"`
+	IncludeInProjectCost bool               `json:"include_in_project_cost"`
+}
+
+type PurchaseOrderCostBasis struct {
+	PurchaseOrderID      pgtype.UUID    `json:"purchase_order_id"`
+	OrganizationID       pgtype.UUID    `json:"organization_id"`
+	ProjectID            pgtype.UUID    `json:"project_id"`
+	PurchaseRequestID    pgtype.UUID    `json:"purchase_request_id"`
+	Status               string         `json:"status"`
+	IncludeInProjectCost bool           `json:"include_in_project_cost"`
+	Counted              *bool          `json:"counted"`
+	OrderAmount          pgtype.Numeric `json:"order_amount"`
+	OrderVat             pgtype.Numeric `json:"order_vat"`
+	InvoicedAmount       pgtype.Numeric `json:"invoiced_amount"`
+	InvoicedVat          pgtype.Numeric `json:"invoiced_vat"`
+	InvoiceLed           bool           `json:"invoice_led"`
+	CostAmount           pgtype.Numeric `json:"cost_amount"`
+	CostVat              pgtype.Numeric `json:"cost_vat"`
 }
 
 type PurchaseOrderCounter struct {
@@ -1240,6 +1279,18 @@ type PurchaseOrderItem struct {
 	UnitPrice       pgtype.Numeric `json:"unit_price"`
 	LineTotal       pgtype.Numeric `json:"line_total"`
 	SortOrder       int32          `json:"sort_order"`
+}
+
+type PurchaseOrderItemCost struct {
+	PurchaseOrderItemID pgtype.UUID    `json:"purchase_order_item_id"`
+	PurchaseOrderID     pgtype.UUID    `json:"purchase_order_id"`
+	OrganizationID      pgtype.UUID    `json:"organization_id"`
+	ProjectID           pgtype.UUID    `json:"project_id"`
+	CostCodeID          pgtype.UUID    `json:"cost_code_id"`
+	BudgetLineID        pgtype.UUID    `json:"budget_line_id"`
+	ShortClosed         *bool          `json:"short_closed"`
+	Net                 pgtype.Numeric `json:"net"`
+	Vat                 pgtype.Numeric `json:"vat"`
 }
 
 type PurchaseReceipt struct {
@@ -1274,27 +1325,43 @@ type PurchaseReceiptItem struct {
 }
 
 type PurchaseRequest struct {
-	ID              pgtype.UUID        `json:"id"`
-	OrganizationID  pgtype.UUID        `json:"organization_id"`
-	ProjectID       pgtype.UUID        `json:"project_id"`
-	PrNo            string             `json:"pr_no"`
-	Title           string             `json:"title"`
-	Description     string             `json:"description"`
-	NeededBy        pgtype.Date        `json:"needed_by"`
-	Status          string             `json:"status"`
-	EstimatedTotal  pgtype.Numeric     `json:"estimated_total"`
-	RequestedBy     pgtype.UUID        `json:"requested_by"`
-	SubmittedAt     pgtype.Timestamptz `json:"submitted_at"`
-	ApprovedAt      pgtype.Timestamptz `json:"approved_at"`
-	ApprovedBy      pgtype.UUID        `json:"approved_by"`
-	RejectedAt      pgtype.Timestamptz `json:"rejected_at"`
-	RejectedBy      pgtype.UUID        `json:"rejected_by"`
-	RejectionReason string             `json:"rejection_reason"`
-	CancelledAt     pgtype.Timestamptz `json:"cancelled_at"`
-	CancelledBy     pgtype.UUID        `json:"cancelled_by"`
-	CancelReason    string             `json:"cancel_reason"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	ID                   pgtype.UUID        `json:"id"`
+	OrganizationID       pgtype.UUID        `json:"organization_id"`
+	ProjectID            pgtype.UUID        `json:"project_id"`
+	PrNo                 string             `json:"pr_no"`
+	Title                string             `json:"title"`
+	Description          string             `json:"description"`
+	NeededBy             pgtype.Date        `json:"needed_by"`
+	Status               string             `json:"status"`
+	EstimatedTotal       pgtype.Numeric     `json:"estimated_total"`
+	RequestedBy          pgtype.UUID        `json:"requested_by"`
+	SubmittedAt          pgtype.Timestamptz `json:"submitted_at"`
+	ApprovedAt           pgtype.Timestamptz `json:"approved_at"`
+	ApprovedBy           pgtype.UUID        `json:"approved_by"`
+	RejectedAt           pgtype.Timestamptz `json:"rejected_at"`
+	RejectedBy           pgtype.UUID        `json:"rejected_by"`
+	RejectionReason      string             `json:"rejection_reason"`
+	CancelledAt          pgtype.Timestamptz `json:"cancelled_at"`
+	CancelledBy          pgtype.UUID        `json:"cancelled_by"`
+	CancelReason         string             `json:"cancel_reason"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+	IncludeInProjectCost bool               `json:"include_in_project_cost"`
+	CostEstimate         pgtype.Numeric     `json:"cost_estimate"`
+}
+
+type PurchaseRequestCostBasis struct {
+	PurchaseRequestID    pgtype.UUID    `json:"purchase_request_id"`
+	OrganizationID       pgtype.UUID    `json:"organization_id"`
+	ProjectID            pgtype.UUID    `json:"project_id"`
+	Status               string         `json:"status"`
+	IncludeInProjectCost bool           `json:"include_in_project_cost"`
+	Estimate             pgtype.Numeric `json:"estimate"`
+	HasOrder             bool           `json:"has_order"`
+	OrdersAmount         pgtype.Numeric `json:"orders_amount"`
+	UnpricedItems        int32          `json:"unpriced_items"`
+	EstimateAmount       pgtype.Numeric `json:"estimate_amount"`
+	ProjectCost          pgtype.Numeric `json:"project_cost"`
 }
 
 type PurchaseRequestCounter struct {

@@ -21,6 +21,7 @@ import '../../../core/widgets/money_text.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../data/projects_providers.dart';
 import '../domain/procurement.dart';
+import 'purchase_cost_decision.dart';
 import 'purchase_receipt_form_screen.dart' show formatReceiptQty;
 
 /// P3 — Satın Alma Siparişi detayı. Artık yalnızca görüntüleme DEĞİL --
@@ -119,6 +120,18 @@ class _PurchaseOrderDetailBody extends ConsumerWidget {
             const SizedBox(height: AppSpacing.md),
             _ReasonCard(label: 'İptal Gerekçesi', reason: order.cancelReason),
           ],
+          if (order.status != PurchaseOrder.statusCancelled) ...[
+            const SizedBox(height: AppSpacing.lg),
+            const AppSectionHeader(title: 'Proje Maliyeti'),
+            PurchaseCostCard(
+              included: order.includeInProjectCost,
+              cost: order.projectCost,
+              currency: order.currency,
+              onChange: canApprove && order.canChangeProjectCost
+                  ? () => _changePurchaseOrderCost(context, ref, projectId, order, refreshAll)
+                  : null,
+            ),
+          ],
           const SizedBox(height: AppSpacing.lg),
           _LifecycleActionsBar(
             projectId: projectId,
@@ -215,6 +228,34 @@ class _PurchaseOrderDetailBody extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+/// Açık siparişin maliyet kararını değiştirir (`projects.procurement.approve`).
+Future<void> _changePurchaseOrderCost(
+  BuildContext context,
+  WidgetRef ref,
+  String projectId,
+  PurchaseOrder order,
+  VoidCallback onChanged,
+) async {
+  final c = order.projectCost;
+  final choice = await showPurchaseCostSheet(
+    context,
+    title: 'Maliyet Kararı',
+    amount: (c != null && c.potential > 0) ? c.potential : order.total,
+    currency: order.currency,
+    initialInclude: order.includeInProjectCost,
+    confirmLabel: 'Kaydet',
+  );
+  if (choice == null || choice.include == order.includeInProjectCost) return;
+  try {
+    await ref
+        .read(projectsRepositoryProvider)
+        .setPurchaseOrderCost(projectId, order.id, includeInProjectCost: choice.include);
+    onChanged();
+  } on ApiException catch (e) {
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
   }
 }
 
@@ -320,10 +361,24 @@ class _LifecycleActionsBarState extends ConsumerState<_LifecycleActionsBar> {
         onPressed: _busy
             ? null
             : () async {
-                final ok = await _confirm(
-                    'Onayla', 'Bu sipariş onaylansın mı? Onay, her kalem için değişmez bir maliyet taahhüdü oluşturur.');
-                if (!ok) return;
-                await _run(() => repo.approvePurchaseOrder(widget.projectId, widget.poId));
+                // Onaylı sipariş proje maliyetine girer (backend migration
+                // 0078); karar talepten devralınır, burada değiştirilebilir.
+                final choice = await showPurchaseCostSheet(
+                  context,
+                  title: 'Siparişi Onayla',
+                  note: po.purchaseRequestId != null
+                      ? 'Sipariş, talebin tahmini tutarının yerine maliyete girer. Onay, her kalem için değişmez bir maliyet taahhüdü de oluşturur.'
+                      : 'Onay, her kalem için değişmez bir maliyet taahhüdü de oluşturur.',
+                  amount: po.projectCost?.potential ?? po.total,
+                  currency: po.currency,
+                  initialInclude: po.includeInProjectCost,
+                );
+                if (choice == null) return;
+                await _run(() => repo.approvePurchaseOrder(
+                      widget.projectId,
+                      widget.poId,
+                      includeInProjectCost: choice.include,
+                    ));
               },
       ));
     }

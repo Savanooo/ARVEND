@@ -497,6 +497,9 @@ type costControlLineResponse struct {
 	// KDV dahil kalır.
 	ActualCostNet float64 `json:"actual_cost_net"`
 	EACNet        float64 `json:"eac_net"`
+	// actual_cost'un onaylı satın alma payı (migration 0078) -- actual_cost
+	// bunu zaten içerir.
+	PurchaseActualCost float64 `json:"purchase_actual_cost"`
 }
 
 func toCostControlLineResponse(l domain.CostControlLine) costControlLineResponse {
@@ -506,7 +509,7 @@ func toCostControlLineResponse(l domain.CostControlLine) costControlLineResponse
 		Description: l.Description, OriginalBudget: l.OriginalAmount, ApprovedAdjustments: l.ApprovedAdjustments,
 		RevisedBudget: l.RevisedBudget, CommittedCost: l.CommittedCost, ActualCost: l.ActualCost,
 		ETC: l.ETCAmount, EAC: l.EAC, Variance: l.Variance, IsUnbudgeted: l.IsUnbudgeted,
-		ActualCostNet: l.ActualCostNet, EACNet: l.EACNet,
+		ActualCostNet: l.ActualCostNet, EACNet: l.EACNet, PurchaseActualCost: l.PurchaseActualCost,
 	}
 }
 
@@ -539,6 +542,9 @@ type costControlSummaryResponse struct {
 	// görünürlükte.
 	ActualCostNet float64 `json:"actual_cost_net"`
 	EACNet        float64 `json:"eac_net"`
+	// actual_cost'un onaylı satın alma payı (migration 0078; maliyet koduna
+	// bağlı satın almalar) -- actual_cost bunu zaten içerir.
+	PurchaseActualCost float64 `json:"purchase_actual_cost"`
 	// Gelir tarafı (sözleşme bedelinin KDV'si, KDV hariç bedel) ve ondan
 	// türeyen KDV hariç kâr/marj: contract_value/forecast_profit ile AYNI
 	// yerde, aynı koşulda yazılır (bkz. setCostControlRevenue) -- pointer,
@@ -557,7 +563,7 @@ func toCostControlSummaryResponse(s domain.CostControlSummary, showRevenue bool)
 		CommittedCost: s.CommittedCost, ActualCost: s.ActualCost, ETC: s.ETCTotal, EAC: s.EACTotal,
 		Variance:      s.Variance,
 		HasBudget:     s.HasBudget,
-		ActualCostNet: s.ActualCostNet, EACNet: s.EACNet,
+		ActualCostNet: s.ActualCostNet, EACNet: s.EACNet, PurchaseActualCost: s.PurchaseActualCost,
 	}
 	if showRevenue {
 		setCostControlRevenue(&resp, s)
