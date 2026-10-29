@@ -68,7 +68,9 @@ class OtherMenuScreen extends ConsumerWidget {
       // Herkes masraf girer (backend 0066); genel (projesiz) ve projeli
       // masraflar tek yerde (backend 0068). Finans okuma izni olan herkesinkini,
       // olmayan kendi girdiklerini görür.
-      if (canSee('projects.expenses.create'))
+      // Onaylayıcı (masraf girme izni olmasa da) karar vereceği masrafları
+      // burada görür (backend 0076: GET /expenses onaylayıcı kapsamı).
+      if (canSee('projects.expenses.create') || canSee('projects.expenses.approve'))
         _MenuItem(
           icon: Icons.receipt_long_outlined,
           label: 'Masraflar',

@@ -1,3 +1,8 @@
+import 'expense_attachment.dart';
+
+// Masraf belgesi modeli Expense ile birlikte kullanılır.
+export 'expense_attachment.dart';
+
 /// backend `projectResponse` (bkz. mobile/API_CONTRACT.md#projects).
 /// Finans alanları YALNIZCA liste uçlarında dolu gelir; tekil GET'te
 /// (`omitempty` + backend'in bilinçli tasarımı) hepsi null'dur - detay
@@ -373,6 +378,12 @@ class Expense {
   final String? createdBy;
   final String? voidedBy;
 
+  /// Fiş / belge ekleri (backend migration 0076). Listeler (Finans,
+  /// Masraflarım, Masraflar) ve düzenleme yanıtı taşır; null = sunucu bu
+  /// yanıtta göndermedi (oluşturma/onay yanıtı ya da eski sunucu) -- "eki
+  /// yok" demek değildir, ayrıntı o zaman belge bölümünü göstermez.
+  final List<ExpenseAttachment>? attachments;
+
   const Expense({
     required this.id,
     this.projectId = '',
@@ -399,9 +410,13 @@ class Expense {
     this.netAmount,
     this.createdBy,
     this.voidedBy,
+    this.attachments,
   });
 
   bool get isVoided => voidedAt != null;
+
+  /// Kartlardaki ataş sayısı.
+  int get attachmentCount => attachments?.length ?? 0;
 
   /// [userId] bu masrafı girdi mi (oturum bilinmiyorsa ya da sunucu alanı
   /// göndermiyorsa hayır).
@@ -444,6 +459,10 @@ class Expense {
         netAmount: (json['net_amount'] as num?)?.toDouble(),
         createdBy: _nonEmptyId(json['created_by'] as String?),
         voidedBy: _nonEmptyId(json['voided_by'] as String?),
+        attachments: (json['attachments'] as List?)
+            ?.cast<Map<String, dynamic>>()
+            .map(ExpenseAttachment.fromJson)
+            .toList(),
       );
 }
 

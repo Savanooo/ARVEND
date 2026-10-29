@@ -20,13 +20,16 @@ import '../../finance_ledger/presentation/ledger_ui.dart' show isLedgerLocked;
 import '../data/my_expenses_repository.dart';
 import '../domain/my_expense.dart';
 import 'add_expense_flow.dart';
-import 'my_expenses_screen.dart' show kMyExpensesNoAccessText;
+import 'my_expenses_screen.dart' show ExpenseAttachmentCount, kMyExpensesNoAccessText;
 
 /// "Masraflar" (Diğer > İş Araçları, backend migration 0068): projeli ve
 /// genel (projesiz) masraflar tek listede. Finans okuma izni olan kişi
 /// herkesin masrafını toplamlarla görür ve onay bekleyenlere buradan karar
-/// verir; olmayan yalnızca kendi girdiklerini görür. "+" genel masraf ya da
-/// bir projeye masraf girer.
+/// verir; finans okuması olmayan onaylayıcı (backend `scope: approver`)
+/// karar verebileceği masrafları -- onay bekleyenler ve son günlerde karara
+/// bağlananlar -- toplamsız görür (onay bildirimi onu buraya getirir);
+/// diğerleri yalnızca kendi girdiklerini. "+" genel masraf ya da bir projeye
+/// masraf girer.
 class ExpensesScreen extends ConsumerStatefulWidget {
   const ExpensesScreen({super.key, this.initialStatus = ''});
 
@@ -78,6 +81,7 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
       canEdit: actions.canEdit,
       canWithdraw: actions.canWithdraw,
       ownDecisionBlocked: actions.ownDecisionBlocked,
+      canManageAttachments: actions.canManageAttachments,
       projectLabel: row.projectLabel,
     );
   }
@@ -91,7 +95,9 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
     final auth = ref.watch(authControllerProvider);
     final user = auth.valueOrNull;
     if (auth.isLoading && user == null) return const AppPageScaffold(title: title, body: LoadingState());
-    if (!user.can(kExpenseCreatePermission)) {
+    // Onaylayıcı masraf girme izni olmasa da karar vereceği masrafları görür.
+    final canCreate = user.can(kExpenseCreatePermission);
+    if (!canCreate && !user.canAccess(kExpenseApprovePermission)) {
       return const AppPageScaffold(
         title: title,
         body: Padding(padding: EdgeInsets.all(AppSpacing.lg), child: ReadOnlyNotice(kMyExpensesNoAccessText)),
@@ -101,12 +107,14 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
 
     return AppPageScaffold(
       title: title,
-      floatingActionButton: FloatingActionButton.extended(
-        key: const ValueKey('masraf-ekle'),
-        onPressed: _addExpense,
-        icon: const Icon(Icons.add),
-        label: const Text('Masraf Ekle'),
-      ),
+      floatingActionButton: canCreate
+          ? FloatingActionButton.extended(
+              key: const ValueKey('masraf-ekle'),
+              onPressed: _addExpense,
+              icon: const Icon(Icons.add),
+              label: const Text('Masraf Ekle'),
+            )
+          : null,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -154,7 +162,7 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
                         _ExpenseCard(
                           key: ValueKey('masraf-${item.expense.id}'),
                           item: item,
-                          showCreator: page.canSeeAll,
+                          showCreator: page.showsOthers,
                           onTap: () => _openDetail(item),
                         ),
                     if (page.truncated)
@@ -167,11 +175,17 @@ class _ExpensesScreenState extends ConsumerState<ExpensesScreen> {
                       ),
                     const SizedBox(height: AppSpacing.md),
                     Text(
-                      page.canSeeAll
-                          ? 'Toplamlar onaylı ve onay bekleyen masrafları içerir; reddedilen ve iptal edilenler '
-                                'sayılmaz. Genel masraflar proje kârına girmez.'
-                          : 'Girdiğin masraf yönetici onaylayınca kesinleşir. Reddedilen masrafı nedenine bakıp '
-                                'düzeltebilir ya da geri çekebilirsin.',
+                      switch (page.scope) {
+                        ExpensesScope.all =>
+                          'Toplamlar onaylı ve onay bekleyen masrafları içerir; reddedilen ve iptal edilenler '
+                              'sayılmaz. Genel masraflar proje kârına girmez.',
+                        ExpensesScope.approver =>
+                          'Onay bekleyen masraflar, son ${page.approverRecentDays} günde karara bağlananlar ve kendi '
+                              'masrafların gösteriliyor. Fişe bakıp masrafın ayrıntısından karar verebilirsin.',
+                        ExpensesScope.mine =>
+                          'Girdiğin masraf yönetici onaylayınca kesinleşir. Reddedilen masrafı nedenine bakıp '
+                              'düzeltebilir ya da geri çekebilirsin.',
+                      },
                       style: AppTypography.helper,
                     ),
                   ],
@@ -283,7 +297,15 @@ class _ExpenseCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: AppSpacing.xs),
-            Text(details, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppTypography.metadata),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(details, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppTypography.metadata),
+                ),
+                if (e.attachmentCount > 0) ExpenseAttachmentCount(count: e.attachmentCount),
+              ],
+            ),
             if (e.isRejected && !e.isVoided && e.decisionNote.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.xs),
               Text(

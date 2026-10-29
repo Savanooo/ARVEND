@@ -27,8 +27,9 @@ const kMyExpensesNoAccessText =
     'Masraf girme yetkin yok. Yöneticinden rolüne "Projeye masraf girme" iznini eklemesini isteyebilirsin.';
 
 /// "Masraflarım" (Diğer > İş Araçları, Ana Sayfa hızlı işlemi; backend
-/// migration 0066): kişinin KENDİ girdiği masraflar, projeler arası, en yeni
-/// önce -- durum çipi (Onay bekliyor / Onaylandı / Reddedildi + ret nedeni,
+/// migration 0066): kişinin KENDİ girdiği masraflar, projeler arası ve genel
+/// (projesiz) olanlar dahil ("Genel masraf" etiketiyle), en yeni önce --
+/// durum çipi (Onay bekliyor / Onaylandı / Reddedildi + ret nedeni,
 /// Geri çekildi). Satıra dokununca ayrıntı; kendi bekleyen/reddedilen
 /// masrafında Düzenle / Geri Çek. Finans okuma izni gerekmez: sunucu
 /// yalnızca kişinin kendi kayıtlarını döndürür, toplam göstermeyiz.
@@ -114,6 +115,7 @@ class _MyExpensesScreenState extends ConsumerState<MyExpensesScreen> {
       canEdit: actions.canEdit,
       canWithdraw: actions.canWithdraw,
       ownDecisionBlocked: actions.ownDecisionBlocked,
+      canManageAttachments: actions.canManageAttachments,
       projectLabel: row.projectLabel,
     );
   }
@@ -207,8 +209,8 @@ class _MyExpensesScreenState extends ConsumerState<MyExpensesScreen> {
                           padding: const EdgeInsets.only(top: AppSpacing.xl),
                           child: EmptyStateView(
                             message: all.isEmpty
-                                ? 'Henüz masraf girmedin. Sağ alttaki + ile masrafını gir; onaylanınca projenin '
-                                      'maliyetine işlenir.'
+                                ? 'Henüz masraf girmedin. Sağ alttaki + ile genel ya da projeye masraf gir; '
+                                      'yönetici onaylayınca kesinleşir.'
                                 : 'Bu durumda masrafın yok.',
                             icon: Icons.receipt_long_outlined,
                           ),
@@ -218,8 +220,9 @@ class _MyExpensesScreenState extends ConsumerState<MyExpensesScreen> {
                           _MyExpenseCard(key: ValueKey('masrafim-${row.expense.id}'), row: row, onTap: () => _openDetail(row)),
                       const SizedBox(height: AppSpacing.md),
                       const Text(
-                        'Girdiğin masraf yönetici onaylayınca projenin maliyetine işlenir. Reddedilen masrafı nedenine '
-                        'bakıp düzeltebilir ya da geri çekebilirsin.',
+                        'Girdiğin masraf yönetici onaylayınca kesinleşir; projeli masraf projenin maliyetine işlenir, '
+                        'genel masraf firma gideri olarak kalır. Reddedilen masrafı nedenine bakıp düzeltebilir ya da '
+                        'geri çekebilirsin.',
                         style: AppTypography.helper,
                       ),
                     ],
@@ -292,7 +295,15 @@ class _MyExpenseCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: AppSpacing.xs),
-            Text(details, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppTypography.metadata),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(details, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppTypography.metadata),
+                ),
+                if (e.attachmentCount > 0) ExpenseAttachmentCount(count: e.attachmentCount),
+              ],
+            ),
             if (e.isRejected && !e.isVoided && e.decisionNote.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.xs),
               Text(
@@ -304,6 +315,27 @@ class _MyExpenseCard extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Kartta masrafın fiş / belge sayısı (backend migration 0076) -- ataş + sayı.
+class ExpenseAttachmentCount extends StatelessWidget {
+  const ExpenseAttachmentCount({super.key, required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: AppSpacing.sm),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.attach_file, size: 14, color: AppColors.textMuted, semanticLabel: 'Belge'),
+          Text('$count', style: AppTypography.metadata),
+        ],
       ),
     );
   }
