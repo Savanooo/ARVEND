@@ -264,9 +264,10 @@ class _ProjectPhotoGalleryScreenState extends ConsumerState<ProjectPhotoGalleryS
                     },
                     itemBuilder: (context, i) {
                       final p = _photos[i];
-                      return _GalleryPage(
+                      return GalleryZoomPage(
                         key: ValueKey('photo-gallery-${p.id}'),
-                        photoKey: _keyOf(p),
+                        bytes: projectPhotoBytesProvider(_keyOf(p)),
+                        onRetry: () => ref.invalidate(projectPhotoBytesProvider(_keyOf(p))),
                         onZoomChanged: (z) => _onZoomChanged(p.id, z),
                         onTap: () => setState(() => _chrome = !_chrome),
                         onDismissDrag: _onDismissDrag,
@@ -445,29 +446,34 @@ class _Caption extends StatelessWidget {
 }
 
 /// Galerinin tek sayfası: kendi yakınlaştırma durumu olan fotoğraf.
-class _GalleryPage extends ConsumerStatefulWidget {
-  const _GalleryPage({
+/// Baytları veren sağlayıcı dışarıdan gelir: Yapay Zekâ Stüdyo
+/// görüntüleyicisi de aynı hareketleri (yakınlaştırma, aşağı çekip kapatma)
+/// kullanır.
+class GalleryZoomPage extends ConsumerStatefulWidget {
+  const GalleryZoomPage({
     super.key,
-    required this.photoKey,
+    required this.bytes,
+    required this.onRetry,
     required this.onZoomChanged,
     required this.onTap,
     required this.onDismissDrag,
     required this.onDismissEnd,
   });
 
-  final ProjectPhotoKey photoKey;
+  final ProviderListenable<AsyncValue<Uint8List>> bytes;
+  final VoidCallback onRetry;
   final ValueChanged<bool> onZoomChanged;
   final VoidCallback onTap;
   final ValueChanged<double> onDismissDrag;
   final ValueChanged<double?> onDismissEnd;
 
   @override
-  ConsumerState<_GalleryPage> createState() => _GalleryPageState();
+  ConsumerState<GalleryZoomPage> createState() => _GalleryZoomPageState();
 }
 
 const _kDoubleTapScale = 2.5;
 
-class _GalleryPageState extends ConsumerState<_GalleryPage> with SingleTickerProviderStateMixin {
+class _GalleryZoomPageState extends ConsumerState<GalleryZoomPage> with SingleTickerProviderStateMixin {
   final _transform = TransformationController();
   late final AnimationController _zoomAnimation = AnimationController(
     vsync: this,
@@ -525,7 +531,7 @@ class _GalleryPageState extends ConsumerState<_GalleryPage> with SingleTickerPro
 
   @override
   Widget build(BuildContext context) {
-    final bytesAsync = ref.watch(projectPhotoBytesProvider(widget.photoKey));
+    final bytesAsync = ref.watch(widget.bytes);
     final media = MediaQuery.of(context);
     // Ekranın uzun kenarı kadar (en çok 2400 px) bir kutuya sığdırılarak
     // çözülür: yatay/dikey çevirmede yeniden çözülmez, 2 kat yakınlaşmaya
@@ -577,9 +583,7 @@ class _GalleryPageState extends ConsumerState<_GalleryPage> with SingleTickerPro
                 errorBuilder: (_, _, _) => const _PhotoProblem(),
               ),
               loading: () => const Center(child: CircularProgressIndicator(color: Colors.white)),
-              error: (e, st) => _PhotoProblem(
-                onRetry: () => ref.invalidate(projectPhotoBytesProvider(widget.photoKey)),
-              ),
+              error: (e, st) => _PhotoProblem(onRetry: widget.onRetry),
             ),
           ),
         ),

@@ -576,8 +576,12 @@ void main() {
         permissions: const {'offers.read', 'offers.create', 'projects.expenses.create'},
       );
       expect(quickActionsFor(salesOnly).map((a) => a.label), ['Teklif Oluştur', 'Masraf Gir', 'Masraf Takibi']);
-      // İzin kümesi boşsa (eski oturum) fail-open.
-      expect(quickActionsFor(null), hasLength(QuickActionKey.values.length));
+      // İzin kümesi boşsa (eski oturum) fail-open -- Yapay Zekâ Stüdyo
+      // hariç: o yalnızca sunucu "açık" derse (KATI; her görsel ücretli).
+      expect(quickActionsFor(null), hasLength(QuickActionKey.values.length - 1));
+      expect(quickActionsFor(null), isNot(contains(QuickActionKey.aiStudio)));
+      expect(quickActionsFor(ownerUser, aiAvailable: true).last, QuickActionKey.aiStudio);
+      expect(quickActionsFor(ownerUser, aiAvailable: true).last.label, 'Yapay Zekâ Stüdyo');
     });
 
     test('predictSections, sunucunun bölüm kümesiyle aynı', () {
