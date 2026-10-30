@@ -120,6 +120,20 @@ FROM unnest(@revoked::text[]) AS r(code)
 ON CONFLICT (user_id, permission_code)
 DO UPDATE SET effect = EXCLUDED.effect, created_by = EXCLUDED.created_by, created_at = now();
 
+-- name: UpsertUserPermissionOverride :exec
+-- TEK iznin kişiye özel ayarı (Yapay Zekâ Ayarları, 0081): bütün kümeyi
+-- okuyup yeniden yazmak (ReplaceUserPermissionOverrides) aynı anda başka
+-- bir izni değiştiren isteği ezebilirdi; tek satır atomik.
+INSERT INTO user_permission_overrides (user_id, organization_id, permission_code, effect, created_by)
+VALUES (sqlc.arg(user_id), sqlc.arg(organization_id), sqlc.arg(permission_code), sqlc.arg(effect), sqlc.narg(created_by))
+ON CONFLICT (user_id, permission_code)
+DO UPDATE SET effect = EXCLUDED.effect, created_by = EXCLUDED.created_by, created_at = now();
+
+-- name: DeleteUserPermissionOverride :exec
+DELETE FROM user_permission_overrides
+WHERE user_id = sqlc.arg(user_id) AND organization_id = sqlc.arg(organization_id)
+  AND permission_code = sqlc.arg(permission_code);
+
 -- name: GetUserRoleCode :one
 -- Middleware'in HER istekte tek satırlık, hafif okuması: rol kodu VE adı
 -- (GetUserPermissions'ın aksine tüm izin listesini taşımaz) -- "bu rol

@@ -751,6 +751,15 @@ func NewRouter(d Deps) http.Handler {
 		r.Route("/ai", func(r chi.Router) {
 			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
 			r.Get("/status", d.AIImages.Status)
+			// Yapay Zekâ Ayarları (migration 0081): kişiye izin açıp kapatmak
+			// PUT /users/{id}/permissions ile AYNI kapıdan geçer (requireAdmin +
+			// organization.roles.manage; gerekçe ai_settings_handler.go başında).
+			r.Group(func(r chi.Router) {
+				r.Use(requireAdmin, perm(domain.PermOrganizationRolesManage))
+				r.Get("/settings", d.AIImages.GetSettings)
+				r.Put("/settings", d.AIImages.UpdateSettings)
+				r.Put("/settings/users/{userId}", d.AIImages.SetUserAccess)
+			})
 			// Yapay Zekâ Stüdyo (migration 0080): projeden bağımsız görsel
 			// oluşturma/düzenleme. Aynı izin ve aynı aylık firma hakkı;
 			// görünürlük (kendi / Sahip-Yönetici firma geneli) ve gövdeden

@@ -229,7 +229,7 @@ func (s *AIImageService) CreateStudioJob(ctx context.Context, in CreateAIStudioJ
 	}); err != nil {
 		return nil, nil, err
 	}
-	used, err := s.checkLimits(ctx, txq, orgID, uid)
+	usage, err := s.checkLimits(ctx, txq, orgID, uid)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -246,7 +246,7 @@ func (s *AIImageService) CreateStudioJob(ctx context.Context, in CreateAIStudioJ
 	created = true
 	s.signal()
 	job := repository.ToDomainAIImageJob(row)
-	after := s.quota(used + 1)
+	after := s.after(usage)
 	return &job, &after, nil
 }
 
