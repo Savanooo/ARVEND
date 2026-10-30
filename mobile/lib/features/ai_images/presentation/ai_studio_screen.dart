@@ -2,10 +2,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart' show ImageSource;
 
 import '../../../app/app_shell.dart' show buildAppBar, kScreenPadding;
 import '../../../core/auth/auth_controller.dart';
+import '../../../core/auth/permissions.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/errors/device_errors.dart';
 import '../../../core/files/device_picker.dart';
@@ -23,9 +25,10 @@ import '../../projects/domain/project.dart' show exceedsMaxUploadBytes;
 import '../data/ai_images_providers.dart';
 import '../data/ai_studio_providers.dart';
 import '../domain/ai_image.dart';
+import '../domain/ai_settings.dart';
 import '../domain/ai_studio.dart';
 import 'ai_badge.dart';
-import 'ai_image_sheet.dart' show AiQuotaLine, kAiPreparingText;
+import 'ai_image_sheet.dart' show AiBlockedNotice, AiQuotaLine, kAiPreparingText;
 import 'ai_studio_sheets.dart';
 import 'ai_studio_viewer.dart';
 
@@ -132,7 +135,11 @@ class _AiStudioScreenState extends ConsumerState<AiStudioScreen> {
     // Firma kapsamı yalnızca Sahip/Yönetici'ye (sunucu da öyle süzer).
     final canSeeFirm = orgRoleIsAdmin(user?.organizationRoleCode ?? '');
     final scope = canSeeFirm ? _scope : AiStudioScope.mine;
-    final quota = ref.watch(aiImageStatusProvider).valueOrNull?.quota;
+    final status = ref.watch(aiImageStatusProvider).valueOrNull;
+    final quota = status?.quota;
+    // Firma kapalı ya da kişinin/firmanın bu ayki hakkı dolu: kartlar
+    // kapalı, nedeni üstte -- sayfaya girip neden çalışmadığını sormasın.
+    final blocked = status?.blocked ?? false;
     final listAsync = ref.watch(aiStudioImagesProvider(scope));
     // Sunucuda süren işler (uygulama yeniden açılmış olabilir) izlemeye
     // alınır: bitince liste tazelenir, kökte "Görsel hazır" bandı çıkar.
@@ -153,7 +160,18 @@ class _AiStudioScreenState extends ConsumerState<AiStudioScreen> {
     final images = list?.images ?? const <AiStudioImage>[];
 
     return Scaffold(
-      appBar: buildAppBar(kAiStudioTitle),
+      appBar: buildAppBar(
+        kAiStudioTitle,
+        actions: [
+          if (user.canAccess(kAiSettingsPermission))
+            IconButton(
+              key: const ValueKey('ai-studio-settings'),
+              icon: const Icon(Icons.settings_outlined),
+              tooltip: kAiSettingsTitle,
+              onPressed: () => context.push(kAiSettingsRoute),
+            ),
+        ],
+      ),
       body: RefreshIndicator(
         onRefresh: _refresh,
         child: CustomScrollView(
@@ -164,19 +182,23 @@ class _AiStudioScreenState extends ConsumerState<AiStudioScreen> {
               padding: kScreenPadding.copyWith(bottom: 0),
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
+                  if (status != null && status.hasBlockNotice) ...[
+                    AiBlockedNotice(status: status),
+                    const SizedBox(height: AppSpacing.sm),
+                  ],
                   _ActionCard(
                     key: const ValueKey('ai-studio-generate'),
                     icon: Icons.auto_awesome,
                     title: 'Yeni görsel oluştur',
                     subtitle: 'Yazdığın açıklamadan yeni bir görsel hazırlanır.',
-                    onTap: () => showAiStudioGenerateSheet(context),
+                    onTap: blocked ? null : () => showAiStudioGenerateSheet(context),
                   ),
                   _ActionCard(
                     key: const ValueKey('ai-studio-upload'),
                     icon: Icons.add_photo_alternate_outlined,
                     title: 'Fotoğraf yükle ve düzenle',
                     subtitle: 'Telefonundaki fotoğrafın bitmiş halini gör, iyileştir ya da istediğin değişikliği yaz.',
-                    onTap: _pickAndEdit,
+                    onTap: blocked ? null : _pickAndEdit,
                   ),
                   if (quota != null) ...[
                     const SizedBox(height: AppSpacing.xs),
@@ -275,12 +297,21 @@ class _ActionCard extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
-  final VoidCallback onTap;
+
+  /// null = kapalı (firma kapalı ya da hak dolu): soluk görünür, dokunulmaz.
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     // Alt metin sarılır (AppListCard tek satırda keser): 320 pt'de ve büyük
     // yazıda ne yapacağı okunabilsin.
+    return Opacity(
+      opacity: onTap == null ? 0.5 : 1,
+      child: _card(),
+    );
+  }
+
+  Widget _card() {
     return AppCard(
       onTap: onTap,
       margin: const EdgeInsets.only(bottom: AppSpacing.sm),

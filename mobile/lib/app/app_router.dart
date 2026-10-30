@@ -12,6 +12,7 @@ import '../features/auth/presentation/set_initial_password_screen.dart';
 import '../features/auth/presentation/super_admin_unsupported_screen.dart';
 import '../features/calc_admin/calc_admin_routes.dart';
 import '../features/calculations/presentation/metraj_screen.dart';
+import '../features/ai_images/presentation/ai_settings_screen.dart';
 import '../features/ai_images/presentation/ai_studio_screen.dart';
 import '../features/chat/presentation/chat_screen.dart';
 import '../features/cost_codes/cost_codes_routes.dart';
@@ -486,6 +487,8 @@ final routerProvider = Provider<GoRouter>((ref) {
                 GoRoute(path: 'firma-grubu', builder: (context, state) => const ChatScreen()),
                 // Yapay Zekâ Stüdyo: projeden bağımsız görsel oluşturma/düzenleme.
                 GoRoute(path: 'yapay-zeka', builder: (context, state) => const AiStudioScreen()),
+                // Yapay Zekâ Ayarları: kim kullanır, firma/kişi aylık sınırı (backend 0081).
+                GoRoute(path: 'yapay-zeka-ayarlari', builder: (context, state) => const AiSettingsScreen()),
                 // Öneri (herkes -> ARVEND ekibi) ve duyuru (yönetici -> ekip).
                 GoRoute(path: 'oneri', builder: (context, state) => const FeedbackScreen()),
                 GoRoute(path: 'duyuru', builder: (context, state) => const AnnouncementScreen()),
