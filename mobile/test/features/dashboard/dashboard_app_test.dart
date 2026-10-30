@@ -153,6 +153,8 @@ void main() {
           ],
           QuickActionKey.purchaseRequest => ['/projeler/p1/satin-alma/talepler/yeni'],
           QuickActionKey.task => ['/projeler/p1/gorevler/yeni'],
+          // Yapay Zekâ Stüdyo (Diğer > İş Araçları ile aynı ekran).
+          QuickActionKey.aiStudio => ['/diger/yapay-zeka'],
           _ => const <String>[],
         },
       for (final cta in [kCtaProducts, kCtaAddEmployee, kCtaAddUser]) cta.route,

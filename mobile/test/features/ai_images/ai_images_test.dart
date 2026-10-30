@@ -307,6 +307,40 @@ void main() {
         findsOneWidget);
   });
 
+  testWidgets('Kendin yaz (düzenle): yapay zekâ görseli de yeniden düzenlenir -- kind=edit + kaynak + talimat',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({AiConsentStore.keyFor('u1'): true});
+    final adapter = await _pumpGallery(tester, photos: [_photo('ai1', stage: 'after', ai: _aiInfo)], extra: {
+      '/projects/p1/ai-image-jobs': [
+        (status: 200, body: {'jobs': <dynamic>[]}),
+        (status: 202, body: {'job': _job('queued', kind: 'edit')}),
+      ],
+      '/projects/p1/ai-image-jobs/j1': _many(_job('running', kind: 'edit')),
+    });
+    await tester.tap(_aiButton);
+    await tester.pumpAndSettle();
+    // Eski iki seçenek yerinde, üçüncüsü eklendi.
+    expect(find.widgetWithText(PrimaryButton, 'Bitmiş halini göster'), findsOneWidget);
+    expect(find.widgetWithText(SecondaryButton, 'Fotoğrafı iyileştir'), findsOneWidget);
+    await tester.ensureVisible(find.text('Kendin yaz (düzenle)'));
+    await tester.pumpAndSettle();
+    for (final example in kAiEditExamples) {
+      expect(find.widgetWithText(ActionChip, example), findsOneWidget);
+    }
+    // İsteğe bağlı "Alanı işaretle"; işaretlenmezse istek eskisi gibi JSON.
+    expect(find.byKey(const ValueKey('ai-mask-open')), findsOneWidget);
+    final edit = find.widgetWithText(SecondaryButton, 'Düzenle');
+    expect(tester.widget<SecondaryButton>(edit).onPressed, isNull);
+    await tester.tap(find.widgetWithText(ActionChip, 'Daha aydınlık yap'));
+    await tester.pump();
+    await tester.ensureVisible(edit);
+    await tester.tap(edit);
+    await _advance(tester, const Duration(milliseconds: 500));
+    final post = adapter.methods.indexOf('POST');
+    expect(adapter.requestBodies[post], {'kind': 'edit', 'prompt': 'Daha aydınlık yap', 'source_photo_id': 'ai1'});
+    expect(find.text('Düzenlenmiş fotoğraf · $kAiPreparingText'), findsOneWidget);
+  });
+
   testWidgets('başarısız iş sunucunun Türkçe nedeniyle bant gösterir', (tester) async {
     SharedPreferences.setMockInitialValues({AiConsentStore.keyFor('u1'): true});
     const reason = 'İstek OpenAI\'nin güvenlik kurallarına takıldı. Açıklamayı ya da fotoğrafı değiştirip tekrar deneyin.';
