@@ -16,6 +16,10 @@ abstract final class AiImageKind {
 
   /// Açıklamadan yeni görsel (isteğe bağlı referans fotoğrafla).
   static const generate = 'generate';
+
+  /// Fotoğrafa (yapay zekâ sonucuna da) serbest talimatla değişiklik --
+  /// "gelen resme düzenleme olsun": sonuç yeniden düzenlenebilir.
+  static const edit = 'edit';
 }
 
 /// "Bitmiş halini göster" için dokununca alana yazılan örnekler.
@@ -24,6 +28,14 @@ const kAiBeforeAfterExamples = [
   'Duvarlar beyaz boyalı, laminat parke',
   'Banyo seramik, duşakabin',
   'Mutfak dolapları beyaz, granit tezgâh',
+];
+
+/// "Kendin yaz (düzenle)" / Stüdyo "Düzenle" için örnek talimatlar.
+const kAiEditExamples = [
+  'Daha aydınlık yap',
+  'Tavanı koyu gri yap',
+  'Spot ışık ekle',
+  'Zemini ahşap parke yap',
 ];
 
 /// Backend aiPromptMaxRunes ile aynı.
@@ -109,8 +121,13 @@ class AiImageJob {
 
   /// Sunucunun Türkçe nedeni (yalnızca failed).
   final String error;
+  /// Proje işinde sonuç proje fotoğrafı; Stüdyo işinde ([studio]) stüdyo
+  /// görselinin kimliği (studio_image_id).
   final String? resultPhotoId;
   final String createdAt;
+
+  /// Yapay Zekâ Stüdyo işi (projesiz; /ai/studio/jobs/{id} sorulur).
+  final bool studio;
 
   const AiImageJob({
     required this.id,
@@ -122,6 +139,7 @@ class AiImageJob {
     required this.createdAt,
     this.sourcePhotoId,
     this.resultPhotoId,
+    this.studio = false,
   });
 
   bool get isActive => status == AiJobStatus.queued || status == AiJobStatus.running;
@@ -146,5 +164,6 @@ String aiKindLabel(String kind) => switch (kind) {
       AiImageKind.beforeAfter => 'Bitmiş hali',
       AiImageKind.enhance => 'İyileştirilmiş fotoğraf',
       AiImageKind.generate => 'Yeni görsel',
+      AiImageKind.edit => 'Düzenlenmiş fotoğraf',
       _ => 'Yapay zekâ görseli',
     };

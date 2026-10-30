@@ -753,7 +753,10 @@ enum QuickActionKey {
   task('Görev Ekle', Icons.add_task, ['projects.tasks.create']),
   note('Not Ekle', Icons.sticky_note_2_outlined, ['projects.operations.manage']),
   customer('Müşteri Ekle', Icons.person_add_alt_outlined, ['customers.manage'], needsProject: false),
-  calc('Metraj Hesapla', Icons.calculate_outlined, ['calculations.read'], needsProject: false);
+  calc('Metraj Hesapla', Icons.calculate_outlined, ['calculations.read'], needsProject: false),
+  // Yapay Zekâ Stüdyo: izin TEK BAŞINA yetmez (KATI; sunucuda anahtar da
+  // ayarlı olmalı) -- bkz. quickActionsFor(aiAvailable).
+  aiStudio('Yapay Zekâ Stüdyo', Icons.auto_awesome_outlined, ['ai.images.use'], needsProject: false);
 
   const QuickActionKey(this.label, this.icon, this.permissions, {this.needsProject = true});
 
@@ -767,9 +770,13 @@ enum QuickActionKey {
 
 /// Sabit sırada, izne göre süzülmüş hızlı işlemler (spec §3.5). Yeni Proje
 /// YOK -- projeler yalnızca tekliften dönüşümle açılır.
-List<QuickActionKey> quickActionsFor(User? user) => [
+///
+/// [aiAvailable]: GET /ai/status'a göre yapay zekâ açık mı (izin + sunucu
+/// anahtarı; bkz. aiImagesAvailableProvider). Diğer işlemlerin aksine
+/// fail-open DEĞİL: her görsel firmaya para yazar.
+List<QuickActionKey> quickActionsFor(User? user, {bool aiAvailable = false}) => [
   for (final a in QuickActionKey.values)
-    if (user.canAll(a.permissions)) a,
+    if (a == QuickActionKey.aiStudio ? aiAvailable : user.canAll(a.permissions)) a,
 ];
 
 /// Yönetim ekranlarına giden boş durum / kurulum CTA'ları -- web

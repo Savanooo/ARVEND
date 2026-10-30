@@ -11,6 +11,8 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_list_card.dart';
 import '../../../core/widgets/app_section_header.dart';
 import '../../access/access_routes.dart';
+import '../../ai_images/data/ai_images_providers.dart' show aiImagesAvailableProvider;
+import '../../ai_images/domain/ai_studio.dart' show kAiStudioRoute, kAiStudioTitle;
 import '../../attendance/domain/attendance_access.dart';
 import '../../calc_admin/calc_admin_routes.dart';
 import '../../chat/data/chat_providers.dart' show canUseChat;
@@ -68,6 +70,15 @@ class OtherMenuScreen extends ConsumerWidget {
     bool canSee(String code) => noPermissionData || user.hasPermission(code);
 
     final toolItems = [
+      // Yapay Zekâ Stüdyo: en üstte (sahibin isteği: ayrı bir menü). KATI:
+      // izin + sunucuda anahtar (aiImagesAvailableProvider) -- her görsel
+      // firmaya para yazar, izni olmayan durumu hiç sormaz.
+      if (ref.watch(aiImagesAvailableProvider))
+        _MenuItem(
+          icon: Icons.auto_awesome_outlined,
+          label: kAiStudioTitle,
+          onTap: () => context.push(kAiStudioRoute),
+        ),
       // Firma Grubu (backend 0077): firmanın tek grup sohbeti -- en çok
       // açılacak araç, ilk sırada ve okunmamış sayısıyla. İzin KATI
       // denetlenir (canUseChat): izinsiz istek rozet için 403 üretirdi.

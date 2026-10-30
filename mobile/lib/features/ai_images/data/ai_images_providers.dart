@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,7 +10,10 @@ import '../../../core/auth/permissions.dart';
 import '../../../core/errors/api_exception.dart';
 import '../../projects/data/projects_providers.dart';
 import '../domain/ai_image.dart';
+import '../domain/ai_studio.dart';
 import 'ai_images_repository.dart';
+import 'ai_studio_providers.dart';
+import 'ai_studio_repository.dart';
 
 final aiImagesRepositoryProvider = Provider<AiImagesRepository>(
   (ref) => AiImagesRepository(ref.watch(apiClientProvider)),
@@ -63,8 +67,10 @@ final aiConsentStoreProvider = Provider<AiConsentStore>((ref) => AiConsentStore(
 
 /// Açılan işlerin takibi: sayfa kapansa da (kullanıcı başka ekrana geçse de)
 /// uygulama açık kaldıkça birkaç saniyede bir sorar. İş bitince proje
-/// fotoğrafları tazelenir; "Görsel hazır" bandını AiImageJobWatcher gösterir
-/// (durum geçişini bu haritadan okur -- bitmiş işler bu yüzden haritada kalır).
+/// fotoğrafları (Stüdyo işinde Görsellerim) tazelenir; "Görsel hazır"
+/// bandını AiImageJobWatcher gösterir (durum geçişini bu haritadan okur --
+/// bitmiş işler bu yüzden haritada kalır). Stüdyo işleri aynı haritada
+/// ([AiImageJob.studio]): bant ve sınırlar tek yerden yönetilsin.
 class AiImageJobsController extends Notifier<Map<String, AiImageJob>> {
   static const pollInterval = Duration(seconds: 3);
 
@@ -90,14 +96,52 @@ class AiImageJobsController extends Notifier<Map<String, AiImageJob>> {
   }
 
   AiImagesRepository get _repo => ref.read(aiImagesRepositoryProvider);
+  AiStudioRepository get _studio => ref.read(aiStudioRepositoryProvider);
 
   /// İşi açar ve izlemeye alır. Hata (429 sınır, 503 kapalı, 409 kapalı
   /// proje) ApiException olarak çağırana gider; metni sunucunun Türkçesi.
-  Future<AiImageJob> start(String projectId, {required String kind, String prompt = '', String? sourcePhotoId}) async {
-    final res = await _repo.createJob(projectId, kind: kind, prompt: prompt, sourcePhotoId: sourcePhotoId);
+  Future<AiImageJob> start(
+    String projectId, {
+    required String kind,
+    String prompt = '',
+    String? sourcePhotoId,
+    Uint8List? mask,
+  }) async {
+    final res = await _repo.createJob(projectId, kind: kind, prompt: prompt, sourcePhotoId: sourcePhotoId, mask: mask);
     _track(res.job);
     ref.invalidate(aiImageStatusProvider);
     return res.job;
+  }
+
+  /// Stüdyo işi açar (kaynak: telefondan dosya, önceki bir stüdyo görseli
+  /// ya da hiçbiri) ve izlemeye alır. Hata ApiException olarak çağırana gider.
+  Future<AiStudioJob> startStudio({
+    required String kind,
+    String prompt = '',
+    String? imagePath,
+    String? imageName,
+    String? sourceStudioImageId,
+    Uint8List? mask,
+  }) async {
+    final res = await _studio.createJob(
+      kind: kind,
+      prompt: prompt,
+      imagePath: imagePath,
+      imageName: imageName,
+      sourceStudioImageId: sourceStudioImageId,
+      mask: mask,
+    );
+    _track(res.job.toTracked());
+    ref.invalidate(aiImageStatusProvider);
+    return res.job;
+  }
+
+  /// Görsellerim'deki sunucu tarafında süren işler (uygulama yeniden
+  /// açılmış olabilir): bitince liste tazelensin ve bant çıksın.
+  void trackStudio(Iterable<AiStudioJob> jobs) {
+    for (final j in jobs.where((j) => j.isActive && !state.containsKey(j.id))) {
+      _track(j.toTracked());
+    }
   }
 
   /// Uygulama yeniden açıldıysa sunucuda hâlâ süren işleri izlemeye alır.
@@ -147,12 +191,18 @@ class AiImageJobsController extends Notifier<Map<String, AiImageJob>> {
           continue;
         }
         try {
-          final fresh = await _repo.job(job.projectId, job.id);
+          final fresh =
+              job.studio ? (await _studio.job(job.id)).toTracked() : await _repo.job(job.projectId, job.id);
           if (fresh.status == job.status) continue;
           state = {...state, fresh.id: fresh};
           if (!fresh.isActive) {
             ref.invalidate(aiImageStatusProvider);
-            if (fresh.isDone) ref.invalidate(projectPhotosProvider(fresh.projectId));
+            if (fresh.studio) {
+              // Başarısız iş de "Hazırlanıyor…" kutucuğundan düşsün.
+              ref.invalidate(aiStudioImagesProvider);
+            } else if (fresh.isDone) {
+              ref.invalidate(projectPhotosProvider(fresh.projectId));
+            }
           }
         } on ApiException catch (e) {
           // İş artık görülemiyor (proje silindi, yetki kalktı): bırak.

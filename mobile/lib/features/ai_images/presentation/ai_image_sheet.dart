@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -13,7 +15,9 @@ import '../../../core/widgets/app_sheet.dart';
 import '../../projects/data/projects_providers.dart';
 import '../../projects/domain/project.dart';
 import '../data/ai_images_providers.dart';
+import '../data/ai_mask.dart';
 import '../domain/ai_image.dart';
+import 'ai_mask_editor.dart';
 
 const kAiNoticeTitle = 'Yapay zekâ ile görsel';
 
@@ -47,7 +51,9 @@ Future<bool> ensureAiConsent(BuildContext context, WidgetRef ref) async {
   return ok == true;
 }
 
-/// Galerideki fotoğraf için: "Bitmiş halini göster" ve "Fotoğrafı iyileştir".
+/// Galerideki fotoğraf için: "Bitmiş halini göster", "Fotoğrafı iyileştir" ve
+/// "Kendin yaz (düzenle)" -- sonuç (yapay zekâ görseli) de yeniden
+/// düzenlenebilir ("gelen resme düzenleme olsun").
 Future<void> showAiPhotoSheet(BuildContext context, {required String projectId, required ProjectPhoto photo}) {
   return showAppSheet<void>(
     context: context,
@@ -89,7 +95,7 @@ mixin _AiSubmit<T extends ConsumerStatefulWidget> on ConsumerState<T> {
     });
   }
 
-  Future<bool> submit({required String kind, String prompt = '', String? sourcePhotoId}) async {
+  Future<bool> submit({required String kind, String prompt = '', String? sourcePhotoId, Uint8List? mask}) async {
     if (!await ensureAiConsent(context, ref) || !mounted) return false;
     setState(() {
       submitting = true;
@@ -98,7 +104,7 @@ mixin _AiSubmit<T extends ConsumerStatefulWidget> on ConsumerState<T> {
     try {
       await ref
           .read(aiImageJobsProvider.notifier)
-          .start(projectId, kind: kind, prompt: prompt.trim(), sourcePhotoId: sourcePhotoId);
+          .start(projectId, kind: kind, prompt: prompt.trim(), sourcePhotoId: sourcePhotoId, mask: mask);
       if (mounted) setState(() => started = true);
       return true;
     } on ApiException catch (e) {
@@ -121,6 +127,10 @@ class _AiPhotoSheet extends ConsumerStatefulWidget {
 
 class _AiPhotoSheetState extends ConsumerState<_AiPhotoSheet> with _AiSubmit<_AiPhotoSheet> {
   final _prompt = TextEditingController();
+  final _editPrompt = TextEditingController();
+
+  /// "Alanı işaretle" (isteğe bağlı): yalnızca boyanan yer düzenlenir.
+  AiMask? _mask;
 
   @override
   String get projectId => widget.projectId;
@@ -128,19 +138,32 @@ class _AiPhotoSheetState extends ConsumerState<_AiPhotoSheet> with _AiSubmit<_Ai
   @override
   void dispose() {
     _prompt.dispose();
+    _editPrompt.dispose();
     super.dispose();
   }
 
-  void _useExample(String example) {
-    final current = _prompt.text.trim();
-    _prompt.text = current.isEmpty ? example : '$current, ${example[0].toLowerCase()}${example.substring(1)}';
-    _prompt.selection = TextSelection.collapsed(offset: _prompt.text.length);
+  void _useExample(TextEditingController c, String example) {
+    final current = c.text.trim();
+    c.text = current.isEmpty ? example : '$current, ${example[0].toLowerCase()}${example.substring(1)}';
+    c.selection = TextSelection.collapsed(offset: c.text.length);
     setState(() {});
   }
 
   Future<void> _beforeAfter() async {
     if (await submit(kind: AiImageKind.beforeAfter, prompt: _prompt.text, sourcePhotoId: widget.photo.id)) {
       _prompt.clear();
+    }
+  }
+
+  Future<void> _edit() async {
+    if (await submit(
+      kind: AiImageKind.edit,
+      prompt: _editPrompt.text,
+      sourcePhotoId: widget.photo.id,
+      mask: _mask?.png,
+    )) {
+      _editPrompt.clear();
+      if (mounted) setState(() => _mask = null);
     }
   }
 
@@ -194,7 +217,7 @@ class _AiPhotoSheetState extends ConsumerState<_AiPhotoSheet> with _AiSubmit<_Ai
                 labelStyle: const TextStyle(fontSize: 13),
                 visualDensity: VisualDensity.compact,
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                onPressed: submitting ? null : () => _useExample(example),
+                onPressed: submitting ? null : () => _useExample(_prompt, example),
               ),
           ],
         ),
@@ -217,6 +240,59 @@ class _AiPhotoSheetState extends ConsumerState<_AiPhotoSheet> with _AiSubmit<_Ai
           icon: Icons.tune,
           label: 'Fotoğrafı iyileştir',
           onPressed: busy ? null : () => submit(kind: AiImageKind.enhance, sourcePhotoId: widget.photo.id),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        const Divider(height: 1),
+        const SizedBox(height: AppSpacing.lg),
+        Text('Kendin yaz (düzenle)', style: AppTypography.cardTitle),
+        const SizedBox(height: AppSpacing.xs),
+        const Text('Ne değişsin, sen yaz. Yapay zekâ görselini de böyle yeniden düzenleyebilirsin.',
+            style: AppTypography.helper),
+        const SizedBox(height: AppSpacing.sm),
+        TextField(
+          key: const ValueKey('ai-edit-prompt'),
+          controller: _editPrompt,
+          maxLength: kAiPromptMaxLength,
+          minLines: 2,
+          maxLines: 4,
+          textCapitalization: TextCapitalization.sentences,
+          onChanged: (_) => setState(() {}),
+          decoration: const InputDecoration(
+            labelText: 'Ne değişsin?',
+            hintText: 'ör. Duvarı griye boya',
+            alignLabelWithHint: true,
+            counterText: '',
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.xs,
+          children: [
+            for (final example in kAiEditExamples)
+              ActionChip(
+                label: Text(example),
+                labelStyle: const TextStyle(fontSize: 13),
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                onPressed: submitting ? null : () => _useExample(_editPrompt, example),
+              ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        AiMaskField(
+          value: _mask,
+          enabled: !submitting,
+          onChanged: (m) => setState(() => _mask = m),
+          loadSource: () => ref.read(
+            projectPhotoBytesProvider((projectId: widget.projectId, photoId: widget.photo.id)).future,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        SecondaryButton(
+          icon: Icons.edit_outlined,
+          label: 'Düzenle',
+          onPressed: busy || _editPrompt.text.trim().isEmpty ? null : _edit,
         ),
         _AiFooter(projectId: widget.projectId, error: error, started: started),
       ],
@@ -386,14 +462,7 @@ class _AiFooter extends ConsumerWidget {
         ],
         if (quota != null) ...[
           const SizedBox(height: AppSpacing.lg),
-          Text(
-            quota.remaining > 0
-                ? 'Bu ay kalan: ${quota.remaining} / ${quota.monthlyLimit} görsel'
-                : 'Bu ayın yapay zekâ hakkı doldu (${quota.usedThisMonth} / ${quota.monthlyLimit}). '
-                    'Yeni hak ${Formatters.date(quota.resetsAt)} tarihinde açılır.',
-            key: const ValueKey('ai-quota'),
-            style: quota.remaining > 0 ? AppTypography.metadata : AppTypography.error,
-          ),
+          AiQuotaLine(quota: quota),
         ],
         if (usage != null && usage.isNotEmpty)
           Theme(
@@ -414,6 +483,25 @@ class _AiFooter extends ConsumerWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// "Bu ay kalan: X / Y görsel" ya da hak dolduysa ne zaman açılacağı --
+/// proje sayfası ve Yapay Zekâ Stüdyo ortak.
+class AiQuotaLine extends StatelessWidget {
+  const AiQuotaLine({super.key, required this.quota});
+  final AiImageQuota quota;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      quota.remaining > 0
+          ? 'Bu ay kalan: ${quota.remaining} / ${quota.monthlyLimit} görsel'
+          : 'Bu ayın yapay zekâ hakkı doldu (${quota.usedThisMonth} / ${quota.monthlyLimit}). '
+              'Yeni hak ${Formatters.date(quota.resetsAt)} tarihinde açılır.',
+      key: const ValueKey('ai-quota'),
+      style: quota.remaining > 0 ? AppTypography.metadata : AppTypography.error,
     );
   }
 }

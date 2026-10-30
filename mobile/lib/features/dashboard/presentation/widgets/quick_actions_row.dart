@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/app_section_header.dart';
 import '../../../../core/widgets/quick_action_button.dart';
+import '../../../ai_images/domain/ai_studio.dart' show kAiStudioRoute;
 import '../../../customers/presentation/customer_form_sheet.dart';
 import '../../../projects/daily_report/daily_report_paths.dart';
 import '../../../projects/finance_ledger/data/finance_ledger_providers.dart' show invalidateProjectLedger;
@@ -116,6 +117,9 @@ Future<void> _runQuickAction(
       return;
     case QuickActionKey.myExpenses:
       openPage('/diger/masraflar', refresh: false);
+      return;
+    case QuickActionKey.aiStudio:
+      openPage(kAiStudioRoute, refresh: false);
       return;
     case QuickActionKey.customer:
       await showAppSheet<void>(

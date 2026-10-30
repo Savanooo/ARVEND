@@ -9,6 +9,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_card.dart';
+import '../../ai_images/data/ai_images_providers.dart' show aiImagesAvailableProvider;
 import '../../auth/domain/user.dart';
 import '../../chat/presentation/chat_entry.dart';
 import '../../notifications/data/notifications_providers.dart';
@@ -98,6 +99,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final async = ref.watch(dashboardProvider);
     final unread = ref.watch(unreadNotificationCountProvider).maybeWhen(data: (c) => c, orElse: () => 0);
     final data = async.valueOrNull;
+    // Yapay Zekâ Stüdyo hızlı işlemi: izin + sunucu açık (KATI).
+    final aiAvailable = ref.watch(aiImagesAvailableProvider);
 
     final Widget body;
     if (data != null) {
@@ -114,9 +117,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           const SizedBox(height: AppSpacing.xl),
           _inset(_DashboardUnavailable(onRetry: _refresh)),
           // Hızlı işlemler özetten bağımsızdır -- özet alınamasa da kalır.
-          if (quickActionsFor(user).isNotEmpty) ...[
+          if (quickActionsFor(user, aiAvailable: aiAvailable).isNotEmpty) ...[
             const SizedBox(height: AppSpacing.xl),
-            QuickActionsRow(actions: quickActionsFor(user), inset: kScreenPadding.left),
+            QuickActionsRow(actions: quickActionsFor(user, aiAvailable: aiAvailable), inset: kScreenPadding.left),
           ],
           const SizedBox(height: AppSpacing.xl),
           _inset(ShortcutsGrid(user: user)),
@@ -200,7 +203,7 @@ class _DashboardContent extends ConsumerWidget {
     final onboarding = onboardingActive(data, hidden: hidden);
     final kpis = pickKpis(data);
     final panel = onboarding ? SecondaryPanel.none : secondaryPanel(data);
-    final actions = quickActionsFor(user);
+    final actions = quickActionsFor(user, aiAvailable: ref.watch(aiImagesAvailableProvider));
     final bands = layoutBands(data, onboardingActive: onboarding);
     final idle = idleModules(data, onboardingActive: onboarding);
     // Son Hareketler: kayıt varsa ya da bölüm o an hesaplanamadıysa (kart
