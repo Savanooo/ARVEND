@@ -2,6 +2,8 @@ package handler
 
 import (
 	"errors"
+	"io"
+	"mime"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -12,15 +14,17 @@ import (
 	"github.com/Savanooo/ARVEND/backend/internal/service"
 )
 
-// AIImageHandler: yapay zekâ görselleri (bkz. service/ai_image_service.go).
-// İzin ve proje erişimi router'daki middleware'de; firma/proje/kişi kapsamı
-// serviste.
+// AIImageHandler: yapay zekâ görselleri (bkz. service/ai_image_service.go)
+// ve Yapay Zekâ Stüdyo (ai_studio_handler.go). İzin ve URL'deki projenin
+// erişimi router'daki middleware'de; stüdyoda gövdeden gelen projenin
+// erişimi burada (authz); firma/proje/kişi kapsamı serviste.
 type AIImageHandler struct {
-	svc *service.AIImageService
+	svc   *service.AIImageService
+	authz *service.AuthorizationService
 }
 
-func NewAIImageHandler(svc *service.AIImageService) *AIImageHandler {
-	return &AIImageHandler{svc: svc}
+func NewAIImageHandler(svc *service.AIImageService, authz *service.AuthorizationService) *AIImageHandler {
+	return &AIImageHandler{svc: svc, authz: authz}
 }
 
 // AIDisabledCode: 503'ün makine-okunur kodu -- uygulama girişleri gizler.
@@ -89,7 +93,7 @@ func (h *AIImageHandler) Status(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
 	authz, _ := middleware.AuthzContextFromRequest(r.Context())
 	canUse := authz.HasPermission(domain.PermAIImagesUse)
-	seeUsage := authz != nil && (authz.RoleCode == domain.OrgRoleOwner || authz.RoleCode == domain.OrgRoleAdmin)
+	seeUsage := seesFirmAI(authz)
 	st, err := h.svc.Status(r.Context(), orgID, canUse, seeUsage)
 	if err != nil {
 		h.writeError(w, err)
@@ -112,14 +116,28 @@ type createAIJobRequest struct {
 }
 
 // CreateJob: POST /projects/{id}/ai-image-jobs -- 202 + iş (sırada) + kalan
-// hak. Görsel arka planda üretilir; durum GET ile sorulur.
+// hak. Görsel arka planda üretilir; durum GET ile sorulur. Gövde JSON (eski
+// uygulamalar, değişmedi) ya da multipart/form-data (aynı alanlar + 'edit'
+// için isteğe bağlı "mask" PNG dosyası, migration 0080).
 func (h *AIImageHandler) CreateJob(w http.ResponseWriter, r *http.Request) {
 	if !h.svc.Enabled() {
 		h.writeError(w, service.ErrAIDisabled)
 		return
 	}
-	var req createAIJobRequest
-	if err := httpjson.Decode(r, &req); err != nil {
+	var (
+		req  createAIJobRequest
+		mask io.Reader
+	)
+	if isMultipart(r) {
+		form, err := parseAIMultipart(w, r)
+		if err != nil {
+			h.writeError(w, err)
+			return
+		}
+		defer form.close()
+		req = createAIJobRequest{Kind: r.FormValue("kind"), Prompt: r.FormValue("prompt"), SourcePhotoID: r.FormValue("source_photo_id")}
+		mask = form.file("mask")
+	} else if err := httpjson.Decode(r, &req); err != nil {
 		httpjson.Error(w, http.StatusBadRequest, "geçersiz istek gövdesi")
 		return
 	}
@@ -127,7 +145,7 @@ func (h *AIImageHandler) CreateJob(w http.ResponseWriter, r *http.Request) {
 	userID, _ := middleware.UserIDFromContext(r.Context())
 	job, quota, err := h.svc.CreateJob(r.Context(), service.CreateAIImageJobInput{
 		OrganizationID: orgID, ProjectID: chi.URLParam(r, "id"), UserID: userID,
-		Kind: req.Kind, Prompt: req.Prompt, SourcePhotoID: req.SourcePhotoID,
+		Kind: req.Kind, Prompt: req.Prompt, SourcePhotoID: req.SourcePhotoID, Mask: mask,
 	})
 	if err != nil {
 		h.writeError(w, err)
@@ -162,10 +180,112 @@ func (h *AIImageHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	httpjson.Write(w, http.StatusOK, map[string]any{"jobs": out})
 }
 
+// seesFirmAI: Sahip/Yönetici -- firmanın kişi kişi kullanımını ve bütün
+// stüdyo görsellerini görür (bkz. service/ai_studio_service.go başlık notu).
+func seesFirmAI(authz *service.AuthzContext) bool {
+	return authz != nil && (authz.RoleCode == domain.OrgRoleOwner || authz.RoleCode == domain.OrgRoleAdmin)
+}
+
+// errAIPermissionDenied / errAIProjectAccessDenied: middleware'in 403
+// gövdeleriyle aynı kodlar (istemci aynı şekilde ayırt etsin).
+var (
+	errAIPermissionDenied    = errors.New("bu işlem için yetkiniz yok")
+	errAIFirmScopeDenied     = errors.New("Firmanın bütün görsellerini yalnızca Sahip ve Yönetici görebilir")
+	errAIStudioBadBody       = errors.New("İstek multipart/form-data ya da JSON olmalı")
+	errAIStudioProjectNeeded = errors.New("Görselin ekleneceği projeyi seçin")
+)
+
+// aiMultipartOverhead: dosyanın yanındaki metin alanları (açıklama en çok
+// 1000 karakter) ve maske (en çok 10 MB) için pay.
+const aiMultipartOverhead = 11 << 20
+
+func isMultipart(r *http.Request) bool {
+	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return mt == "multipart/form-data"
+}
+
+type aiMultipartForm struct {
+	r      *http.Request
+	opened []io.Closer
+}
+
+// parseAIMultipart: readUpload ile aynı sınırlama -- gövde MaxBytesReader
+// ile kesilir, sınır aşımı 413 (ErrFileTooLarge), ham Go hatası yalnızca logda.
+func parseAIMultipart(w http.ResponseWriter, r *http.Request) (*aiMultipartForm, error) {
+	r.Body = http.MaxBytesReader(w, r.Body, service.MaxUploadBytes+aiMultipartOverhead)
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return nil, service.ErrFileTooLarge
+		}
+		return nil, errUploadUnreadable
+	}
+	return &aiMultipartForm{r: r}, nil
+}
+
+// file: alandaki dosya (yoksa nil). Dönen okuyucu close'ta kapanır.
+func (f *aiMultipartForm) file(names ...string) io.Reader {
+	for _, name := range names {
+		if fhs := f.r.MultipartForm.File[name]; len(fhs) > 0 {
+			file, err := fhs[0].Open()
+			if err != nil {
+				return failingReader{}
+			}
+			f.opened = append(f.opened, file)
+			return file
+		}
+	}
+	return nil
+}
+
+func (f *aiMultipartForm) close() {
+	for _, c := range f.opened {
+		_ = c.Close()
+	}
+	if f.r.MultipartForm != nil {
+		_ = f.r.MultipartForm.RemoveAll()
+	}
+}
+
+// failingReader: açılamayan dosya parçası -- servis "okunamadı" der.
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errUploadUnreadable }
+
 func (h *AIImageHandler) writeError(w http.ResponseWriter, err error) {
 	var limit *service.AILimitError
 	var notFound *service.NotFoundError
 	switch {
+	case errors.Is(err, errAIPermissionDenied):
+		httpjson.Write(w, http.StatusForbidden, map[string]string{"error": err.Error(), "code": "permission_denied"})
+	case errors.Is(err, errAIFirmScopeDenied):
+		httpjson.Write(w, http.StatusForbidden, map[string]string{"error": err.Error(), "code": "permission_denied"})
+	case errors.Is(err, service.ErrAISourceAccessDenied):
+		httpjson.Write(w, http.StatusForbidden, map[string]string{"error": err.Error(), "code": "project_access_denied"})
+	case errors.Is(err, service.ErrFileTooLarge):
+		httpjson.Error(w, http.StatusRequestEntityTooLarge, err.Error())
+	case errors.Is(err, service.ErrEmptyFile),
+		errors.Is(err, service.ErrAIImageUnsupported),
+		errors.Is(err, service.ErrAIImageHEIC),
+		errors.Is(err, service.ErrAIImageUnreadable),
+		errors.Is(err, service.ErrAIStudioTwoSources),
+		errors.Is(err, service.ErrAIStudioGenerateSource),
+		errors.Is(err, service.ErrAIStudioInvalidStage),
+		errors.Is(err, service.ErrAIMaskOnlyEdit),
+		errors.Is(err, service.ErrAIMaskNotPNG),
+		errors.Is(err, service.ErrAIMaskTooLarge),
+		errors.Is(err, service.ErrAIMaskUnreadable),
+		errors.Is(err, service.ErrAIMaskEmpty),
+		errors.Is(err, service.ErrAIMaskSourceType),
+		errors.Is(err, service.ErrAIMaskSize),
+		errors.Is(err, errUploadUnreadable),
+		errors.Is(err, errAIStudioBadBody),
+		errors.Is(err, errAIStudioProjectNeeded):
+		httpjson.Error(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, service.ErrAIStudioImageNotFound):
+		httpjson.Error(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, service.ErrDuplicateContent):
+		httpjson.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrAIDisabled):
 		httpjson.Write(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error(), "code": AIDisabledCode})
 	case errors.As(err, &limit):

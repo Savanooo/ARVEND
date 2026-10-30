@@ -9,20 +9,46 @@ import (
 )
 
 type AiImageJob struct {
+	ID               pgtype.UUID        `json:"id"`
+	OrganizationID   pgtype.UUID        `json:"organization_id"`
+	ProjectID        pgtype.UUID        `json:"project_id"`
+	UserID           pgtype.UUID        `json:"user_id"`
+	Kind             string             `json:"kind"`
+	Prompt           string             `json:"prompt"`
+	SourcePhotoID    pgtype.UUID        `json:"source_photo_id"`
+	Status           string             `json:"status"`
+	Error            string             `json:"error"`
+	ResultPhotoID    pgtype.UUID        `json:"result_photo_id"`
+	Model            string             `json:"model"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	StartedAt        pgtype.Timestamptz `json:"started_at"`
+	FinishedAt       pgtype.Timestamptz `json:"finished_at"`
+	SourceStorageKey string             `json:"source_storage_key"`
+	SourceMime       string             `json:"source_mime"`
+	MaskStorageKey   string             `json:"mask_storage_key"`
+}
+
+type AiStudioImage struct {
 	ID             pgtype.UUID        `json:"id"`
 	OrganizationID pgtype.UUID        `json:"organization_id"`
-	ProjectID      pgtype.UUID        `json:"project_id"`
 	UserID         pgtype.UUID        `json:"user_id"`
+	JobID          pgtype.UUID        `json:"job_id"`
+	StorageKey     string             `json:"storage_key"`
+	Mime           string             `json:"mime"`
+	SizeBytes      int64              `json:"size_bytes"`
 	Kind           string             `json:"kind"`
 	Prompt         string             `json:"prompt"`
-	SourcePhotoID  pgtype.UUID        `json:"source_photo_id"`
-	Status         string             `json:"status"`
-	Error          string             `json:"error"`
-	ResultPhotoID  pgtype.UUID        `json:"result_photo_id"`
-	Model          string             `json:"model"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	StartedAt      pgtype.Timestamptz `json:"started_at"`
-	FinishedAt     pgtype.Timestamptz `json:"finished_at"`
+	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+	DeletedBy      pgtype.UUID        `json:"deleted_by"`
+}
+
+type AiStudioImageProject struct {
+	StudioImageID  pgtype.UUID        `json:"studio_image_id"`
+	ProjectID      pgtype.UUID        `json:"project_id"`
+	ProjectPhotoID pgtype.UUID        `json:"project_photo_id"`
+	AddedBy        pgtype.UUID        `json:"added_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
 type AttendanceLog struct {

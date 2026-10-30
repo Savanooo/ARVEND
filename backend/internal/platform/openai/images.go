@@ -8,7 +8,12 @@
 //   - POST /v1/images/generations: JSON {model, prompt, size, quality,
 //     output_format, n, safety_identifier}.
 //   - POST /v1/images/edits: multipart/form-data; giriş görselleri "image[]"
-//     dosya parçaları (en çok 16), aynı alanlar form alanı olarak.
+//     dosya parçaları (en çok 16), aynı alanlar form alanı olarak. İsteğe
+//     bağlı "mask" parçası (2026-10-30, image-generation rehberi): PNG,
+//     alfa kanallı, düzenlenen görselle AYNI biçim ve boyutta (50 MB altı);
+//     birden çok görselde ilk görsele uygulanır. GPT görsel modellerinde
+//     maskeleme "tamamen talimat tabanlı": model maskeyi rehber olarak
+//     kullanır, sınırına birebir uymayabilir.
 //   - Yanıt: {"created", "data":[{"b64_json"}], ...}; GPT görsel modelleri
 //     her zaman base64 döner (response_format onlarda desteklenmez).
 //   - Hata: {"error":{"message","type","code","param"}}; güvenlik reddi
@@ -136,9 +141,11 @@ type InputImage struct {
 // ImageRequest: Images boşsa yeni görsel (generations), doluysa düzenleme
 // (edits). Boş alanlar gönderilmez, API varsayılanı geçer.
 type ImageRequest struct {
-	Model   string
-	Prompt  string
-	Images  []InputImage
+	Model  string
+	Prompt string
+	Images []InputImage
+	// Mask: yalnızca düzenlemede; saydam (alfa 0) alan değişecek yer.
+	Mask    *InputImage
 	Size    string // "auto", "1024x1024", "1536x1024", "1024x1536"
 	Quality string // "low", "medium", "high", "auto" ...
 	// OutputFormat: "png", "jpeg", "webp" (API varsayılanı png).
@@ -296,6 +303,21 @@ func editBody(req ImageRequest) ([]byte, string, error) {
 			return nil, "", err
 		}
 		if _, err := part.Write(img.Data); err != nil {
+			return nil, "", err
+		}
+	}
+	if m := req.Mask; m != nil {
+		if len(m.Data) == 0 || len(m.Data) > MaxInputImageBytes {
+			return nil, "", errors.New("openai: maske boş ya da 50 MB sınırını aşıyor")
+		}
+		h := make(textproto.MIMEHeader)
+		h.Set("Content-Disposition", `form-data; name="mask"; filename="mask.png"`)
+		h.Set("Content-Type", "image/png")
+		part, err := w.CreatePart(h)
+		if err != nil {
+			return nil, "", err
+		}
+		if _, err := part.Write(m.Data); err != nil {
 			return nil, "", err
 		}
 	}

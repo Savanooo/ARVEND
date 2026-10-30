@@ -161,7 +161,7 @@ func main() {
 		Feedback:          handler.NewFeedbackHandler(service.NewFeedbackService(q)),
 		Dashboard:         handler.NewDashboardHandler(dashboardSvc),
 		AppReleases:       handler.NewAppReleaseHandler(appReleaseSvc),
-		AIImages:          handler.NewAIImageHandler(aiImageSvc),
+		AIImages:          handler.NewAIImageHandler(aiImageSvc, authzSvc),
 		CORSOrigins:       cfg.CORSOrigins,
 	})
 

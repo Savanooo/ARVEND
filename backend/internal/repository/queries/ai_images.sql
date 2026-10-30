@@ -24,9 +24,10 @@ WHERE organization_id = sqlc.arg(organization_id) AND user_id = sqlc.arg(user_id
   AND status IN ('queued', 'running');
 
 -- name: CreateAIImageJob :one
-INSERT INTO ai_image_jobs (organization_id, project_id, user_id, kind, prompt, source_photo_id, model)
+-- mask_storage_key (0080): yalnızca maskeli 'edit' işinde dolu.
+INSERT INTO ai_image_jobs (organization_id, project_id, user_id, kind, prompt, source_photo_id, model, mask_storage_key)
 VALUES (sqlc.arg(organization_id), sqlc.arg(project_id), sqlc.arg(user_id), sqlc.arg(kind),
-        sqlc.arg(prompt), sqlc.narg(source_photo_id), sqlc.arg(model))
+        sqlc.arg(prompt), sqlc.narg(source_photo_id), sqlc.arg(model), sqlc.arg(mask_storage_key))
 RETURNING *;
 
 -- name: GetAIImageJob :one

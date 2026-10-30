@@ -113,6 +113,10 @@ func rbacCleanupOrg(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		"DELETE FROM subcontractor_project_access WHERE organization_id = $1",
 		"UPDATE users SET supplier_id = NULL WHERE organization_id = $1",
 		"DELETE FROM suppliers WHERE organization_id = $1",
+		// Yapay zekâ (0079/0080): stüdyo işleri projesizdir, projeyle CASCADE
+		// gitmez; görseller "Projeye ekle" bağlarını CASCADE ile götürür.
+		"DELETE FROM ai_studio_images WHERE organization_id = $1",
+		"DELETE FROM ai_image_jobs WHERE organization_id = $1",
 		"DELETE FROM projects WHERE organization_id = $1",
 		// current_revision_id, offer_revisions'a FK taşır -- satırı
 		// SİLMEDEN ÖNCE NULL'lanmalı (offers_current_revision_id_fkey).

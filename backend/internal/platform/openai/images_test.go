@@ -120,6 +120,50 @@ func TestEditSendsMultipartImage(t *testing.T) {
 	}
 }
 
+// Bölge düzenleme (0080): maske "mask" parçasında, PNG olarak; maskesiz
+// düzenlemede parça hiç yok.
+func TestEditSendsMaskPart(t *testing.T) {
+	src := []byte("\x89PNG\r\n\x1a\n-kaynak")
+	mask := []byte("\x89PNG\r\n\x1a\n-maske")
+	var gotMask []byte
+	var sawMask bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			t.Fatalf("multipart değil: %v", err)
+		}
+		files := r.MultipartForm.File["mask"]
+		sawMask = len(files) > 0
+		if sawMask {
+			if files[0].Header.Get("Content-Type") != "image/png" {
+				t.Errorf("maske türü: %q", files[0].Header.Get("Content-Type"))
+			}
+			f, _ := files[0].Open()
+			gotMask, _ = io.ReadAll(f)
+		}
+		okImageResponse(w, pngBytes)
+	}))
+	defer srv.Close()
+	c := newTestClient(t, srv)
+	req := ImageRequest{
+		Model: "gpt-image-2.5-sunburst", Prompt: "duvarı griye boya",
+		Images: []InputImage{{Data: src, MIMEType: "image/png", Name: "kaynak.png"}},
+		Mask:   &InputImage{Data: mask, MIMEType: "image/png", Name: "mask.png"},
+	}
+	if _, err := c.CreateImage(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if !sawMask || string(gotMask) != string(mask) {
+		t.Errorf("maske gönderilmedi ya da değişti: %v %q", sawMask, gotMask)
+	}
+	req.Mask = nil
+	if _, err := c.CreateImage(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if sawMask {
+		t.Error("maskesiz düzenlemede mask parçası olmamalı")
+	}
+}
+
 func TestAPIErrors(t *testing.T) {
 	cases := []struct {
 		name       string
