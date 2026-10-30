@@ -36,6 +36,10 @@ type aiQuotaResponse struct {
 	Remaining       int    `json:"remaining"`
 	UserHourlyLimit int    `json:"user_hourly_limit"`
 	ResetsAt        string `json:"resets_at"`
+	// Kişinin kendi aylık hakkı (0081); user_monthly_limit null = sınırsız.
+	UserMonthlyLimit  *int `json:"user_monthly_limit"`
+	UserUsedThisMonth int  `json:"user_used_this_month"`
+	UserRemaining     *int `json:"user_remaining"`
 }
 
 func toAIQuotaResponse(q *domain.AIImageQuota) *aiQuotaResponse {
@@ -45,6 +49,7 @@ func toAIQuotaResponse(q *domain.AIImageQuota) *aiQuotaResponse {
 	return &aiQuotaResponse{
 		MonthlyLimit: q.MonthlyLimit, UsedThisMonth: q.UsedThisMonth, Remaining: q.Remaining,
 		UserHourlyLimit: q.UserHourlyLimit, ResetsAt: q.ResetsAt.Format(rfc3339),
+		UserMonthlyLimit: q.UserMonthlyLimit, UserUsedThisMonth: q.UserUsedThisMonth, UserRemaining: q.UserRemaining,
 	}
 }
 
@@ -55,10 +60,17 @@ type aiUsageResponse struct {
 }
 
 type aiStatusResponse struct {
-	Enabled bool             `json:"enabled"`
-	CanUse  bool             `json:"can_use"`
-	Model   string           `json:"model,omitempty"`
-	Quota   *aiQuotaResponse `json:"quota"`
+	// Enabled: sunucu anahtarı VE firma anahtarı (eski uygulamalar buna bakar).
+	Enabled       bool `json:"enabled"`
+	ServerEnabled bool `json:"server_enabled"`
+	FirmEnabled   bool `json:"firm_enabled"`
+	CanUse        bool `json:"can_use"`
+	// CanManage: Yapay Zekâ Ayarları açılabilir mi (aynı kapı: router).
+	CanManage     bool             `json:"can_manage"`
+	BlockedCode   string           `json:"blocked_code"`
+	BlockedReason string           `json:"blocked_reason"`
+	Model         string           `json:"model,omitempty"`
+	Quota         *aiQuotaResponse `json:"quota"`
 	// UsageByUser yalnızca Sahip/Yönetici'ye döner.
 	UsageByUser []aiUsageResponse `json:"usage_by_user,omitempty"`
 }
@@ -91,15 +103,20 @@ func toAIJobResponse(j domain.AIImageJob) aiJobResponse {
 // Sahip/Yönetici'ye.
 func (h *AIImageHandler) Status(w http.ResponseWriter, r *http.Request) {
 	orgID, _ := middleware.OrganizationIDFromContext(r.Context())
+	userID, _ := middleware.UserIDFromContext(r.Context())
 	authz, _ := middleware.AuthzContextFromRequest(r.Context())
 	canUse := authz.HasPermission(domain.PermAIImagesUse)
 	seeUsage := seesFirmAI(authz)
-	st, err := h.svc.Status(r.Context(), orgID, canUse, seeUsage)
+	st, err := h.svc.Status(r.Context(), orgID, userID, canUse, seeUsage)
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
-	resp := aiStatusResponse{Enabled: st.Enabled, CanUse: st.CanUse, Model: st.Model, Quota: toAIQuotaResponse(st.Quota)}
+	resp := aiStatusResponse{
+		Enabled: st.Enabled, ServerEnabled: st.ServerEnabled, FirmEnabled: st.FirmEnabled,
+		CanUse: st.CanUse, CanManage: canManageAI(r), BlockedCode: st.BlockedCode, BlockedReason: st.BlockedReason,
+		Model: st.Model, Quota: toAIQuotaResponse(st.Quota),
+	}
 	if seeUsage {
 		resp.UsageByUser = make([]aiUsageResponse, len(st.UsageByUser))
 		for i, u := range st.UsageByUser {
@@ -286,6 +303,8 @@ func (h *AIImageHandler) writeError(w http.ResponseWriter, err error) {
 		httpjson.Error(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, service.ErrDuplicateContent):
 		httpjson.Error(w, http.StatusConflict, err.Error())
+	case errors.Is(err, service.ErrAIDisabledByAdmin):
+		httpjson.Write(w, http.StatusForbidden, map[string]string{"error": err.Error(), "code": service.AIDisabledByAdminCode})
 	case errors.Is(err, service.ErrAIDisabled):
 		httpjson.Write(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error(), "code": AIDisabledCode})
 	case errors.As(err, &limit):

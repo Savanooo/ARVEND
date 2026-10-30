@@ -437,6 +437,15 @@ type Organization struct {
 	DeletedBy             pgtype.UUID        `json:"deleted_by"`
 }
 
+type OrganizationAiSetting struct {
+	OrganizationID      pgtype.UUID        `json:"organization_id"`
+	Enabled             bool               `json:"enabled"`
+	MonthlyLimit        *int32             `json:"monthly_limit"`
+	PerUserMonthlyLimit *int32             `json:"per_user_monthly_limit"`
+	UpdatedBy           pgtype.UUID        `json:"updated_by"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
 type OrganizationChat struct {
 	OrganizationID pgtype.UUID        `json:"organization_id"`
 	LastSeq        int64              `json:"last_seq"`

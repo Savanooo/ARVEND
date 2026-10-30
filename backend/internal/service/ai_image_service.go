@@ -166,45 +166,84 @@ func (s *AIImageService) monthWindow() (time.Time, time.Time) {
 	return start, start.AddDate(0, 1, 0)
 }
 
-func (s *AIImageService) quota(used int) domain.AIImageQuota {
+// quota: firmanın bu ayki hakkı (etkin sınırla, bkz. firmLimits) ve
+// kişinin kendi aylık hakkı (Yapay Zekâ Ayarları, 0081).
+func (s *AIImageService) quota(lim aiFirmLimits, used, userUsed int) domain.AIImageQuota {
 	_, reset := s.monthWindow()
-	remaining := s.cfg.MonthlyLimit - used
+	remaining := lim.MonthlyLimit - used
 	if remaining < 0 {
 		remaining = 0
 	}
-	return domain.AIImageQuota{
-		MonthlyLimit: s.cfg.MonthlyLimit, UsedThisMonth: used, Remaining: remaining,
+	q := domain.AIImageQuota{
+		MonthlyLimit: lim.MonthlyLimit, UsedThisMonth: used, Remaining: remaining,
 		UserHourlyLimit: s.cfg.UserHourlyLimit, ResetsAt: reset,
+		UserMonthlyLimit: lim.PerUserMonthlyLimit, UserUsedThisMonth: userUsed,
 	}
+	if lim.PerUserMonthlyLimit != nil {
+		r := *lim.PerUserMonthlyLimit - userUsed
+		if r < 0 {
+			r = 0
+		}
+		q.UserRemaining = &r
+	}
+	return q
 }
 
 // Status: uygulama girişleri buna göre gösterir. canUse kişinin izni
 // (ai.images.use); seeUsage Sahip/Yönetici -- firmanın bu ayki kullanımını
 // kişi kişi görür. Hakkı yalnızca izni olan ya da Sahip/Yönetici görür.
-func (s *AIImageService) Status(ctx context.Context, organizationID string, canUse, seeUsage bool) (*domain.AIImageStatus, error) {
-	st := &domain.AIImageStatus{Enabled: s.Enabled(), CanUse: canUse}
+// FirmEnabled ve Blocked (0081): yönetici kapattıysa ya da kişinin/firmanın
+// aylık hakkı dolduysa uygulama nedeni gösterip "Oluştur"u kapatır --
+// sunucu yine CreateJob'da reddeder, bu yalnızca önden bilgi.
+func (s *AIImageService) Status(ctx context.Context, organizationID, userID string, canUse, seeUsage bool) (*domain.AIImageStatus, error) {
+	st := &domain.AIImageStatus{ServerEnabled: s.Enabled(), FirmEnabled: true, CanUse: canUse}
 	if s.Enabled() {
 		st.Model = s.cfg.Model
-	}
-	if !canUse && !seeUsage {
-		return st, nil
 	}
 	orgID, err := repository.StringToUUID(organizationID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
+	lim, err := s.firmLimits(ctx, s.q, orgID)
+	if err != nil {
+		return nil, err
+	}
+	st.FirmEnabled = lim.Enabled
+	// Enabled = sunucu anahtarı VE firma anahtarı: eski uygulamalar
+	// (1.5.23 ve öncesi) yalnızca buna bakar; kapalı firmada girişleri
+	// gizlerler, reddedilecek istek açtırmazlar.
+	st.Enabled = st.ServerEnabled && st.FirmEnabled
+	if !canUse && !seeUsage {
+		return st, nil
+	}
 	start, _ := s.monthWindow()
+	since := pgtype.Timestamptz{Time: start, Valid: true}
 	used, err := s.q.CountOrgAIImageJobsSince(ctx, sqlc.CountOrgAIImageJobsSinceParams{
-		OrganizationID: orgID, Since: pgtype.Timestamptz{Time: start, Valid: true},
+		OrganizationID: orgID, Since: since,
 	})
 	if err != nil {
 		return nil, err
 	}
-	q := s.quota(int(used))
+	userUsed := 0
+	if uid, err := repository.StringToUUID(userID); err == nil {
+		n, err := s.q.CountUserMonthlyAIImageJobs(ctx, sqlc.CountUserMonthlyAIImageJobsParams{
+			OrganizationID: orgID, UserID: uid, Since: since,
+		})
+		if err != nil {
+			return nil, err
+		}
+		userUsed = int(n)
+	}
+	q := s.quota(lim, int(used), userUsed)
 	st.Quota = &q
+	if canUse && st.ServerEnabled {
+		if err := monthlyLimitError(lim, q); err != nil {
+			st.BlockedCode, st.BlockedReason = aiBlockedCode(err), err.Error()
+		}
+	}
 	if seeUsage {
 		rows, err := s.q.ListOrgAIImageUsageByUser(ctx, sqlc.ListOrgAIImageUsageByUserParams{
-			OrganizationID: orgID, Since: pgtype.Timestamptz{Time: start, Valid: true},
+			OrganizationID: orgID, Since: since,
 		})
 		if err != nil {
 			return nil, err
@@ -324,7 +363,7 @@ func (s *AIImageService) CreateJob(ctx context.Context, in CreateAIImageJobInput
 	}); err != nil {
 		return nil, nil, err
 	}
-	used, err := s.checkLimits(ctx, txq, orgID, uid)
+	usage, err := s.checkLimits(ctx, txq, orgID, uid)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -342,37 +381,94 @@ func (s *AIImageService) CreateJob(ctx context.Context, in CreateAIImageJobInput
 	committed = true
 	s.signal()
 	job := repository.ToDomainAIImageJob(row)
-	after := s.quota(used + 1)
+	after := s.after(usage)
 	return &job, &after, nil
 }
 
-// checkLimits: aylık firma hakkı, kişinin süren işleri ve kişi başı
-// saatlik sınır. Proje ve stüdyo işleri AYNI sayımdan geçer (hepsi
-// ai_image_jobs'ta). Kesin karar firma danışma kilidi altında verilir
-// (AIImageQuotaXactLock); kilitsiz çağrı yalnızca erken ret içindir (ör.
-// stüdyo yüklemesini depoya yazmadan önce). Dönen: bu ay sayılan iş.
-func (s *AIImageService) checkLimits(ctx context.Context, q *sqlc.Queries, orgID, uid pgtype.UUID) (int, error) {
+// aiUsage: checkLimits'in kilit altında saydığı bu ayki kullanım -- iş
+// açıldıktan sonraki kalan hak bundan hesaplanır.
+type aiUsage struct {
+	lim            aiFirmLimits
+	used, userUsed int
+}
+
+// after: yeni iş eklendikten sonraki hak.
+func (s *AIImageService) after(u aiUsage) domain.AIImageQuota {
+	return s.quota(u.lim, u.used+1, u.userUsed+1)
+}
+
+// monthlyLimitError: yönetici kapatması, firmanın ve kişinin aylık hakkı
+// (Yapay Zekâ Ayarları, 0081). checkLimits ve Status AYNI kuralı kullanır:
+// uygulamanın gösterdiği neden ile sunucunun reddi ayrışmasın.
+func monthlyLimitError(lim aiFirmLimits, q domain.AIImageQuota) error {
+	if !lim.Enabled {
+		return ErrAIDisabledByAdmin
+	}
+	if q.UsedThisMonth >= lim.MonthlyLimit {
+		return &AILimitError{
+			Code: "ai_monthly_limit", Quota: q,
+			Message: fmt.Sprintf("Bu ayın yapay zekâ görsel hakkı doldu (%d/%d). Yeni hak %s tarihinde açılır.",
+				q.UsedThisMonth, lim.MonthlyLimit, q.ResetsAt.Format("02.01.2006")),
+		}
+	}
+	if lim.PerUserMonthlyLimit != nil && q.UserUsedThisMonth >= *lim.PerUserMonthlyLimit {
+		return &AILimitError{
+			Code: "ai_user_monthly_limit", Quota: q,
+			Message: fmt.Sprintf("Bu ay sana ayrılan yapay zekâ hakkı doldu (%d/%d)",
+				q.UserUsedThisMonth, *lim.PerUserMonthlyLimit),
+		}
+	}
+	return nil
+}
+
+func aiBlockedCode(err error) string {
+	var limit *AILimitError
+	if errors.As(err, &limit) {
+		return limit.Code
+	}
+	if errors.Is(err, ErrAIDisabledByAdmin) {
+		return AIDisabledByAdminCode
+	}
+	return ""
+}
+
+// checkLimits: yönetici kapatması, aylık firma ve kişi hakkı, kişinin
+// süren işleri ve kişi başı saatlik sınır. Proje ve stüdyo işleri AYNI
+// sayımdan geçer (hepsi ai_image_jobs'ta). Kesin karar firma danışma kilidi
+// altında verilir (AIImageQuotaXactLock); kilitsiz çağrı yalnızca erken ret
+// içindir (ör. stüdyo yüklemesini depoya yazmadan önce).
+func (s *AIImageService) checkLimits(ctx context.Context, q *sqlc.Queries, orgID, uid pgtype.UUID) (aiUsage, error) {
+	lim, err := s.firmLimits(ctx, q, orgID)
+	if err != nil {
+		return aiUsage{}, err
+	}
+	if !lim.Enabled {
+		return aiUsage{}, ErrAIDisabledByAdmin
+	}
 	monthStart, _ := s.monthWindow()
+	since := pgtype.Timestamptz{Time: monthStart, Valid: true}
 	used, err := q.CountOrgAIImageJobsSince(ctx, sqlc.CountOrgAIImageJobsSinceParams{
-		OrganizationID: orgID, Since: pgtype.Timestamptz{Time: monthStart, Valid: true},
+		OrganizationID: orgID, Since: since,
 	})
 	if err != nil {
-		return 0, err
+		return aiUsage{}, err
 	}
-	quota := s.quota(int(used))
-	if int(used) >= s.cfg.MonthlyLimit {
-		return 0, &AILimitError{
-			Code: "ai_monthly_limit", Quota: quota,
-			Message: fmt.Sprintf("Bu ayın yapay zekâ görsel hakkı doldu (%d/%d). Yeni hak %s tarihinde açılır.",
-				used, s.cfg.MonthlyLimit, quota.ResetsAt.Format("02.01.2006")),
-		}
+	userUsed, err := q.CountUserMonthlyAIImageJobs(ctx, sqlc.CountUserMonthlyAIImageJobsParams{
+		OrganizationID: orgID, UserID: uid, Since: since,
+	})
+	if err != nil {
+		return aiUsage{}, err
+	}
+	quota := s.quota(lim, int(used), int(userUsed))
+	if err := monthlyLimitError(lim, quota); err != nil {
+		return aiUsage{}, err
 	}
 	active, err := q.CountUserActiveAIImageJobs(ctx, sqlc.CountUserActiveAIImageJobsParams{OrganizationID: orgID, UserID: uid})
 	if err != nil {
-		return 0, err
+		return aiUsage{}, err
 	}
 	if active >= aiMaxActivePerUser {
-		return 0, &AILimitError{
+		return aiUsage{}, &AILimitError{
 			Code: "ai_user_busy", Quota: quota,
 			Message: "Önceki görselleriniz hâlâ hazırlanıyor; biri bitince yenisini isteyin.",
 		}
@@ -381,16 +477,16 @@ func (s *AIImageService) checkLimits(ctx context.Context, q *sqlc.Queries, orgID
 		OrganizationID: orgID, UserID: uid, Since: pgtype.Timestamptz{Time: s.now().Add(-time.Hour), Valid: true},
 	})
 	if err != nil {
-		return 0, err
+		return aiUsage{}, err
 	}
 	if int(hourly) >= s.cfg.UserHourlyLimit {
-		return 0, &AILimitError{
+		return aiUsage{}, &AILimitError{
 			Code: "ai_user_rate_limit", Quota: quota,
 			Message: fmt.Sprintf("Bir saatte en fazla %d görsel isteyebilirsiniz; biraz sonra tekrar deneyin. Bu ay kalan hak: %d.",
 				s.cfg.UserHourlyLimit, quota.Remaining),
 		}
 	}
-	return int(used), nil
+	return aiUsage{lim: lim, used: int(used), userUsed: int(userUsed)}, nil
 }
 
 // signal: boştaki bir işçiyi uyandırır; hepsi meşgulse bloklamaz (işini
@@ -604,7 +700,14 @@ func (s *AIImageService) produce(ctx context.Context, job domain.AIImageJob) err
 		if images[0], mask, err = prepareMaskedEdit(images[0], maskData); err != nil {
 			return err
 		}
-		prompt += aiMaskPromptSuffix
+		// Maske tek başına rehber; alan ikinci görselde kırmızıyla da
+		// gösterilir (bkz. ai_mask.go başlık notu).
+		marked, err := markMaskedArea(images[0], maskData)
+		if err != nil {
+			return err
+		}
+		images = append(images, marked)
+		prompt = buildAIMaskedEditPrompt(job.Prompt)
 	}
 	req := openai.ImageRequest{
 		Model:   job.Model,
@@ -715,6 +818,15 @@ func buildAIImagePrompt(kind, userText string, hasImage bool) string {
 			"Show the finished result after this work has been completed (the description is in Turkish): " + quoted + ". " +
 			"Clean, finished, professional workmanship with realistic materials and natural lighting. No people, no text, no watermark."
 	case domain.AIImageKindEdit:
+		// Maskesiz silme isteği: "gerisi aynen" talimatı modeli silmekten
+		// alıkoyuyordu (bkz. ai_mask.go başlık notu) -- açıkça kaldır.
+		if aiRemovalIntent(userText) {
+			return "Completely remove what this request describes and fill that area naturally with the surrounding background " +
+				"— continue the wall, floor, ceiling, textures and lighting — so it looks like nothing was ever there " +
+				"(the request is in Turkish): " + quoted + ". " +
+				"Keep the rest of the photo the same: the same scene, perspective, camera angle, framing and lighting. " +
+				"Keep it a realistic, natural-looking photograph. No watermark."
+		}
 		// Serbest düzenleme (0080): yalnızca istenen değişiklik, gerisi aynen.
 		return "Edit the input photo as requested (the request is in Turkish): " + quoted + ". " +
 			"Apply only the requested change and keep everything else the same: the same scene, perspective, camera angle, framing and lighting, with all other objects unchanged. " +

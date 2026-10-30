@@ -147,6 +147,8 @@ func (h *AIImageHandler) CreateStudioJob(w http.ResponseWriter, r *http.Request)
 	}
 	httpjson.Write(w, http.StatusAccepted, map[string]any{
 		"job": toAIStudioJobResponse(*job), "remaining": quota.Remaining, "limit": quota.MonthlyLimit,
+		// quota (0081): kişinin kendi aylık hakkıyla birlikte tam hak bilgisi.
+		"quota": toAIQuotaResponse(quota),
 	})
 }
 

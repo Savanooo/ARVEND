@@ -15,7 +15,7 @@ import '../data/ai_mask.dart';
 import '../data/ai_studio_providers.dart' show aiStudioImageBytesProvider;
 import '../domain/ai_image.dart';
 import '../domain/ai_studio.dart';
-import 'ai_image_sheet.dart' show AiQuotaLine, ensureAiConsent;
+import 'ai_image_sheet.dart' show AiBlockedNotice, AiQuotaLine, ensureAiConsent;
 import 'ai_mask_editor.dart';
 
 /// Düzenlenecek fotoğraf: telefondan seçilen dosya ya da daha önce
@@ -90,8 +90,9 @@ mixin _StudioSubmit<T extends ConsumerStatefulWidget> on ConsumerState<T> {
           );
       if (mounted) Navigator.of(context).pop(true);
     } on ApiException catch (e) {
-      // Hak dolduysa satır hemen "doldu"ya dönsün.
-      if (e.statusCode == 429) ref.invalidate(aiImageStatusProvider);
+      // Hak dolduysa ya da yönetici bu arada kapattıysa (403) satır ve
+      // düğmeler hemen yeni duruma dönsün.
+      if (e.statusCode == 429 || e.statusCode == 403) ref.invalidate(aiImageStatusProvider);
       if (mounted) setState(() => error = e.message);
     } on FileSystemException {
       // Seçilen fotoğraf bu arada silindi/okunamadı.
@@ -120,8 +121,8 @@ class _GenerateSheetState extends ConsumerState<_GenerateSheet> with _StudioSubm
 
   @override
   Widget build(BuildContext context) {
-    final quota = ref.watch(aiImageStatusProvider).valueOrNull?.quota;
-    final noQuota = quota != null && quota.remaining <= 0;
+    // Firma kapalı ya da hak dolu: gönder kapalı, nedeni altta (_Footer).
+    final noQuota = ref.watch(aiImageStatusProvider).valueOrNull?.blocked ?? false;
     return _Frame(
       title: 'Yeni görsel oluştur',
       children: [
@@ -190,8 +191,8 @@ class _EditSheetState extends ConsumerState<_EditSheet> with _StudioSubmit<_Edit
 
   @override
   Widget build(BuildContext context) {
-    final quota = ref.watch(aiImageStatusProvider).valueOrNull?.quota;
-    final noQuota = quota != null && quota.remaining <= 0;
+    // Firma kapalı ya da hak dolu: gönder kapalı, nedeni altta (_Footer).
+    final noQuota = ref.watch(aiImageStatusProvider).valueOrNull?.blocked ?? false;
     final needsPrompt = _mode != _EditMode.enhance;
     final canSend = !submitting && !noQuota && (!needsPrompt || _prompt.text.trim().isNotEmpty);
     final (kind, buttonLabel, buttonIcon) = switch (_mode) {
@@ -303,8 +304,8 @@ class _RefineSheetState extends ConsumerState<_RefineSheet> with _StudioSubmit<_
 
   @override
   Widget build(BuildContext context) {
-    final quota = ref.watch(aiImageStatusProvider).valueOrNull?.quota;
-    final noQuota = quota != null && quota.remaining <= 0;
+    // Firma kapalı ya da hak dolu: gönder kapalı, nedeni altta (_Footer).
+    final noQuota = ref.watch(aiImageStatusProvider).valueOrNull?.blocked ?? false;
     final source = AiStudioSource.studio(widget.studioImageId);
     return _Frame(
       title: 'Görseli düzenle',
@@ -516,13 +517,18 @@ class _Footer extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final quota = ref.watch(aiImageStatusProvider).valueOrNull?.quota;
+    final status = ref.watch(aiImageStatusProvider).valueOrNull;
+    final quota = status?.quota;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (error != null) ...[
           const SizedBox(height: AppSpacing.md),
           Text(error!, key: const ValueKey('ai-error'), style: AppTypography.error),
+        ],
+        if (status != null && status.hasBlockNotice) ...[
+          const SizedBox(height: AppSpacing.lg),
+          AiBlockedNotice(status: status),
         ],
         if (quota != null) ...[
           const SizedBox(height: AppSpacing.lg),

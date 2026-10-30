@@ -284,7 +284,7 @@ func TestAIImageJobs(t *testing.T) {
 		if !errors.Is(err, service.ErrAIDisabled) {
 			t.Fatalf("ErrAIDisabled bekleniyordu: %v", err)
 		}
-		st, err := off.Status(ctx, orgA.ID, true, true)
+		st, err := off.Status(ctx, orgA.ID, "", true, true)
 		if err != nil || st.Enabled || st.Model != "" {
 			t.Fatalf("durum: %+v, %v", st, err)
 		}
@@ -434,7 +434,7 @@ func TestAIImageJobs(t *testing.T) {
 
 	t.Run("OpenAI reddi: iş Türkçe nedenle başarısız, fotoğraf eklenmez, hak düşmez", func(t *testing.T) {
 		count := photoCount(t, pA.ID, orgA.ID)
-		st0, _ := svc.Status(ctx, orgA.ID, true, false)
+		st0, _ := svc.Status(ctx, orgA.ID, "", true, false)
 		fake.setMode("moderation")
 		defer fake.setMode("ok")
 		job, _, err := svc.CreateJob(ctx, service.CreateAIImageJobInput{
@@ -455,7 +455,7 @@ func TestAIImageJobs(t *testing.T) {
 		if photoCount(t, pA.ID, orgA.ID) != count {
 			t.Error("başarısız işte fotoğraf eklenmemeli")
 		}
-		st1, _ := svc.Status(ctx, orgA.ID, true, false)
+		st1, _ := svc.Status(ctx, orgA.ID, "", true, false)
 		if st1.Quota.UsedThisMonth != st0.Quota.UsedThisMonth {
 			t.Errorf("başarısız iş hakkı düşürmemeli: %d -> %d", st0.Quota.UsedThisMonth, st1.Quota.UsedThisMonth)
 		}
@@ -499,7 +499,7 @@ func TestAIImageJobs(t *testing.T) {
 	})
 
 	t.Run("aylık firma sınırı: dolunca 429 kalan 0; başka firma etkilenmez", func(t *testing.T) {
-		st, err := svc.Status(ctx, orgA.ID, true, true)
+		st, err := svc.Status(ctx, orgA.ID, "", true, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -519,7 +519,7 @@ func TestAIImageJobs(t *testing.T) {
 			t.Fatalf("aylık sınır: %v (%+v)", err, lim)
 		}
 		// Firma B'nin hakkı ayrı.
-		stB, err := ls.Status(ctx, orgB.ID, true, true)
+		stB, err := ls.Status(ctx, orgB.ID, "", true, true)
 		if err != nil || stB.Quota.UsedThisMonth != 0 || len(stB.UsageByUser) != 0 {
 			t.Fatalf("firma B: %+v, %v", stB, err)
 		}
@@ -527,7 +527,7 @@ func TestAIImageJobs(t *testing.T) {
 		if len(st.UsageByUser) != 1 || st.UsageByUser[0].FullName != "yz_sahip_a" || st.UsageByUser[0].Images != 3 {
 			t.Errorf("kişi kişi kullanım: %+v", st.UsageByUser)
 		}
-		none, _ := svc.Status(ctx, orgA.ID, false, false)
+		none, _ := svc.Status(ctx, orgA.ID, "", false, false)
 		if none.Quota != nil || none.UsageByUser != nil || !none.Enabled || none.CanUse {
 			t.Errorf("izinsiz durum: %+v", none)
 		}

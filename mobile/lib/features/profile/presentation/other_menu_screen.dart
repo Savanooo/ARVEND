@@ -12,6 +12,7 @@ import '../../../core/widgets/app_list_card.dart';
 import '../../../core/widgets/app_section_header.dart';
 import '../../access/access_routes.dart';
 import '../../ai_images/data/ai_images_providers.dart' show aiImagesAvailableProvider;
+import '../../ai_images/domain/ai_settings.dart' show kAiSettingsPermission, kAiSettingsRoute, kAiSettingsTitle;
 import '../../ai_images/domain/ai_studio.dart' show kAiStudioRoute, kAiStudioTitle;
 import '../../attendance/domain/attendance_access.dart';
 import '../../calc_admin/calc_admin_routes.dart';
@@ -78,6 +79,15 @@ class OtherMenuScreen extends ConsumerWidget {
           icon: Icons.auto_awesome_outlined,
           label: kAiStudioTitle,
           onTap: () => context.push(kAiStudioRoute),
+        ),
+      // Yapay Zekâ Ayarları: Stüdyo'nun hemen altında. Stüdyo görünmese de
+      // (firmada kapalı, sunucuda anahtar yok) görünür -- yönetici yeniden
+      // açabilmeli. KATI izin: kişi düğmesi kişiye özel yetki yazar.
+      if (user.canAccess(kAiSettingsPermission))
+        _MenuItem(
+          icon: Icons.tune_outlined,
+          label: kAiSettingsTitle,
+          onTap: () => context.push(kAiSettingsRoute),
         ),
       // Firma Grubu (backend 0077): firmanın tek grup sohbeti -- en çok
       // açılacak araç, ilk sırada ve okunmamış sayısıyla. İzin KATI

@@ -99,6 +99,11 @@ type AIImageQuota struct {
 	UserHourlyLimit int
 	// ResetsAt: yeni hakkın açıldığı an (gelecek ayın ilk günü 00:00 İstanbul).
 	ResetsAt time.Time
+	// Kişinin kendi aylık hakkı (Yapay Zekâ Ayarları, 0081). UserMonthlyLimit
+	// nil = kişi sınırı yok (UserRemaining da nil).
+	UserMonthlyLimit  *int
+	UserUsedThisMonth int
+	UserRemaining     *int
 }
 
 // AIImageUsage: bu ay bir kişinin ürettiği görsel sayısı.
@@ -112,9 +117,50 @@ type AIImageUsage struct {
 // anahtar ayarlı mı; CanUse kişinin izni var mı. Quota yalnızca izni olana
 // (ya da Sahip/Yönetici'ye), UsageByUser yalnızca Sahip/Yönetici'ye döner.
 type AIImageStatus struct {
-	Enabled     bool
+	// Enabled = ServerEnabled VE FirmEnabled (eski uygulamalar yalnızca buna bakar).
+	Enabled       bool
+	ServerEnabled bool
+	// FirmEnabled: Yapay Zekâ Ayarları'ndaki firma anahtarı (0081).
+	FirmEnabled bool
 	CanUse      bool
-	Model       string
-	Quota       *AIImageQuota
-	UsageByUser []AIImageUsage
+	// BlockedCode/BlockedReason: kişi şu an iş açamıyorsa nedeni (yönetici
+	// kapattı, firmanın ya da kişinin aylık hakkı doldu); boş = açabilir.
+	BlockedCode   string
+	BlockedReason string
+	Model         string
+	Quota         *AIImageQuota
+	UsageByUser   []AIImageUsage
+}
+
+// AISettings: Yapay Zekâ Ayarları (migration 0081) -- yöneticinin ekranı.
+// MonthlyLimit/PerUserMonthlyLimit kayıtlı değerdir (nil = sunucu
+// varsayılanı / sınırsız); EffectiveMonthlyLimit sunucu tavanına kırpılmış
+// gerçek sınır.
+type AISettings struct {
+	Enabled               bool
+	MonthlyLimit          *int
+	EffectiveMonthlyLimit int
+	ServerMax             int
+	PerUserMonthlyLimit   *int
+	UsedThisMonth         int
+	ResetsAt              time.Time
+	Users                 []AISettingsUser
+}
+
+// AISettingsUser.Source: etkin iznin nereden geldiği.
+const (
+	AIAccessSourceRole          = "role"
+	AIAccessSourceOverrideAllow = "override_allow"
+	AIAccessSourceOverrideDeny  = "override_deny"
+)
+
+type AISettingsUser struct {
+	UserID        string
+	FullName      string
+	RoleCode      string
+	RoleName      string
+	IsOwner       bool
+	CanUse        bool
+	Source        string
+	UsedThisMonth int
 }

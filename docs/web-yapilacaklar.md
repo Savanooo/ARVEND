@@ -311,6 +311,12 @@ eklensin mi" diye sorsun. Backend ve mobil hazır; web'de yok. Kural:
 - `ai_photo_created` olayında yeni `studio_image_id` (stüdyodan "Projeye ekle") — hareket metni "Yapay Zekâ Stüdyo'dan eklendi" olabilir.
 - İsteğe bağlı: web'de "Görsellerim" (Sahip/Yönetici için `scope=firm`), "Projeye ekle", kalemle bölge düzenleme (maske PNG, saydam = değişecek yer).
 
+## 19. Yapay Zekâ Ayarları (backend migration 0081, mobil 1.5.24)
+- Web'de ekranı yok. Uçlar: `GET/PUT /ai/settings`, `PUT /ai/settings/users/{userId}` (`requireAdmin` + `organization.roles.manage`); sözleşme `mobile/API_CONTRACT.md` "Yapay Zekâ Ayarları".
+- Kişi kişi "kullanabilir" anahtarı `ai.images.use`'un kişiye özel ayarıdır: web'in Roller & Yetkiler / kişi yetkileri ekranı aynı ayarı zaten gösterir (ayrı kural yok).
+- `/ai/status`'ta `enabled` artık "sunucu anahtarı VE firma anahtarı"; yeni alanlar `server_enabled`, `firm_enabled`, `can_manage`, `blocked_code`, `blocked_reason`, `quota.user_*`. Web yapay zekâ girişi eklerken bunlara bakmalı.
+- Yeni hata kodları: 403 `ai_disabled_by_admin`, 429 `ai_user_monthly_limit` (metinler Türkçe, olduğu gibi gösterilmeli).
+
 ## Bilinen tutarsızlıklar (web + backend)
 - Katalog fiyatı TL; teklifin para birimi TL değilse (firma varsayılanı
   USD/EUR) katalogdan seçilen fiyat çevrilmeden yazılıyor — web ve mobil

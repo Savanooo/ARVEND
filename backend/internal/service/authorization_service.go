@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log"
 	"sort"
 	"strings"
 
@@ -438,6 +439,89 @@ func (s *AuthorizationService) SetUserPermissions(ctx context.Context, userID, o
 		return nil, err
 	}
 	return s.GetUserPermissionDetail(ctx, userID, organizationID)
+}
+
+// SetUserPermissionOverride, TEK bir iznin kişiye özel ayarını yazar
+// (Yapay Zekâ Ayarları, 0081: "kim kullanacak"). allow nil = role bırak
+// (ayar silinir). SetUserPermissions ile AYNI kurallar (Sahip, silinmiş,
+// taşeron, yalnız-admin izinleri) ve AYNI tablo -- yalnızca rolden FARKLI
+// olan yazılır: rolü zaten veriyorsa "aç" ayarı siler, rolü vermiyorsa
+// "kapat" ayarı siler. Böylece Roller & Yetkiler ekranı da aynı farkı görür.
+func (s *AuthorizationService) SetUserPermissionOverride(ctx context.Context, userID, organizationID, actorUserID, code string, allow *bool) error {
+	uid, err := repository.StringToUUID(userID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	orgID, err := repository.StringToUUID(organizationID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	clean, err := s.cleanPermissionCodes(ctx, []string{code})
+	if err != nil {
+		return err
+	}
+	if len(clean) != 1 {
+		return domain.ErrUnknownPermission
+	}
+	code = clean[0]
+	user, role, err := s.userWithRole(ctx, uid, orgID)
+	if err != nil {
+		return err
+	}
+	if user.DeletedAt.Valid {
+		return domain.ErrUserDeleted
+	}
+	if role.Code == domain.OrgRoleOwner {
+		return domain.ErrOwnerPermissionsFixed
+	}
+	if user.SupplierID.Valid || role.Code == domain.OrgRoleSubcontractor {
+		return domain.ErrPortalUserLocked
+	}
+	rolePerms, err := s.q.ListPermissionsForRole(ctx, role.ID)
+	if err != nil {
+		return err
+	}
+	inRole := false
+	for _, p := range rolePerms {
+		if p == code {
+			inRole = true
+			break
+		}
+	}
+	effect := ""
+	switch {
+	case allow == nil:
+	case *allow && !inRole:
+		if user.Role != string(domain.RoleAdmin) && domain.IsAdminRoleOnlyPermission(code) {
+			return domain.ErrPermissionNeedsAdminRole
+		}
+		effect = "grant"
+	case !*allow && inRole:
+		effect = "revoke"
+	}
+	actor, _ := repository.StringToUUID(actorUserID)
+	if effect == "" {
+		err = s.q.DeleteUserPermissionOverride(ctx, sqlc.DeleteUserPermissionOverrideParams{
+			UserID: uid, OrganizationID: orgID, PermissionCode: code,
+		})
+	} else {
+		err = s.q.UpsertUserPermissionOverride(ctx, sqlc.UpsertUserPermissionOverrideParams{
+			UserID: uid, OrganizationID: orgID, PermissionCode: code, Effect: effect, CreatedBy: actor,
+		})
+	}
+	if err != nil {
+		return err
+	}
+	// İz: kişiye özel yetki satırı created_by/created_at taşır (Roller &
+	// Yetkiler ile aynı); "role bırak" satırı sildiği için sunucu loguna da
+	// yazılır -- maliyetli izni kimin kime açıp kapattığı sonradan bulunabilsin.
+	state := "role bırakıldı"
+	if allow != nil {
+		state = map[bool]string{true: "açıldı", false: "kapatıldı"}[*allow]
+	}
+	log.Printf("yetki: %s kişiye özel %s (kişi %s, firma %s, değiştiren %s, ayar %q)",
+		code, state, userID, organizationID, actorUserID, effect)
+	return nil
 }
 
 func sortedOrEmpty(codes []string) []string {

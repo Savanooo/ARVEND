@@ -17,6 +17,7 @@ import '../../projects/domain/project.dart';
 import '../data/ai_images_providers.dart';
 import '../data/ai_mask.dart';
 import '../domain/ai_image.dart';
+import '../domain/ai_settings.dart' show kAiFirmDisabledText;
 import 'ai_mask_editor.dart';
 
 const kAiNoticeTitle = 'Yapay zekâ ile görsel';
@@ -108,6 +109,9 @@ mixin _AiSubmit<T extends ConsumerStatefulWidget> on ConsumerState<T> {
       if (mounted) setState(() => started = true);
       return true;
     } on ApiException catch (e) {
+      // Hak doldu (429) ya da yönetici bu arada kapattı (403): düğmeler ve
+      // neden satırı hemen yeni duruma dönsün.
+      if (e.statusCode == 429 || e.statusCode == 403) ref.invalidate(aiImageStatusProvider);
       if (mounted) setState(() => error = e.message);
       return false;
     } finally {
@@ -169,9 +173,10 @@ class _AiPhotoSheetState extends ConsumerState<_AiPhotoSheet> with _AiSubmit<_Ai
 
   @override
   Widget build(BuildContext context) {
-    final quota = ref.watch(aiImageStatusProvider).valueOrNull?.quota;
-    final noQuota = quota != null && quota.remaining <= 0;
-    final busy = submitting || noQuota;
+    // Firma kapalı ya da kişinin/firmanın bu ayki hakkı dolu: düğmeler kapalı,
+    // nedeni altta (_AiFooter). Asıl karar sunucuda.
+    final blocked = ref.watch(aiImageStatusProvider).valueOrNull?.blocked ?? false;
+    final busy = submitting || blocked;
     return _SheetFrame(
       title: 'Yapay zekâ',
       children: [
@@ -330,8 +335,7 @@ class _AiGenerateSheetState extends ConsumerState<_AiGenerateSheet> with _AiSubm
 
   @override
   Widget build(BuildContext context) {
-    final quota = ref.watch(aiImageStatusProvider).valueOrNull?.quota;
-    final noQuota = quota != null && quota.remaining <= 0;
+    final blocked = ref.watch(aiImageStatusProvider).valueOrNull?.blocked ?? false;
     return _SheetFrame(
       title: 'Yapay zekâ ile görsel oluştur',
       children: [
@@ -387,7 +391,7 @@ class _AiGenerateSheetState extends ConsumerState<_AiGenerateSheet> with _AiSubm
           icon: Icons.auto_awesome,
           label: 'Görsel oluştur',
           loading: submitting,
-          onPressed: submitting || noQuota || _prompt.text.trim().isEmpty ? null : _generate,
+          onPressed: submitting || blocked || _prompt.text.trim().isEmpty ? null : _generate,
         ),
         _AiFooter(projectId: widget.projectId, error: error, started: started),
       ],
@@ -460,6 +464,10 @@ class _AiFooter extends ConsumerWidget {
             ),
           const Text(kAiLeaveHint, style: AppTypography.helper),
         ],
+        if (status != null && status.hasBlockNotice) ...[
+          const SizedBox(height: AppSpacing.lg),
+          AiBlockedNotice(status: status),
+        ],
         if (quota != null) ...[
           const SizedBox(height: AppSpacing.lg),
           AiQuotaLine(quota: quota),
@@ -488,20 +496,66 @@ class _AiFooter extends ConsumerWidget {
 }
 
 /// "Bu ay kalan: X / Y görsel" ya da hak dolduysa ne zaman açılacağı --
-/// proje sayfası ve Yapay Zekâ Stüdyo ortak.
+/// proje sayfası ve Yapay Zekâ Stüdyo ortak. Kişi başı sınır varsa kişinin
+/// KENDİ kalanı (firma hakkından az olabilir) ve kişi sınırı gösterilir.
 class AiQuotaLine extends StatelessWidget {
   const AiQuotaLine({super.key, required this.quota});
   final AiImageQuota quota;
 
   @override
   Widget build(BuildContext context) {
+    final userLimit = quota.userMonthlyLimit;
+    final remaining = quota.ownRemaining;
+    final String text;
+    if (remaining > 0) {
+      text = userLimit == null
+          ? 'Bu ay kalan: $remaining / ${quota.monthlyLimit} görsel'
+          : 'Bu ay kalan: $remaining görsel (kişi başı sınır $userLimit)';
+    } else if (userLimit != null && (quota.userRemaining ?? 1) <= 0) {
+      text = 'Bu ay sana ayrılan yapay zekâ hakkı doldu (${quota.userUsedThisMonth} / $userLimit). '
+          'Yeni hak ${Formatters.date(quota.resetsAt)} tarihinde açılır.';
+    } else {
+      text = 'Bu ayın yapay zekâ hakkı doldu (${quota.usedThisMonth} / ${quota.monthlyLimit}). '
+          'Yeni hak ${Formatters.date(quota.resetsAt)} tarihinde açılır.';
+    }
     return Text(
-      quota.remaining > 0
-          ? 'Bu ay kalan: ${quota.remaining} / ${quota.monthlyLimit} görsel'
-          : 'Bu ayın yapay zekâ hakkı doldu (${quota.usedThisMonth} / ${quota.monthlyLimit}). '
-              'Yeni hak ${Formatters.date(quota.resetsAt)} tarihinde açılır.',
+      text,
       key: const ValueKey('ai-quota'),
-      style: quota.remaining > 0 ? AppTypography.metadata : AppTypography.error,
+      style: remaining > 0 ? AppTypography.metadata : AppTypography.error,
+    );
+  }
+}
+
+/// Şu an neden görsel istenemiyor (sunucunun Türkçe nedeni): firma
+/// yönetici tarafından kapatıldı, kişinin aylık hakkı doldu. Proje sayfası
+/// ve Stüdyo ortak.
+class AiBlockedNotice extends StatelessWidget {
+  const AiBlockedNotice({super.key, required this.status});
+  final AiImageStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = status.blockedReason.isNotEmpty ? status.blockedReason : kAiFirmDisabledText;
+    return Container(
+      key: const ValueKey('ai-blocked'),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.danger.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(AppRadius.control),
+        border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 1),
+            child: Icon(Icons.block, size: 16, color: AppColors.danger),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(child: Text(text, style: AppTypography.helper.copyWith(color: AppColors.danger, height: 1.35))),
+        ],
+      ),
     );
   }
 }

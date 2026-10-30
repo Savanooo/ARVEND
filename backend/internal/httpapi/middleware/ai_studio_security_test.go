@@ -150,6 +150,8 @@ type studioFakeCall struct {
 	Image        []byte
 	ImageType    string
 	Mask         []byte
+	// Images: bütün image[] parçaları (maskeli işte ikincisi işaretli kaynak).
+	Images [][]byte
 }
 
 // studioFakeOpenAI: sahte Images API; her yanıt farklı bayt, son yanıt saklanır.
@@ -183,6 +185,12 @@ func (f *studioFakeOpenAI) handle(t *testing.T) http.HandlerFunc {
 				}
 				call.Image, call.ImageType = read("image[]")
 				call.Mask, _ = read("mask")
+				for _, fh := range r.MultipartForm.File["image[]"] {
+					f, _ := fh.Open()
+					b, _ := io.ReadAll(f)
+					f.Close()
+					call.Images = append(call.Images, b)
+				}
 			}
 		} else {
 			var body map[string]any
@@ -621,8 +629,28 @@ func TestAIStudioHTTP(t *testing.T) {
 			studioPart{"image", "duvar.jpg", photo}, studioPart{"mask", "mask.png", mask})
 		call, _ := fake.last()
 		if !bytes.Equal(call.Mask, mask) || call.ImageType != "image/png" || http.DetectContentType(call.Image) != "image/png" ||
-			!strings.Contains(call.Prompt, "Only change the area marked by the mask") {
+			!strings.Contains(call.Prompt, "The second image only marks, in red, the exact area to change") ||
+			!strings.Contains(call.Prompt, "Do not change anything outside the marked area") ||
+			strings.Contains(call.Prompt, "Completely remove") {
 			t.Errorf("maskeli istek: maske=%v kaynak=%s prompt=%q", bytes.Equal(call.Mask, mask), call.ImageType, call.Prompt)
+		}
+		// İkinci görsel: kaynak, maskenin saydam (sol yarı) alanı kırmızıyla.
+		if len(call.Images) != 2 || !bytes.Equal(call.Images[0], call.Image) {
+			t.Fatalf("maskeli işte iki görsel gitmeli: %d", len(call.Images))
+		}
+		baseImg, err1 := png.Decode(bytes.NewReader(call.Images[0]))
+		markImg, err2 := png.Decode(bytes.NewReader(call.Images[1]))
+		if err1 != nil || err2 != nil {
+			t.Fatalf("görseller PNG olmalı: %v %v", err1, err2)
+		}
+		px := func(img image.Image, x, y int) color.NRGBA {
+			return color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA)
+		}
+		if in, orig := px(markImg, 4, 12), px(baseImg, 4, 12); int(in.R) < int(orig.R)+50 || in.G >= orig.G {
+			t.Errorf("maskenin saydam alanı kırmızı işaretli olmalı: %v (kaynak %v)", in, orig)
+		}
+		if out, orig := px(markImg, 28, 12), px(baseImg, 28, 12); out != orig {
+			t.Errorf("maskenin opak alanı aynen kalmalı: %v != %v", out, orig)
 		}
 		cfg, _, err := image.DecodeConfig(bytes.NewReader(call.Image))
 		if err != nil || cfg.Width != 32 || cfg.Height != 24 {
@@ -635,8 +663,23 @@ func TestAIStudioHTTP(t *testing.T) {
 		// Proje fotoğrafından açılan maskeli düzenleme de olur.
 		runStudio(t, ownerToken, map[string]string{"kind": "edit", "prompt": "zemini parke yap", "source_project_photo_id": src.ID},
 			studioPart{"mask", "mask.png", mask})
-		if call, _ := fake.last(); !bytes.Equal(call.Mask, mask) {
-			t.Error("proje fotoğrafı kaynağında maske gitmedi")
+		if call, _ := fake.last(); !bytes.Equal(call.Mask, mask) || len(call.Images) != 2 {
+			t.Error("proje fotoğrafı kaynağında maske ya da işaretli görsel gitmedi")
+		}
+		// Canlı hata: maskeli "sil" işi açık kaldırma talimatı almalı.
+		for _, prompt := range []string{"Kalemle seçilen alanı sil", "Seçilen yeri sil sadece duvar kalsın", "BURAYI KALDIR"} {
+			runStudio(t, ownerToken, map[string]string{"kind": "edit", "prompt": prompt},
+				studioPart{"image", "duvar.jpg", photo}, studioPart{"mask", "mask.png", mask})
+			call, _ := fake.last()
+			if !strings.Contains(call.Prompt, "Completely remove every object inside the marked area") ||
+				!strings.Contains(call.Prompt, `"`+prompt+`"`) || !bytes.Equal(call.Mask, mask) || len(call.Images) != 2 {
+				t.Errorf("silme talimatı (%s): prompt=%q görsel=%d", prompt, call.Prompt, len(call.Images))
+			}
+		}
+		// Maskesiz düzenleme tek görsel gönderir.
+		runStudio(t, ownerToken, map[string]string{"kind": "edit", "prompt": "duvarı griye boya"}, studioPart{"image", "duvar.jpg", photo})
+		if call, _ := fake.last(); call.Mask != nil || len(call.Images) != 1 || !strings.Contains(call.Prompt, "Apply only the requested change") {
+			t.Errorf("maskesiz düzenleme değişmemeli: maske=%v görsel=%d prompt=%q", call.Mask != nil, len(call.Images), call.Prompt)
 		}
 
 		jobsBefore := countJobs(t)
@@ -675,8 +718,9 @@ func TestAIStudioHTTP(t *testing.T) {
 		if rec.Code != http.StatusOK || done["status"] != "done" || resultID == "" {
 			t.Fatalf("proje edit işi: %d %v", rec.Code, done)
 		}
-		if call, _ := fake.last(); !bytes.Equal(call.Mask, mask) || !strings.Contains(call.Prompt, "Apply only the requested change") {
-			t.Error("proje ucunda maske ya da düzenleme talimatı gitmedi")
+		if call, _ := fake.last(); !bytes.Equal(call.Mask, mask) || len(call.Images) != 2 ||
+			!strings.Contains(call.Prompt, "output the first image edited only in that area") {
+			t.Error("proje ucunda maske, işaretli görsel ya da düzenleme talimatı gitmedi")
 		}
 		ph := projectPhotos(t, p.ID)[resultID]
 		ai, _ := ph["ai"].(map[string]any)

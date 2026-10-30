@@ -44,6 +44,19 @@ class WhatsNewRelease {
 
 /// En yeni sürüm en üstte.
 const kWhatsNewReleases = <WhatsNewRelease>[
+  // Yapay Zekâ Ayarları: yönetici kimin kullanacağını ve aylık sınırları belirler.
+  WhatsNewRelease(
+    build: 32,
+    version: '1.5.24',
+    items: [
+      WhatsNewItem(
+        icon: Icons.tune_outlined,
+        title: 'Yapay zekâ kuralları',
+        body: 'Yönetici, Yapay Zekâ Ayarları\'ndan kimin kullanacağını, firmanın ve kişinin aylık sınırını belirler; bu ay kim ne kadar kullandı görür.',
+        permission: 'organization.roles.manage',
+      ),
+    ],
+  ),
   // Yapay Zekâ Stüdyo: projeden bağımsız görsel oluşturma / düzenleme.
   WhatsNewRelease(
     build: 31,

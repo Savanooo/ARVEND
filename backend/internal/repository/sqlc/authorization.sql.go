@@ -196,6 +196,23 @@ func (q *Queries) DeleteProjectUser(ctx context.Context, arg DeleteProjectUserPa
 	return result.RowsAffected(), nil
 }
 
+const deleteUserPermissionOverride = `-- name: DeleteUserPermissionOverride :exec
+DELETE FROM user_permission_overrides
+WHERE user_id = $1 AND organization_id = $2
+  AND permission_code = $3
+`
+
+type DeleteUserPermissionOverrideParams struct {
+	UserID         pgtype.UUID `json:"user_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	PermissionCode string      `json:"permission_code"`
+}
+
+func (q *Queries) DeleteUserPermissionOverride(ctx context.Context, arg DeleteUserPermissionOverrideParams) error {
+	_, err := q.db.Exec(ctx, deleteUserPermissionOverride, arg.UserID, arg.OrganizationID, arg.PermissionCode)
+	return err
+}
+
 const getOrganizationRoleByCode = `-- name: GetOrganizationRoleByCode :one
 SELECT id, organization_id, code, name, description, is_system, created_at, updated_at FROM organization_roles WHERE organization_id = $1 AND code = $2
 `
@@ -767,4 +784,33 @@ func (q *Queries) UpdateUserOrganizationRole(ctx context.Context, arg UpdateUser
 		&i.SupplierID,
 	)
 	return i, err
+}
+
+const upsertUserPermissionOverride = `-- name: UpsertUserPermissionOverride :exec
+INSERT INTO user_permission_overrides (user_id, organization_id, permission_code, effect, created_by)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (user_id, permission_code)
+DO UPDATE SET effect = EXCLUDED.effect, created_by = EXCLUDED.created_by, created_at = now()
+`
+
+type UpsertUserPermissionOverrideParams struct {
+	UserID         pgtype.UUID `json:"user_id"`
+	OrganizationID pgtype.UUID `json:"organization_id"`
+	PermissionCode string      `json:"permission_code"`
+	Effect         string      `json:"effect"`
+	CreatedBy      pgtype.UUID `json:"created_by"`
+}
+
+// TEK iznin kişiye özel ayarı (Yapay Zekâ Ayarları, 0081): bütün kümeyi
+// okuyup yeniden yazmak (ReplaceUserPermissionOverrides) aynı anda başka
+// bir izni değiştiren isteği ezebilirdi; tek satır atomik.
+func (q *Queries) UpsertUserPermissionOverride(ctx context.Context, arg UpsertUserPermissionOverrideParams) error {
+	_, err := q.db.Exec(ctx, upsertUserPermissionOverride,
+		arg.UserID,
+		arg.OrganizationID,
+		arg.PermissionCode,
+		arg.Effect,
+		arg.CreatedBy,
+	)
+	return err
 }
