@@ -44,6 +44,19 @@ class WhatsNewRelease {
 
 /// En yeni sürüm en üstte.
 const kWhatsNewReleases = <WhatsNewRelease>[
+  // Yapay Zekâ Stüdyo: projeden bağımsız görsel oluşturma / düzenleme.
+  WhatsNewRelease(
+    build: 31,
+    version: '1.5.23',
+    items: [
+      WhatsNewItem(
+        icon: Icons.auto_awesome_outlined,
+        title: 'Yapay Zekâ Stüdyo',
+        body: 'Diğer menüsünden görsel oluştur ya da telefonundaki bir fotoğrafı yükleyip yapay zekâyla düzenle; istersen bir projeye ekle.',
+        permission: 'ai.images.use',
+      ),
+    ],
+  ),
   // Kullanıcı geri bildirimleri (29 Eki): firma grubu, masraf fişi, genel
   // masraflar, kaydırmalı galeri, yapay zekâ görselleri, satın alma
   // maliyeti, teklifte sade "Maliyet ve Kâr" dili.
