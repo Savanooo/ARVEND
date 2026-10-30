@@ -700,7 +700,14 @@ func (s *AIImageService) produce(ctx context.Context, job domain.AIImageJob) err
 		if images[0], mask, err = prepareMaskedEdit(images[0], maskData); err != nil {
 			return err
 		}
-		prompt += aiMaskPromptSuffix
+		// Maske tek başına rehber; alan ikinci görselde kırmızıyla da
+		// gösterilir (bkz. ai_mask.go başlık notu).
+		marked, err := markMaskedArea(images[0], maskData)
+		if err != nil {
+			return err
+		}
+		images = append(images, marked)
+		prompt = buildAIMaskedEditPrompt(job.Prompt)
 	}
 	req := openai.ImageRequest{
 		Model:   job.Model,
@@ -811,6 +818,15 @@ func buildAIImagePrompt(kind, userText string, hasImage bool) string {
 			"Show the finished result after this work has been completed (the description is in Turkish): " + quoted + ". " +
 			"Clean, finished, professional workmanship with realistic materials and natural lighting. No people, no text, no watermark."
 	case domain.AIImageKindEdit:
+		// Maskesiz silme isteği: "gerisi aynen" talimatı modeli silmekten
+		// alıkoyuyordu (bkz. ai_mask.go başlık notu) -- açıkça kaldır.
+		if aiRemovalIntent(userText) {
+			return "Completely remove what this request describes and fill that area naturally with the surrounding background " +
+				"— continue the wall, floor, ceiling, textures and lighting — so it looks like nothing was ever there " +
+				"(the request is in Turkish): " + quoted + ". " +
+				"Keep the rest of the photo the same: the same scene, perspective, camera angle, framing and lighting. " +
+				"Keep it a realistic, natural-looking photograph. No watermark."
+		}
 		// Serbest düzenleme (0080): yalnızca istenen değişiklik, gerisi aynen.
 		return "Edit the input photo as requested (the request is in Turkish): " + quoted + ". " +
 			"Apply only the requested change and keep everything else the same: the same scene, perspective, camera angle, framing and lighting, with all other objects unchanged. " +
