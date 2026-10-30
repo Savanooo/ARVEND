@@ -14,10 +14,16 @@ const (
 	// AIImageKindGenerate: açıklamadan yeni görsel (isteğe bağlı referans
 	// fotoğrafla).
 	AIImageKindGenerate = "generate"
+	// AIImageKindEdit (migration 0080): fotoğrafa serbest düzenleme
+	// talimatı ("duvarı griye boya") -- stüdyoda ve proje ucunda; kaynak ve
+	// açıklama zorunlu, bitmiş hali gibi.
+	AIImageKindEdit = "edit"
 )
 
+// validAIImageKinds: proje ucu ve stüdyo aynı türleri kabul eder; eski
+// uygulamalar 'edit' göndermez, gönderdikleri türlerin davranışı değişmedi.
 var validAIImageKinds = map[string]bool{
-	AIImageKindBeforeAfter: true, AIImageKindEnhance: true, AIImageKindGenerate: true,
+	AIImageKindBeforeAfter: true, AIImageKindEnhance: true, AIImageKindGenerate: true, AIImageKindEdit: true,
 }
 
 func ValidAIImageKind(k string) bool { return validAIImageKinds[k] }
@@ -32,19 +38,57 @@ const (
 type AIImageJob struct {
 	ID             string
 	OrganizationID string
-	ProjectID      string
-	UserID         *string
-	Kind           string
-	Prompt         string
-	SourcePhotoID  *string
+	// ProjectID: proje işinde dolu; "" = Yapay Zekâ Stüdyo işi (0080).
+	ProjectID     string
+	UserID        *string
+	Kind          string
+	Prompt        string
+	SourcePhotoID *string
+	// SourceStorageKey/SourceMIME: stüdyo işinin depodaki kaynak görseli
+	// (yüklenen ya da proje fotoğrafından kopyalanan); proje işinde boş.
+	SourceStorageKey string
+	SourceMIME       string
+	// MaskStorageKey: maskeli 'edit' işinde kişinin boyadığı alan (PNG,
+	// saydam = değişecek yer); denetim için saklanır.
+	MaskStorageKey string
 	Status         string
 	// Error: kullanıcıya gösterilen Türkçe neden (yalnızca failed).
 	Error         string
 	ResultPhotoID *string
+	// StudioImageID: bitmiş stüdyo işinin görseli (yalnızca stüdyo okumasında dolu).
+	StudioImageID *string
 	Model         string
 	CreatedAt     time.Time
 	StartedAt     *time.Time
 	FinishedAt    *time.Time
+}
+
+// IsStudio: proje dışı (Yapay Zekâ Stüdyo) iş -- sonuç stüdyo görseli olur,
+// projeye fotoğraf eklenmez.
+func (j AIImageJob) IsStudio() bool { return j.ProjectID == "" }
+
+// AIStudioImage: Yapay Zekâ Stüdyo görseli (migration 0080). Kişinin kendi
+// alanındadır; Projects yalnızca listede dolar.
+type AIStudioImage struct {
+	ID             string
+	OrganizationID string
+	UserID         *string
+	UserName       string
+	JobID          *string
+	StorageKey     string
+	MIMEType       string
+	SizeBytes      int64
+	Kind           string
+	Prompt         string
+	CreatedAt      time.Time
+	Projects       []AIStudioImageProject
+}
+
+// AIStudioImageProject: görselin "Projeye ekle" ile kopyalandığı proje.
+type AIStudioImageProject struct {
+	ProjectID      string
+	ProjectName    string
+	ProjectPhotoID string
 }
 
 // AIImageQuota: firmanın bu ayki görsel hakkı (İstanbul takvim ayı).

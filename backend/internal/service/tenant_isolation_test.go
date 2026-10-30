@@ -157,6 +157,10 @@ func cleanupOrganization(t *testing.T, pool *pgxpool.Pool, orgID string) {
 		// projects, teklife/revizyona CASCADE'siz FK ile bağlıdır (kasıtlı:
 		// bir projeye dayanak olan teklif silinememeli), bu yüzden
 		// tekliflerden ÖNCE temizlenmeli.
+		// Yapay zekâ (0079/0080): stüdyo işleri projesizdir, projeyle CASCADE
+		// gitmez; görseller "Projeye ekle" bağlarını CASCADE ile götürür.
+		"DELETE FROM ai_studio_images WHERE organization_id = $1",
+		"DELETE FROM ai_image_jobs WHERE organization_id = $1",
 		"DELETE FROM projects WHERE organization_id = $1",
 		"DELETE FROM project_counters WHERE organization_id = $1",
 		"DELETE FROM purchase_request_counters WHERE organization_id = $1",

@@ -751,6 +751,19 @@ func NewRouter(d Deps) http.Handler {
 		r.Route("/ai", func(r chi.Router) {
 			r.Use(requireAuth, requireTenant, requireOnboarded, loadAuthorization)
 			r.Get("/status", d.AIImages.Status)
+			// Yapay Zekâ Stüdyo (migration 0080): projeden bağımsız görsel
+			// oluşturma/düzenleme. Aynı izin ve aynı aylık firma hakkı;
+			// görünürlük (kendi / Sahip-Yönetici firma geneli) ve gövdeden
+			// gelen projenin erişimi handler'da.
+			r.Route("/studio", func(r chi.Router) {
+				r.Use(perm(domain.PermAIImagesUse))
+				r.Post("/jobs", d.AIImages.CreateStudioJob)
+				r.Get("/jobs/{jobId}", d.AIImages.GetStudioJob)
+				r.Get("/images", d.AIImages.ListStudioImages)
+				r.Get("/images/{imageId}/content", d.AIImages.DownloadStudioImage)
+				r.Delete("/images/{imageId}", d.AIImages.DeleteStudioImage)
+				r.Post("/images/{imageId}/add-to-project", d.AIImages.AddStudioImageToProject)
+			})
 		})
 
 		r.Route("/notifications", func(r chi.Router) {

@@ -305,6 +305,12 @@ eklensin mi" diye sorsun. Backend ve mobil hazır; web'de yok. Kural:
   değişti"), `purchase_order_cost_decision` ("Siparişin maliyet kararı
   değişti") `lib/events.ts`'e.
 
+## 18. Yapay Zekâ Stüdyo — backend (migration 0080)
+- Web'de ekranı yok. Uçlar: `mobile/API_CONTRACT.md` "Yapay Zekâ Stüdyo (backend)" (`/ai/studio/*`).
+- Proje galerisinde `ai.kind` artık `edit` de olabilir ("Düzenlenmiş fotoğraf"); web rozeti ve etiketi bu türü de tanımalı.
+- `ai_photo_created` olayında yeni `studio_image_id` (stüdyodan "Projeye ekle") — hareket metni "Yapay Zekâ Stüdyo'dan eklendi" olabilir.
+- İsteğe bağlı: web'de "Görsellerim" (Sahip/Yönetici için `scope=firm`), "Projeye ekle", kalemle bölge düzenleme (maske PNG, saydam = değişecek yer).
+
 ## Bilinen tutarsızlıklar (web + backend)
 - Katalog fiyatı TL; teklifin para birimi TL değilse (firma varsayılanı
   USD/EUR) katalogdan seçilen fiyat çevrilmeden yazılıyor — web ve mobil

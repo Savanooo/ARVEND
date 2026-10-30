@@ -39,7 +39,7 @@ WHERE id = (
     FOR UPDATE SKIP LOCKED
     LIMIT 1
 )
-RETURNING id, organization_id, project_id, user_id, kind, prompt, source_photo_id, status, error, result_photo_id, model, created_at, started_at, finished_at
+RETURNING id, organization_id, project_id, user_id, kind, prompt, source_photo_id, status, error, result_photo_id, model, created_at, started_at, finished_at, source_storage_key, source_mime, mask_storage_key
 `
 
 // Sıradaki işi (en eskisi) çalışıyor olarak alır. SKIP LOCKED: aynı anda
@@ -64,6 +64,9 @@ func (q *Queries) ClaimNextAIImageJob(ctx context.Context, organizationID pgtype
 		&i.CreatedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.SourceStorageKey,
+		&i.SourceMime,
+		&i.MaskStorageKey,
 	)
 	return i, err
 }
@@ -142,10 +145,10 @@ func (q *Queries) CountUserActiveAIImageJobs(ctx context.Context, arg CountUserA
 }
 
 const createAIImageJob = `-- name: CreateAIImageJob :one
-INSERT INTO ai_image_jobs (organization_id, project_id, user_id, kind, prompt, source_photo_id, model)
+INSERT INTO ai_image_jobs (organization_id, project_id, user_id, kind, prompt, source_photo_id, model, mask_storage_key)
 VALUES ($1, $2, $3, $4,
-        $5, $6, $7)
-RETURNING id, organization_id, project_id, user_id, kind, prompt, source_photo_id, status, error, result_photo_id, model, created_at, started_at, finished_at
+        $5, $6, $7, $8)
+RETURNING id, organization_id, project_id, user_id, kind, prompt, source_photo_id, status, error, result_photo_id, model, created_at, started_at, finished_at, source_storage_key, source_mime, mask_storage_key
 `
 
 type CreateAIImageJobParams struct {
@@ -156,8 +159,10 @@ type CreateAIImageJobParams struct {
 	Prompt         string      `json:"prompt"`
 	SourcePhotoID  pgtype.UUID `json:"source_photo_id"`
 	Model          string      `json:"model"`
+	MaskStorageKey string      `json:"mask_storage_key"`
 }
 
+// mask_storage_key (0080): yalnızca maskeli 'edit' işinde dolu.
 func (q *Queries) CreateAIImageJob(ctx context.Context, arg CreateAIImageJobParams) (AiImageJob, error) {
 	row := q.db.QueryRow(ctx, createAIImageJob,
 		arg.OrganizationID,
@@ -167,6 +172,7 @@ func (q *Queries) CreateAIImageJob(ctx context.Context, arg CreateAIImageJobPara
 		arg.Prompt,
 		arg.SourcePhotoID,
 		arg.Model,
+		arg.MaskStorageKey,
 	)
 	var i AiImageJob
 	err := row.Scan(
@@ -184,6 +190,9 @@ func (q *Queries) CreateAIImageJob(ctx context.Context, arg CreateAIImageJobPara
 		&i.CreatedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.SourceStorageKey,
+		&i.SourceMime,
+		&i.MaskStorageKey,
 	)
 	return i, err
 }
@@ -225,7 +234,7 @@ func (q *Queries) FailInterruptedAIImageJobs(ctx context.Context, arg FailInterr
 }
 
 const getAIImageJob = `-- name: GetAIImageJob :one
-SELECT id, organization_id, project_id, user_id, kind, prompt, source_photo_id, status, error, result_photo_id, model, created_at, started_at, finished_at FROM ai_image_jobs
+SELECT id, organization_id, project_id, user_id, kind, prompt, source_photo_id, status, error, result_photo_id, model, created_at, started_at, finished_at, source_storage_key, source_mime, mask_storage_key FROM ai_image_jobs
 WHERE id = $1 AND organization_id = $2
   AND project_id = $3 AND user_id = $4
 `
@@ -262,6 +271,9 @@ func (q *Queries) GetAIImageJob(ctx context.Context, arg GetAIImageJobParams) (A
 		&i.CreatedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.SourceStorageKey,
+		&i.SourceMime,
+		&i.MaskStorageKey,
 	)
 	return i, err
 }
@@ -309,7 +321,7 @@ func (q *Queries) ListOrgAIImageUsageByUser(ctx context.Context, arg ListOrgAIIm
 }
 
 const listUserProjectAIImageJobs = `-- name: ListUserProjectAIImageJobs :many
-SELECT id, organization_id, project_id, user_id, kind, prompt, source_photo_id, status, error, result_photo_id, model, created_at, started_at, finished_at FROM ai_image_jobs
+SELECT id, organization_id, project_id, user_id, kind, prompt, source_photo_id, status, error, result_photo_id, model, created_at, started_at, finished_at, source_storage_key, source_mime, mask_storage_key FROM ai_image_jobs
 WHERE organization_id = $1 AND project_id = $2
   AND user_id = $3
 ORDER BY created_at DESC
@@ -346,6 +358,9 @@ func (q *Queries) ListUserProjectAIImageJobs(ctx context.Context, arg ListUserPr
 			&i.CreatedAt,
 			&i.StartedAt,
 			&i.FinishedAt,
+			&i.SourceStorageKey,
+			&i.SourceMime,
+			&i.MaskStorageKey,
 		); err != nil {
 			return nil, err
 		}

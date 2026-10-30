@@ -228,9 +228,12 @@ type CreateAIImageJobInput struct {
 	UserID         string
 	Kind           string
 	Prompt         string
-	// SourcePhotoID: önce/sonra ve iyileştirmede zorunlu, yeni görselde
-	// isteğe bağlı referans. Aynı projenin silinmemiş fotoğrafı olmalı.
+	// SourcePhotoID: önce/sonra, iyileştirme ve düzenlemede zorunlu, yeni
+	// görselde isteğe bağlı referans. Aynı projenin silinmemiş fotoğrafı olmalı.
 	SourcePhotoID string
+	// Mask: yalnızca 'edit' -- kalemle boyanan alan (PNG, saydam = değişecek
+	// yer, kaynak fotoğrafla aynı piksel boyutunda; bkz. ai_mask.go).
+	Mask io.Reader
 }
 
 // CreateJob: işi "sırada" açar ve işçiyi uyandırır. Sınırlar firma başına
@@ -254,6 +257,16 @@ func (s *AIImageService) CreateJob(ctx context.Context, in CreateAIImageJobInput
 	if sourceID == "" && in.Kind != domain.AIImageKindGenerate {
 		return nil, nil, ErrAISourceRequired
 	}
+	var maskData []byte
+	if in.Mask != nil {
+		if in.Kind != domain.AIImageKindEdit {
+			return nil, nil, ErrAIMaskOnlyEdit
+		}
+		var err error
+		if maskData, err = readAIMask(in.Mask); err != nil {
+			return nil, nil, err
+		}
+	}
 	pid, orgID, err := s.projects.scopedIDs(in.ProjectID, in.OrganizationID)
 	if err != nil {
 		return nil, nil, err
@@ -262,6 +275,13 @@ func (s *AIImageService) CreateJob(ctx context.Context, in CreateAIImageJobInput
 	if err != nil {
 		return nil, nil, domain.ErrNotFound
 	}
+	maskKey := ""
+	committed := false
+	defer func() {
+		if !committed && maskKey != "" {
+			_ = s.projects.store.Delete(context.WithoutCancel(ctx), maskKey)
+		}
+	}()
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -291,6 +311,12 @@ func (s *AIImageService) CreateJob(ctx context.Context, in CreateAIImageJobInput
 			return nil, nil, err
 		}
 		source = photo.ID
+		if maskData != nil {
+			// Maske kaynağın piksel boyutunda olmalı: kaynağı açıp bakılır.
+			if maskKey, err = s.storeAIMask(ctx, orgID, photo.ObjectKey, maskData); err != nil {
+				return nil, nil, err
+			}
+		}
 	}
 
 	if err := txq.AIImageQuotaXactLock(ctx, sqlc.AIImageQuotaXactLockParams{
@@ -298,48 +324,14 @@ func (s *AIImageService) CreateJob(ctx context.Context, in CreateAIImageJobInput
 	}); err != nil {
 		return nil, nil, err
 	}
-	monthStart, _ := s.monthWindow()
-	used, err := txq.CountOrgAIImageJobsSince(ctx, sqlc.CountOrgAIImageJobsSinceParams{
-		OrganizationID: orgID, Since: pgtype.Timestamptz{Time: monthStart, Valid: true},
-	})
+	used, err := s.checkLimits(ctx, txq, orgID, uid)
 	if err != nil {
 		return nil, nil, err
-	}
-	quota := s.quota(int(used))
-	if int(used) >= s.cfg.MonthlyLimit {
-		return nil, nil, &AILimitError{
-			Code: "ai_monthly_limit", Quota: quota,
-			Message: fmt.Sprintf("Bu ayın yapay zekâ görsel hakkı doldu (%d/%d). Yeni hak %s tarihinde açılır.",
-				used, s.cfg.MonthlyLimit, quota.ResetsAt.Format("02.01.2006")),
-		}
-	}
-	active, err := txq.CountUserActiveAIImageJobs(ctx, sqlc.CountUserActiveAIImageJobsParams{OrganizationID: orgID, UserID: uid})
-	if err != nil {
-		return nil, nil, err
-	}
-	if active >= aiMaxActivePerUser {
-		return nil, nil, &AILimitError{
-			Code: "ai_user_busy", Quota: quota,
-			Message: "Önceki görselleriniz hâlâ hazırlanıyor; biri bitince yenisini isteyin.",
-		}
-	}
-	hourly, err := txq.CountUserAIImageJobsSince(ctx, sqlc.CountUserAIImageJobsSinceParams{
-		OrganizationID: orgID, UserID: uid, Since: pgtype.Timestamptz{Time: s.now().Add(-time.Hour), Valid: true},
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	if int(hourly) >= s.cfg.UserHourlyLimit {
-		return nil, nil, &AILimitError{
-			Code: "ai_user_rate_limit", Quota: quota,
-			Message: fmt.Sprintf("Bir saatte en fazla %d görsel isteyebilirsiniz; biraz sonra tekrar deneyin. Bu ay kalan hak: %d.",
-				s.cfg.UserHourlyLimit, quota.Remaining),
-		}
 	}
 
 	row, err := txq.CreateAIImageJob(ctx, sqlc.CreateAIImageJobParams{
 		OrganizationID: orgID, ProjectID: pid, UserID: uid, Kind: in.Kind,
-		Prompt: prompt, SourcePhotoID: source, Model: s.cfg.Model,
+		Prompt: prompt, SourcePhotoID: source, Model: s.cfg.Model, MaskStorageKey: maskKey,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -347,10 +339,58 @@ func (s *AIImageService) CreateJob(ctx context.Context, in CreateAIImageJobInput
 	if err := tx.Commit(ctx); err != nil {
 		return nil, nil, err
 	}
+	committed = true
 	s.signal()
 	job := repository.ToDomainAIImageJob(row)
-	after := s.quota(int(used) + 1)
+	after := s.quota(used + 1)
 	return &job, &after, nil
+}
+
+// checkLimits: aylık firma hakkı, kişinin süren işleri ve kişi başı
+// saatlik sınır. Proje ve stüdyo işleri AYNI sayımdan geçer (hepsi
+// ai_image_jobs'ta). Kesin karar firma danışma kilidi altında verilir
+// (AIImageQuotaXactLock); kilitsiz çağrı yalnızca erken ret içindir (ör.
+// stüdyo yüklemesini depoya yazmadan önce). Dönen: bu ay sayılan iş.
+func (s *AIImageService) checkLimits(ctx context.Context, q *sqlc.Queries, orgID, uid pgtype.UUID) (int, error) {
+	monthStart, _ := s.monthWindow()
+	used, err := q.CountOrgAIImageJobsSince(ctx, sqlc.CountOrgAIImageJobsSinceParams{
+		OrganizationID: orgID, Since: pgtype.Timestamptz{Time: monthStart, Valid: true},
+	})
+	if err != nil {
+		return 0, err
+	}
+	quota := s.quota(int(used))
+	if int(used) >= s.cfg.MonthlyLimit {
+		return 0, &AILimitError{
+			Code: "ai_monthly_limit", Quota: quota,
+			Message: fmt.Sprintf("Bu ayın yapay zekâ görsel hakkı doldu (%d/%d). Yeni hak %s tarihinde açılır.",
+				used, s.cfg.MonthlyLimit, quota.ResetsAt.Format("02.01.2006")),
+		}
+	}
+	active, err := q.CountUserActiveAIImageJobs(ctx, sqlc.CountUserActiveAIImageJobsParams{OrganizationID: orgID, UserID: uid})
+	if err != nil {
+		return 0, err
+	}
+	if active >= aiMaxActivePerUser {
+		return 0, &AILimitError{
+			Code: "ai_user_busy", Quota: quota,
+			Message: "Önceki görselleriniz hâlâ hazırlanıyor; biri bitince yenisini isteyin.",
+		}
+	}
+	hourly, err := q.CountUserAIImageJobsSince(ctx, sqlc.CountUserAIImageJobsSinceParams{
+		OrganizationID: orgID, UserID: uid, Since: pgtype.Timestamptz{Time: s.now().Add(-time.Hour), Valid: true},
+	})
+	if err != nil {
+		return 0, err
+	}
+	if int(hourly) >= s.cfg.UserHourlyLimit {
+		return 0, &AILimitError{
+			Code: "ai_user_rate_limit", Quota: quota,
+			Message: fmt.Sprintf("Bir saatte en fazla %d görsel isteyebilirsiniz; biraz sonra tekrar deneyin. Bu ay kalan hak: %d.",
+				s.cfg.UserHourlyLimit, quota.Remaining),
+		}
+	}
+	return int(used), nil
 }
 
 // signal: boştaki bir işçiyi uyandırır; hepsi meşgulse bloklamaz (işini
@@ -516,7 +556,15 @@ func (s *AIImageService) produce(ctx context.Context, job domain.AIImageJob) err
 		images      []openai.InputImage
 		sourceStage string
 	)
-	if job.SourcePhotoID != nil {
+	if job.SourceStorageKey != "" {
+		// Stüdyo işi (0080): kaynak, iş açılırken depoya kopyalanmış görsel --
+		// proje fotoğrafından açıldıysa da o fotoğrafa artık bakılmaz.
+		img, err := s.readStudioSource(ctx, job.SourceStorageKey)
+		if err != nil {
+			return err
+		}
+		images = append(images, img)
+	} else if job.SourcePhotoID != nil && !job.IsStudio() {
 		photo, rc, err := s.projects.OpenPhoto(ctx, job.ProjectID, *job.SourcePhotoID, job.OrganizationID)
 		if err != nil {
 			if errors.Is(err, domain.ErrNotFound) {
@@ -540,9 +588,28 @@ func (s *AIImageService) produce(ctx context.Context, job domain.AIImageJob) err
 		return &aiJobError{"Kaynak fotoğraf silinmiş; başka bir fotoğrafla tekrar deneyin."}
 	}
 
+	prompt := buildAIImagePrompt(job.Kind, job.Prompt, len(images) > 0)
+	if job.IsStudio() {
+		prompt = buildAIStudioPrompt(job.Kind, job.Prompt)
+	}
+	var mask *openai.InputImage
+	if job.MaskStorageKey != "" {
+		if len(images) == 0 {
+			return &aiJobError{"Kaynak fotoğraf silinmiş; başka bir fotoğrafla tekrar deneyin."}
+		}
+		maskData, err := s.readAIMaskObject(ctx, job.MaskStorageKey)
+		if err != nil {
+			return err
+		}
+		if images[0], mask, err = prepareMaskedEdit(images[0], maskData); err != nil {
+			return err
+		}
+		prompt += aiMaskPromptSuffix
+	}
 	req := openai.ImageRequest{
 		Model:   job.Model,
-		Prompt:  buildAIImagePrompt(job.Kind, job.Prompt, len(images) > 0),
+		Prompt:  prompt,
+		Mask:    mask,
 		Images:  images,
 		Size:    "auto", // düzenlemede kaynağın en-boy oranına yakın boyut
 		Quality: s.cfg.Quality,
@@ -563,6 +630,9 @@ func (s *AIImageService) produce(ctx context.Context, job domain.AIImageJob) err
 	ext, ok := map[string]string{"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}[mime]
 	if !ok {
 		return fmt.Errorf("openai: beklenmeyen görsel türü %q", mime)
+	}
+	if job.IsStudio() {
+		return s.saveStudioResult(ctx, job, res.Data, mime, ext)
 	}
 	return s.saveResult(ctx, job, res.Data, ext, aiResultStage(job.Kind, sourceStage))
 }
@@ -644,6 +714,11 @@ func buildAIImagePrompt(kind, userText string, hasImage bool) string {
 			"Keep the same room, the same perspective and camera angle, the same framing, and keep walls, windows and doors in the same places. " +
 			"Show the finished result after this work has been completed (the description is in Turkish): " + quoted + ". " +
 			"Clean, finished, professional workmanship with realistic materials and natural lighting. No people, no text, no watermark."
+	case domain.AIImageKindEdit:
+		// Serbest düzenleme (0080): yalnızca istenen değişiklik, gerisi aynen.
+		return "Edit the input photo as requested (the request is in Turkish): " + quoted + ". " +
+			"Apply only the requested change and keep everything else the same: the same scene, perspective, camera angle, framing and lighting, with all other objects unchanged. " +
+			"Keep it a realistic, natural-looking photograph. No watermark."
 	case domain.AIImageKindEnhance:
 		p := "Same photo, same content and same framing: improve exposure, brightness, white balance, contrast and sharpness, and reduce noise and blur. " +
 			"Do not add, remove, move or change any objects, people, structures or text. Keep it a realistic, natural-looking photograph."
@@ -660,8 +735,9 @@ func buildAIImagePrompt(kind, userText string, hasImage bool) string {
 	}
 }
 
-// aiResultStage: bitmiş hal "İş Sonrası"nı gösterir; iyileştirme kaynağın
-// aşamasında kalır; yeni görsel referansın aşamasında (yoksa "İlerleme").
+// aiResultStage: bitmiş hal "İş Sonrası"nı gösterir; iyileştirme ve
+// düzenleme kaynağın aşamasında kalır; yeni görsel referansın aşamasında
+// (yoksa "İlerleme").
 func aiResultStage(kind, sourceStage string) string {
 	if kind == domain.AIImageKindBeforeAfter {
 		return domain.PhotoStageAfter
@@ -684,6 +760,8 @@ func aiPhotoDescription(kind, prompt string) string {
 			return "İyileştirilmiş fotoğraf (yapay zekâ)"
 		}
 		return "İyileştirilmiş fotoğraf (yapay zekâ): " + prompt
+	case domain.AIImageKindEdit:
+		return "Düzenlenmiş fotoğraf (yapay zekâ): " + prompt
 	default:
 		return "Yapay zekâ görseli: " + prompt
 	}
@@ -695,6 +773,8 @@ func aiKindSlug(kind string) string {
 		return "bitmis-hali"
 	case domain.AIImageKindEnhance:
 		return "iyilestirme"
+	case domain.AIImageKindEdit:
+		return "duzenleme"
 	default:
 		return "gorsel"
 	}
@@ -723,7 +803,9 @@ func prepareAIInputImage(data []byte) (openai.InputImage, error) {
 	}
 	switch mime := http.DetectContentType(data); mime {
 	case "image/jpeg":
-		return openai.InputImage{Data: data, MIMEType: mime, Name: "kaynak.jpg"}, nil
+		// EXIF yönlü telefon fotoğrafı dik hale getirilir: uygulamada nasıl
+		// görünüyorsa OpenAI'ye de öyle gitsin (bkz. ai_orientation.go).
+		return openai.InputImage{Data: normalizeJPEGOrientation(data), MIMEType: mime, Name: "kaynak.jpg"}, nil
 	case "image/png":
 		return openai.InputImage{Data: data, MIMEType: mime, Name: "kaynak.png"}, nil
 	case "image/webp":

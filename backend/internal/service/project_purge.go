@@ -37,7 +37,7 @@ var projectPurgeTables = []string{
 	"project_change_order_email_logs", "change_order_counters",
 	"project_tasks", "project_task_updates", "project_schedule_items", "project_members", "project_users",
 	"project_files", "project_photos", "project_notes", "project_daily_reports", "project_events",
-	"project_delete_requests", "notifications", "inventory_documents", "ai_image_jobs",
+	"project_delete_requests", "notifications", "inventory_documents", "ai_image_jobs", "ai_studio_image_projects",
 }
 
 // projectPurgeSteps: CASCADE ile gitmeyen (RESTRICT) bağlar çocuktan

@@ -181,6 +181,10 @@ func ToDomainAIImageJob(j sqlc.AiImageJob) domain.AIImageJob {
 		Error:          j.Error,
 		Model:          j.Model,
 		CreatedAt:      j.CreatedAt.Time,
+		// Stüdyo işi (migration 0080): project_id NULL -> ProjectID "".
+		SourceStorageKey: j.SourceStorageKey,
+		SourceMIME:       j.SourceMime,
+		MaskStorageKey:   j.MaskStorageKey,
 	}
 	uuidPtr := func(u pgtype.UUID) *string {
 		if !u.Valid {
@@ -202,6 +206,30 @@ func ToDomainAIImageJob(j sqlc.AiImageJob) domain.AIImageJob {
 	dj.StartedAt = timePtr(j.StartedAt)
 	dj.FinishedAt = timePtr(j.FinishedAt)
 	return dj
+}
+
+// ToDomainAIStudioImage: Yapay Zekâ Stüdyo görseli (migration 0080).
+func ToDomainAIStudioImage(i sqlc.AiStudioImage, userName string) domain.AIStudioImage {
+	di := domain.AIStudioImage{
+		ID:             i.ID.String(),
+		OrganizationID: i.OrganizationID.String(),
+		UserName:       userName,
+		StorageKey:     i.StorageKey,
+		MIMEType:       i.Mime,
+		SizeBytes:      i.SizeBytes,
+		Kind:           i.Kind,
+		Prompt:         i.Prompt,
+		CreatedAt:      i.CreatedAt.Time,
+	}
+	if i.UserID.Valid {
+		s := i.UserID.String()
+		di.UserID = &s
+	}
+	if i.JobID.Valid {
+		s := i.JobID.String()
+		di.JobID = &s
+	}
+	return di
 }
 
 func ToDomainProjectNote(n sqlc.ProjectNote) domain.ProjectNote {

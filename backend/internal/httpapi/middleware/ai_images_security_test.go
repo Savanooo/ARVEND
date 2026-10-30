@@ -107,7 +107,7 @@ func TestAIImagesHTTP(t *testing.T) {
 		// (çağrılmadıkça zararsız, bkz. router_test.go).
 		return httpapi.NewRouter(httpapi.Deps{
 			JWT: d.issuer, Queries: d.q, AuthorizationSvc: d.authzSvc,
-			Projects: handler.NewProjectHandler(d.projectSvc), AIImages: handler.NewAIImageHandler(svc),
+			Projects: handler.NewProjectHandler(d.projectSvc), AIImages: handler.NewAIImageHandler(svc, d.authzSvc),
 			CORSOrigins: []string{"*"},
 		}), svc
 	}
