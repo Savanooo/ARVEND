@@ -25,10 +25,12 @@ Future<AiMaskEditResult?> showAiMaskEditor(
   required Uint8List sourceBytes,
   List<AiMaskStroke> initial = const [],
 }) {
-  return Navigator.of(context, rootNavigator: true).push<AiMaskEditResult>(MaterialPageRoute(
-    fullscreenDialog: true,
-    builder: (_) => AiMaskEditorScreen(sourceBytes: sourceBytes, initial: initial),
-  ));
+  return Navigator.of(context, rootNavigator: true).push<AiMaskEditResult>(
+    MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (_) => AiMaskEditorScreen(sourceBytes: sourceBytes, initial: initial),
+    ),
+  );
 }
 
 class AiMaskEditorScreen extends StatefulWidget {
@@ -55,6 +57,12 @@ class _AiMaskEditorScreenState extends State<AiMaskEditorScreen> {
   Offset _startOffset = Offset.zero;
   Offset _startFocal = Offset.zero;
   int _pointers = 0;
+
+  /// Ekrandaki parmak sayısı ve bu dokunuşta yakınlaştırma yapıldı mı:
+  /// iki parmaktan biri kalkınca kalan parmak boyamaya başlamasın (tanıyıcı
+  /// tek parmakla yeniden başlar); hepsi kalkınca sıfırlanır.
+  int _down = 0;
+  bool _pinched = false;
 
   /// Görselin ekrana sığdırılması (LayoutBuilder'da hesaplanır).
   double _fit = 1;
@@ -96,7 +104,7 @@ class _AiMaskEditorScreenState extends State<AiMaskEditorScreen> {
     _startScale = _scale;
     _startOffset = _offset;
     _startFocal = d.localFocalPoint;
-    if (d.pointerCount == 1) {
+    if (d.pointerCount == 1 && !_pinched) {
       final width = kAiBrushSizes[_brush].size / (_scale * _fit);
       setState(() => _current = AiMaskStroke(points: [_toImage(d.localFocalPoint)], width: width));
     }
@@ -105,6 +113,7 @@ class _AiMaskEditorScreenState extends State<AiMaskEditorScreen> {
   void _onScaleUpdate(ScaleUpdateDetails d) {
     if (d.pointerCount >= 2) {
       // İkinci parmak değdi: başlayan çizgi boyama değil yakınlaştırmaymış.
+      _pinched = true;
       if (_pointers < 2) {
         _pointers = d.pointerCount;
         _startScale = _scale;
@@ -130,6 +139,11 @@ class _AiMaskEditorScreenState extends State<AiMaskEditorScreen> {
     if (current != null && _pointers < 2) _strokes.add(current);
     setState(() => _current = null);
     if (d.pointerCount == 0) _pointers = 0;
+  }
+
+  void _lift() {
+    _down = math.max(0, _down - 1);
+    if (_down == 0) _pinched = false;
   }
 
   Future<void> _done() async {
@@ -179,26 +193,28 @@ class _AiMaskEditorScreenState extends State<AiMaskEditorScreen> {
                       builder: (context, constraints) {
                         final view = constraints.biggest;
                         _fit = math.min(view.width / image.width, view.height / image.height);
-                        _base = Offset(
-                          (view.width - image.width * _fit) / 2,
-                          (view.height - image.height * _fit) / 2,
-                        );
+                        _base = Offset((view.width - image.width * _fit) / 2, (view.height - image.height * _fit) / 2);
                         return ClipRect(
-                          child: GestureDetector(
-                            key: const ValueKey('ai-mask-canvas'),
-                            behavior: HitTestBehavior.opaque,
-                            onScaleStart: _onScaleStart,
-                            onScaleUpdate: _onScaleUpdate,
-                            onScaleEnd: _onScaleEnd,
-                            child: CustomPaint(
-                              size: view,
-                              painter: _MaskPainter(
-                                image: image,
-                                strokes: [..._strokes, ?_current],
-                                scale: _scale,
-                                offset: _offset,
-                                fit: _fit,
-                                base: _base,
+                          child: Listener(
+                            onPointerDown: (_) => _down++,
+                            onPointerUp: (_) => _lift(),
+                            onPointerCancel: (_) => _lift(),
+                            child: GestureDetector(
+                              key: const ValueKey('ai-mask-canvas'),
+                              behavior: HitTestBehavior.opaque,
+                              onScaleStart: _onScaleStart,
+                              onScaleUpdate: _onScaleUpdate,
+                              onScaleEnd: _onScaleEnd,
+                              child: CustomPaint(
+                                size: view,
+                                painter: _MaskPainter(
+                                  image: image,
+                                  strokes: [..._strokes, ?_current],
+                                  scale: _scale,
+                                  offset: _offset,
+                                  fit: _fit,
+                                  base: _base,
+                                ),
                               ),
                             ),
                           ),
@@ -269,7 +285,9 @@ class _Panel extends StatelessWidget {
           ),
           Row(
             children: [
-              Expanded(child: SecondaryButton(label: 'Vazgeç', onPressed: saving ? null : onCancel)),
+              Expanded(
+                child: SecondaryButton(label: 'Vazgeç', onPressed: saving ? null : onCancel),
+              ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: PrimaryButton(
